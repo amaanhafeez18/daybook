@@ -1,0 +1,120 @@
+# Daybook prototype setup
+
+This project has been converted into a lightweight prototype that supports:
+
+- username/password sign up and login
+- persistent login using a saved token in localStorage
+- forgot-password flow with the custom question: "What is that you are worried about?"
+- shared data across devices via a backend API and database
+- Vercel deployment
+- iPhone home-screen install
+
+This is still intentionally cheap and simple. It is designed as a prototype, not a production-grade security system.
+
+## 1) Create the database in Supabase
+
+1. Go to https://supabase.com and sign in.
+2. Click New project.
+3. Pick a project name, password, and region.
+4. Wait for the project to be created.
+5. Open the SQL editor.
+6. Copy the contents of `supabase/schema.sql` and run it.
+
+This creates the `users`, `tasks`, `events`, `friends`, `contact_logs`, and `voice_notes` tables.
+
+## 2) Copy the environment variables
+
+Create a file named `.env.local` in the project root by copying `.env.example`.
+
+Example:
+
+```bash
+cp .env.example .env.local
+```
+
+Then fill in the values:
+
+```bash
+SUPABASE_URL=https://YOUR-PROJECT.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=YOUR_SERVICE_ROLE_KEY
+JWT_SECRET=some-long-random-secret
+```
+
+How to find them:
+
+- `SUPABASE_URL`: open your Supabase project, go to Project Settings → API
+- `SUPABASE_SERVICE_ROLE_KEY`: same place, under Project API keys
+- `JWT_SECRET`: any long random string like `daybook-dev-secret-abc-123`
+
+## 3) Install dependencies
+
+```bash
+npm install
+```
+
+## 4) Run locally
+
+```bash
+npm run dev
+```
+
+This starts the Vercel local environment so the API routes work too.
+
+## 5) Deploy to Vercel
+
+### Option A: GitHub
+
+1. Push this folder to GitHub
+2. Go to https://vercel.com
+3. Import the repository
+4. Add these environment variables in Project Settings → Environment Variables:
+   - `SUPABASE_URL`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+   - `JWT_SECRET`
+5. Deploy
+
+### Option B: Vercel CLI
+
+```bash
+npx vercel
+```
+
+Then add the same environment variables in the Vercel dashboard.
+
+## 6) Install Daybook on your iPhone
+
+1. Open the deployed HTTPS URL in Safari
+2. Tap the Share button
+3. Tap Add to Home Screen
+4. Open it from the home screen icon
+
+This makes it behave like an app.
+
+## 7) Important notes for this prototype
+
+- This is a cheap prototype, not a production-grade auth system.
+- The password reset question is intentionally simple: it accepts only the answer `me`.
+- Session persistence is done with a saved token in localStorage for convenience.
+- This is acceptable for a prototype, but a real app should use secure HTTP-only cookies and stronger auth patterns.
+
+## 8) What changes to expect
+
+The app now:
+
+- shows a login screen when no user is signed in
+- creates an account with username/password plus the custom question
+- signs in and keeps the user logged in on the same device
+- allows password reset with the custom question
+- stores tasks/calendar/friends/notes in the database instead of browser localStorage
+
+## 9) What you need next
+
+You may want to add:
+
+- email verification
+- a proper forgot-password email flow
+- better password hashing or cookie sessions
+- a nicer UI
+- multi-device sync polish
+
+But for a prototype, this setup is cheap, practical, and deployable.

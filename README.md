@@ -1,55 +1,70 @@
 # Daybook
 
-A personal PWA: tasks, calendar, friends (last-contact tracking), and voice notes.
-Everything is stored in the browser (`localStorage`) — no account, no backend, works offline once installed.
+A lightweight personal organizer prototype with:
 
-## Run it locally
+- username/password login
+- persistent login on the same device
+- data shared across devices through a backend
+- tasks, calendar, friends tracking, and voice notes
+- deployment on Vercel
+
+This is a cheap prototype designed to get you a working multi-device app quickly.
+
+## Stack
+
+- Frontend: React + Vite
+- Deployment: Vercel
+- Database: Supabase Postgres
+- Auth: custom username/password flow + signed JWT token stored in localStorage for prototype persistence
+
+## Run locally
+
+1. Create a `.env.local` file from `.env.example`
+2. Fill in the Supabase values
+3. Run:
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open the printed `localhost` URL. Note: speech-to-text (Voice tab) and installability need `https`,
-so it won't fully work over plain `http://localhost` in every browser — deploy to Vercel to test
-those properly (see below), or use `npm run build && npm run preview`.
+This starts the Vercel local environment so the API routes work correctly.
 
-## Deploy to Vercel (free)
+## Configure Supabase
 
-**Option A — GitHub (recommended):**
-1. Create a new GitHub repo and push this folder to it:
-   ```bash
-   git init
-   git add .
-   git commit -m "Daybook PWA"
-   git branch -M main
-   git remote add origin https://github.com/YOUR_USERNAME/daybook.git
-   git push -u origin main
-   ```
-2. Go to [vercel.com](https://vercel.com), sign in with GitHub, click **Add New → Project**, and import the repo.
-3. Vercel auto-detects Vite — leave the defaults and click **Deploy**.
-4. You'll get a live `https://your-project.vercel.app` URL in about a minute.
+1. Create a Supabase project
+2. Open SQL Editor
+3. Run the SQL from `supabase/schema.sql`
+4. Copy the project URL and service role key into `.env.local`
 
-**Option B — Vercel CLI (no GitHub needed):**
-```bash
-npm install -g vercel
-vercel
-```
-Follow the prompts (link or create a project). It deploys straight from this folder.
+## Deploy to Vercel
 
-## Install it on your iPhone
+1. Push this folder to GitHub
+2. Import it into Vercel
+3. Add environment variables:
+   - `SUPABASE_URL`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+   - `JWT_SECRET`
+4. Deploy
 
-1. Open your deployed `https://...vercel.app` URL in **Safari** (must be Safari, not Chrome, for install to show up).
-2. Tap the Share icon → **Add to Home Screen**.
-3. Open it from the home screen icon — it now runs full-screen, like an app.
+## Install it on iPhone
 
-## What's here / next steps
+1. Open the Vercel HTTPS URL in Safari
+2. Tap the Share button
+3. Choose Add to Home Screen
+4. Open it from the home screen
 
-- **Tasks, Calendar, Friends**: fully working, data persists on-device via `localStorage`.
-- **Voice notes**: uses the browser's built-in speech recognition where supported (Chrome/Edge, Android).
-  Safari on iOS doesn't support this API, so on iPhone it falls back to a text field — use the
-  microphone key on the iOS keyboard to dictate into it, which works just as well in practice.
-- **Not yet included**: syncing across devices, and AI-powered note parsing (e.g. auto-turning a
-  voice note into a task). Both would need a small backend — Supabase is the natural next step,
-  plus an API like OpenAI Whisper or Deepgram if you want real audio-file transcription instead of
-  the browser API.
+## Prototype auth flow
+
+This app supports:
+
+- sign up with username + password
+- login with username + password
+- persistent login token stored locally
+- forgot password flow using the question: "What is that you are worried about?"
+- answer must be `me` to reset the password immediately
+
+## Important note
+
+This is a prototype to keep costs low and get a working app fast. It is not production-grade security. For a real product, you would normally move to secure HTTP-only cookies and stronger auth patterns.
+
