@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { load, save, uid, todayISO } from '../lib/storage.js'
 
 const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
@@ -14,11 +14,19 @@ function isoOf(year, month, day) {
 }
 
 export default function CalendarTab() {
-  const [events, setEvents] = useState(() => load('events', []))
+  const [events, setEvents] = useState([])
   const [cursor, setCursor] = useState(() => {
     const t = new Date()
     return { year: t.getFullYear(), month: t.getMonth() }
   })
+
+  useEffect(() => {
+    let active = true
+    load('events', []).then((data) => {
+      if (active) setEvents(data)
+    })
+    return () => { active = false }
+  }, [])
   const [selected, setSelected] = useState(todayISO())
   const [title, setTitle] = useState('')
   const [time, setTime] = useState('')

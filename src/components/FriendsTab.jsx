@@ -1,9 +1,22 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { load, save, uid, todayISO } from '../lib/storage.js'
 
 export default function FriendsTab() {
-  const [friends, setFriends] = useState(() => load('friends', []))
-  const [logs, setLogs] = useState(() => load('contactLogs', []))
+  const [friends, setFriends] = useState([])
+  const [logs, setLogs] = useState([])
+
+  useEffect(() => {
+    let active = true
+    Promise.all([
+      load('friends', []),
+      load('contactLogs', []),
+    ]).then(([friendsData, logsData]) => {
+      if (!active) return
+      setFriends(friendsData)
+      setLogs(logsData)
+    })
+    return () => { active = false }
+  }, [])
   const [name, setName] = useState('')
   const [note, setNote] = useState('')
   const [addingFor, setAddingFor] = useState(null)

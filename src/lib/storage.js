@@ -1,19 +1,100 @@
-const PREFIX = 'daybook.'
+const SESSION_KEY = 'daybook.session.token'
 
-export function load(key, fallback) {
+export function getToken() {
   try {
-    const raw = localStorage.getItem(PREFIX + key)
-    return raw ? JSON.parse(raw) : fallback
+    return localStorage.getItem(SESSION_KEY) || ''
+  } catch {
+    return ''
+  }
+}
+
+export function setToken(token) {
+  try {
+    if (token) {
+      localStorage.setItem(SESSION_KEY, token)
+    } else {
+      localStorage.removeItem(SESSION_KEY)
+    }
+  } catch {
+    // ignore storage errors in the browser
+  }
+}
+
+async function requestJson(url, options = {}) {
+  const token = getToken()
+  const headers = {
+    'Content-Type': 'application/json',
+    ...options.headers,
+  }
+
+  if (token) {
+    headers.Authorization = `Bearer ${token}`
+  }
+
+  const response = await fetch(url, {
+    ...options,
+    headers,
+  })
+
+  const text = await response.text()
+  const payload = text ? JSON.parse(text) : {}
+
+  if (!response.ok) {
+    throw new Error(payload.error || 'Request failed')
+  }
+
+  return payload
+}
+
+export async function load(key, fallback) {
+  const token = getToken()
+  if (!token) return fallback
+
+  try {
+    const data = await requestJson(`/api/data?key=${encodeURIComponent(key)}`)
+    return Array.isArray(data) ? data : fallback
   } catch {
     return fallback
   }
 }
 
-export function save(key, value) {
+export async function save(key, value) {
+  const token = getToken()
+  if (!token) return
+
   try {
-    localStorage.setItem(PREFIX + key, JSON.stringify(value))
+    await requestJson('/api/data', {
+      method: 'PUT',
+      body: JSON.stringify({ key, value })
+    })
   } catch {
-    // storage full or unavailable — fail silently, app still works in-memory
+    // fail silently; app will still work in memory if the network is unavailable
+  }
+}
+
+export async function authRequest(action, payload = {}) {
+  const response = await requestJson('/api/auth', {
+    method: 'POST',
+    body: JSON.stringify({ action, ...payload })
+  })
+
+  if (response.token) {
+    setToken(response.token)
+  }
+
+  return response
+}
+
+export async function validateSession() {
+  const token = getToken()
+  if (!token) return null
+
+  try {
+    const response = await requestJson('/api/auth')
+    return response.user || null
+  } catch {
+    setToken('')
+    return null
   }
 }
 

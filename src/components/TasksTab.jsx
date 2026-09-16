@@ -1,9 +1,17 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { load, save, uid } from '../lib/storage.js'
 
 export default function TasksTab() {
-  const [tasks, setTasks] = useState(() => load('tasks', []))
+  const [tasks, setTasks] = useState([])
   const [text, setText] = useState('')
+
+  useEffect(() => {
+    let active = true
+    load('tasks', []).then((data) => {
+      if (active) setTasks(data)
+    })
+    return () => { active = false }
+  }, [])
 
   function persist(next) {
     setTasks(next)

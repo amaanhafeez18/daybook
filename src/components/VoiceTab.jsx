@@ -5,11 +5,19 @@ const SpeechRecognition =
   typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition)
 
 export default function VoiceTab() {
-  const [notes, setNotes] = useState(() => load('voiceNotes', []))
+  const [notes, setNotes] = useState([])
   const [listening, setListening] = useState(false)
   const [draft, setDraft] = useState('')
   const [manualText, setManualText] = useState('')
   const recognitionRef = useRef(null)
+
+  useEffect(() => {
+    let active = true
+    load('voiceNotes', []).then((data) => {
+      if (active) setNotes(data)
+    })
+    return () => { active = false }
+  }, [])
 
   useEffect(() => {
     if (!SpeechRecognition) return
