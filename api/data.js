@@ -3,6 +3,10 @@ import { getSupabase, readJsonBody, parseAuthHeader } from './db.js'
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me'
 
+function isConfigError(error) {
+  return /Missing SUPABASE_URL|Missing JWT_SECRET|SUPABASE_SERVICE_ROLE_KEY|Environment Variables/.test(error?.message || '')
+}
+
 const TABLES = {
   tasks: 'tasks',
   events: 'events',
@@ -19,6 +23,37 @@ function sendJson(res, statusCode, payload) {
 
 function normalizeKey(key) {
   return key === 'contactLogs' ? 'contact_logs' : key
+}
+
+function toIsoString(value) {
+  if (!value) return new Date().toISOString()
+  if (typeof value === 'string') return value
+  if (value instanceof Date) return value.toISOString()
+  if (typeof value === 'number') return new Date(value).toISOString()
+  return new Date(value).toISOString()
+}
+
+function normalizeRowForDb(item, userId) {
+  const next = { ...item, user_id: userId }
+
+  if ('createdAt' in next || 'created_at' in next) {
+    next.created_at = toIsoString(next.createdAt ?? next.created_at)
+    delete next.createdAt
+  } else {
+    next.created_at = new Date().toISOString()
+  }
+
+  return next
+}
+
+function normalizeRowForClient(item) {
+  if (!item) return item
+  const next = { ...item }
+  if ('created_at' in next && !('createdAt' in next)) {
+    next.createdAt = next.created_at
+  }
+  delete next.created_at
+  return next
 }
 
 export default async function handler(req, res) {
@@ -50,17 +85,13 @@ export default async function handler(req, res) {
         .from(tableName)
         .select('*')
         .eq('user_id', decoded.id)
-        .order('created_at', { ascending: false, foreignTable: undefined })
+        .order('created_at', { ascending: false })
 
       if (error) {
         return sendJson(res, 500, { error: error.message })
       }
 
-      if (tableName === 'contact_logs') {
-        return sendJson(res, 200, data || [])
-      }
-
-      return sendJson(res, 200, data || [])
+      return sendJson(res, 200, (data || []).map(normalizeRowForClient))
     }
 
     if (method === 'PUT') {
@@ -78,11 +109,7 @@ export default async function handler(req, res) {
         return sendJson(res, 500, { error: deleteError.message })
       }
 
-      const rows = Array.isArray(value) ? value.map((item) => ({
-        ...item,
-        user_id: decoded.id,
-        created_at: item.createdAt || item.created_at || new Date().toISOString()
-      })) : []
+      const rows = Array.isArray(value) ? value.map((item) => normalizeRowForDb(item, decoded.id)) : []
 
       if (rows.length > 0) {
         const { error: insertError } = await supabase.from(tableName).insert(rows)
@@ -97,6 +124,11 @@ export default async function handler(req, res) {
     return sendJson(res, 404, { error: 'Unsupported method.' })
   } catch (error) {
     console.error('Data API error:', error)
+    if (isConfigError(error)) {
+      return sendJson(res, 503, {
+        error: 'Server is not configured yet. Add SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, and JWT_SECRET in Vercel.'
+      })
+    }
     return sendJson(res, 500, { error: error.message || 'Unexpected data error.' })
   }
 }

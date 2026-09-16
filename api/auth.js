@@ -4,6 +4,10 @@ import { getSupabase, readJsonBody, parseAuthHeader } from './db.js'
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me'
 
+function isConfigError(error) {
+  return /Missing SUPABASE_URL|Missing JWT_SECRET|SUPABASE_SERVICE_ROLE_KEY|Environment Variables/.test(error?.message || '')
+}
+
 function sendJson(res, statusCode, payload) {
   res.statusCode = statusCode
   res.setHeader('Content-Type', 'application/json')
@@ -189,6 +193,11 @@ export default async function handler(req, res) {
     return sendJson(res, 404, { error: 'Unknown auth action.' })
   } catch (error) {
     console.error('Auth API error:', error)
+    if (isConfigError(error)) {
+      return sendJson(res, 503, {
+        error: 'Server is not configured yet. Add SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, and JWT_SECRET in Vercel.'
+      })
+    }
     return sendJson(res, 500, { error: error.message || 'Unexpected auth error.' })
   }
 }
