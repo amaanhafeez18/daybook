@@ -36,6 +36,21 @@ function toIsoString(value) {
 function normalizeRowForDb(item, userId) {
   const next = { ...item, user_id: userId }
 
+  if ('friendId' in next && !('friend_id' in next)) {
+    next.friend_id = next.friendId
+    delete next.friendId
+  }
+
+  if ('photoUrl' in next && !('photo_url' in next)) {
+    next.photo_url = next.photoUrl
+    delete next.photoUrl
+  }
+
+  if ('currentStatus' in next && !('current_status' in next)) {
+    next.current_status = next.currentStatus
+    delete next.currentStatus
+  }
+
   if ('createdAt' in next || 'created_at' in next) {
     next.created_at = toIsoString(next.createdAt ?? next.created_at)
     delete next.createdAt
@@ -49,10 +64,28 @@ function normalizeRowForDb(item, userId) {
 function normalizeRowForClient(item) {
   if (!item) return item
   const next = { ...item }
+
+  if ('friend_id' in next && !('friendId' in next)) {
+    next.friendId = next.friend_id
+  }
+
+  if ('photo_url' in next && !('photoUrl' in next)) {
+    next.photoUrl = next.photo_url
+  }
+
+  if ('current_status' in next && !('currentStatus' in next)) {
+    next.currentStatus = next.current_status
+  }
+
   if ('created_at' in next && !('createdAt' in next)) {
     next.createdAt = next.created_at
   }
+
   delete next.created_at
+  delete next.friend_id
+  delete next.photo_url
+  delete next.current_status
+
   return next
 }
 

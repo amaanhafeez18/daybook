@@ -401,29 +401,129 @@ input {
 
 /* ---- friends ---- */
 
-.friend-add-row {
-  flex-wrap: wrap;
+.friends-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
-.friend-add-row input {
-  flex: 1 1 120px;
+.friend-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(34, 48, 60, 0.45);
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  z-index: 30;
+}
+
+.friend-modal {
+  width: min(100%, 420px);
+  background: var(--paper);
+  border-radius: 20px;
+  padding: 18px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.18);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.friend-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.friend-form input,
+.friend-form textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  padding: 10px 12px;
+  color: var(--ink);
+  resize: vertical;
+}
+
+.friend-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.friend-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.friend-group-title {
+  margin: 4px 0 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .friend-list {
   list-style: none;
   margin: 0;
   padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .friend-row {
-  padding: 14px 0;
-  border-bottom: 1px solid var(--line);
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.friend-card-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.friend-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--paper-dim);
+  border: 1px solid var(--line);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  color: var(--ink);
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.friend-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .friend-info {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
+  flex: 1;
 }
 
 .friend-name {
@@ -442,11 +542,21 @@ input {
   margin-top: 2px;
 }
 
+.friend-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
 .friend-actions {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-top: 10px;
+  flex-wrap: wrap;
 }
 
 .backdate-row {

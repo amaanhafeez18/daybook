@@ -29,6 +29,10 @@ create table if not exists public.friends (
   user_id uuid not null references public.users(id) on delete cascade,
   name text not null,
   note text,
+  photo_url text,
+  birthday text,
+  current_status text,
+  facts text,
   created_at timestamptz not null default now()
 );
 
