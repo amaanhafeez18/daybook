@@ -12,7 +12,9 @@ const TABLES = {
   events: 'events',
   friends: 'friends',
   contactLogs: 'contact_logs',
-  voiceNotes: 'voice_notes'
+  voiceNotes: 'voice_notes',
+  classes: 'classes',
+  settings: 'settings'
 }
 
 function sendJson(res, statusCode, payload) {
@@ -124,6 +126,11 @@ export default async function handler(req, res) {
         return sendJson(res, 500, { error: error.message })
       }
 
+      if (key === 'settings') {
+        const settings = (data || []).find((row) => row.user_id === decoded.id)
+        return sendJson(res, 200, settings ? settings.value : {})
+      }
+
       return sendJson(res, 200, (data || []).map(normalizeRowForClient))
     }
 
@@ -140,6 +147,22 @@ export default async function handler(req, res) {
 
       if (deleteError) {
         return sendJson(res, 500, { error: deleteError.message })
+      }
+
+      if (key === 'settings') {
+        const payload = value && typeof value === 'object' ? value : {}
+        const { error: insertError } = await supabase.from(tableName).insert({
+          id: crypto?.randomUUID ? crypto.randomUUID() : Date.now().toString(),
+          user_id: decoded.id,
+          value: payload,
+          created_at: new Date().toISOString()
+        })
+
+        if (insertError) {
+          return sendJson(res, 500, { error: insertError.message })
+        }
+
+        return sendJson(res, 200, { ok: true })
       }
 
       const rows = Array.isArray(value) ? value.map((item) => normalizeRowForDb(item, decoded.id)) : []

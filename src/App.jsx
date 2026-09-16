@@ -4,12 +4,16 @@ import TasksTab from './components/TasksTab.jsx'
 import CalendarTab from './components/CalendarTab.jsx'
 import FriendsTab from './components/FriendsTab.jsx'
 import VoiceTab from './components/VoiceTab.jsx'
+import DailySummaryTab from './components/DailySummaryTab.jsx'
+import SettingsTab from './components/SettingsTab.jsx'
 import { authRequest, setToken, validateSession } from './lib/storage.js'
 
 const TABS = [
   { id: 'tasks', label: 'Tasks' },
   { id: 'calendar', label: 'Calendar' },
   { id: 'friends', label: 'Friends' },
+  { id: 'summary', label: 'Summary' },
+  { id: 'settings', label: 'Settings' },
   { id: 'voice', label: 'Voice' },
 ]
 
@@ -236,6 +240,8 @@ export default function App() {
         {tab === 'tasks' && <TasksTab />}
         {tab === 'calendar' && <CalendarTab />}
         {tab === 'friends' && <FriendsTab />}
+        {tab === 'summary' && <DailySummaryTab />}
+        {tab === 'settings' && <SettingsTab user={user} onLogout={signOut} />}
         {tab === 'voice' && <VoiceTab />}
       </main>
 

@@ -9,6 +9,40 @@
   --radius: 10px;
 }
 
+body[data-theme="sunset"] {
+  --paper: #F4EFE6;
+  --paper-dim: #EAE3D6;
+  --ink: #22303C;
+  --ink-soft: #55636D;
+  --gold: #B5852A;
+  --rose: #A8556B;
+  --line: #D9D0BE;
+}
+
+body[data-theme="forest"] {
+  --paper: #EEF5EE;
+  --paper-dim: #DDEADF;
+  --ink: #1E2D28;
+  --ink-soft: #4F665E;
+  --gold: #7A9C67;
+  --rose: #A76565;
+  --line: #C6D6C6;
+}
+
+body[data-theme="midnight"] {
+  --paper: #121B2A;
+  --paper-dim: #1A2940;
+  --ink: #E9F0FF;
+  --ink-soft: #B0BED0;
+  --gold: #F0B35E;
+  --rose: #D98AA6;
+  --line: #2B3A50;
+}
+
+body.is-dark {
+  background: #0f1724;
+}
+
 * { box-sizing: border-box; }
 
 html, body {
@@ -279,14 +313,73 @@ input {
   border-color: var(--gold);
 }
 
+.task-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
 .task-text {
   flex: 1;
   font-size: 15px;
 }
 
+.task-date-line {
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
 .is-done .task-text {
   color: var(--ink-soft);
   text-decoration: line-through;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.summary-card {
+  background: rgba(255, 255, 255, 0.22);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.summary-card h3 {
+  margin: 0;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+.weather-temp {
+  font-size: 26px;
+  font-weight: 700;
+}
+
+.weather-label {
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.mini-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.classes-summary {
+  margin-top: 4px;
 }
 
 /* ---- calendar ---- */
@@ -570,6 +663,115 @@ input {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: #fff;
+}
+
+.settings-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.22);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 14px;
+}
+
+.setting-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.setting-row input,
+.setting-row select {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  color: var(--ink);
+  padding: 10px 12px;
+}
+
+.checkbox-row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.checkbox-row input {
+  width: auto;
+  accent-color: var(--gold);
+}
+
+.actions-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.day-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.day-pill {
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.day-pill.is-on {
+  background: var(--gold);
+  color: #fff;
+  border-color: var(--gold);
+}
+
+.class-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.class-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.class-row div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.class-row strong {
+  color: var(--ink);
+}
+
+.settings-status {
+  margin: 0;
+  font-size: 12px;
+  color: var(--rose);
 }
 
 /* ---- voice ---- */

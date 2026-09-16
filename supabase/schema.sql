@@ -51,8 +51,27 @@ create table if not exists public.voice_notes (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.classes (
+  id text primary key,
+  user_id uuid not null references public.users(id) on delete cascade,
+  name text not null,
+  days jsonb not null default '[]'::jsonb,
+  time text,
+  room text,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.settings (
+  id text primary key,
+  user_id uuid not null references public.users(id) on delete cascade,
+  value jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
 create index if not exists idx_tasks_user_id on public.tasks(user_id);
 create index if not exists idx_events_user_id on public.events(user_id);
 create index if not exists idx_friends_user_id on public.friends(user_id);
 create index if not exists idx_contact_logs_user_id on public.contact_logs(user_id);
 create index if not exists idx_voice_notes_user_id on public.voice_notes(user_id);
+create index if not exists idx_classes_user_id on public.classes(user_id);
+create index if not exists idx_settings_user_id on public.settings(user_id);
