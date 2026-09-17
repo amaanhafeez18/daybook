@@ -358,6 +358,25 @@ input {
   color: var(--ink-soft);
 }
 
+.weather-details,
+.prayer-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.prayer-summary {
+  margin-top: 4px;
+}
+
+.prayer-current,
+.prayer-next {
+  font-size: 14px;
+}
+
 .weather-temp {
   font-size: 26px;
   font-weight: 700;
@@ -538,7 +557,8 @@ input {
 }
 
 .friend-form input,
-.friend-form textarea {
+.friend-form textarea,
+.friend-form select {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: var(--radius);

@@ -12,6 +12,8 @@ create table if not exists public.tasks (
   user_id uuid not null references public.users(id) on delete cascade,
   text text not null,
   done boolean not null default false,
+  date text,
+  time text,
   created_at timestamptz not null default now()
 );
 
@@ -28,6 +30,8 @@ create table if not exists public.friends (
   id text primary key,
   user_id uuid not null references public.users(id) on delete cascade,
   name text not null,
+  relationship text not null default 'friend',
+  organization text,
   note text,
   photo_url text,
   birthday text,
@@ -67,6 +71,11 @@ create table if not exists public.settings (
   value jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
 );
+
+alter table public.tasks add column if not exists date text;
+alter table public.tasks add column if not exists time text;
+alter table public.friends add column if not exists relationship text not null default 'friend';
+alter table public.friends add column if not exists organization text;
 
 create index if not exists idx_tasks_user_id on public.tasks(user_id);
 create index if not exists idx_events_user_id on public.events(user_id);

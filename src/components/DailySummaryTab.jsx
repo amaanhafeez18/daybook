@@ -8,6 +8,8 @@ export default function DailySummaryTab() {
   const [tasks, setTasks] = useState([])
   const [classes, setClasses] = useState([])
   const [weather, setWeather] = useState(null)
+  const [prayerTimes, setPrayerTimes] = useState(null)
+  const [locationLabel, setLocationLabel] = useState('your location')
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -28,12 +30,18 @@ export default function DailySummaryTab() {
           const { latitude, longitude } = position.coords
           try {
             const response = await fetch(
-              `${WEATHER_URL}?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,weather_code&timezone=auto`
+              `${WEATHER_URL}?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,wind_speed_10m&hourly=temperature_2m,precipitation_probability,weather_code&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset&forecast_days=1&timezone=auto`
             )
             const payload = await response.json()
             if (active) {
               setWeather(payload)
             }
+
+            const prayerResponse = await fetch(
+              `https://api.aladhan.com/v1/timings?latitude=${latitude}&longitude=${longitude}&method=2`
+            )
+            const prayerPayload = await prayerResponse.json()
+            if (active && prayerPayload.data?.timings) setPrayerTimes(prayerPayload.data.timings)
           } catch {
             if (active) setError('Weather unavailable right now.')
           }
@@ -55,12 +63,12 @@ export default function DailySummaryTab() {
   const tomorrowKey = addDays(todayKey, 1)
 
   const todayTasks = useMemo(
-    () => tasks.filter((task) => task.date === todayKey),
+    () => tasks.filter((task) => taskDate(task) === todayKey),
     [tasks, todayKey]
   )
 
   const tomorrowTasks = useMemo(
-    () => tasks.filter((task) => task.date === tomorrowKey),
+    () => tasks.filter((task) => taskDate(task) === tomorrowKey),
     [tasks, tomorrowKey]
   )
 
@@ -71,6 +79,9 @@ export default function DailySummaryTab() {
 
   const currentTemp = weather?.current?.temperature_2m
   const currentWeatherCode = weather?.current?.weather_code
+  const prayer = getPrayerStatus(prayerTimes)
+  const current = weather?.current
+  const daily = weather?.daily
 
   return (
     <section className="tab-panel">
@@ -111,6 +122,15 @@ export default function DailySummaryTab() {
             <>
               <div className="weather-temp">{Math.round(currentTemp)}°C</div>
               <div className="weather-label">{describeWeather(currentWeatherCode)}</div>
+              <div className="weather-details">
+                <span>Feels like {Math.round(current.apparent_temperature)}°C</span>
+                <span>Humidity {current.relative_humidity_2m}%</span>
+                <span>Wind {Math.round(current.wind_speed_10m)} km/h</span>
+                <span>Rain {current.precipitation} mm</span>
+                {daily?.temperature_2m_max?.[0] !== undefined && (
+                  <span>High {Math.round(daily.temperature_2m_max[0])}° / Low {Math.round(daily.temperature_2m_min[0])}°</span>
+                )}
+              </div>
             </>
           )}
         </div>
@@ -132,6 +152,21 @@ export default function DailySummaryTab() {
           </ul>
         )}
       </div>
+
+      <div className="summary-card prayer-summary">
+        <h3>Muslim prayer times</h3>
+        {!prayerTimes ? (
+          <p className="empty-note">Allow location access to calculate prayer times.</p>
+        ) : (
+          <>
+            <div className="prayer-current">Current prayer: <strong>{prayer.current}</strong></div>
+            <div className="prayer-next">Next: <strong>{prayer.next}</strong> at {prayer.nextTime}</div>
+            <ul className="mini-list prayer-list">
+              {prayer.entries.map(([name, time]) => <li key={name}><span>{name}</span><span>{time}</span></li>)}
+            </ul>
+          </>
+        )}
+      </div>
     </section>
   )
 }
@@ -140,6 +175,17 @@ function addDays(iso, delta) {
   const date = new Date(`${iso}T12:00:00`)
   date.setDate(date.getDate() + delta)
   return date.toISOString().slice(0, 10)
+}
+
+function taskDate(task) {
+  if (!task?.date) return ''
+  if (/^\d{4}-\d{2}-\d{2}$/.test(task.date)) return task.date
+  const parsed = new Date(task.date)
+  if (Number.isNaN(parsed.getTime())) return ''
+  const year = parsed.getFullYear()
+  const month = String(parsed.getMonth() + 1).padStart(2, '0')
+  const day = String(parsed.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 function getDayName(date) {
@@ -155,4 +201,26 @@ function describeWeather(code) {
   if ([71, 73, 75, 77, 85, 86].includes(code)) return 'Snow'
   if ([95, 96, 99].includes(code)) return 'Thunderstorm'
   return 'Cloudy'
+}
+
+function getPrayerStatus(timings) {
+  const entries = ['Fajr', 'Sunrise', 'Dhuhr', 'Asr', 'Maghrib', 'Isha']
+    .map((name) => [name, timings[name]?.split(' ')[0]])
+    .filter(([, time]) => time)
+  const now = new Date()
+  const currentMinutes = now.getHours() * 60 + now.getMinutes()
+  const upcoming = entries.find(([, time]) => toMinutes(time) > currentMinutes) || entries[0]
+  const upcomingIndex = entries.findIndex(([name]) => name === upcoming[0])
+  const current = upcomingIndex > 0 ? entries[upcomingIndex - 1][0] : 'Isha'
+  return {
+    current,
+    next: upcoming[0],
+    nextTime: upcoming[1],
+    entries,
+  }
+}
+
+function toMinutes(time) {
+  const [hours, minutes] = time.split(':').map(Number)
+  return hours * 60 + minutes
 }

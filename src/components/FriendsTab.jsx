@@ -3,6 +3,8 @@ import { load, save, uid, todayISO } from '../lib/storage.js'
 
 const EMPTY_FORM = {
   name: '',
+  relationship: 'friend',
+  organization: '',
   imageUrl: '',
   birthday: '',
   currentStatus: '',
@@ -52,6 +54,8 @@ export default function FriendsTab() {
     const friend = {
       id: uid(),
       name: trimmed,
+      relationship: form.relationship,
+      organization: form.relationship === 'acquaintance' ? form.organization.trim() : '',
       note: form.facts.trim(),
       photoUrl: form.imageUrl.trim(),
       birthday: form.birthday,
@@ -131,6 +135,13 @@ export default function FriendsTab() {
                 value={form.name}
                 onChange={(e) => updateForm('name', e.target.value)}
               />
+              <select value={form.relationship} onChange={(e) => updateForm('relationship', e.target.value)}>
+                <option value="friend">Friend</option>
+                <option value="acquaintance">Acquaintance</option>
+              </select>
+              {form.relationship === 'acquaintance' && (
+                <input type="text" placeholder="Business or organization (optional)" value={form.organization} onChange={(e) => updateForm('organization', e.target.value)} />
+              )}
               <input
                 type="url"
                 placeholder="Image URL (optional)"
@@ -198,6 +209,7 @@ export default function FriendsTab() {
 
                   <div className="friend-info">
                     <span className="friend-name">{friend.name}</span>
+                    <span className="friend-note">{friend.relationship === 'acquaintance' ? `Acquaintance${friend.organization ? ` · ${friend.organization}` : ''}` : 'Friend'}</span>
                     <span className="friend-last">
                       {last ? `Last talked ${sinceLabel(last)}` : 'No contact logged yet'}
                     </span>

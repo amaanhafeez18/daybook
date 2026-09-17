@@ -15,6 +15,7 @@ function isoOf(year, month, day) {
 
 export default function CalendarTab() {
   const [events, setEvents] = useState([])
+  const [classes, setClasses] = useState([])
   const [cursor, setCursor] = useState(() => {
     const t = new Date()
     return { year: t.getFullYear(), month: t.getMonth() }
@@ -22,8 +23,10 @@ export default function CalendarTab() {
 
   useEffect(() => {
     let active = true
-    load('events', []).then((data) => {
-      if (active) setEvents(data)
+    Promise.all([load('events', []), load('classes', [])]).then(([eventData, classData]) => {
+      if (!active) return
+      setEvents(eventData)
+      setClasses(classData)
     })
     return () => { active = false }
   }, [])
@@ -46,15 +49,20 @@ export default function CalendarTab() {
     return cells
   }, [cursor])
 
+  const calendarItems = useMemo(() => [
+    ...events,
+    ...classes.flatMap((item) => getClassEvents(item, cursor.year, cursor.month)),
+  ], [events, classes, cursor])
+
   const eventsByDay = useMemo(() => {
     const map = {}
-    for (const ev of events) {
+    for (const ev of calendarItems) {
       if (!map[ev.date]) map[ev.date] = []
       map[ev.date].push(ev)
     }
     for (const k in map) map[k].sort((a, b) => (a.time || '').localeCompare(b.time || ''))
     return map
-  }, [events])
+  }, [calendarItems])
 
   function changeMonth(delta) {
     setCursor(({ year, month }) => {
@@ -149,4 +157,19 @@ function formatLong(iso) {
   const [y, m, d] = iso.split('-').map(Number)
   const date = new Date(y, m - 1, d)
   return date.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
+}
+
+function getClassEvents(item, year, month) {
+  const result = []
+  const days = item.days || []
+  const daysByName = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const date = new Date(year, month, day)
+    const dayName = Object.keys(daysByName).find((name) => daysByName[name] === date.getDay())
+    if (days.includes(dayName) || days.includes(dayName?.slice(0, 3))) {
+      result.push({ id: `class-${item.id}-${day}`, date: isoOf(year, month, day), time: item.time || '', title: `${item.name}${item.room ? ` · ${item.room}` : ''}`, isClass: true })
+    }
+  }
+  return result
 }

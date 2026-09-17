@@ -9,10 +9,10 @@ import SettingsTab from './components/SettingsTab.jsx'
 import { authRequest, setToken, validateSession } from './lib/storage.js'
 
 const TABS = [
+  { id: 'summary', label: 'Summary' },
   { id: 'tasks', label: 'Tasks' },
   { id: 'calendar', label: 'Calendar' },
   { id: 'friends', label: 'Friends' },
-  { id: 'summary', label: 'Summary' },
   { id: 'settings', label: 'Settings' },
   { id: 'voice', label: 'Voice' },
 ]
