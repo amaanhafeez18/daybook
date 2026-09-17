@@ -45,111 +45,102 @@ function responseText(response) {
 const tools = [
   {
     type: 'function',
-    function: {
-      name: 'create_task',
-      description: 'Create a task or reminder for the user.',
-      parameters: {
-        type: 'object',
-        properties: {
-          text: { type: 'string' },
-          date: { type: 'string', description: 'YYYY-MM-DD. Use today when the user says today.' },
-          time: { type: 'string', description: '24-hour HH:MM, or empty.' },
-          details: { type: 'string' },
-          priority: { type: 'string', enum: ['urgent', 'medium', 'low'] },
-        },
-        required: ['text', 'date', 'priority'],
-        additionalProperties: false,
+    name: 'create_task',
+    description: 'Create a task or reminder for the user.',
+    strict: false,
+    parameters: {
+      type: 'object',
+      properties: {
+        text: { type: 'string' },
+        date: { type: 'string', description: 'YYYY-MM-DD. Use today when the user says today.' },
+        time: { type: 'string', description: '24-hour HH:MM, or empty.' },
+        details: { type: 'string' },
+        priority: { type: 'string', enum: ['urgent', 'medium', 'low'] },
       },
+      required: ['text', 'date', 'priority'],
+      additionalProperties: false,
     },
   },
   {
     type: 'function',
-    function: {
-      name: 'create_event',
-      description: 'Create a calendar event.',
-      parameters: {
-        type: 'object',
-        properties: {
-          title: { type: 'string' }, date: { type: 'string' }, time: { type: 'string' },
-        },
-        required: ['title', 'date'], additionalProperties: false,
+    name: 'create_event',
+    description: 'Create a calendar event.',
+    strict: false,
+    parameters: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' }, date: { type: 'string' }, time: { type: 'string' },
       },
+      required: ['title', 'date'], additionalProperties: false,
     },
   },
   {
     type: 'function',
-    function: {
-      name: 'create_friend',
-      description: 'Add a friend or acquaintance to People.',
-      parameters: {
-        type: 'object',
-        properties: {
-          name: { type: 'string' }, relationship: { type: 'string', enum: ['friend', 'acquaintance'] },
-          organization: { type: 'string' }, birthday: { type: 'string' },
-          currentStatus: { type: 'string' }, facts: { type: 'string' },
-        },
-        required: ['name', 'relationship'], additionalProperties: false,
+    name: 'create_friend',
+    description: 'Add a friend or acquaintance to People.',
+    strict: false,
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' }, relationship: { type: 'string', enum: ['friend', 'acquaintance'] },
+        organization: { type: 'string' }, birthday: { type: 'string' },
+        currentStatus: { type: 'string' }, facts: { type: 'string' },
       },
+      required: ['name', 'relationship'], additionalProperties: false,
     },
   },
   {
     type: 'function',
-    function: {
-      name: 'log_contact',
-      description: 'Record that the user talked with a friend or acquaintance.',
-      parameters: {
-        type: 'object',
-        properties: { friendName: { type: 'string' }, date: { type: 'string' } },
-        required: ['friendName', 'date'], additionalProperties: false,
+    name: 'log_contact',
+    description: 'Record that the user talked with a friend or acquaintance.',
+    strict: false,
+    parameters: {
+      type: 'object',
+      properties: { friendName: { type: 'string' }, date: { type: 'string' } },
+      required: ['friendName', 'date'], additionalProperties: false,
+    },
+  },
+  {
+    type: 'function',
+    name: 'create_voice_note',
+    description: 'Save a voice or text note.',
+    strict: false,
+    parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'], additionalProperties: false },
+  },
+  {
+    type: 'function',
+    name: 'create_class',
+    description: 'Add a recurring class. schedules contains one object per selected day.',
+    strict: false,
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' }, endDate: { type: 'string' },
+        schedules: { type: 'array', items: { type: 'object', properties: { day: { type: 'string' }, time: { type: 'string' }, room: { type: 'string' } }, required: ['day', 'time'], additionalProperties: false } },
       },
+      required: ['name', 'schedules'], additionalProperties: false,
     },
   },
   {
     type: 'function',
-    function: {
-      name: 'create_voice_note',
-      description: 'Save a voice or text note.',
-      parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'], additionalProperties: false },
-    },
+    name: 'complete_task',
+    description: 'Mark a matching task complete.',
+    strict: false,
+    parameters: { type: 'object', properties: { taskText: { type: 'string' } }, required: ['taskText'], additionalProperties: false },
   },
   {
     type: 'function',
-    function: {
-      name: 'create_class',
-      description: 'Add a recurring class. schedules contains one object per selected day.',
-      parameters: {
-        type: 'object',
-        properties: {
-          name: { type: 'string' }, endDate: { type: 'string' },
-          schedules: { type: 'array', items: { type: 'object', properties: { day: { type: 'string' }, time: { type: 'string' }, room: { type: 'string' } }, required: ['day', 'time'], additionalProperties: false } },
-        },
-        required: ['name', 'schedules'], additionalProperties: false,
-      },
-    },
+    name: 'list_items',
+    description: 'Read the user\'s tasks, events, friends, classes, or notes when answering a question.',
+    strict: false,
+    parameters: { type: 'object', properties: { type: { type: 'string', enum: ['tasks', 'events', 'friends', 'classes', 'voiceNotes'] } }, required: ['type'], additionalProperties: false },
   },
   {
     type: 'function',
-    function: {
-      name: 'complete_task',
-      description: 'Mark a matching task complete.',
-      parameters: { type: 'object', properties: { taskText: { type: 'string' } }, required: ['taskText'], additionalProperties: false },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'list_items',
-      description: 'Read the user\'s tasks, events, friends, classes, or notes when answering a question.',
-      parameters: { type: 'object', properties: { type: { type: 'string', enum: ['tasks', 'events', 'friends', 'classes', 'voiceNotes'] } }, required: ['type'], additionalProperties: false },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'update_settings',
-      description: 'Change the user\'s Daybook display settings.',
-      parameters: { type: 'object', properties: { theme: { type: 'string' }, darkMode: { type: 'boolean' }, displayName: { type: 'string' } }, additionalProperties: false },
-    },
+    name: 'update_settings',
+    description: 'Change the user\'s Daybook display settings.',
+    strict: false,
+    parameters: { type: 'object', properties: { theme: { type: 'string' }, darkMode: { type: 'boolean' }, displayName: { type: 'string' } }, additionalProperties: false },
   },
 ]
 
@@ -241,7 +232,7 @@ async function callOpenAI(input, instructions, debug) {
       model: OPENAI_MODEL,
       instructions,
       input,
-      tools: tools.map(({ function: tool }) => ({ type: 'function', ...tool })),
+      tools,
       tool_choice: 'auto',
       temperature: 0.2,
       max_output_tokens: 500,
@@ -254,6 +245,8 @@ async function callOpenAI(input, instructions, debug) {
     httpStatus: response.status,
     status: payload.status || 'unknown',
     outputTypes: (payload.output || []).map((item) => item.type),
+    incomplete: payload.incomplete_details || null,
+    toolCount: tools.length,
     hasText: Boolean(responseText(payload)),
   })
   if (!response.ok) throw new Error(payload.error?.message || `OpenAI request failed (${response.status})`)

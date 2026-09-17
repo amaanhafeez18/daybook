@@ -1230,6 +1230,37 @@ input {
   font-size: 12px;
 }
 
+.assistant-debug {
+  flex-shrink: 0;
+  max-height: 280px;
+  margin: 0 10px 8px;
+  border: 1px solid #52606d;
+  border-radius: 8px;
+  background: #1f2933;
+  color: #f0f4f8;
+}
+
+.assistant-debug summary {
+  cursor: pointer;
+  padding: 10px 12px;
+  color: #f0b35e;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.assistant-debug pre {
+  max-height: 220px;
+  overflow: auto;
+  margin: 0;
+  padding: 0 12px 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: #d9e2ec;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .assistant-composer {
   display: flex;
   align-items: flex-end;

@@ -10,6 +10,7 @@ export default function AssistantWidget({ onDataChanged }) {
   const [loading, setLoading] = useState(false)
   const [listening, setListening] = useState(false)
   const [error, setError] = useState('')
+  const [debugEntries, setDebugEntries] = useState([])
   const recognitionRef = useRef(null)
   const endRef = useRef(null)
 
@@ -48,15 +49,11 @@ export default function AssistantWidget({ onDataChanged }) {
         body: JSON.stringify({ message }),
       })
       setMessages((current) => [...current, { role: 'assistant', content: response.reply }])
-      if (response.debug?.length) {
-        setMessages((current) => [...current, { role: 'debug', content: formatDebug(response.debug) }])
-      }
+      setDebugEntries(response.debug || [])
       if (response.results?.some((result) => result.ok)) onDataChanged?.()
     } catch (err) {
       setError(err.message)
-      if (err.debug?.length) {
-        setMessages((current) => [...current, { role: 'debug', content: formatDebug(err.debug) }])
-      }
+      setDebugEntries(err.debug || [{ step: 'browser.error', message: err.message }])
     } finally {
       setLoading(false)
     }
@@ -109,6 +106,10 @@ export default function AssistantWidget({ onDataChanged }) {
           </div>
 
           {error && <p className="assistant-error">{error}</p>}
+          <details className="assistant-debug" open={debugEntries.length > 0}>
+            <summary>Diagnostics {debugEntries.length ? `(${debugEntries.length} entries)` : ''}</summary>
+            <pre>{debugEntries.length ? formatDebug(debugEntries) : 'Send a message to inspect the request.'}</pre>
+          </details>
           <form className="assistant-composer" onSubmit={sendMessage}>
             <textarea
               rows="2"
@@ -144,7 +145,15 @@ async function request(url, options = {}) {
       ...options.headers,
     },
   })
-  const payload = await response.json()
+  const raw = await response.text()
+  let payload
+  try {
+    payload = raw ? JSON.parse(raw) : {}
+  } catch {
+    const error = new Error(`Server returned non-JSON (${response.status}): ${raw.slice(0, 500)}`)
+    error.debug = [{ step: 'browser.response', httpStatus: response.status, contentType: response.headers.get('content-type'), bodyPreview: raw.slice(0, 500) }]
+    throw error
+  }
   if (!response.ok) {
     const error = new Error(payload.error || 'Assistant request failed')
     error.debug = payload.debug
