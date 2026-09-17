@@ -1170,6 +1170,14 @@ input {
 }
 
 .assistant-header span {
+
+  .assistant-new-chat {
+    margin-left: auto;
+    color: var(--ink-soft);
+    font-size: 11px;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
   color: var(--ink-soft);
   font-size: 12px;
 }

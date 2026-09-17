@@ -289,6 +289,11 @@ export default async function handler(req, res) {
     const history = Array.isArray(record?.messages) ? record.messages.map(normalizeMessage).slice(-MAX_MESSAGES) : []
 
     if (req.method === 'GET') return sendJson(res, 200, { messages: history })
+    if (req.method === 'DELETE') {
+      const { error } = await supabase.from('assistant_conversations').delete().eq('user_id', user.id)
+      if (error) throw error
+      return sendJson(res, 200, { ok: true })
+    }
     if (req.method !== 'POST') return sendJson(res, 405, { error: 'Unsupported method.' })
 
     const body = await readJsonBody(req)
@@ -338,7 +343,14 @@ export default async function handler(req, res) {
     const reply = responseText(response) || results.map((result) => result.message).filter(Boolean).join(' ') || 'I am here and ready to help. What would you like to talk about?'
     const nextHistory = [...history, { role: 'user', content: text, createdAt: new Date().toISOString() }, { role: 'assistant', content: reply, createdAt: new Date().toISOString() }].slice(-MAX_MESSAGES)
     await supabase.from('assistant_conversations').upsert({ id: record?.id || id(), user_id: user.id, messages: nextHistory, updated_at: new Date().toISOString() }, { onConflict: 'user_id' })
-    debug.push({ step: 'assistant.complete', hasReply: Boolean(reply), resultCount: results.length, followUpRecovered: Boolean(followUpError) })
+    debug.push({
+      step: 'assistant.complete',
+      hasReply: Boolean(reply),
+      replyLength: reply.length,
+      replyPreview: reply.slice(0, 300),
+      resultCount: results.length,
+      followUpRecovered: Boolean(followUpError),
+    })
     return sendJson(res, 200, { reply, results, debug })
   } catch (error) {
     console.error('Assistant API error:', error)

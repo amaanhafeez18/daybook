@@ -48,7 +48,7 @@ export default function AssistantWidget({ onDataChanged }) {
         method: 'POST',
         body: JSON.stringify({ message }),
       })
-      setMessages((current) => [...current, { role: 'assistant', content: response.reply }])
+      setMessages((current) => [...current, { role: 'assistant', content: response.reply || 'I received your message, but no text response was returned.' }])
       setDebugEntries(response.debug || [])
       if (response.results?.some((result) => result.ok)) onDataChanged?.()
     } catch (err) {
@@ -82,6 +82,18 @@ export default function AssistantWidget({ onDataChanged }) {
     setListening(true)
   }
 
+  async function newChat() {
+    try {
+      await request('/api/assistant', { method: 'DELETE' })
+      setMessages([])
+      setDebugEntries([])
+      setError('')
+    } catch (err) {
+      setError(err.message)
+      setDebugEntries(err.debug || [{ step: 'browser.error', message: err.message }])
+    }
+  }
+
   return (
     <>
       {open && (
@@ -91,6 +103,7 @@ export default function AssistantWidget({ onDataChanged }) {
               <strong>Daybook Assistant</strong>
               <span>Tasks, people, plans, and notes</span>
             </div>
+            <button className="assistant-new-chat" type="button" onClick={newChat}>New chat</button>
             <button className="row-delete" aria-label="Close assistant" onClick={() => setOpen(false)}>×</button>
           </header>
 
