@@ -1003,3 +1003,122 @@ input {
   font-weight: 600;
   background: var(--paper-dim);
 }
+
+/* Desktop workspace: keep the compact phone shell for installed mobile PWAs. */
+@media (min-width: 720px) {
+  html,
+  body {
+    background: var(--paper-dim);
+  }
+
+  body {
+    min-width: 720px;
+  }
+
+  .app {
+    max-width: 1180px;
+    min-height: 100vh;
+    margin: 0 auto;
+    box-shadow: 0 0 48px rgba(34, 48, 60, 0.12);
+  }
+
+  .app-header {
+    padding: 28px 48px 22px;
+  }
+
+  .app-header h1 {
+    font-size: 28px;
+  }
+
+  .app-main {
+    padding: 18px 48px 116px;
+  }
+
+  .tab-panel {
+    width: 100%;
+    max-width: 1080px;
+    margin: 0 auto;
+    gap: 24px;
+  }
+
+  .summary-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .summary-card {
+    padding: 20px;
+  }
+
+  .task-list {
+    max-width: 900px;
+  }
+
+  .friend-list,
+  .class-list,
+  .note-list {
+    max-width: 900px;
+  }
+
+  .friend-modal {
+    max-height: min(760px, calc(100vh - 48px));
+    overflow-y: auto;
+  }
+
+  .tab-bar {
+    width: min(calc(100% - 64px), 1180px);
+    max-width: none;
+    bottom: 18px;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 8px;
+    box-shadow: 0 12px 32px rgba(34, 48, 60, 0.12);
+  }
+
+  .tab-btn {
+    padding: 12px 8px;
+    font-size: 14px;
+  }
+
+  .cal-grid {
+    gap: 8px;
+  }
+
+  .cal-cell {
+    border-radius: 12px;
+    aspect-ratio: auto;
+    min-height: 64px;
+    align-items: flex-start;
+    justify-content: flex-start;
+    padding: 12px;
+  }
+
+  .cal-dot {
+    bottom: 10px;
+    left: 14px;
+  }
+
+  .settings-panel {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+    column-gap: 24px;
+  }
+
+  .settings-panel > .section-label:first-child,
+  .settings-panel > .settings-card:first-of-type,
+  .settings-panel > .settings-status {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (min-width: 1120px) {
+  .app-main {
+    padding-left: 72px;
+    padding-right: 72px;
+  }
+
+  .app-header {
+    padding-left: 72px;
+    padding-right: 72px;
+  }
+}
