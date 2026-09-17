@@ -128,7 +128,9 @@ export default function CalendarTab() {
             <li key={ev.id} className="event-row">
               {ev.time && <span className="event-time">{ev.time}</span>}
               <span className="event-title">{ev.title}</span>
-              <button className="row-delete" aria-label="Delete event" onClick={() => remove(ev.id)}>×</button>
+              {!ev.isClass && (
+                <button className="row-delete" aria-label="Delete event" onClick={() => remove(ev.id)}>×</button>
+              )}
             </li>
           ))}
         </ul>

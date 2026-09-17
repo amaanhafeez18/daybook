@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import TabBar from './components/TabBar.jsx'
 import TasksTab from './components/TasksTab.jsx'
 import CalendarTab from './components/CalendarTab.jsx'
@@ -13,8 +13,8 @@ const TABS = [
   { id: 'tasks', label: 'Tasks' },
   { id: 'calendar', label: 'Calendar' },
   { id: 'friends', label: 'Friends' },
-  { id: 'settings', label: 'Settings' },
   { id: 'voice', label: 'Voice' },
+  { id: 'settings', label: 'Settings' },
 ]
 
 const initialForm = {
@@ -226,7 +226,8 @@ export default function App() {
   }
 
   return (
-    <div className="app">
+    <ErrorBoundary>
+      <div className="app">
       <header className="app-header">
         <span className="app-mark" aria-hidden="true" />
         <div className="app-header-user">
@@ -246,6 +247,33 @@ export default function App() {
       </main>
 
       <TabBar tabs={TABS} active={tab} onChange={setTab} />
-    </div>
+      </div>
+    </ErrorBoundary>
   )
+}
+
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props)
+    this.state = { hasError: false }
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="app auth-loading">
+          <div>
+            <h2>Daybook needs a refresh</h2>
+            <p className="empty-note">Something interrupted this view. Your saved data is still safe.</p>
+            <button className="btn-accent" onClick={() => window.location.reload()}>Reload app</button>
+          </div>
+        </div>
+      )
+    }
+    return this.props.children
+  }
 }

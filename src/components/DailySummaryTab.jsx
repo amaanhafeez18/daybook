@@ -9,8 +9,8 @@ export default function DailySummaryTab() {
   const [classes, setClasses] = useState([])
   const [weather, setWeather] = useState(null)
   const [prayerTimes, setPrayerTimes] = useState(null)
-  const [locationLabel, setLocationLabel] = useState('your location')
   const [error, setError] = useState('')
+  const [dataLoading, setDataLoading] = useState(true)
 
   useEffect(() => {
     let active = true
@@ -22,6 +22,9 @@ export default function DailySummaryTab() {
       if (!active) return
       setTasks(taskData)
       setClasses(classData)
+      setDataLoading(false)
+    }).catch(() => {
+      if (active) setDataLoading(false)
     })
 
     if (navigator.geolocation) {
@@ -32,16 +35,21 @@ export default function DailySummaryTab() {
             const response = await fetch(
               `${WEATHER_URL}?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,wind_speed_10m&hourly=temperature_2m,precipitation_probability,weather_code&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset&forecast_days=1&timezone=auto`
             )
+            if (!response.ok) throw new Error('Weather request failed')
             const payload = await response.json()
             if (active) {
               setWeather(payload)
             }
 
-            const prayerResponse = await fetch(
-              `https://api.aladhan.com/v1/timings?latitude=${latitude}&longitude=${longitude}&method=2`
-            )
-            const prayerPayload = await prayerResponse.json()
-            if (active && prayerPayload.data?.timings) setPrayerTimes(prayerPayload.data.timings)
+            try {
+              const prayerResponse = await fetch(
+                `https://api.aladhan.com/v1/timings?latitude=${latitude}&longitude=${longitude}&method=2`
+              )
+              const prayerPayload = await prayerResponse.json()
+              if (active && prayerPayload.data?.timings) setPrayerTimes(prayerPayload.data.timings)
+            } catch {
+              // Prayer times remain unavailable without blocking the weather card.
+            }
           } catch {
             if (active) setError('Weather unavailable right now.')
           }
@@ -67,6 +75,9 @@ export default function DailySummaryTab() {
     [tasks, todayKey]
   )
 
+  const openTodayTasks = todayTasks.filter((task) => !task.done)
+  const completedTodayTasks = todayTasks.length - openTodayTasks.length
+
   const tomorrowTasks = useMemo(
     () => tasks.filter((task) => taskDate(task) === tomorrowKey),
     [tasks, tomorrowKey]
@@ -85,10 +96,22 @@ export default function DailySummaryTab() {
 
   return (
     <section className="tab-panel">
+      <div className="summary-heading">
+        <div>
+          <p className="eyebrow">Daily overview</p>
+          <h2>{formatToday()}</h2>
+        </div>
+        <div className="summary-progress" aria-label={`${completedTodayTasks} of ${todayTasks.length} tasks complete`}>
+          <strong>{completedTodayTasks}/{todayTasks.length}</strong>
+          <span>tasks done</span>
+        </div>
+      </div>
       <div className="summary-grid">
         <div className="summary-card">
           <h3>Due today</h3>
-          {todayTasks.length === 0 ? (
+          {dataLoading ? (
+            <p className="empty-note">Loading today’s plan…</p>
+          ) : todayTasks.length === 0 ? (
             <p className="empty-note">Nothing is due today.</p>
           ) : (
             <ul className="mini-list">
@@ -101,7 +124,9 @@ export default function DailySummaryTab() {
 
         <div className="summary-card">
           <h3>Due tomorrow</h3>
-          {tomorrowTasks.length === 0 ? (
+          {dataLoading ? (
+            <p className="empty-note">Loading tomorrow’s plan…</p>
+          ) : tomorrowTasks.length === 0 ? (
             <p className="empty-note">Nothing is due tomorrow.</p>
           ) : (
             <ul className="mini-list">
@@ -204,6 +229,9 @@ function describeWeather(code) {
 }
 
 function getPrayerStatus(timings) {
+  if (!timings) {
+    return { current: 'Unavailable', next: 'Unavailable', nextTime: '--:--', entries: [] }
+  }
   const entries = ['Fajr', 'Sunrise', 'Dhuhr', 'Asr', 'Maghrib', 'Isha']
     .map((name) => [name, timings[name]?.split(' ')[0]])
     .filter(([, time]) => time)
@@ -218,6 +246,14 @@ function getPrayerStatus(timings) {
     nextTime: upcoming[1],
     entries,
   }
+}
+
+function formatToday() {
+  return new Date().toLocaleDateString(undefined, {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  })
 }
 
 function toMinutes(time) {
