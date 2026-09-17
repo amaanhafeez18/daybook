@@ -28,6 +28,20 @@ function normalizeMessage(message) {
   }
 }
 
+function responseText(response) {
+  if (typeof response?.output_text === 'string' && response.output_text.trim()) {
+    return response.output_text.trim()
+  }
+
+  return (response?.output || [])
+    .filter((item) => item.type === 'message')
+    .flatMap((item) => item.content || [])
+    .filter((part) => part.type === 'output_text' && typeof part.text === 'string')
+    .map((part) => part.text)
+    .join('\n')
+    .trim()
+}
+
 const tools = [
   {
     type: 'function',
@@ -235,6 +249,7 @@ async function callOpenAI(input, instructions) {
   })
   const payload = await response.json()
   if (!response.ok) throw new Error(payload.error?.message || 'OpenAI request failed')
+  if (payload.error) throw new Error(payload.error.message || 'OpenAI response failed')
   return payload
 }
 
@@ -289,7 +304,7 @@ export default async function handler(req, res) {
       response = await callOpenAI(openInput, instructions)
     }
 
-    const reply = response.output_text || results.map((result) => result.message).filter(Boolean).join(' ') || 'I could not complete that request.'
+    const reply = responseText(response) || results.map((result) => result.message).filter(Boolean).join(' ') || `I could not complete that request (${response.status || 'no assistant text'}).`
     const nextHistory = [...history, { role: 'user', content: text, createdAt: new Date().toISOString() }, { role: 'assistant', content: reply, createdAt: new Date().toISOString() }].slice(-MAX_MESSAGES)
     await supabase.from('assistant_conversations').upsert({ id: record?.id || id(), user_id: user.id, messages: nextHistory, updated_at: new Date().toISOString() }, { onConflict: 'user_id' })
     return sendJson(res, 200, { reply, results })
