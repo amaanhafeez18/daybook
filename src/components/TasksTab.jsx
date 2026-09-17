@@ -3,8 +3,10 @@ import { load, save, uid, todayISO } from '../lib/storage.js'
 
 const EMPTY_FORM = {
   text: '',
+  details: '',
   date: '',
   time: '',
+  priority: 'medium',
 }
 
 export default function TasksTab() {
@@ -33,10 +35,12 @@ export default function TasksTab() {
     const task = {
       id: uid(),
       text: trimmed,
+      details: form.details.trim(),
       done: false,
       createdAt: Date.now(),
       date: form.date || todayISO(),
       time: form.time || '',
+      priority: form.priority,
     }
 
     persist([task, ...tasks])
@@ -67,12 +71,39 @@ export default function TasksTab() {
 
   const open = tasks.filter((t) => !t.done)
   const done = tasks.filter((t) => t.done)
+  const weekTasks = Array.from({ length: 7 }, (_, index) => {
+    const date = addDays(todayISO(), index)
+    return { date, tasks: open.filter((task) => task.date === date) }
+  }).filter((day) => day.tasks.length > 0)
 
   return (
     <section className="tab-panel">
       <div className="friends-header">
         <h2 className="section-label">Tasks</h2>
         <button className="btn-accent" onClick={() => setShowAdd(true)}>Add task</button>
+      </div>
+
+      <div className="week-overview">
+        <div className="section-heading-row">
+          <h2 className="section-label">Next 7 days</h2>
+          <span className="muted-count">{open.length} open</span>
+        </div>
+        {weekTasks.length === 0 ? (
+          <p className="empty-note">No open tasks scheduled in the next 7 days.</p>
+        ) : (
+          <div className="week-list">
+            {weekTasks.map((day) => (
+              <div className="week-day" key={day.date}>
+                <strong>{formatDay(day.date)}</strong>
+                {day.tasks.map((task) => (
+                  <span className={`week-task priority-${task.priority || 'medium'}`} key={task.id}>
+                    {task.text}{task.time ? ` · ${task.time}` : ''}
+                  </span>
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {showAdd && (
@@ -90,6 +121,12 @@ export default function TasksTab() {
                 value={form.text}
                 onChange={(e) => setForm((prev) => ({ ...prev, text: e.target.value }))}
               />
+              <textarea
+                rows="3"
+                placeholder="Further details (optional)"
+                value={form.details}
+                onChange={(e) => setForm((prev) => ({ ...prev, details: e.target.value }))}
+              />
               <input
                 type="date"
                 value={form.date}
@@ -100,6 +137,14 @@ export default function TasksTab() {
                 value={form.time}
                 onChange={(e) => setForm((prev) => ({ ...prev, time: e.target.value }))}
               />
+              <select
+                value={form.priority}
+                onChange={(e) => setForm((prev) => ({ ...prev, priority: e.target.value }))}
+              >
+                <option value="urgent">Urgent priority</option>
+                <option value="medium">Medium priority</option>
+                <option value="low">Low priority</option>
+              </select>
               <div className="friend-modal-actions">
                 <button type="button" className="btn-small btn-ghost" onClick={() => setShowAdd(false)}>Cancel</button>
                 <button type="submit" className="btn-small">Save task</button>
@@ -120,12 +165,14 @@ export default function TasksTab() {
               <button className="checkbox" aria-label="Mark done" onClick={() => toggle(t.id)} />
               <div className="task-main">
                 <span className="task-text">{t.text}</span>
+                {t.details && <span className="task-details">{t.details}</span>}
                 {(t.date || t.time) && (
                   <span className="task-date-line">
                     {t.date ? formatDate(t.date) : ''}{t.date && t.time ? ' · ' : ''}{t.time || ''}
                   </span>
                 )}
               </div>
+              <span className={`priority-badge priority-${t.priority || 'medium'}`}>{priorityLabel(t.priority)}</span>
               <button className="row-delete" aria-label="Delete task" onClick={() => remove(t.id)}>×</button>
             </li>
           ))}
@@ -141,12 +188,14 @@ export default function TasksTab() {
                 <button className="checkbox is-checked" aria-label="Mark not done" onClick={() => toggle(t.id)} />
                 <div className="task-main">
                   <span className="task-text">{t.text}</span>
+                  {t.details && <span className="task-details">{t.details}</span>}
                   {(t.date || t.time) && (
                     <span className="task-date-line">
                       {t.date ? formatDate(t.date) : ''}{t.date && t.time ? ' · ' : ''}{t.time || ''}
                     </span>
                   )}
                 </div>
+                <span className={`priority-badge priority-${t.priority || 'medium'}`}>{priorityLabel(t.priority)}</span>
                 <button className="row-delete" aria-label="Delete task" onClick={() => remove(t.id)}>×</button>
               </li>
             ))}
@@ -162,4 +211,21 @@ function formatDate(iso) {
   const date = new Date(`${iso}T00:00:00`)
   if (Number.isNaN(date.getTime())) return iso
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+function addDays(iso, delta) {
+  const date = new Date(`${iso}T12:00:00`)
+  date.setDate(date.getDate() + delta)
+  return date.toISOString().slice(0, 10)
+}
+
+function formatDay(iso) {
+  const date = new Date(`${iso}T12:00:00`)
+  return date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+}
+
+function priorityLabel(priority) {
+  if (priority === 'urgent') return 'Urgent'
+  if (priority === 'low') return 'Low'
+  return 'Medium'
 }

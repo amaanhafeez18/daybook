@@ -331,6 +331,76 @@ input {
   color: var(--ink-soft);
 }
 
+.task-details {
+  color: var(--ink-soft);
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+
+.section-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.muted-count {
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.week-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.week-list {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 3px;
+}
+
+.week-day {
+  min-width: 118px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.22);
+  font-size: 12px;
+}
+
+.week-task {
+  border-left: 3px solid var(--gold);
+  padding-left: 6px;
+  line-height: 1.35;
+}
+
+.week-task.priority-urgent { border-color: var(--rose); }
+.week-task.priority-low { border-color: var(--ink-soft); }
+
+.priority-badge {
+  flex-shrink: 0;
+  border-radius: 999px;
+  padding: 4px 7px;
+  color: var(--ink-soft);
+  background: var(--paper-dim);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.priority-badge.priority-urgent {
+  color: var(--rose);
+  background: rgba(168, 85, 107, 0.12);
+}
+
+.priority-badge.priority-low {
+  color: var(--ink-soft);
+}
+
 .is-done .task-text {
   color: var(--ink-soft);
   text-decoration: line-through;
@@ -599,6 +669,18 @@ input {
   padding: 10px 12px;
   color: var(--ink);
   resize: vertical;
+}
+
+.class-day-detail {
+  display: grid;
+  grid-template-columns: 48px 1fr;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+}
+
+.class-day-detail input:last-child {
+  grid-column: 2;
 }
 
 .friend-modal-actions {

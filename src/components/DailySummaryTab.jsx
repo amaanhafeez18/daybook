@@ -3,6 +3,7 @@ import { load, todayISO } from '../lib/storage.js'
 
 const WEATHER_URL = 'https://api.open-meteo.com/v1/forecast'
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const PRAYER_CACHE_KEY = 'daybook.prayer.cache'
 
 export default function DailySummaryTab() {
   const [tasks, setTasks] = useState([])
@@ -41,14 +42,22 @@ export default function DailySummaryTab() {
               setWeather(payload)
             }
 
-            try {
-              const prayerResponse = await fetch(
-                `https://api.aladhan.com/v1/timings?latitude=${latitude}&longitude=${longitude}&method=2`
-              )
-              const prayerPayload = await prayerResponse.json()
-              if (active && prayerPayload.data?.timings) setPrayerTimes(prayerPayload.data.timings)
-            } catch {
-              // Prayer times remain unavailable without blocking the weather card.
+            const cached = readPrayerCache(latitude, longitude)
+            if (cached) {
+              if (active) setPrayerTimes(cached)
+            } else {
+              try {
+                const prayerResponse = await fetch(
+                  `https://api.aladhan.com/v1/timings?latitude=${latitude}&longitude=${longitude}&method=2`
+                )
+                const prayerPayload = await prayerResponse.json()
+                if (prayerPayload.data?.timings) {
+                  savePrayerCache(latitude, longitude, prayerPayload.data.timings)
+                  if (active) setPrayerTimes(prayerPayload.data.timings)
+                }
+              } catch {
+                // Prayer times remain unavailable without blocking the weather card.
+              }
             }
           } catch {
             if (active) setError('Weather unavailable right now.')
@@ -84,7 +93,7 @@ export default function DailySummaryTab() {
   )
 
   const todayClasses = useMemo(
-    () => classes.filter((item) => item.days?.includes(getDayName(new Date()))),
+    () => classes.filter((item) => hasClassDay(item, getDayName(new Date()))),
     [classes]
   )
 
@@ -233,7 +242,7 @@ function getPrayerStatus(timings) {
     return { current: 'Unavailable', next: 'Unavailable', nextTime: '--:--', entries: [] }
   }
   const entries = ['Fajr', 'Sunrise', 'Dhuhr', 'Asr', 'Maghrib', 'Isha']
-    .map((name) => [name, timings[name]?.split(' ')[0]])
+    .map((name) => [name, formatPrayerTime(timings[name])])
     .filter(([, time]) => time)
   const now = new Date()
   const currentMinutes = now.getHours() * 60 + now.getMinutes()
@@ -257,6 +266,42 @@ function formatToday() {
 }
 
 function toMinutes(time) {
-  const [hours, minutes] = time.split(':').map(Number)
+  const [clock, suffix] = time.split(' ')
+  let [hours, minutes] = clock.split(':').map(Number)
+  if (suffix === 'PM' && hours < 12) hours += 12
+  if (suffix === 'AM' && hours === 12) hours = 0
   return hours * 60 + minutes
+}
+
+function hasClassDay(item, dayName) {
+  return (item.days || []).some((day) => typeof day === 'string'
+    ? day === dayName || day === dayName.slice(0, 3)
+    : day?.day === dayName || day?.day === dayName.slice(0, 3))
+}
+
+function formatPrayerTime(value) {
+  if (!value) return ''
+  const [hours, minutes] = value.split(' ')[0].split(':').map(Number)
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) return value
+  const suffix = hours >= 12 ? 'PM' : 'AM'
+  const displayHour = hours % 12 || 12
+  return `${displayHour}:${String(minutes).padStart(2, '0')} ${suffix}`
+}
+
+function readPrayerCache(latitude, longitude) {
+  try {
+    const cached = JSON.parse(localStorage.getItem(PRAYER_CACHE_KEY) || 'null')
+    const sameLocation = cached && Math.abs(cached.latitude - latitude) < 0.2 && Math.abs(cached.longitude - longitude) < 0.2
+    return sameLocation && Date.now() - cached.savedAt < 24 * 60 * 60 * 1000 ? cached.timings : null
+  } catch {
+    return null
+  }
+}
+
+function savePrayerCache(latitude, longitude, timings) {
+  try {
+    localStorage.setItem(PRAYER_CACHE_KEY, JSON.stringify({ latitude, longitude, timings, savedAt: Date.now() }))
+  } catch {
+    // Caching is an optimization and should never block the summary.
+  }
 }

@@ -12,7 +12,8 @@ const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 export default function SettingsTab({ user, onLogout }) {
   const [settings, setSettings] = useState(DEFAULT_SETTINGS)
   const [classes, setClasses] = useState([])
-  const [classForm, setClassForm] = useState({ name: '', days: [], time: '', room: '' })
+  const [classForm, setClassForm] = useState({ name: '', days: [], endDate: '', dayDetails: {} })
+  const [showClassForm, setShowClassForm] = useState(false)
   const [status, setStatus] = useState('')
 
   useEffect(() => {
@@ -48,6 +49,13 @@ export default function SettingsTab({ user, onLogout }) {
     setClassForm((prev) => ({ ...prev, [field]: value }))
   }
 
+  function updateDayDetail(day, field, value) {
+    setClassForm((prev) => ({
+      ...prev,
+      dayDetails: { ...prev.dayDetails, [day]: { ...prev.dayDetails[day], [field]: value } },
+    }))
+  }
+
   function toggleDay(day) {
     setClassForm((prev) => {
       const exists = prev.days.includes(day)
@@ -68,14 +76,15 @@ export default function SettingsTab({ user, onLogout }) {
       id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
       name: trimmedName,
       days: classForm.days,
-      time: classForm.time,
-      room: classForm.room,
+      endDate: classForm.endDate,
+      dayDetails: classForm.dayDetails,
     }
 
     const nextClasses = [...classes, nextClass]
     setClasses(nextClasses)
     save('classes', nextClasses)
-    setClassForm({ name: '', days: [], time: '', room: '' })
+    setClassForm({ name: '', days: [], endDate: '', dayDetails: {} })
+    setShowClassForm(false)
     setStatus('Class added.')
   }
 
@@ -147,7 +156,14 @@ export default function SettingsTab({ user, onLogout }) {
         </div>
 
         <h2 className="section-label">Classes</h2>
-        <form className="settings-card" onSubmit={addClass}>
+        <button type="button" className="btn-accent" onClick={() => setShowClassForm(true)}>Add class</button>
+
+        {showClassForm && <div className="friend-modal-backdrop" onClick={() => setShowClassForm(false)}>
+        <form className="friend-modal" onSubmit={addClass} onClick={(e) => e.stopPropagation()}>
+          <div className="modal-header">
+            <h3>New class</h3>
+            <button type="button" className="row-delete" onClick={() => setShowClassForm(false)}>×</button>
+          </div>
           <label className="setting-row">
             <span>Name</span>
             <input type="text" value={classForm.name} onChange={(e) => updateClassField('name', e.target.value)} placeholder="e.g. Biology" />
@@ -166,18 +182,25 @@ export default function SettingsTab({ user, onLogout }) {
             ))}
           </div>
 
-          <label className="setting-row">
-            <span>Time</span>
-            <input type="text" value={classForm.time} onChange={(e) => updateClassField('time', e.target.value)} placeholder="9:00 AM - 10:30 AM" />
-          </label>
+          {classForm.days.map((day) => (
+            <div className="class-day-detail" key={day}>
+              <strong>{day}</strong>
+              <input type="text" placeholder="Time, e.g. 9:00 AM - 10:30 AM" value={classForm.dayDetails[day]?.time || ''} onChange={(e) => updateDayDetail(day, 'time', e.target.value)} />
+              <input type="text" placeholder="Room (optional)" value={classForm.dayDetails[day]?.room || ''} onChange={(e) => updateDayDetail(day, 'room', e.target.value)} />
+            </div>
+          ))}
 
           <label className="setting-row">
-            <span>Room</span>
-            <input type="text" value={classForm.room} onChange={(e) => updateClassField('room', e.target.value)} placeholder="Room 204" />
+            <span>Classes end</span>
+            <input type="date" value={classForm.endDate} onChange={(e) => updateClassField('endDate', e.target.value)} />
           </label>
 
-          <button type="submit" className="btn-small">Add class</button>
+          <div className="friend-modal-actions">
+            <button type="button" className="btn-small btn-ghost" onClick={() => setShowClassForm(false)}>Cancel</button>
+            <button type="submit" className="btn-small">Save class</button>
+          </div>
         </form>
+        </div>}
 
         {classes.length > 0 && (
           <ul className="class-list">
@@ -185,9 +208,8 @@ export default function SettingsTab({ user, onLogout }) {
               <li key={item.id} className="class-row">
                 <div>
                   <strong>{item.name}</strong>
-                  <span>{item.days.join(', ')}</span>
-                  {item.time && <span>{item.time}</span>}
-                  {item.room && <span>{item.room}</span>}
+                  <span>{getClassDays(item).join(', ')}</span>
+                  {item.endDate && <span>Ends {item.endDate}</span>}
                 </div>
                 <button type="button" className="row-delete" aria-label="Remove class" onClick={() => removeClass(item.id)}>×</button>
               </li>
@@ -205,4 +227,8 @@ function applyTheme(settings) {
   const isDark = !!settings.darkMode
   document.body.dataset.theme = settings.theme || 'sunset'
   document.body.classList.toggle('is-dark', isDark)
+}
+
+function getClassDays(item) {
+  return (item.days || []).map((day) => typeof day === 'string' ? day : day.day)
 }

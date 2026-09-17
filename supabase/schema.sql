@@ -14,6 +14,8 @@ create table if not exists public.tasks (
   done boolean not null default false,
   date text,
   time text,
+  details text,
+  priority text not null default 'medium',
   created_at timestamptz not null default now()
 );
 
@@ -74,6 +76,8 @@ create table if not exists public.settings (
 
 alter table public.tasks add column if not exists date text;
 alter table public.tasks add column if not exists time text;
+alter table public.tasks add column if not exists details text;
+alter table public.tasks add column if not exists priority text not null default 'medium';
 alter table public.friends add column if not exists relationship text not null default 'friend';
 alter table public.friends add column if not exists organization text;
 

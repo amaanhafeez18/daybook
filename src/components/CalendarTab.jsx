@@ -169,9 +169,18 @@ function getClassEvents(item, year, month) {
   for (let day = 1; day <= daysInMonth; day += 1) {
     const date = new Date(year, month, day)
     const dayName = Object.keys(daysByName).find((name) => daysByName[name] === date.getDay())
-    if (days.includes(dayName) || days.includes(dayName?.slice(0, 3))) {
-      result.push({ id: `class-${item.id}-${day}`, date: isoOf(year, month, day), time: item.time || '', title: `${item.name}${item.room ? ` · ${item.room}` : ''}`, isClass: true })
+    const dayConfig = getDayConfig(item, dayName)
+    const isoDate = isoOf(year, month, day)
+    if (dayConfig && (!item.endDate || isoDate <= item.endDate)) {
+      result.push({ id: `class-${item.id}-${day}`, date: isoDate, time: dayConfig.time || item.time || '', title: `${item.name}${dayConfig.room || item.room ? ` · ${dayConfig.room || item.room}` : ''}`, isClass: true })
     }
   }
   return result
+}
+
+function getDayConfig(item, dayName) {
+  if ((item.days || []).some((day) => typeof day === 'string' && (day === dayName || day === dayName.slice(0, 3)))) {
+    return item.dayDetails?.[dayName] || { time: item.time, room: item.room }
+  }
+  return (item.days || []).find((day) => day?.day === dayName || day?.day === dayName.slice(0, 3)) || null
 }
