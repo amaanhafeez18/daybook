@@ -149,9 +149,6 @@ export default function SettingsTab({ user, onLogout }) {
 
         <h2 className="section-label">Calendar</h2>
         <div className="settings-card actions-stack">
-          <button type="button" className="btn-small" onClick={() => window.open('https://calendar.google.com/calendar/u/0/r/settings/export', '_blank', 'noopener,noreferrer')}>
-            Import from Google Calendar
-          </button>
           <button type="button" className="btn-small btn-ghost" onClick={onLogout}>Log out</button>
         </div>
 
