@@ -53,6 +53,11 @@ function normalizeRowForDb(item, userId) {
     delete next.currentStatus
   }
 
+  if ('endDate' in next && !('end_date' in next)) {
+    next.end_date = next.endDate
+    delete next.endDate
+  }
+
   if ('createdAt' in next || 'created_at' in next) {
     next.created_at = toIsoString(next.createdAt ?? next.created_at)
     delete next.createdAt
@@ -79,6 +84,10 @@ function normalizeRowForClient(item) {
     next.currentStatus = next.current_status
   }
 
+  if ('end_date' in next && !('endDate' in next)) {
+    next.endDate = next.end_date
+  }
+
   if ('created_at' in next && !('createdAt' in next)) {
     next.createdAt = next.created_at
   }
@@ -87,6 +96,7 @@ function normalizeRowForClient(item) {
   delete next.friend_id
   delete next.photo_url
   delete next.current_status
+  delete next.end_date
 
   return next
 }

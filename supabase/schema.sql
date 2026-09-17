@@ -64,6 +64,7 @@ create table if not exists public.classes (
   days jsonb not null default '[]'::jsonb,
   time text,
   room text,
+  end_date text,
   created_at timestamptz not null default now()
 );
 
@@ -74,10 +75,19 @@ create table if not exists public.settings (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.assistant_conversations (
+  id text primary key,
+  user_id uuid not null unique references public.users(id) on delete cascade,
+  messages jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 alter table public.tasks add column if not exists date text;
 alter table public.tasks add column if not exists time text;
 alter table public.tasks add column if not exists details text;
 alter table public.tasks add column if not exists priority text not null default 'medium';
+alter table public.classes add column if not exists end_date text;
 alter table public.friends add column if not exists relationship text not null default 'friend';
 alter table public.friends add column if not exists organization text;
 
@@ -88,3 +98,4 @@ create index if not exists idx_contact_logs_user_id on public.contact_logs(user_
 create index if not exists idx_voice_notes_user_id on public.voice_notes(user_id);
 create index if not exists idx_classes_user_id on public.classes(user_id);
 create index if not exists idx_settings_user_id on public.settings(user_id);
+create index if not exists idx_assistant_conversations_user_id on public.assistant_conversations(user_id);

@@ -6,6 +6,7 @@ import FriendsTab from './components/FriendsTab.jsx'
 import VoiceTab from './components/VoiceTab.jsx'
 import DailySummaryTab from './components/DailySummaryTab.jsx'
 import SettingsTab from './components/SettingsTab.jsx'
+import AssistantWidget from './components/AssistantWidget.jsx'
 import { authRequest, setToken, validateSession } from './lib/storage.js'
 
 const TABS = [
@@ -33,6 +34,7 @@ export default function App() {
   const [error, setError] = useState('')
   const [question, setQuestion] = useState('')
   const [resetUsername, setResetUsername] = useState('')
+  const [dataVersion, setDataVersion] = useState(0)
 
   useEffect(() => {
     async function bootstrap() {
@@ -238,15 +240,16 @@ export default function App() {
       </header>
 
       <main className="app-main">
-        {tab === 'tasks' && <TasksTab />}
-        {tab === 'calendar' && <CalendarTab />}
-        {tab === 'friends' && <FriendsTab />}
-        {tab === 'summary' && <DailySummaryTab />}
-        {tab === 'settings' && <SettingsTab user={user} onLogout={signOut} />}
-        {tab === 'voice' && <VoiceTab />}
+        {tab === 'tasks' && <TasksTab key={`tasks-${dataVersion}`} />}
+        {tab === 'calendar' && <CalendarTab key={`calendar-${dataVersion}`} />}
+        {tab === 'friends' && <FriendsTab key={`friends-${dataVersion}`} />}
+        {tab === 'summary' && <DailySummaryTab key={`summary-${dataVersion}`} />}
+        {tab === 'settings' && <SettingsTab key={`settings-${dataVersion}`} user={user} onLogout={signOut} />}
+        {tab === 'voice' && <VoiceTab key={`voice-${dataVersion}`} />}
       </main>
 
       <TabBar tabs={TABS} active={tab} onChange={setTab} />
+      <AssistantWidget onDataChanged={() => setDataVersion((value) => value + 1)} />
       </div>
     </ErrorBoundary>
   )

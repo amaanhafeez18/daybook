@@ -20,7 +20,7 @@ This is still intentionally cheap and simple. It is designed as a prototype, not
 5. Open the SQL editor.
 6. Copy the contents of `supabase/schema.sql` and run it.
 
-This creates the `users`, `tasks`, `events`, `friends`, `contact_logs`, and `voice_notes` tables.
+This creates the app tables plus `assistant_conversations`, which stores each user's recent assistant chat history.
 
 ## 2) Copy the environment variables
 
@@ -38,6 +38,8 @@ Then fill in the values:
 SUPABASE_URL=https://YOUR-PROJECT.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=YOUR_SERVICE_ROLE_KEY
 JWT_SECRET=some-long-random-secret
+OPENAI_API_KEY=sk-your-openai-api-key
+OPENAI_MODEL=gpt-4o-mini
 ```
 
 How to find them:
@@ -45,6 +47,8 @@ How to find them:
 - `SUPABASE_URL`: open your Supabase project, go to Project Settings → API
 - `SUPABASE_SERVICE_ROLE_KEY`: same place, under Project API keys
 - `JWT_SECRET`: any long random string like `daybook-dev-secret-abc-123`
+- `OPENAI_API_KEY`: create an API key in the OpenAI dashboard. Keep it server-side only.
+- `OPENAI_MODEL`: use `gpt-4o-mini` for the lowest-cost fast assistant configuration.
 
 ## 3) Install dependencies
 
@@ -71,6 +75,8 @@ This starts the Vercel local environment so the API routes work too.
    - `SUPABASE_URL`
    - `SUPABASE_SERVICE_ROLE_KEY`
    - `JWT_SECRET`
+   - `OPENAI_API_KEY`
+   - `OPENAI_MODEL` (set to `gpt-4o-mini`)
 5. Deploy
 
 ### Option B: Vercel CLI
@@ -106,8 +112,17 @@ The app now:
 - signs in and keeps the user logged in on the same device
 - allows password reset with the custom question
 - stores tasks/calendar/friends/notes in the database instead of browser localStorage
+- provides a floating assistant that remembers recent conversation and can manage Daybook data
 
-## 9) What you need next
+## 10) Using the assistant
+
+Click the floating sparkle button after signing in. You can type or use browser speech input. The assistant can create tasks/reminders, events, friends, contact logs, voice notes, and classes; complete tasks; list your Daybook data; and change display settings.
+
+The assistant uses the OpenAI Responses API (`POST https://api.openai.com/v1/responses`) with custom function tools on the Vercel server. The browser never receives `OPENAI_API_KEY`. Conversation history is stored in Supabase and limited to the most recent messages sent to the model to control cost and latency. The app manages its own conversation record in Supabase and uses `store: false` for OpenAI responses.
+
+For this prototype, `gpt-4o-mini` is the recommended OpenAI model because it is fast, inexpensive, and supports structured tool calls through Responses. Set `OPENAI_MODEL` to another Responses-compatible tool-capable OpenAI model later without changing the UI. Do not use the retired Assistants API.
+
+## 11) What you need next
 
 You may want to add:
 

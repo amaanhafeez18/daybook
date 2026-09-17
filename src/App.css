@@ -1122,3 +1122,145 @@ input {
     padding-right: 72px;
   }
 }
+
+.assistant-fab {
+  position: fixed;
+  right: 18px;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 84px);
+  z-index: 45;
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: var(--gold);
+  color: #fff;
+  font-size: 25px;
+  box-shadow: 0 10px 24px rgba(34, 48, 60, 0.24);
+}
+
+.assistant-panel {
+  position: fixed;
+  right: 16px;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 150px);
+  z-index: 44;
+  width: min(400px, calc(100vw - 32px));
+  height: min(620px, calc(100dvh - 190px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: 0 18px 50px rgba(34, 48, 60, 0.24);
+}
+
+.assistant-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 15px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--paper-dim);
+}
+
+.assistant-header div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.assistant-header span {
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.assistant-messages {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 14px;
+}
+
+.assistant-message {
+  max-width: 88%;
+  padding: 9px 11px;
+  border-radius: 12px;
+  white-space: pre-wrap;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.assistant-message.user {
+  align-self: flex-end;
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.assistant-message.assistant,
+.assistant-message.assistant-loading {
+  align-self: flex-start;
+  background: var(--paper-dim);
+}
+
+.assistant-welcome {
+  margin: auto 0;
+  color: var(--ink-soft);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.assistant-error {
+  margin: 0;
+  padding: 0 14px 8px;
+  color: var(--rose);
+  font-size: 12px;
+}
+
+.assistant-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 7px;
+  padding: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.assistant-composer textarea {
+  flex: 1;
+  min-width: 0;
+  resize: none;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 9px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+}
+
+.assistant-icon {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  color: var(--gold);
+}
+
+.assistant-icon.is-listening {
+  color: #fff;
+  background: var(--rose);
+}
+
+@media (min-width: 720px) {
+  .assistant-fab {
+    right: 32px;
+    bottom: 92px;
+  }
+
+  .assistant-panel {
+    right: 32px;
+    bottom: 158px;
+  }
+}
