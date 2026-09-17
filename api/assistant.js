@@ -232,7 +232,8 @@ async function executeTool(supabase, userId, name, args, data) {
   throw new Error(`Unknown assistant tool: ${name}`)
 }
 
-async function callOpenAI(input, instructions) {
+async function callOpenAI(input, instructions, debug) {
+  debug.push({ step: 'openai.request', model: OPENAI_MODEL, inputItems: input.length })
   const response = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
@@ -248,7 +249,14 @@ async function callOpenAI(input, instructions) {
     }),
   })
   const payload = await response.json()
-  if (!response.ok) throw new Error(payload.error?.message || 'OpenAI request failed')
+  debug.push({
+    step: 'openai.response',
+    httpStatus: response.status,
+    status: payload.status || 'unknown',
+    outputTypes: (payload.output || []).map((item) => item.type),
+    hasText: Boolean(responseText(payload)),
+  })
+  if (!response.ok) throw new Error(payload.error?.message || `OpenAI request failed (${response.status})`)
   if (payload.error) throw new Error(payload.error.message || 'OpenAI response failed')
   return payload
 }
@@ -259,8 +267,12 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
   if (req.method === 'OPTIONS') return res.status(204).end()
 
+  const debug = []
   try {
-    if (!process.env.OPENAI_API_KEY) return sendJson(res, 503, { error: 'Assistant is not configured. Add OPENAI_API_KEY in Vercel.' })
+    if (!process.env.OPENAI_API_KEY) {
+      debug.push({ step: 'assistant.config', ok: false, message: 'OPENAI_API_KEY is missing' })
+      return sendJson(res, 503, { error: 'Assistant is not configured. Add OPENAI_API_KEY in Vercel.', debug })
+    }
     const token = parseAuthHeader(req)
     if (!token) return sendJson(res, 401, { error: 'Missing auth token.' })
     const user = jwt.verify(token, JWT_SECRET)
@@ -275,11 +287,13 @@ export default async function handler(req, res) {
     const text = String(body.message || '').trim()
     if (!text) return sendJson(res, 400, { error: 'Message is required.' })
 
+    debug.push({ step: 'supabase.authenticated', userId: user.id })
     const data = await loadData(supabase, user.id)
+    debug.push({ step: 'supabase.snapshot', counts: Object.fromEntries(Object.entries(data).map(([key, value]) => [key, Array.isArray(value) ? value.length : 'object'])) })
     const system = `You are Daybook Assistant, a fast personal planner assistant. Today is ${today()}. Be concise and warm. You know the user data snapshot below. Use tools for every create, update, completion, or lookup. Never claim an action succeeded unless its tool returns ok. Dates must be YYYY-MM-DD and times should be 24-hour HH:MM in tool arguments. Ask one short clarification when required information is missing.\nData snapshot: ${JSON.stringify(data)}`
     const instructions = system
     const openInput = [...history.map((item) => ({ role: item.role, content: item.content })), { role: 'user', content: text }]
-    let response = await callOpenAI(openInput, instructions)
+    let response = await callOpenAI(openInput, instructions, debug)
     const results = []
 
     for (let round = 0; round < 3; round += 1) {
@@ -288,12 +302,14 @@ export default async function handler(req, res) {
 
       openInput.push(...(response.output || []))
       for (const call of functionCalls) {
+        debug.push({ step: 'tool.request', name: call.name })
         let result
         try {
           result = await executeTool(supabase, user.id, call.name, JSON.parse(call.arguments || '{}'), data)
         } catch (error) {
           result = { ok: false, message: error.message || 'The action failed.' }
         }
+        debug.push({ step: 'tool.result', name: call.name, ok: result.ok, message: result.message || null })
         results.push(result)
         openInput.push({
           type: 'function_call_output',
@@ -301,15 +317,17 @@ export default async function handler(req, res) {
           output: JSON.stringify(result),
         })
       }
-      response = await callOpenAI(openInput, instructions)
+      response = await callOpenAI(openInput, instructions, debug)
     }
 
     const reply = responseText(response) || results.map((result) => result.message).filter(Boolean).join(' ') || `I could not complete that request (${response.status || 'no assistant text'}).`
     const nextHistory = [...history, { role: 'user', content: text, createdAt: new Date().toISOString() }, { role: 'assistant', content: reply, createdAt: new Date().toISOString() }].slice(-MAX_MESSAGES)
     await supabase.from('assistant_conversations').upsert({ id: record?.id || id(), user_id: user.id, messages: nextHistory, updated_at: new Date().toISOString() }, { onConflict: 'user_id' })
-    return sendJson(res, 200, { reply, results })
+    debug.push({ step: 'assistant.complete', hasReply: Boolean(reply), resultCount: results.length })
+    return sendJson(res, 200, { reply, results, debug })
   } catch (error) {
     console.error('Assistant API error:', error)
-    return sendJson(res, 500, { error: error.message || 'Assistant request failed.' })
+    debug.push({ step: 'assistant.error', message: error.message || 'Unknown error' })
+    return sendJson(res, 500, { error: error.message || 'Assistant request failed.', debug })
   }
 }

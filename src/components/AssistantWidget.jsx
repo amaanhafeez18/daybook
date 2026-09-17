@@ -48,9 +48,15 @@ export default function AssistantWidget({ onDataChanged }) {
         body: JSON.stringify({ message }),
       })
       setMessages((current) => [...current, { role: 'assistant', content: response.reply }])
+      if (response.debug?.length) {
+        setMessages((current) => [...current, { role: 'debug', content: formatDebug(response.debug) }])
+      }
       if (response.results?.some((result) => result.ok)) onDataChanged?.()
     } catch (err) {
       setError(err.message)
+      if (err.debug?.length) {
+        setMessages((current) => [...current, { role: 'debug', content: formatDebug(err.debug) }])
+      }
     } finally {
       setLoading(false)
     }
@@ -139,6 +145,14 @@ async function request(url, options = {}) {
     },
   })
   const payload = await response.json()
-  if (!response.ok) throw new Error(payload.error || 'Assistant request failed')
+  if (!response.ok) {
+    const error = new Error(payload.error || 'Assistant request failed')
+    error.debug = payload.debug
+    throw error
+  }
   return payload
+}
+
+function formatDebug(entries) {
+  return `Debug trace\n${entries.map((entry) => JSON.stringify(entry)).join('\n')}`
 }
