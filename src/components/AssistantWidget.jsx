@@ -95,7 +95,7 @@ export default function AssistantWidget({ onDataChanged }) {
           </header>
 
           <div className="assistant-messages">
-            {messages.length === 0 && <p className="assistant-welcome">Tell me what you want to add or find. For example: “Remind me to email Alex tomorrow at 9 AM.”</p>}
+            {messages.length === 0 && <p className="assistant-welcome">I can chat normally, help you think through something, or manage Daybook. Try “test”, “help me plan my week”, or “remind me to email Alex tomorrow at 9 AM.”</p>}
             {messages.map((message, index) => (
               <div className={`assistant-message ${message.role}`} key={`${message.createdAt || 'message'}-${index}`}>
                 {message.content}
