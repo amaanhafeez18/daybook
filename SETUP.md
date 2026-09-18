@@ -94,7 +94,7 @@ Then add the same environment variables in the Vercel dashboard.
 3. Tap Add to Home Screen
 4. Open it from the home screen icon
 
-This makes it behave like an app.
+This makes it behave like an appew
 
 ## 7) Important notes for this prototype
 
