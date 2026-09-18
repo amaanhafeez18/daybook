@@ -28,6 +28,7 @@ export default function FriendsTab() {
       if (!active) return
       setFriends(friendsData)
       setLogs(logsData)
+      scheduleReminders(friendsData, logsData)
     })
     return () => { active = false }
   }, [])
@@ -56,6 +57,7 @@ export default function FriendsTab() {
       name: trimmed,
       relationship: form.relationship,
       organization: form.relationship === 'acquaintance' ? form.organization.trim() : '',
+      reminderDays: reminderDaysFor(form.relationship),
       note: form.facts.trim(),
       photoUrl: form.imageUrl.trim(),
       birthday: form.birthday,
@@ -136,6 +138,7 @@ export default function FriendsTab() {
                 onChange={(e) => updateForm('name', e.target.value)}
               />
               <select value={form.relationship} onChange={(e) => updateForm('relationship', e.target.value)}>
+                <option value="close_friend">Close friend</option>
                 <option value="friend">Friend</option>
                 <option value="acquaintance">Acquaintance</option>
               </select>
@@ -209,7 +212,7 @@ export default function FriendsTab() {
 
                   <div className="friend-info">
                     <span className="friend-name">{friend.name}</span>
-                    <span className="friend-note">{friend.relationship === 'acquaintance' ? `Acquaintance${friend.organization ? ` · ${friend.organization}` : ''}` : 'Friend'}</span>
+                    <span className="friend-note">{relationshipLabel(friend.relationship)}{friend.organization ? ` · ${friend.organization}` : ''}</span>
                     <span className="friend-last">
                       {last ? `Last talked ${sinceLabel(last)}` : 'No contact logged yet'}
                     </span>
@@ -277,4 +280,39 @@ function formatBirthday(iso) {
   const date = new Date(`${iso}T00:00:00`)
   if (Number.isNaN(date.getTime())) return iso
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+function relationshipLabel(value) {
+  if (value === 'close_friend') return 'Close friend'
+  if (value === 'acquaintance') return 'Acquaintance'
+  return 'Friend'
+}
+
+function reminderDaysFor(value) {
+  if (value === 'close_friend') return 10
+  if (value === 'friend') return 30
+  return null
+}
+
+async function scheduleReminders(friends, logs) {
+  const [tasks, events] = await Promise.all([load('tasks', []), load('events', [])])
+  const nextTasks = [...tasks]
+  const nextEvents = [...events]
+  const today = todayISO()
+  for (const friend of friends) {
+    const interval = friend.reminderDays ?? reminderDaysFor(friend.relationship)
+    if (!interval) continue
+    const friendLogs = logs.filter((log) => (log.friendId || log.friend_id) === friend.id).map((log) => log.date).sort()
+    const last = friendLogs[friendLogs.length - 1]
+    const due = !last || daysSince(last) >= interval
+    const marker = `friend-reminder:${friend.id}:${today}`
+    if (due && !nextTasks.some((task) => task.details === marker) && !nextTasks.some((task) => task.text === `Talk to ${friend.name}` && !task.done && !task.archived)) {
+      const taskId = uid()
+      const eventId = uid()
+      nextTasks.unshift({ id: taskId, text: `Talk to ${friend.name}`, details: marker, done: false, archived: false, createdAt: Date.now(), date: today, time: '', priority: 'urgent', calendarEventId: eventId })
+      nextEvents.unshift({ id: eventId, taskId, date: today, time: '', title: `Talk to ${friend.name}` })
+    }
+  }
+  if (nextTasks.length !== tasks.length) save('tasks', nextTasks)
+  if (nextEvents.length !== events.length) save('events', nextEvents)
 }

@@ -102,6 +102,7 @@ export default function DailySummaryTab() {
   const prayer = getPrayerStatus(prayerTimes)
   const current = weather?.current
   const daily = weather?.daily
+  const hourlySummary = getNext24Hours(weather)
 
   return (
     <section className="tab-panel">
@@ -165,6 +166,22 @@ export default function DailySummaryTab() {
                   <span>High {Math.round(daily.temperature_2m_max[0])}° / Low {Math.round(daily.temperature_2m_min[0])}°</span>
                 )}
               </div>
+              {hourlySummary && <p className="weather-next-line">Next 24 hours: {hourlySummary}</p>}
+            </>
+          )}
+        </div>
+
+        <div className="summary-card prayer-summary">
+          <h3>Muslim prayer times</h3>
+          {!prayerTimes ? (
+            <p className="empty-note">Allow location access to calculate prayer times.</p>
+          ) : (
+            <>
+              <div className="prayer-current">Current: <strong>{prayer.current}</strong></div>
+              <div className="prayer-next">Next: <strong>{prayer.next}</strong> at {prayer.nextTime}</div>
+              <ul className="mini-list prayer-list">
+                {prayer.entries.map(([name, time]) => <li key={name}><span>{name}</span><span>{time}</span></li>)}
+              </ul>
             </>
           )}
         </div>
@@ -187,20 +204,6 @@ export default function DailySummaryTab() {
         )}
       </div>
 
-      <div className="summary-card prayer-summary">
-        <h3>Muslim prayer times</h3>
-        {!prayerTimes ? (
-          <p className="empty-note">Allow location access to calculate prayer times.</p>
-        ) : (
-          <>
-            <div className="prayer-current">Current prayer: <strong>{prayer.current}</strong></div>
-            <div className="prayer-next">Next: <strong>{prayer.next}</strong> at {prayer.nextTime}</div>
-            <ul className="mini-list prayer-list">
-              {prayer.entries.map(([name, time]) => <li key={name}><span>{name}</span><span>{time}</span></li>)}
-            </ul>
-          </>
-        )}
-      </div>
     </section>
   )
 }
@@ -304,4 +307,18 @@ function savePrayerCache(latitude, longitude, timings) {
   } catch {
     // Caching is an optimization and should never block the summary.
   }
+}
+
+function getNext24Hours(payload) {
+  const times = payload?.hourly?.time
+  const temperatures = payload?.hourly?.temperature_2m
+  const codes = payload?.hourly?.weather_code
+  if (!times?.length || !temperatures?.length) return ''
+  const now = Date.now()
+  const points = times.map((time, index) => ({ time: new Date(time).getTime(), temperature: temperatures[index], code: codes?.[index] })).filter((point) => point.time >= now).slice(0, 4)
+  if (!points.length) return ''
+  const high = Math.max(...points.map((point) => point.temperature))
+  const low = Math.min(...points.map((point) => point.temperature))
+  const rain = points.some((point) => [51, 53, 55, 61, 63, 65, 80, 81, 82, 95, 96, 99].includes(point.code))
+  return `${Math.round(low)}° to ${Math.round(high)}°${rain ? ', rain possible' : ', mostly dry'}`
 }

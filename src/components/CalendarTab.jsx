@@ -16,6 +16,7 @@ function isoOf(year, month, day) {
 export default function CalendarTab() {
   const [events, setEvents] = useState([])
   const [classes, setClasses] = useState([])
+  const [friends, setFriends] = useState([])
   const [cursor, setCursor] = useState(() => {
     const t = new Date()
     return { year: t.getFullYear(), month: t.getMonth() }
@@ -23,10 +24,11 @@ export default function CalendarTab() {
 
   useEffect(() => {
     let active = true
-    Promise.all([load('events', []), load('classes', [])]).then(([eventData, classData]) => {
+    Promise.all([load('events', []), load('classes', []), load('friends', [])]).then(([eventData, classData, friendData]) => {
       if (!active) return
       setEvents(eventData)
       setClasses(classData)
+      setFriends(friendData)
     })
     return () => { active = false }
   }, [])
@@ -52,7 +54,8 @@ export default function CalendarTab() {
   const calendarItems = useMemo(() => [
     ...events,
     ...classes.flatMap((item) => getClassEvents(item, cursor.year, cursor.month)),
-  ], [events, classes, cursor])
+    ...friends.flatMap((friend) => getBirthdayEvents(friend, cursor.year)),
+  ], [events, classes, friends, cursor])
 
   const eventsByDay = useMemo(() => {
     const map = {}
@@ -75,13 +78,21 @@ export default function CalendarTab() {
     e.preventDefault()
     const trimmed = title.trim()
     if (!trimmed) return
-    persist([...events, { id: uid(), date: selected, time, title: trimmed }])
+    const eventId = uid()
+    const taskId = uid()
+    persist([...events, { id: eventId, taskId, date: selected, time, title: trimmed }])
+    load('tasks', []).then((tasks) => save('tasks', [
+      { id: taskId, text: trimmed, details: '', done: false, archived: false, createdAt: Date.now(), date: selected, time, priority: 'medium', calendarEventId: eventId },
+      ...tasks,
+    ]))
     setTitle('')
     setTime('')
   }
 
   function remove(id) {
+    const event = events.find((item) => item.id === id)
     persist(events.filter((ev) => ev.id !== id))
+    if (event?.taskId) load('tasks', []).then((tasks) => save('tasks', tasks.filter((task) => task.id !== event.taskId)))
   }
 
   const dayEvents = eventsByDay[selected] || []
@@ -183,4 +194,11 @@ function getDayConfig(item, dayName) {
     return item.dayDetails?.[dayName] || { time: item.time, room: item.room }
   }
   return (item.days || []).find((day) => day?.day === dayName || day?.day === dayName.slice(0, 3)) || null
+}
+
+function getBirthdayEvents(friend, year) {
+  if (!friend.birthday) return []
+  const [, month, day] = friend.birthday.split('-').map(Number)
+  if (!month || !day) return []
+  return [{ id: `birthday-${friend.id}-${year}`, date: isoOf(year, month - 1, day), time: '', title: `${friend.name}'s birthday`, isBirthday: true }]
 }

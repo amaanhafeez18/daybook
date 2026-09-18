@@ -12,6 +12,7 @@ const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 export default function SettingsTab({ user, onLogout }) {
   const [settings, setSettings] = useState(DEFAULT_SETTINGS)
   const [classes, setClasses] = useState([])
+  const [archivedTasks, setArchivedTasks] = useState([])
   const [classForm, setClassForm] = useState({ name: '', days: [], endDate: '', dayDetails: {} })
   const [showClassForm, setShowClassForm] = useState(false)
   const [status, setStatus] = useState('')
@@ -22,10 +23,12 @@ export default function SettingsTab({ user, onLogout }) {
     Promise.all([
       load('settings', DEFAULT_SETTINGS),
       load('classes', []),
-    ]).then(([settingsData, classData]) => {
+      load('tasks', []),
+    ]).then(([settingsData, classData, taskData]) => {
       if (!active) return
       setSettings({ ...DEFAULT_SETTINGS, ...settingsData })
       setClasses(classData)
+      setArchivedTasks(taskData.filter((task) => task.archived))
       applyTheme({ ...DEFAULT_SETTINGS, ...settingsData })
     })
 
@@ -92,6 +95,18 @@ export default function SettingsTab({ user, onLogout }) {
     const nextClasses = classes.filter((item) => item.id !== id)
     setClasses(nextClasses)
     save('classes', nextClasses)
+  }
+
+  function restoreTask(task) {
+    setArchivedTasks(archivedTasks.filter((item) => item.id !== task.id))
+    load('tasks', []).then((tasks) => save('tasks', tasks.map((item) => item.id === task.id ? { ...item, archived: false } : item)))
+  }
+
+  function permanentlyDeleteTask(task) {
+    if (!window.confirm('Permanently delete this archived task? This cannot be undone.')) return
+    setArchivedTasks(archivedTasks.filter((item) => item.id !== task.id))
+    load('tasks', []).then((tasks) => save('tasks', tasks.filter((item) => item.id !== task.id)))
+    load('events', []).then((events) => save('events', events.filter((event) => event.taskId !== task.id)))
   }
 
   async function handlePasswordChange(e) {
@@ -213,6 +228,19 @@ export default function SettingsTab({ user, onLogout }) {
             ))}
           </ul>
         )}
+
+        <h2 className="section-label">Archived tasks</h2>
+        <div className="settings-card archived-tasks-card">
+          {archivedTasks.length === 0 ? <p className="empty-note">No archived tasks.</p> : archivedTasks.map((task) => (
+            <div className="archived-task-row" key={task.id}>
+              <span>{task.text}</span>
+              <div>
+                <button type="button" className="btn-small btn-ghost" onClick={() => restoreTask(task)}>Restore</button>
+                <button type="button" className="row-delete" aria-label="Permanently delete task" onClick={() => permanentlyDeleteTask(task)}>×</button>
+              </div>
+            </div>
+          ))}
+        </div>
 
         {status && <p className="settings-status">{status}</p>}
       </div>

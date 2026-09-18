@@ -491,6 +491,14 @@ input {
   color: var(--ink-soft);
 }
 
+.weather-next-line {
+  margin: 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
 .mini-list {
   list-style: none;
   margin: 0;
@@ -670,6 +678,14 @@ input {
   padding: 10px 12px;
   color: var(--ink);
   resize: vertical;
+}
+
+.friend-form input[type="date"],
+.friend-form input[type="time"] {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  appearance: auto;
 }
 
 .class-day-detail {
@@ -910,6 +926,19 @@ input {
   color: var(--rose);
 }
 
+.archived-task-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+
+.archived-task-row:last-child { border-bottom: 0; }
+.archived-task-row > div { display: flex; align-items: center; gap: 8px; }
+
 /* ---- voice ---- */
 
 .voice-record {
@@ -1110,6 +1139,39 @@ input {
   .settings-panel > .settings-status {
     grid-column: 1 / -1;
   }
+}
+
+body.is-dark[data-theme="sunset"] {
+  --paper: #24201f;
+  --paper-dim: #302a28;
+  --ink: #f5eee7;
+  --ink-soft: #c5b8af;
+  --line: #51453f;
+}
+
+body.is-dark[data-theme="forest"] {
+  --paper: #17221d;
+  --paper-dim: #223229;
+  --ink: #edf6ee;
+  --ink-soft: #b8cbbd;
+  --line: #3a5143;
+}
+
+body.is-dark[data-theme="midnight"] {
+  --paper: #0b1220;
+  --paper-dim: #141f33;
+  --ink: #edf4ff;
+  --ink-soft: #b7c5d8;
+  --line: #30415c;
+}
+
+body.is-dark input,
+body.is-dark textarea,
+body.is-dark select,
+body.is-dark .google-login-btn {
+  background: var(--paper-dim);
+  color: var(--ink);
+  border-color: var(--line);
 }
 
 @media (min-width: 1120px) {

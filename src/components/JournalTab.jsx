@@ -8,6 +8,7 @@ export default function JournalTab() {
   const [selectedDate, setSelectedDate] = useState(todayISO())
   const [form, setForm] = useState(EMPTY_ENTRY)
   const [status, setStatus] = useState('')
+  const [editing, setEditing] = useState(true)
 
   useEffect(() => {
     let active = true
@@ -29,6 +30,7 @@ export default function JournalTab() {
     setSelectedDate(date)
     const entry = entries.find((item) => item.date === date)
     setForm(entry ? { ...entry } : { ...EMPTY_ENTRY, date })
+    setEditing(date === todayISO())
     setStatus('')
   }
 
@@ -38,6 +40,7 @@ export default function JournalTab() {
 
   function saveEntry(event) {
     event.preventDefault()
+    if (!editing) return
     const nextEntry = {
       id: form.id || uid(),
       date: form.date,
@@ -55,7 +58,7 @@ export default function JournalTab() {
   }
 
   function removeEntry() {
-    if (!selectedEntry) return
+    if (!selectedEntry || !window.confirm('Delete this journal entry permanently?')) return
     const next = entries.filter((entry) => entry.id !== selectedEntry.id)
     setEntries(next)
     setForm({ ...EMPTY_ENTRY, date: selectedDate })
@@ -75,9 +78,9 @@ export default function JournalTab() {
 
       <form className="journal-editor" onSubmit={saveEntry}>
         <input type="hidden" value={form.date} readOnly />
-        <input type="text" placeholder="Entry title" value={form.title} onChange={(event) => update('title', event.target.value)} />
+        <input type="text" placeholder="Entry title" value={form.title} disabled={!editing} onChange={(event) => update('title', event.target.value)} />
         <div className="journal-meta-row">
-          <select value={form.mood} onChange={(event) => update('mood', event.target.value)} aria-label="Mood">
+          <select value={form.mood} disabled={!editing} onChange={(event) => update('mood', event.target.value)} aria-label="Mood">
             <option value="">Mood</option>
             <option value="great">Great</option>
             <option value="good">Good</option>
@@ -87,9 +90,10 @@ export default function JournalTab() {
           </select>
           <span className="journal-date-label">{formatJournalDate(form.date)}</span>
         </div>
-        <textarea rows="12" placeholder="What happened today?" value={form.body} onChange={(event) => update('body', event.target.value)} />
+        <textarea rows="12" placeholder="What happened today?" disabled={!editing} value={form.body} onChange={(event) => update('body', event.target.value)} />
         <div className="journal-actions">
-          <button type="submit" className="btn-accent">Save entry</button>
+          <button type="submit" className="btn-accent" disabled={!editing}>Save entry</button>
+          {selectedEntry && <button type="button" className="btn-small btn-ghost" onClick={() => setEditing((value) => !value)}>{editing ? 'Lock entry' : 'Edit entry'}</button>}
           {selectedEntry && <button type="button" className="btn-small btn-ghost" onClick={removeEntry}>Delete entry</button>}
         </div>
         {status && <p className="settings-status">{status}</p>}

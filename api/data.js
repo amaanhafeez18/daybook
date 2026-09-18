@@ -59,6 +59,21 @@ function normalizeRowForDb(item, userId) {
     delete next.endDate
   }
 
+  if ('calendarEventId' in next && !('calendar_event_id' in next)) {
+    next.calendar_event_id = next.calendarEventId
+    delete next.calendarEventId
+  }
+
+  if ('taskId' in next && !('task_id' in next)) {
+    next.task_id = next.taskId
+    delete next.taskId
+  }
+
+  if ('reminderDays' in next && !('reminder_days' in next)) {
+    next.reminder_days = next.reminderDays
+    delete next.reminderDays
+  }
+
   if ('createdAt' in next || 'created_at' in next) {
     next.created_at = toIsoString(next.createdAt ?? next.created_at)
     delete next.createdAt
@@ -89,6 +104,10 @@ function normalizeRowForClient(item) {
     next.endDate = next.end_date
   }
 
+  if ('calendar_event_id' in next && !('calendarEventId' in next)) next.calendarEventId = next.calendar_event_id
+  if ('task_id' in next && !('taskId' in next)) next.taskId = next.task_id
+  if ('reminder_days' in next && !('reminderDays' in next)) next.reminderDays = next.reminder_days
+
   if ('created_at' in next && !('createdAt' in next)) {
     next.createdAt = next.created_at
   }
@@ -98,6 +117,9 @@ function normalizeRowForClient(item) {
   delete next.photo_url
   delete next.current_status
   delete next.end_date
+  delete next.calendar_event_id
+  delete next.task_id
+  delete next.reminder_days
 
   return next
 }

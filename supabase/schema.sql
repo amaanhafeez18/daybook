@@ -16,6 +16,8 @@ create table if not exists public.tasks (
   time text,
   details text,
   priority text not null default 'medium',
+  archived boolean not null default false,
+  calendar_event_id text,
   created_at timestamptz not null default now()
 );
 
@@ -25,6 +27,7 @@ create table if not exists public.events (
   date text not null,
   time text,
   title text not null,
+  task_id text,
   created_at timestamptz not null default now()
 );
 
@@ -33,6 +36,7 @@ create table if not exists public.friends (
   user_id uuid not null references public.users(id) on delete cascade,
   name text not null,
   relationship text not null default 'friend',
+  reminder_days integer,
   organization text,
   note text,
   photo_url text,
@@ -97,6 +101,10 @@ alter table public.tasks add column if not exists date text;
 alter table public.tasks add column if not exists time text;
 alter table public.tasks add column if not exists details text;
 alter table public.tasks add column if not exists priority text not null default 'medium';
+alter table public.tasks add column if not exists archived boolean not null default false;
+alter table public.tasks add column if not exists calendar_event_id text;
+alter table public.events add column if not exists task_id text;
+alter table public.friends add column if not exists reminder_days integer;
 alter table public.classes add column if not exists end_date text;
 alter table public.friends add column if not exists relationship text not null default 'friend';
 alter table public.friends add column if not exists organization text;

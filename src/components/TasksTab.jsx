@@ -38,7 +38,7 @@ export default function TasksTab() {
       details: form.details.trim(),
       done: false,
       createdAt: Date.now(),
-      date: form.date || todayISO(),
+      date: form.date || '',
       time: form.time || '',
       priority: form.priority,
     }
@@ -50,10 +50,10 @@ export default function TasksTab() {
     if (task.date) {
       const calendarEvents = load('events', [])
       calendarEvents.then((events) => {
-        const exists = events.some((event) => event.title === trimmed && event.date === task.date && event.time === task.time)
+        const exists = events.some((event) => event.taskId === task.id || (event.title === trimmed && event.date === task.date && event.time === task.time))
         if (!exists) {
           save('events', [
-            { id: uid(), date: task.date, time: task.time, title: trimmed },
+            { id: uid(), taskId: task.id, date: task.date, time: task.time, title: trimmed },
             ...events,
           ])
         }
@@ -62,15 +62,22 @@ export default function TasksTab() {
   }
 
   function toggle(id) {
-    persist(tasks.map((t) => (t.id === id ? { ...t, done: !t.done } : t)))
+    const task = tasks.find((item) => item.id === id)
+    const nextDone = !task?.done
+    persist(tasks.map((t) => (t.id === id ? { ...t, done: nextDone } : t)))
+    if (nextDone) {
+      load('events', []).then((events) => save('events', events.filter((event) => event.taskId !== id)))
+    }
   }
 
-  function remove(id) {
-    persist(tasks.filter((t) => t.id !== id))
+  function archive(id, confirmRequired = true) {
+    if (confirmRequired && !window.confirm('Archive this task? You can restore it later from Settings.')) return
+    persist(tasks.map((task) => task.id === id ? { ...task, archived: true } : task))
   }
 
-  const open = tasks.filter((t) => !t.done)
-  const done = tasks.filter((t) => t.done)
+  const activeTasks = tasks.filter((t) => !t.archived)
+  const open = activeTasks.filter((t) => !t.done)
+  const done = activeTasks.filter((t) => t.done)
   const weekTasks = Array.from({ length: 7 }, (_, index) => {
     const date = addDays(todayISO(), index)
     return { date, tasks: open.filter((task) => task.date === date) }
@@ -173,7 +180,7 @@ export default function TasksTab() {
                 )}
               </div>
               <span className={`priority-badge priority-${t.priority || 'medium'}`}>{priorityLabel(t.priority)}</span>
-              <button className="row-delete" aria-label="Delete task" onClick={() => remove(t.id)}>×</button>
+              <button className="row-delete" aria-label="Archive task" onClick={() => archive(t.id)}>×</button>
             </li>
           ))}
         </ul>
@@ -196,7 +203,7 @@ export default function TasksTab() {
                   )}
                 </div>
                 <span className={`priority-badge priority-${t.priority || 'medium'}`}>{priorityLabel(t.priority)}</span>
-                <button className="row-delete" aria-label="Delete task" onClick={() => remove(t.id)}>×</button>
+                <button className="row-delete" aria-label="Archive completed task" onClick={() => archive(t.id, false)}>×</button>
               </li>
             ))}
           </ul>
