@@ -1,4 +1,7 @@
 const SESSION_KEY = 'daybook.session.token'
+const DATA_CACHE_PREFIX = 'daybook.data.'
+const saveQueues = new Map()
+const pendingSaves = new Set()
 
 export function getToken() {
   try {
@@ -50,27 +53,47 @@ export async function load(key, fallback) {
   const token = getToken()
   if (!token) return fallback
 
+  if (pendingSaves.has(key)) return readDataCache(key, fallback)
+
   try {
     const data = await requestJson(`/api/data?key=${encodeURIComponent(key)}`)
-    if (Array.isArray(fallback)) return Array.isArray(data) ? data : fallback
-    return data && typeof data === 'object' ? data : fallback
+    const valid = Array.isArray(fallback) ? Array.isArray(data) : data && typeof data === 'object'
+    if (!valid) return readDataCache(key, fallback)
+    writeDataCache(key, data)
+    return data
   } catch {
-    return fallback
+    return readDataCache(key, fallback)
   }
 }
 
 export async function save(key, value) {
   const token = getToken()
   if (!token) return
+  writeDataCache(key, value)
+  const previous = saveQueues.get(key) || Promise.resolve()
+  pendingSaves.add(key)
+  const next = previous.catch(() => {}).then(() => requestJson('/api/data', {
+    method: 'PUT',
+    body: JSON.stringify({ key, value })
+  }))
+  saveQueues.set(key, next)
+  try { await next } catch { /* cache keeps the latest local state available */ }
+  finally { if (saveQueues.get(key) === next) pendingSaves.delete(key) }
+}
 
+function readDataCache(key, fallback) {
   try {
-    await requestJson('/api/data', {
-      method: 'PUT',
-      body: JSON.stringify({ key, value })
-    })
+    const raw = localStorage.getItem(`${DATA_CACHE_PREFIX}${key}`)
+    if (!raw) return fallback
+    const value = JSON.parse(raw)
+    return Array.isArray(fallback) ? (Array.isArray(value) ? value : fallback) : value
   } catch {
-    // fail silently; app will still work in memory if the network is unavailable
+    return fallback
   }
+}
+
+function writeDataCache(key, value) {
+  try { localStorage.setItem(`${DATA_CACHE_PREFIX}${key}`, JSON.stringify(value)) } catch { /* ignore quota errors */ }
 }
 
 export async function authRequest(action, payload = {}) {

@@ -3,7 +3,7 @@ import { getToken } from '../lib/storage.js'
 
 const SpeechRecognition = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition)
 
-export default function AssistantWidget({ onDataChanged, embedded = false }) {
+export default function AssistantWidget({ onDataChanged, embedded = false, suggestions = [] }) {
   const [open, setOpen] = useState(false)
   const [messages, setMessages] = useState([])
   const [text, setText] = useState('')
@@ -123,6 +123,12 @@ export default function AssistantWidget({ onDataChanged, embedded = false }) {
             {loading && <div className="assistant-message assistant-loading">Working on it…</div>}
             <div ref={endRef} />
           </div>
+
+          {embedded && messages.length === 0 && (
+            <div className="assistant-suggestions">
+              {suggestions.map((suggestion) => <button type="button" key={suggestion} onClick={() => setText(suggestion)}>{suggestion}</button>)}
+            </div>
+          )}
 
           {error && <p className="assistant-error">{error}</p>}
           <details className="assistant-debug" open={debugEntries.length > 0}>

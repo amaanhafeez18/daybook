@@ -153,6 +153,7 @@ export default function FriendsTab() {
               />
               <input
                 type="date"
+                aria-label="Birthday (optional)"
                 value={form.birthday}
                 onChange={(e) => updateForm('birthday', e.target.value)}
               />

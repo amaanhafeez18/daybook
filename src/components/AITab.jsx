@@ -10,7 +10,7 @@ export default function AITab({ onDataChanged }) {
           <p className="empty-note">Chat normally, ask for help, or let the assistant manage your planner.</p>
         </div>
       </div>
-      <AssistantWidget embedded onDataChanged={onDataChanged} />
+      <AssistantWidget embedded onDataChanged={onDataChanged} suggestions={['What is on my plan today?', 'Help me plan the rest of this week.', 'What did I write in my journal recently?']} />
     </section>
   )
 }

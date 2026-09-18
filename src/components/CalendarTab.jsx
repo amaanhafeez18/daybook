@@ -137,7 +137,7 @@ export default function CalendarTab() {
         <ul className="event-list">
           {dayEvents.map((ev) => (
             <li key={ev.id} className="event-row">
-              {ev.time && <span className="event-time">{ev.time}</span>}
+              {ev.time && <span className="event-time">{formatTime12(ev.time)}</span>}
               <span className="event-title">{ev.title}</span>
               {!ev.isClass && (
                 <button className="row-delete" aria-label="Delete event" onClick={() => remove(ev.id)}>×</button>
@@ -201,4 +201,13 @@ function getBirthdayEvents(friend, year) {
   const [, month, day] = friend.birthday.split('-').map(Number)
   if (!month || !day) return []
   return [{ id: `birthday-${friend.id}-${year}`, date: isoOf(year, month - 1, day), time: '', title: `${friend.name}'s birthday`, isBirthday: true }]
+}
+
+function formatTime12(value) {
+  if (!value) return ''
+  const match = String(value).match(/^(\d{1,2}):(\d{2})/)
+  if (!match) return value
+  const hour = Number(match[1])
+  const suffix = hour >= 12 ? 'PM' : 'AM'
+  return `${hour % 12 || 12}:${match[2]} ${suffix}`
 }

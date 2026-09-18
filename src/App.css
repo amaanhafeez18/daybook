@@ -1020,6 +1020,73 @@ input {
   padding: 8px 8px calc(env(safe-area-inset-bottom, 0px) + 8px);
 }
 
+.more-menu-wrap {
+  position: fixed;
+  z-index: 42;
+  left: calc(50% + 132px);
+  bottom: 8px;
+}
+
+.more-menu-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 66px;
+  padding: 8px 5px;
+  border-radius: var(--radius);
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.more-menu-toggle.is-active {
+  color: var(--ink);
+  font-weight: 600;
+  background: var(--paper-dim);
+}
+
+.hamburger-icon {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.hamburger-icon i {
+  display: block;
+  width: 15px;
+  height: 2px;
+  border-radius: 2px;
+  background: currentColor;
+}
+
+.more-menu {
+  position: absolute;
+  right: 0;
+  bottom: 48px;
+  display: flex;
+  flex-direction: column;
+  min-width: 145px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+  box-shadow: 0 12px 30px rgba(34, 48, 60, 0.2);
+}
+
+.more-menu button {
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: var(--ink-soft);
+  text-align: left;
+  font-size: 13px;
+}
+
+.more-menu button.is-active,
+.more-menu button:hover {
+  background: var(--paper-dim);
+  color: var(--ink);
+}
+
 .tab-btn {
   flex: 1;
   padding: 8px 4px;
@@ -1102,6 +1169,17 @@ input {
     border-radius: 16px;
     padding: 8px;
     box-shadow: 0 12px 32px rgba(34, 48, 60, 0.12);
+  }
+
+  .more-menu-wrap {
+    left: auto;
+    right: max(48px, calc((100vw - 1180px) / 2 + 48px));
+    bottom: 28px;
+  }
+
+  .more-menu-toggle {
+    padding: 12px 10px;
+    font-size: 14px;
   }
 
   .tab-btn {
@@ -1311,6 +1389,27 @@ body.is-dark .google-login-btn {
   color: var(--ink-soft);
   font-size: 14px;
   line-height: 1.5;
+}
+
+.assistant-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 14px 10px;
+}
+
+.assistant-suggestions button {
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink-soft);
+  font-size: 11px;
+  text-align: left;
+}
+
+.assistant-suggestions button:hover {
+  border-color: var(--gold);
+  color: var(--ink);
 }
 
 .assistant-error {

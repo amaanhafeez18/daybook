@@ -13,9 +13,12 @@ const TABS = [
   { id: 'summary', label: 'Summary' },
   { id: 'tasks', label: 'Tasks' },
   { id: 'calendar', label: 'Calendar' },
+  { id: 'ai', label: 'AI' },
+]
+
+const MORE_TABS = [
   { id: 'friends', label: 'Friends' },
   { id: 'journal', label: 'Journal' },
-  { id: 'ai', label: 'AI' },
   { id: 'settings', label: 'Settings' },
 ]
 
@@ -36,6 +39,7 @@ export default function App() {
   const [question, setQuestion] = useState('')
   const [resetUsername, setResetUsername] = useState('')
   const [dataVersion, setDataVersion] = useState(0)
+  const [moreOpen, setMoreOpen] = useState(false)
 
   useEffect(() => {
     async function bootstrap() {
@@ -121,6 +125,11 @@ export default function App() {
     setForm(initialForm)
     setQuestion('')
     setResetUsername('')
+  }
+
+  function changeTab(nextTab) {
+    setTab(nextTab)
+    setMoreOpen(false)
   }
 
   if (loading) {
@@ -250,7 +259,20 @@ export default function App() {
         {tab === 'ai' && <AITab onDataChanged={() => setDataVersion((value) => value + 1)} />}
       </main>
 
-      <TabBar tabs={TABS} active={tab} onChange={setTab} />
+      <div className="more-menu-wrap">
+        <button className={`more-menu-toggle ${MORE_TABS.some((item) => item.id === tab) ? 'is-active' : ''}`} onClick={() => setMoreOpen((value) => !value)} aria-expanded={moreOpen} aria-label="More sections">
+          <span className="hamburger-icon"><i /><i /><i /></span>
+          <span>More</span>
+        </button>
+        {moreOpen && (
+          <div className="more-menu" role="menu">
+            {MORE_TABS.map((item) => (
+              <button key={item.id} role="menuitem" className={tab === item.id ? 'is-active' : ''} onClick={() => changeTab(item.id)}>{item.label}</button>
+            ))}
+          </div>
+        )}
+      </div>
+      <TabBar tabs={TABS} active={tab} onChange={changeTab} />
       </div>
     </ErrorBoundary>
   )
