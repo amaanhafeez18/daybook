@@ -83,6 +83,16 @@ create table if not exists public.assistant_conversations (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.journal_entries (
+  id text primary key,
+  user_id uuid not null references public.users(id) on delete cascade,
+  date text not null,
+  title text not null default 'Untitled entry',
+  body text not null default '',
+  mood text,
+  created_at timestamptz not null default now()
+);
+
 alter table public.tasks add column if not exists date text;
 alter table public.tasks add column if not exists time text;
 alter table public.tasks add column if not exists details text;
@@ -99,3 +109,4 @@ create index if not exists idx_voice_notes_user_id on public.voice_notes(user_id
 create index if not exists idx_classes_user_id on public.classes(user_id);
 create index if not exists idx_settings_user_id on public.settings(user_id);
 create index if not exists idx_assistant_conversations_user_id on public.assistant_conversations(user_id);
+create index if not exists idx_journal_entries_user_id on public.journal_entries(user_id);

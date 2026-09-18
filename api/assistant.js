@@ -133,7 +133,7 @@ const tools = [
     name: 'list_items',
     description: 'Read the user\'s tasks, events, friends, classes, or notes when answering a question.',
     strict: false,
-    parameters: { type: 'object', properties: { type: { type: 'string', enum: ['tasks', 'events', 'friends', 'classes', 'voiceNotes'] } }, required: ['type'], additionalProperties: false },
+    parameters: { type: 'object', properties: { type: { type: 'string', enum: ['tasks', 'events', 'friends', 'classes', 'voiceNotes', 'journalEntries'] } }, required: ['type'], additionalProperties: false },
   },
   {
     type: 'function',
@@ -142,10 +142,21 @@ const tools = [
     strict: false,
     parameters: { type: 'object', properties: { theme: { type: 'string' }, darkMode: { type: 'boolean' }, displayName: { type: 'string' } }, additionalProperties: false },
   },
+  {
+    type: 'function',
+    name: 'create_journal_entry',
+    description: 'Create or replace a dated journal entry for the user.',
+    strict: false,
+    parameters: {
+      type: 'object',
+      properties: { date: { type: 'string' }, title: { type: 'string' }, body: { type: 'string' }, mood: { type: 'string' } },
+      required: ['date', 'body'], additionalProperties: false,
+    },
+  },
 ]
 
 async function loadData(supabase, userId) {
-  const names = ['tasks', 'events', 'friends', 'contact_logs', 'voice_notes', 'classes', 'settings']
+  const names = ['tasks', 'events', 'friends', 'contact_logs', 'voice_notes', 'classes', 'journal_entries', 'settings']
   const results = await Promise.all(names.map((name) => supabase.from(name).select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(50)))
   const data = {}
   names.forEach((name, index) => { data[name] = results[index].data || [] })
@@ -207,7 +218,7 @@ async function executeTool(supabase, userId, name, args, data) {
   }
 
   if (name === 'list_items') {
-    const key = name === 'list_items' && args.type === 'voiceNotes' ? 'voice_notes' : args.type
+    const key = args.type === 'voiceNotes' ? 'voice_notes' : args.type
     return { ok: true, items: data[key] || [] }
   }
 
@@ -218,6 +229,15 @@ async function executeTool(supabase, userId, name, args, data) {
     const { error: insertError } = await supabase.from('settings').insert({ id: id(), user_id: userId, value: settings, created_at: new Date().toISOString() })
     if (insertError) throw insertError
     return { ok: true, message: 'Updated your Daybook settings.', item: settings }
+  }
+
+  if (name === 'create_journal_entry') {
+    const row = { id: id(), user_id: userId, date: args.date || today(), title: args.title || 'Untitled entry', body: args.body, mood: args.mood || '', created_at: new Date().toISOString() }
+    const { error: deleteError } = await supabase.from('journal_entries').delete().eq('user_id', userId).eq('date', row.date)
+    if (deleteError) throw deleteError
+    const { error } = await supabase.from('journal_entries').insert(row)
+    if (error) throw error
+    return { ok: true, message: `Saved journal entry for ${row.date}.` }
   }
 
   throw new Error(`Unknown assistant tool: ${name}`)

@@ -3,10 +3,10 @@ import TabBar from './components/TabBar.jsx'
 import TasksTab from './components/TasksTab.jsx'
 import CalendarTab from './components/CalendarTab.jsx'
 import FriendsTab from './components/FriendsTab.jsx'
-import VoiceTab from './components/VoiceTab.jsx'
+import AITab from './components/AITab.jsx'
+import JournalTab from './components/JournalTab.jsx'
 import DailySummaryTab from './components/DailySummaryTab.jsx'
 import SettingsTab from './components/SettingsTab.jsx'
-import AssistantWidget from './components/AssistantWidget.jsx'
 import { authRequest, setToken, validateSession } from './lib/storage.js'
 
 const TABS = [
@@ -14,7 +14,8 @@ const TABS = [
   { id: 'tasks', label: 'Tasks' },
   { id: 'calendar', label: 'Calendar' },
   { id: 'friends', label: 'Friends' },
-  { id: 'voice', label: 'Voice' },
+  { id: 'journal', label: 'Journal' },
+  { id: 'ai', label: 'AI' },
   { id: 'settings', label: 'Settings' },
 ]
 
@@ -245,11 +246,11 @@ export default function App() {
         {tab === 'friends' && <FriendsTab key={`friends-${dataVersion}`} />}
         {tab === 'summary' && <DailySummaryTab key={`summary-${dataVersion}`} />}
         {tab === 'settings' && <SettingsTab key={`settings-${dataVersion}`} user={user} onLogout={signOut} />}
-        {tab === 'voice' && <VoiceTab key={`voice-${dataVersion}`} />}
+        {tab === 'journal' && <JournalTab key={`journal-${dataVersion}`} />}
+        {tab === 'ai' && <AITab onDataChanged={() => setDataVersion((value) => value + 1)} />}
       </main>
 
       <TabBar tabs={TABS} active={tab} onChange={setTab} />
-      <AssistantWidget onDataChanged={() => setDataVersion((value) => value + 1)} />
       </div>
     </ErrorBoundary>
   )

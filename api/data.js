@@ -14,7 +14,8 @@ const TABLES = {
   contactLogs: 'contact_logs',
   voiceNotes: 'voice_notes',
   classes: 'classes',
-  settings: 'settings'
+  settings: 'settings',
+  journalEntries: 'journal_entries'
 }
 
 function sendJson(res, statusCode, payload) {

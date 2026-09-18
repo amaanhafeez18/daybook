@@ -3,7 +3,7 @@ import { getToken } from '../lib/storage.js'
 
 const SpeechRecognition = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition)
 
-export default function AssistantWidget({ onDataChanged }) {
+export default function AssistantWidget({ onDataChanged, embedded = false }) {
   const [open, setOpen] = useState(false)
   const [messages, setMessages] = useState([])
   const [text, setText] = useState('')
@@ -11,13 +11,14 @@ export default function AssistantWidget({ onDataChanged }) {
   const [listening, setListening] = useState(false)
   const [error, setError] = useState('')
   const [debugEntries, setDebugEntries] = useState([])
+  const [speakReplies, setSpeakReplies] = useState(true)
   const recognitionRef = useRef(null)
   const endRef = useRef(null)
 
   useEffect(() => {
-    if (!open || messages.length > 0) return
+    if ((!open && !embedded) || messages.length > 0) return
     loadHistory()
-  }, [open, messages.length])
+  }, [open, embedded, messages.length])
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -50,6 +51,10 @@ export default function AssistantWidget({ onDataChanged }) {
       })
       setMessages((current) => [...current, { role: 'assistant', content: response.reply || 'I received your message, but no text response was returned.' }])
       setDebugEntries(response.debug || [])
+      if (speakReplies && typeof window !== 'undefined' && 'speechSynthesis' in window && response.reply) {
+        window.speechSynthesis.cancel()
+        window.speechSynthesis.speak(new SpeechSynthesisUtterance(response.reply))
+      }
       if (response.results?.some((result) => result.ok)) onDataChanged?.()
     } catch (err) {
       setError(err.message)
@@ -94,17 +99,18 @@ export default function AssistantWidget({ onDataChanged }) {
     }
   }
 
-  return (
+  const panel = (
     <>
-      {open && (
-        <section className="assistant-panel" aria-label="Daybook Assistant">
+      {(open || embedded) && (
+        <section className={`assistant-panel ${embedded ? 'assistant-panel-embedded' : ''}`} aria-label="Daybook Assistant">
           <header className="assistant-header">
             <div>
               <strong>Daybook Assistant</strong>
               <span>Tasks, people, plans, and notes</span>
             </div>
             <button className="assistant-new-chat" type="button" onClick={newChat}>New chat</button>
-            <button className="row-delete" aria-label="Close assistant" onClick={() => setOpen(false)}>×</button>
+            <label className="assistant-speak-toggle"><input type="checkbox" checked={speakReplies} onChange={(event) => setSpeakReplies(event.target.checked)} /> Speak</label>
+            {!embedded && <button className="row-delete" aria-label="Close assistant" onClick={() => setOpen(false)}>×</button>}
           </header>
 
           <div className="assistant-messages">
@@ -141,11 +147,13 @@ export default function AssistantWidget({ onDataChanged }) {
           </form>
         </section>
       )}
-      <button className="assistant-fab" aria-label={open ? 'Close Daybook Assistant' : 'Open Daybook Assistant'} onClick={() => setOpen((value) => !value)}>
+      {!embedded && <button className="assistant-fab" aria-label={open ? 'Close Daybook Assistant' : 'Open Daybook Assistant'} onClick={() => setOpen((value) => !value)}>
         {open ? '×' : '✦'}
-      </button>
+      </button>}
     </>
   )
+
+  return embedded ? panel : panel
 }
 
 async function request(url, options = {}) {
