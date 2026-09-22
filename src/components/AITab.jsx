@@ -1,5 +1,11 @@
 import AssistantWidget from './AssistantWidget.jsx'
 
+const SUGGESTIONS = [
+  'What’s on my plate today?',
+  'Who haven’t I talked to in a while?',
+  'Help me plan the rest of this week.',
+]
+
 export default function AITab({ onDataChanged }) {
   return (
     <section className="tab-panel ai-tab-panel">
@@ -7,10 +13,9 @@ export default function AITab({ onDataChanged }) {
         <div>
           <p className="eyebrow">Personal assistant</p>
           <h2>Talk to Daybook</h2>
-          <p className="empty-note">Chat normally, ask for help, or let the assistant manage your planner.</p>
         </div>
       </div>
-      <AssistantWidget embedded onDataChanged={onDataChanged} suggestions={['What is on my plan today?', 'Help me plan the rest of this week.', 'What did I write in my journal recently?']} />
+      <AssistantWidget onDataChanged={onDataChanged} suggestions={SUGGESTIONS} />
     </section>
   )
 }

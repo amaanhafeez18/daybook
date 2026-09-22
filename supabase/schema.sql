@@ -88,6 +88,13 @@ create table if not exists public.assistant_conversations (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.assistant_memories (
+  id text primary key,
+  user_id uuid not null references public.users(id) on delete cascade,
+  content text not null,
+  created_at timestamptz not null default now()
+);
+
 create table if not exists public.journal_entries (
   id text primary key,
   user_id uuid not null references public.users(id) on delete cascade,
@@ -127,3 +134,4 @@ create index if not exists idx_classes_user_id on public.classes(user_id);
 create index if not exists idx_settings_user_id on public.settings(user_id);
 create index if not exists idx_assistant_conversations_user_id on public.assistant_conversations(user_id);
 create index if not exists idx_journal_entries_user_id on public.journal_entries(user_id);
+create index if not exists idx_assistant_memories_user_id on public.assistant_memories(user_id);
