@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
-import { authRequest, load, save, setToken } from '../lib/storage.js'
+import { useEffect, useRef, useState } from 'react'
+import { authRequest, load, save } from '../lib/storage.js'
+import { applyTheme, SETTINGS_CHANGED_EVENT } from '../lib/theme.js'
 
 const DEFAULT_SETTINGS = {
   darkMode: false,
@@ -16,6 +17,18 @@ export default function SettingsTab({ user, onLogout }) {
   const [classForm, setClassForm] = useState({ name: '', days: [], endDate: '', dayDetails: {} })
   const [showClassForm, setShowClassForm] = useState(false)
   const [status, setStatus] = useState('')
+  const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '' })
+  const [passwordStatus, setPasswordStatus] = useState({ type: '', message: '' })
+  const [savingPassword, setSavingPassword] = useState(false)
+  const saveTimer = useRef(null)
+
+  // Flush a pending (debounced) settings save when leaving the tab.
+  useEffect(() => () => {
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current.id)
+      save('settings', saveTimer.current.value)
+    }
+  }, [])
 
   useEffect(() => {
     let active = true
@@ -37,15 +50,20 @@ export default function SettingsTab({ user, onLogout }) {
     }
   }, [])
 
-  useEffect(() => {
-    applyTheme(settings)
-  }, [settings])
-
-  function updateSettings(next) {
+  function updateSettings(next, { debounce = false } = {}) {
     const merged = { ...settings, ...next }
     setSettings(merged)
-    save('settings', merged)
     applyTheme(merged)
+    window.dispatchEvent(new CustomEvent(SETTINGS_CHANGED_EVENT, { detail: merged }))
+
+    // Typing a display name shouldn't send a request per keystroke.
+    if (saveTimer.current) clearTimeout(saveTimer.current.id)
+    if (debounce) {
+      saveTimer.current = { value: merged, id: setTimeout(() => { saveTimer.current = null; save('settings', merged) }, 600) }
+    } else {
+      saveTimer.current = null
+      save('settings', merged)
+    }
   }
 
   function updateClassField(field, value) {
@@ -92,6 +110,8 @@ export default function SettingsTab({ user, onLogout }) {
   }
 
   function removeClass(id) {
+    const item = classes.find((entry) => entry.id === id)
+    if (!window.confirm(`Remove ${item?.name || 'this class'} from your schedule?`)) return
     const nextClasses = classes.filter((item) => item.id !== id)
     setClasses(nextClasses)
     save('classes', nextClasses)
@@ -111,7 +131,21 @@ export default function SettingsTab({ user, onLogout }) {
 
   async function handlePasswordChange(e) {
     e.preventDefault()
-    setStatus('This prototype uses the forgot-password flow. Use the reset link from the login screen for password changes.')
+    if (!passwordForm.currentPassword || !passwordForm.newPassword) {
+      setPasswordStatus({ type: 'error', message: 'Enter your current password and a new password.' })
+      return
+    }
+    setSavingPassword(true)
+    setPasswordStatus({ type: '', message: '' })
+    try {
+      await authRequest('change', passwordForm)
+      setPasswordForm({ currentPassword: '', newPassword: '' })
+      setPasswordStatus({ type: 'ok', message: 'Password updated.' })
+    } catch (err) {
+      setPasswordStatus({ type: 'error', message: err.message })
+    } finally {
+      setSavingPassword(false)
+    }
   }
 
   return (
@@ -125,7 +159,7 @@ export default function SettingsTab({ user, onLogout }) {
             <input
               type="text"
               value={settings.displayName}
-              onChange={(e) => updateSettings({ displayName: e.target.value })}
+              onChange={(e) => updateSettings({ displayName: e.target.value }, { debounce: true })}
               placeholder={user?.username || 'Your name'}
             />
           </label>
@@ -151,18 +185,34 @@ export default function SettingsTab({ user, onLogout }) {
 
         <h2 className="section-label">Password</h2>
         <form className="settings-card" onSubmit={handlePasswordChange}>
+          <input type="text" name="username" autoComplete="username" value={user?.username || ''} readOnly hidden />
           <label className="setting-row">
             <span>Current password</span>
-            <input type="password" placeholder="Current password" />
+            <input
+              type="password"
+              placeholder="Current password"
+              autoComplete="current-password"
+              value={passwordForm.currentPassword}
+              onChange={(e) => setPasswordForm((prev) => ({ ...prev, currentPassword: e.target.value }))}
+            />
           </label>
           <label className="setting-row">
             <span>New password</span>
-            <input type="password" placeholder="New password" />
+            <input
+              type="password"
+              placeholder="At least 6 characters"
+              autoComplete="new-password"
+              value={passwordForm.newPassword}
+              onChange={(e) => setPasswordForm((prev) => ({ ...prev, newPassword: e.target.value }))}
+            />
           </label>
-          <button type="submit" className="btn-small">Update password</button>
+          {passwordStatus.message && (
+            <p className={passwordStatus.type === 'error' ? 'auth-error' : 'settings-status'}>{passwordStatus.message}</p>
+          )}
+          <button type="submit" className="btn-small" disabled={savingPassword}>{savingPassword ? 'Updating…' : 'Update password'}</button>
         </form>
 
-        <h2 className="section-label">Calendar</h2>
+        <h2 className="section-label">Account</h2>
         <div className="settings-card actions-stack">
           <button type="button" className="btn-small btn-ghost" onClick={onLogout}>Log out</button>
         </div>
@@ -221,7 +271,7 @@ export default function SettingsTab({ user, onLogout }) {
                 <div>
                   <strong>{item.name}</strong>
                   <span>{getClassDays(item).join(', ')}</span>
-                  {item.endDate && <span>Ends {item.endDate}</span>}
+                  {item.endDate && <span>Ends {formatDate(item.endDate)}</span>}
                 </div>
                 <button type="button" className="row-delete" aria-label="Remove class" onClick={() => removeClass(item.id)}>×</button>
               </li>
@@ -248,10 +298,9 @@ export default function SettingsTab({ user, onLogout }) {
   )
 }
 
-function applyTheme(settings) {
-  const isDark = !!settings.darkMode
-  document.body.dataset.theme = settings.theme || 'sunset'
-  document.body.classList.toggle('is-dark', isDark)
+function formatDate(iso) {
+  const date = new Date(`${iso}T12:00:00`)
+  return Number.isNaN(date.getTime()) ? iso : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 function getClassDays(item) {

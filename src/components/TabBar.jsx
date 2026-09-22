@@ -1,4 +1,4 @@
-export default function TabBar({ tabs, active, onChange }) {
+export default function TabBar({ tabs, active, onChange, children }) {
   return (
     <nav className="tab-bar" role="tablist" aria-label="Sections">
       {tabs.map((t) => (
@@ -12,6 +12,7 @@ export default function TabBar({ tabs, active, onChange }) {
           {t.label}
         </button>
       ))}
+      {children}
     </nav>
   )
 }

@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { load, save, uid, todayISO } from '../lib/storage.js'
 
-const EMPTY_ENTRY = { date: todayISO(), title: '', body: '', mood: '' }
+// Built on demand so a tab left open past midnight doesn't default to yesterday.
+const emptyEntry = (date = todayISO()) => ({ date, title: '', body: '', mood: '' })
 
 export default function JournalTab() {
   const [entries, setEntries] = useState([])
   const [selectedDate, setSelectedDate] = useState(todayISO())
-  const [form, setForm] = useState(EMPTY_ENTRY)
+  const [form, setForm] = useState(() => emptyEntry())
   const [status, setStatus] = useState('')
   const [editing, setEditing] = useState(true)
 
@@ -29,7 +30,7 @@ export default function JournalTab() {
   function chooseDate(date) {
     setSelectedDate(date)
     const entry = entries.find((item) => item.date === date)
-    setForm(entry ? { ...entry } : { ...EMPTY_ENTRY, date })
+    setForm(entry ? { ...entry } : emptyEntry(date))
     setEditing(date === todayISO())
     setStatus('')
   }
@@ -61,7 +62,7 @@ export default function JournalTab() {
     if (!selectedEntry || !window.confirm('Delete this journal entry permanently?')) return
     const next = entries.filter((entry) => entry.id !== selectedEntry.id)
     setEntries(next)
-    setForm({ ...EMPTY_ENTRY, date: selectedDate })
+    setForm(emptyEntry(selectedDate))
     save('journalEntries', next)
     setStatus('Journal entry removed.')
   }

@@ -7,7 +7,8 @@ import AITab from './components/AITab.jsx'
 import JournalTab from './components/JournalTab.jsx'
 import DailySummaryTab from './components/DailySummaryTab.jsx'
 import SettingsTab from './components/SettingsTab.jsx'
-import { authRequest, setToken, validateSession } from './lib/storage.js'
+import { authRequest, clearSession, load, readCachedData, validateSession } from './lib/storage.js'
+import { applyTheme, SETTINGS_CHANGED_EVENT } from './lib/theme.js'
 
 const TABS = [
   { id: 'summary', label: 'Summary' },
@@ -22,6 +23,18 @@ const MORE_TABS = [
   { id: 'settings', label: 'Settings' },
 ]
 
+const ALL_TAB_IDS = [...TABS, ...MORE_TABS].map((item) => item.id)
+const LAST_TAB_KEY = 'daybook.lastTab'
+
+function readLastTab() {
+  try {
+    const saved = localStorage.getItem(LAST_TAB_KEY)
+    return ALL_TAB_IDS.includes(saved) ? saved : 'summary'
+  } catch {
+    return 'summary'
+  }
+}
+
 const initialForm = {
   username: '',
   password: '',
@@ -30,7 +43,7 @@ const initialForm = {
 }
 
 export default function App() {
-  const [tab, setTab] = useState('tasks')
+  const [tab, setTab] = useState(readLastTab)
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
   const [mode, setMode] = useState('login')
@@ -40,8 +53,13 @@ export default function App() {
   const [resetUsername, setResetUsername] = useState('')
   const [dataVersion, setDataVersion] = useState(0)
   const [moreOpen, setMoreOpen] = useState(false)
+  const [displayName, setDisplayName] = useState('')
+  const [saveError, setSaveError] = useState('')
 
   useEffect(() => {
+    // Apply the cached theme immediately so the app doesn't flash the default look.
+    applyTheme(readCachedData('settings', {}))
+
     async function bootstrap() {
       const sessionUser = await validateSession()
       setUser(sessionUser)
@@ -50,6 +68,43 @@ export default function App() {
 
     bootstrap()
   }, [])
+
+  useEffect(() => {
+    if (!user) return
+    let active = true
+    load('settings', {}).then((settings) => {
+      if (!active) return
+      applyTheme(settings)
+      setDisplayName(settings.displayName || '')
+    })
+
+    function onSettingsChanged(event) {
+      applyTheme(event.detail)
+      setDisplayName(event.detail?.displayName || '')
+    }
+    function onSaveError(event) {
+      setSaveError(event.detail?.message || 'Your last change could not be saved.')
+    }
+    function onSaveOk() {
+      setSaveError('')
+    }
+    function onSessionExpired() {
+      signOut()
+      setError('Your session expired. Please log in again.')
+    }
+
+    window.addEventListener(SETTINGS_CHANGED_EVENT, onSettingsChanged)
+    window.addEventListener('daybook:save-error', onSaveError)
+    window.addEventListener('daybook:save-ok', onSaveOk)
+    window.addEventListener('daybook:session-expired', onSessionExpired)
+    return () => {
+      active = false
+      window.removeEventListener(SETTINGS_CHANGED_EVENT, onSettingsChanged)
+      window.removeEventListener('daybook:save-error', onSaveError)
+      window.removeEventListener('daybook:save-ok', onSaveOk)
+      window.removeEventListener('daybook:session-expired', onSessionExpired)
+    }
+  }, [user])
 
   function updateForm(field, value) {
     setForm((prev) => ({ ...prev, [field]: value }))
@@ -119,8 +174,11 @@ export default function App() {
   }
 
   function signOut() {
-    setToken('')
+    clearSession()
+    applyTheme({})
     setUser(null)
+    setDisplayName('')
+    setSaveError('')
     setMode('login')
     setForm(initialForm)
     setQuestion('')
@@ -130,6 +188,7 @@ export default function App() {
   function changeTab(nextTab) {
     setTab(nextTab)
     setMoreOpen(false)
+    try { localStorage.setItem(LAST_TAB_KEY, nextTab) } catch { /* ignore */ }
   }
 
   if (loading) {
@@ -157,6 +216,8 @@ export default function App() {
               <input
                 type="text"
                 placeholder="Username"
+                autoComplete="username"
+                autoCapitalize="none"
                 value={form.username}
                 onChange={(e) => updateForm('username', e.target.value)}
               />
@@ -166,6 +227,7 @@ export default function App() {
               <input
                 type="password"
                 placeholder="Password"
+                autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
                 value={form.password}
                 onChange={(e) => updateForm('password', e.target.value)}
               />
@@ -199,6 +261,7 @@ export default function App() {
                 <input
                   type="password"
                   placeholder="New password"
+                  autoComplete="new-password"
                   value={form.newPassword}
                   onChange={(e) => updateForm('newPassword', e.target.value)}
                 />
@@ -244,10 +307,17 @@ export default function App() {
         <span className="app-mark" aria-hidden="true" />
         <div className="app-header-user">
           <h1>Daybook</h1>
-          <span className="user-pill">{user.username}</span>
+          <span className="user-pill">{displayName.trim() || user.username}</span>
         </div>
         <button className="link-btn header-signout" onClick={signOut}>Log out</button>
       </header>
+
+      {saveError && (
+        <div className="save-error-banner" role="alert">
+          <span>Couldn’t save your last change: {saveError}</span>
+          <button type="button" className="row-delete" aria-label="Dismiss" onClick={() => setSaveError('')}>×</button>
+        </div>
+      )}
 
       <main className="app-main">
         {tab === 'tasks' && <TasksTab key={`tasks-${dataVersion}`} />}
@@ -259,20 +329,22 @@ export default function App() {
         {tab === 'ai' && <AITab onDataChanged={() => setDataVersion((value) => value + 1)} />}
       </main>
 
-      <div className="more-menu-wrap">
-        <button className={`more-menu-toggle ${MORE_TABS.some((item) => item.id === tab) ? 'is-active' : ''}`} onClick={() => setMoreOpen((value) => !value)} aria-expanded={moreOpen} aria-label="More sections">
-          <span className="hamburger-icon"><i /><i /><i /></span>
-          <span>More</span>
-        </button>
-        {moreOpen && (
-          <div className="more-menu" role="menu">
-            {MORE_TABS.map((item) => (
-              <button key={item.id} role="menuitem" className={tab === item.id ? 'is-active' : ''} onClick={() => changeTab(item.id)}>{item.label}</button>
-            ))}
-          </div>
-        )}
-      </div>
-      <TabBar tabs={TABS} active={tab} onChange={changeTab} />
+      {moreOpen && <div className="more-menu-backdrop" onClick={() => setMoreOpen(false)} />}
+      <TabBar tabs={TABS} active={tab} onChange={changeTab}>
+        <div className="more-menu-wrap">
+          <button className={`tab-btn more-menu-toggle ${MORE_TABS.some((item) => item.id === tab) ? 'is-active' : ''}`} onClick={() => setMoreOpen((value) => !value)} aria-expanded={moreOpen} aria-haspopup="menu">
+            <span className="hamburger-icon" aria-hidden="true"><i /><i /><i /></span>
+            <span>{MORE_TABS.find((item) => item.id === tab)?.label || 'More'}</span>
+          </button>
+          {moreOpen && (
+            <div className="more-menu" role="menu">
+              {MORE_TABS.map((item) => (
+                <button key={item.id} role="menuitem" className={tab === item.id ? 'is-active' : ''} onClick={() => changeTab(item.id)}>{item.label}</button>
+              ))}
+            </div>
+          )}
+        </div>
+      </TabBar>
       </div>
     </ErrorBoundary>
   )

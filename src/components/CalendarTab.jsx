@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { load, save, uid, todayISO } from '../lib/storage.js'
+import { formatTime12, load, save, uid, todayISO } from '../lib/storage.js'
 
 const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
 const MONTH_NAMES = [
@@ -63,7 +63,7 @@ export default function CalendarTab() {
       if (!map[ev.date]) map[ev.date] = []
       map[ev.date].push(ev)
     }
-    for (const k in map) map[k].sort((a, b) => (a.time || '').localeCompare(b.time || ''))
+    for (const k in map) map[k].sort((a, b) => sortableTime(a.time).localeCompare(sortableTime(b.time)))
     return map
   }, [calendarItems])
 
@@ -91,8 +91,17 @@ export default function CalendarTab() {
 
   function remove(id) {
     const event = events.find((item) => item.id === id)
+    if (!event) return
+    const message = event.taskId
+      ? `Delete "${event.title}" from the calendar? Its task will be archived (restore it from Settings).`
+      : `Delete "${event.title}"?`
+    if (!window.confirm(message)) return
     persist(events.filter((ev) => ev.id !== id))
-    if (event?.taskId) load('tasks', []).then((tasks) => save('tasks', tasks.filter((task) => task.id !== event.taskId)))
+    if (event.taskId) {
+      load('tasks', []).then((tasks) => {
+        if (tasks.some((task) => task.id === event.taskId)) save('tasks', tasks.map((task) => task.id === event.taskId ? { ...task, archived: true } : task))
+      })
+    }
   }
 
   const dayEvents = eventsByDay[selected] || []
@@ -139,7 +148,7 @@ export default function CalendarTab() {
             <li key={ev.id} className="event-row">
               {ev.time && <span className="event-time">{formatTime12(ev.time)}</span>}
               <span className="event-title">{ev.title}</span>
-              {!ev.isClass && (
+              {!ev.isClass && !ev.isBirthday && (
                 <button className="row-delete" aria-label="Delete event" onClick={() => remove(ev.id)}>×</button>
               )}
             </li>
@@ -203,11 +212,14 @@ function getBirthdayEvents(friend, year) {
   return [{ id: `birthday-${friend.id}-${year}`, date: isoOf(year, month - 1, day), time: '', title: `${friend.name}'s birthday`, isBirthday: true }]
 }
 
-function formatTime12(value) {
-  if (!value) return ''
-  const match = String(value).match(/^(\d{1,2}):(\d{2})/)
-  if (!match) return value
-  const hour = Number(match[1])
-  const suffix = hour >= 12 ? 'PM' : 'AM'
-  return `${hour % 12 || 12}:${match[2]} ${suffix}`
+// Class times are free text like "9:00 AM - 10:30 AM"; turn the start into HH:MM so they sort with "14:00"-style times.
+function sortableTime(value) {
+  if (!value) return '99:99'
+  const match = String(value).match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?/i)
+  if (!match) return '99:98'
+  let hour = Number(match[1])
+  const suffix = match[3]?.toUpperCase()
+  if (suffix === 'PM' && hour < 12) hour += 12
+  if (suffix === 'AM' && hour === 12) hour = 0
+  return `${String(hour).padStart(2, '0')}:${match[2]}`
 }
