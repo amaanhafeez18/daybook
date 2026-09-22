@@ -94,7 +94,7 @@ Then add the same environment variables in the Vercel dashboard.
 3. Tap Add to Home Screen
 4. Open it from the home screen icon
 
-This makes it behave like an appew
+This makes it behave like an app.
 
 ## 7) Important notes for this prototype
 
@@ -114,7 +114,7 @@ The app now:
 - stores tasks/calendar/friends/notes in the database instead of browser localStorage
 - provides a floating assistant that remembers recent conversation and can manage Daybook data
 
-## 10) Using the assistant
+## 9) Using the assistant
 
 Click the floating sparkle button after signing in. You can type or use browser speech input. The assistant can create tasks/reminders, events, friends, contact logs, voice notes, and classes; complete tasks; list your Daybook data; and change display settings.
 
@@ -122,7 +122,7 @@ The assistant uses the OpenAI Responses API (`POST https://api.openai.com/v1/res
 
 For this prototype, `gpt-4o-mini` is the recommended OpenAI model because it is fast, inexpensive, and supports structured tool calls through Responses. Set `OPENAI_MODEL` to another Responses-compatible tool-capable OpenAI model later without changing the UI. Do not use the retired Assistants API.
 
-## 11) What you need next
+## 10) What you need next
 
 You may want to add:
 
