@@ -7,11 +7,12 @@ const REASONING_EFFORT = process.env.OPENAI_REASONING_EFFORT || 'low'
 // gpt-4o-mini-transcribe: $0.003 per minute of audio.
 const TRANSCRIBE_MODEL = process.env.OPENAI_TRANSCRIBE_MODEL || 'gpt-4o-mini-transcribe'
 const IS_REASONING_MODEL = /^(gpt-5|o\d)/.test(OPENAI_MODEL)
+const SUPPORTS_VERBOSITY = /^gpt-5/.test(OPENAI_MODEL)
 
 const MAX_STORED_MESSAGES = 40 // kept in the database and shown in the chat
 const MAX_MODEL_MESSAGES = 20 // sent to the model each turn; durable facts live in memories
 const MAX_TOOL_ROUNDS = 5
-const MAX_AUDIO_BYTES = 8 * 1024 * 1024
+const MAX_AUDIO_BYTES = 3 * 1024 * 1024 // Vercel caps request bodies at 4.5 MB (base64 adds a third)
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 function sendJson(res, statusCode, payload) {
@@ -58,6 +59,7 @@ function normalizeMessage(message) {
     content: typeof message.content === 'string' ? message.content : '',
     createdAt: message.createdAt || nowIso(),
     ...(message.voice ? { voice: true } : {}),
+    ...(Array.isArray(message.actions) ? { actions: message.actions.slice(0, 10) } : {}),
   }
 }
 
@@ -82,6 +84,26 @@ function responseText(response) {
     .map((part) => part.text)
     .join('\n')
     .trim()
+}
+
+// Shown to the user while a tool runs.
+const TOOL_LABELS = {
+  create_task: 'Adding a task',
+  update_task: 'Updating a task',
+  create_event: 'Adding to your calendar',
+  update_event: 'Updating your calendar',
+  delete_event: 'Removing an event',
+  create_friend: 'Adding someone to People',
+  update_friend: 'Updating People',
+  log_contact: 'Logging a catch-up',
+  create_class: 'Adding a class',
+  delete_class: 'Removing a class',
+  write_journal: 'Writing in your journal',
+  save_note: 'Saving a note',
+  remember: 'Remembering that',
+  forget: 'Forgetting that',
+  search: 'Searching your history',
+  update_settings: 'Updating settings',
 }
 
 function tool(name, description, properties, required = []) {
@@ -329,7 +351,7 @@ function transcriptionVocabulary(data) {
   return terms.length ? `A voice note for a personal planner app called Daybook. Names that may come up: ${terms.join(', ')}.` : ''
 }
 
-async function callOpenAI({ instructions, input, userId }, debug) {
+async function callOpenAI({ instructions, input, userId, onDelta }, debug) {
   const body = {
     model: OPENAI_MODEL,
     instructions,
@@ -347,13 +369,25 @@ async function callOpenAI({ instructions, input, userId }, debug) {
   } else {
     body.temperature = 0.3
   }
+  if (SUPPORTS_VERBOSITY) body.text = { verbosity: 'low' }
+  if (onDelta) body.stream = true
 
-  debug.push({ step: 'openai.request', model: OPENAI_MODEL, inputItems: input.length })
+  debug.push({ step: 'openai.request', model: OPENAI_MODEL, inputItems: input.length, stream: Boolean(onDelta) })
   const response = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
     body: JSON.stringify(body),
   })
+  if (onDelta && response.ok) {
+    const payload = await readOpenAIStream(response, onDelta)
+    debug.push({
+      step: 'openai.response',
+      status: payload.status || 'unknown',
+      outputTypes: (payload.output || []).map((item) => item.type),
+      usage: payload.usage ? { input: payload.usage.input_tokens, cached: payload.usage.input_tokens_details?.cached_tokens, output: payload.usage.output_tokens } : null,
+    })
+    return payload
+  }
   const rawBody = await response.text()
   let payload
   try {
@@ -371,6 +405,39 @@ async function callOpenAI({ instructions, input, userId }, debug) {
   })
   if (!response.ok || payload.error) throw new Error(payload.error?.message || `OpenAI request failed (${response.status}).`)
   return payload
+}
+
+// Reads the Responses API server-sent events, forwarding text as it arrives, and returns the
+// final response object (the same shape as a non-streamed call).
+async function readOpenAIStream(response, onDelta) {
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let finalResponse = null
+
+  const handleEvent = (block) => {
+    const data = block.split('\n').filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trim()).join('\n')
+    if (!data || data === '[DONE]') return
+    const event = JSON.parse(data)
+    if (event.type === 'response.output_text.delta' && event.delta) onDelta(event.delta)
+    else if (event.type === 'response.completed' || event.type === 'response.incomplete') finalResponse = event.response
+    else if (event.type === 'response.failed') throw new Error(event.response?.error?.message || 'The AI response failed.')
+    else if (event.type === 'error') throw new Error(event.message || event.error?.message || 'The AI response failed.')
+  }
+
+  for (;;) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n')
+    let boundary
+    while ((boundary = buffer.indexOf('\n\n')) !== -1) {
+      handleEvent(buffer.slice(0, boundary))
+      buffer = buffer.slice(boundary + 2)
+    }
+  }
+  if (buffer.trim()) handleEvent(buffer)
+  if (!finalResponse) throw new Error('The AI response ended unexpectedly.')
+  return finalResponse
 }
 
 function findOwned(list, id, label) {
@@ -578,14 +645,27 @@ export default async function handler(req, res) {
   }
 
   const debug = []
+  let streaming = false
+  let emit = () => {}
+  // Errors go out as a JSON response, or as a final 'error' event once streaming has started.
+  const fail = (statusCode, message) => {
+    if (streaming) {
+      emit({ type: 'error', error: message, debug })
+      return res.end()
+    }
+    return sendJson(res, statusCode, { error: message, debug })
+  }
   try {
     if (!process.env.OPENAI_API_KEY) {
-      return sendJson(res, 503, { error: 'Assistant is not configured. Add OPENAI_API_KEY in Vercel.', debug })
+      return fail(503, 'Assistant is not configured. Add OPENAI_API_KEY in Vercel.')
     }
     const user = verifyRequestToken(req)
     if (!user) return sendJson(res, 401, { error: 'Your session has expired. Please log in again.' })
     const supabase = getSupabase()
 
+    // For a new message, start loading the planner data while the conversation is fetched.
+    const dataPromise = req.method === 'POST' ? loadData(supabase, user.id) : null
+    dataPromise?.catch(() => {}) // errors surface where it is awaited below
     const { data: record } = await supabase.from('assistant_conversations').select('*').eq('user_id', user.id).maybeSingle()
     const history = Array.isArray(record?.messages) ? record.messages.map(normalizeMessage).slice(-MAX_STORED_MESSAGES) : []
 
@@ -609,18 +689,35 @@ export default async function handler(req, res) {
     if (req.method !== 'POST') return sendJson(res, 405, { error: 'Unsupported method.' })
 
     const body = await readJsonBody(req)
+
+    // body.stream: reply as newline-delimited JSON events (status, transcript, delta, action, done)
+    // so the app can show progress and text as it arrives. Without it, one JSON response.
+    if (body.stream === true) {
+      res.statusCode = 200
+      res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8')
+      res.setHeader('Cache-Control', 'no-cache, no-transform')
+      res.setHeader('X-Accel-Buffering', 'no')
+      res.flushHeaders?.()
+      streaming = true
+      emit = (event) => res.write(`${JSON.stringify(event)}\n`)
+    }
+
     const ctx = readClientContext(body.context)
-    const data = await loadData(supabase, user.id)
+    const isVoice = Boolean(body.audio)
+    emit({ type: 'status', text: isVoice ? 'Listening…' : 'Thinking…' })
+
+    const data = await dataPromise
     debug.push({ step: 'data.loaded', memories: data.memories === null ? 'table missing' : data.memories.length })
 
-    const isVoice = Boolean(body.audio)
     let text = String(body.message || '').trim()
     if (isVoice) {
       text = await transcribeAudio(body.audio, body.mimeType, transcriptionVocabulary(data))
       debug.push({ step: 'transcribed', model: TRANSCRIBE_MODEL, chars: text.length })
-      if (!text) return sendJson(res, 422, { error: 'I couldn’t hear anything in that recording. Try again a little closer to the mic.', debug })
+      if (!text) return fail(422, 'I couldn’t hear anything in that recording. Try again a little closer to the mic.')
+      emit({ type: 'transcript', text })
+      emit({ type: 'status', text: 'Thinking…' })
     }
-    if (!text) return sendJson(res, 400, { error: 'Message is required.' })
+    if (!text) return fail(400, 'Message is required.')
 
     const instructions = buildInstructions(buildSnapshot(data, ctx, user.username), ctx, { voice: isVoice })
     const input = [
@@ -628,7 +725,21 @@ export default async function handler(req, res) {
       { role: 'user', content: text },
     ]
 
-    let response = await callOpenAI({ instructions, input, userId: user.id }, debug)
+    // Text from every model call is kept (and streamed) so nothing said before a tool call is lost.
+    const replyParts = []
+    let streamedText = false
+    let partHasText = false
+    const onDelta = streaming
+      ? (delta) => {
+        if (!partHasText && streamedText) emit({ type: 'delta', text: '\n\n' })
+        partHasText = true
+        streamedText = true
+        emit({ type: 'delta', text: delta })
+      }
+      : null
+
+    let response = await callOpenAI({ instructions, input, userId: user.id, onDelta }, debug)
+    replyParts.push(responseText(response))
     const results = []
     for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
       const calls = (response.output || []).filter((item) => item.type === 'function_call')
@@ -636,6 +747,7 @@ export default async function handler(req, res) {
 
       input.push(...response.output)
       for (const call of calls) {
+        emit({ type: 'status', text: `${TOOL_LABELS[call.name] || 'Working on it'}…` })
         let result
         try {
           result = await executeTool(supabase, user.id, call.name, JSON.parse(call.arguments || '{}'), data, ctx)
@@ -644,33 +756,42 @@ export default async function handler(req, res) {
         }
         debug.push({ step: 'tool', name: call.name, ok: result.ok, message: result.message || null })
         results.push({ tool: call.name, ...result })
+        if (call.name !== 'search') emit({ type: 'action', tool: call.name, ok: result.ok, message: result.message || '' })
         input.push({ type: 'function_call_output', call_id: call.call_id, output: JSON.stringify(result) })
       }
-      response = await callOpenAI({ instructions, input, userId: user.id }, debug)
+      emit({ type: 'status', text: 'Thinking…' })
+      partHasText = false
+      response = await callOpenAI({ instructions, input, userId: user.id, onDelta }, debug)
+      replyParts.push(responseText(response))
     }
 
-    const reply = responseText(response)
+    const reply = replyParts.filter(Boolean).join('\n\n')
       || results.map((result) => result.message).filter(Boolean).join(' ')
       || 'Sorry, I didn’t catch that. Could you say it another way?'
 
     const nextHistory = [
       ...history,
       { role: 'user', content: text, createdAt: nowIso(), ...(isVoice ? { voice: true } : {}) },
-      { role: 'assistant', content: reply, createdAt: nowIso() },
+      { role: 'assistant', content: reply, createdAt: nowIso(), ...(results.length ? { actions: results.filter((result) => result.tool !== 'search').map(({ tool: toolName, ok, message }) => ({ tool: toolName, ok, message })) } : {}) },
     ].slice(-MAX_STORED_MESSAGES)
     await supabase.from('assistant_conversations').upsert({ id: record?.id || newId(), user_id: user.id, messages: nextHistory, updated_at: nowIso() }, { onConflict: 'user_id' })
 
-    return sendJson(res, 200, {
+    const payload = {
       reply,
       transcript: isVoice ? text : undefined,
       results: results.map(({ tool: toolName, ok, message }) => ({ tool: toolName, ok, message })),
-      dataChanged: results.some((result) => result.ok && !['search'].includes(result.tool)),
+      dataChanged: results.some((result) => result.ok && !['search', 'remember', 'forget'].includes(result.tool)),
       memories: results.some((result) => result.memoryChanged) ? data.memories : undefined,
       debug,
-    })
+    }
+    if (streaming) {
+      emit({ type: 'done', ...payload })
+      return res.end()
+    }
+    return sendJson(res, 200, payload)
   } catch (error) {
     console.error('Assistant API error:', error)
     debug.push({ step: 'error', message: error.message || 'Unknown error' })
-    return sendJson(res, 500, { error: error.message || 'Assistant request failed.', debug })
+    return fail(500, error.message || 'Assistant request failed.')
   }
 }

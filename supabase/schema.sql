@@ -4,6 +4,8 @@ create table if not exists public.users (
   password_hash text not null,
   recovery_question text not null default 'What is that you are worried about?',
   recovery_answer text not null,
+  failed_attempts integer not null default 0,
+  locked_until timestamptz,
   created_at timestamptz not null default now()
 );
 
@@ -105,6 +107,8 @@ create table if not exists public.journal_entries (
   created_at timestamptz not null default now()
 );
 
+alter table public.users add column if not exists failed_attempts integer not null default 0;
+alter table public.users add column if not exists locked_until timestamptz;
 alter table public.tasks add column if not exists date text;
 alter table public.tasks add column if not exists time text;
 alter table public.tasks add column if not exists details text;
