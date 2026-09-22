@@ -24,12 +24,12 @@ This creates the app tables plus `assistant_conversations`, which stores each us
 
 ## 2) Copy the environment variables
 
-Create a file named `.env.local` in the project root by copying `.env.example`.
+Create a file named `.env` in the project root by copying `.env.example`. (`vercel dev` reads `.env`, not `.env.local`. Both are git-ignored.)
 
 Example:
 
 ```bash
-cp .env.example .env.local
+cp .env.example .env
 ```
 
 Then fill in the values:
@@ -59,10 +59,10 @@ npm install
 ## 4) Run locally
 
 ```bash
-npm run dev
+npm run dev:full
 ```
 
-This starts the Vercel local environment so the API routes work too.
+This starts the Vercel local environment (Vite + the `/api` routes) at http://localhost:3000. The first run asks you to log in and link the Vercel project. `npm run dev` starts only the Vite frontend, without the API.
 
 ## 5) Deploy to Vercel
 

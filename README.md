@@ -19,23 +19,23 @@ This is a cheap prototype designed to get you a working multi-device app quickly
 
 ## Run locally
 
-1. Create a `.env.local` file from `.env.example`
+1. Create a `.env` file from `.env.example` (`vercel dev` reads `.env`, not `.env.local`)
 2. Fill in the Supabase values
 3. Run:
 
 ```bash
 npm install
-npm run dev
+npm run dev:full
 ```
 
-This starts the Vercel local environment so the API routes work correctly.
+This starts the Vercel local environment (Vite + the `/api` routes) at http://localhost:3000. The first run asks you to log in and link the Vercel project. `npm run dev` starts only the Vite frontend, without the API.
 
 ## Configure Supabase
 
 1. Create a Supabase project
 2. Open SQL Editor
 3. Run the SQL from `supabase/schema.sql`
-4. Copy the project URL and service role key into `.env.local`
+4. Copy the project URL and service role key into `.env`
 
 ## Deploy to Vercel
 
