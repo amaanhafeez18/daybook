@@ -71,6 +71,8 @@ export default function FriendsTab() {
   }
 
   function removeFriend(id) {
+    const friend = friends.find((f) => f.id === id)
+    if (!window.confirm(`Remove ${friend?.name || 'this person'} and their contact history?`)) return
     persistFriends(friends.filter((f) => f.id !== id))
     persistLogs(logs.filter((l) => (l.friendId || l.friend_id) !== id))
   }
@@ -184,7 +186,7 @@ export default function FriendsTab() {
 
       {renderGroup('Last 2 weeks', grouped.recent)}
       {renderGroup('Last month', grouped.month)}
-      {renderGroup('6+ months', grouped.stale)}
+      {renderGroup('Over a month ago', grouped.stale)}
       {renderGroup('No contact logged', grouped.never)}
     </section>
   )
@@ -205,7 +207,11 @@ export default function FriendsTab() {
                 <div className="friend-card-head">
                   <div className="friend-avatar">
                     {friend.photoUrl ? (
-                      <img src={friend.photoUrl} alt={friend.name} />
+                      <img
+                        src={friend.photoUrl}
+                        alt={friend.name}
+                        onError={(event) => { event.currentTarget.replaceWith(Object.assign(document.createElement('span'), { textContent: initials })) }}
+                      />
                     ) : (
                       <span>{initials}</span>
                     )}
@@ -240,7 +246,7 @@ export default function FriendsTab() {
                       max={todayISO()}
                       onChange={(e) => setCustomDate(e.target.value)}
                     />
-                    <button className="btn-small" onClick={() => logContact(friend.id, customDate)}>Save</button>
+                    <button className="btn-small" disabled={!customDate || customDate > todayISO()} onClick={() => logContact(friend.id, customDate)}>Save</button>
                   </div>
                 )}
               </li>
@@ -262,9 +268,8 @@ function sinceLabel(iso) {
   const days = daysSince(iso)
   if (days <= 0) return 'today'
   if (days === 1) return 'yesterday'
-  if (days <= 14) return `${days} days ago`
-  if (days <= 30) return 'last month'
-  return `${days} days ago`
+  if (days < 60) return `${days} days ago`
+  return `${Math.floor(days / 30)} months ago`
 }
 
 function getInitials(name) {

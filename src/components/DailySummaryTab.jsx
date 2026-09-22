@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { load, todayISO } from '../lib/storage.js'
+import { addDaysISO, formatTime12, load, todayISO } from '../lib/storage.js'
 
 const WEATHER_URL = 'https://api.open-meteo.com/v1/forecast'
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -34,7 +34,7 @@ export default function DailySummaryTab() {
           const { latitude, longitude } = position.coords
           try {
             const response = await fetch(
-              `${WEATHER_URL}?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,weather_code,relative_humidity_2m,apparent_temperature,precipitation,wind_speed_10m&hourly=temperature_2m,precipitation_probability,weather_code&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset&forecast_days=1&timezone=auto`
+              `${WEATHER_URL}?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,weather_code,relative_humidity_2m,apparent_temperature,precipitation,wind_speed_10m&hourly=temperature_2m,precipitation_probability,weather_code&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset&forecast_days=2&timezone=auto`
             )
             if (!response.ok) throw new Error('Weather request failed')
             const payload = await response.json()
@@ -77,10 +77,10 @@ export default function DailySummaryTab() {
   }, [])
 
   const todayKey = todayISO()
-  const tomorrowKey = addDays(todayKey, 1)
+  const tomorrowKey = addDaysISO(todayKey, 1)
 
   const todayTasks = useMemo(
-    () => tasks.filter((task) => taskDate(task) === todayKey),
+    () => sortByTime(tasks.filter((task) => !task.archived && taskDate(task) === todayKey)),
     [tasks, todayKey]
   )
 
@@ -88,14 +88,16 @@ export default function DailySummaryTab() {
   const completedTodayTasks = todayTasks.length - openTodayTasks.length
 
   const tomorrowTasks = useMemo(
-    () => tasks.filter((task) => taskDate(task) === tomorrowKey),
+    () => sortByTime(tasks.filter((task) => !task.archived && !task.done && taskDate(task) === tomorrowKey)),
     [tasks, tomorrowKey]
   )
 
-  const todayClasses = useMemo(
-    () => classes.filter((item) => hasClassDay(item, getDayName(new Date()))),
-    [classes]
-  )
+  const todayClasses = useMemo(() => {
+    const dayName = getDayName(new Date())
+    return classes
+      .filter((item) => (!item.endDate || todayKey <= item.endDate) && hasClassDay(item, dayName))
+      .map((item) => ({ ...item, ...classDetailsFor(item, dayName) }))
+  }, [classes, todayKey])
 
   const currentTemp = weather?.current?.temperature_2m
   const currentWeatherCode = weather?.current?.weather_code
@@ -126,7 +128,7 @@ export default function DailySummaryTab() {
           ) : (
             <ul className="mini-list">
               {todayTasks.map((task) => (
-                <li key={task.id}>{task.text}{task.time ? ` · ${task.time}` : ''}</li>
+                <li key={task.id} className={task.done ? 'is-done' : ''}>{task.done ? '✓ ' : ''}{task.text}{task.time ? ` · ${formatTime12(task.time)}` : ''}</li>
               ))}
             </ul>
           )}
@@ -141,7 +143,7 @@ export default function DailySummaryTab() {
           ) : (
             <ul className="mini-list">
               {tomorrowTasks.map((task) => (
-                <li key={task.id}>{task.text}{task.time ? ` · ${task.time}` : ''}</li>
+                <li key={task.id}>{task.text}{task.time ? ` · ${formatTime12(task.time)}` : ''}</li>
               ))}
             </ul>
           )}
@@ -174,7 +176,7 @@ export default function DailySummaryTab() {
         <div className="summary-card prayer-summary">
           <h3>Muslim prayer times</h3>
           {!prayerTimes ? (
-            <p className="empty-note">Allow location access to calculate prayer times.</p>
+            <p className="empty-note">{error && !error.startsWith('Location') ? 'Prayer times are unavailable right now.' : 'Allow location access to calculate prayer times.'}</p>
           ) : (
             <>
               <div className="prayer-current">Current: <strong>{prayer.current}</strong></div>
@@ -196,7 +198,7 @@ export default function DailySummaryTab() {
             {todayClasses.map((item) => (
               <li key={item.id}>
                 <strong>{item.name}</strong>
-                <span>{item.time}</span>
+                {item.time ? <span> · {item.time}</span> : null}
                 {item.room ? <span> · {item.room}</span> : null}
               </li>
             ))}
@@ -208,10 +210,14 @@ export default function DailySummaryTab() {
   )
 }
 
-function addDays(iso, delta) {
-  const date = new Date(`${iso}T12:00:00`)
-  date.setDate(date.getDate() + delta)
-  return date.toISOString().slice(0, 10)
+function sortByTime(list) {
+  return [...list].sort((a, b) => (a.time || '99:99').localeCompare(b.time || '99:99'))
+}
+
+function classDetailsFor(item, dayName) {
+  const entry = (item.days || []).find((day) => typeof day === 'object' && day?.day?.startsWith(dayName))
+  const details = item.dayDetails?.[dayName] || entry || {}
+  return { time: details.time || item.time || '', room: details.room || item.room || '' }
 }
 
 function taskDate(task) {
@@ -232,7 +238,8 @@ function getDayName(date) {
 function describeWeather(code) {
   if (code === undefined || code === null) return 'Weather unknown'
   if (code === 0) return 'Clear sky'
-  if ([1, 2, 3].includes(code)) return 'Mostly clear'
+  if ([1, 2].includes(code)) return 'Mostly clear'
+  if (code === 3) return 'Overcast'
   if ([45, 48].includes(code)) return 'Foggy'
   if ([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return 'Rain'
   if ([71, 73, 75, 77, 85, 86].includes(code)) return 'Snow'
@@ -315,7 +322,7 @@ function getNext24Hours(payload) {
   const codes = payload?.hourly?.weather_code
   if (!times?.length || !temperatures?.length) return ''
   const now = Date.now()
-  const points = times.map((time, index) => ({ time: new Date(time).getTime(), temperature: temperatures[index], code: codes?.[index] })).filter((point) => point.time >= now).slice(0, 4)
+  const points = times.map((time, index) => ({ time: new Date(time).getTime(), temperature: temperatures[index], code: codes?.[index] })).filter((point) => point.time >= now - 60 * 60 * 1000).slice(0, 24)
   if (!points.length) return ''
   const high = Math.max(...points.map((point) => point.temperature))
   const low = Math.min(...points.map((point) => point.temperature))

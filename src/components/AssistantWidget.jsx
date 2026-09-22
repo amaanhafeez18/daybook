@@ -11,7 +11,9 @@ export default function AssistantWidget({ onDataChanged, embedded = false, sugge
   const [listening, setListening] = useState(false)
   const [error, setError] = useState('')
   const [debugEntries, setDebugEntries] = useState([])
-  const [speakReplies, setSpeakReplies] = useState(true)
+  const [speakReplies, setSpeakReplies] = useState(() => {
+    try { return localStorage.getItem('daybook.assistant.speak') === 'true' } catch { return false }
+  })
   const recognitionRef = useRef(null)
   const endRef = useRef(null)
 
@@ -35,9 +37,9 @@ export default function AssistantWidget({ onDataChanged, embedded = false, sugge
     }
   }
 
-  async function sendMessage(event) {
+  async function sendMessage(event, presetText) {
     event?.preventDefault()
-    const message = text.trim()
+    const message = (presetText ?? text).trim()
     if (!message || loading) return
     setText('')
     setError('')
@@ -109,7 +111,11 @@ export default function AssistantWidget({ onDataChanged, embedded = false, sugge
               <span>Tasks, people, plans, and notes</span>
             </div>
             <button className="assistant-new-chat" type="button" onClick={newChat}>New chat</button>
-            <label className="assistant-speak-toggle"><input type="checkbox" checked={speakReplies} onChange={(event) => setSpeakReplies(event.target.checked)} /> Speak</label>
+            <label className="assistant-speak-toggle"><input type="checkbox" checked={speakReplies} onChange={(event) => {
+              setSpeakReplies(event.target.checked)
+              if (!event.target.checked) window.speechSynthesis?.cancel()
+              try { localStorage.setItem('daybook.assistant.speak', String(event.target.checked)) } catch { /* ignore */ }
+            }} /> Speak</label>
             {!embedded && <button className="row-delete" aria-label="Close assistant" onClick={() => setOpen(false)}>×</button>}
           </header>
 
@@ -126,12 +132,12 @@ export default function AssistantWidget({ onDataChanged, embedded = false, sugge
 
           {embedded && messages.length === 0 && (
             <div className="assistant-suggestions">
-              {suggestions.map((suggestion) => <button type="button" key={suggestion} onClick={() => setText(suggestion)}>{suggestion}</button>)}
+              {suggestions.map((suggestion) => <button type="button" key={suggestion} disabled={loading} onClick={() => sendMessage(null, suggestion)}>{suggestion}</button>)}
             </div>
           )}
 
           {error && <p className="assistant-error">{error}</p>}
-          <details className="assistant-debug" open={debugEntries.length > 0}>
+          <details className="assistant-debug" open={!!error && debugEntries.length > 0}>
             <summary>Diagnostics {debugEntries.length ? `(${debugEntries.length} entries)` : ''}</summary>
             <pre>{debugEntries.length ? formatDebug(debugEntries) : 'Send a message to inspect the request.'}</pre>
           </details>

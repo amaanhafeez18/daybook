@@ -644,6 +644,8 @@ input {
 
 .friend-modal {
   width: min(100%, 420px);
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
   background: var(--paper);
   border-radius: 20px;
   padding: 18px;
@@ -1020,11 +1022,14 @@ input {
   padding: 8px 8px calc(env(safe-area-inset-bottom, 0px) + 8px);
 }
 
+.tab-bar {
+  z-index: 20; /* above page content, below modals (30) */
+}
+
 .more-menu-wrap {
-  position: fixed;
-  z-index: 42;
-  left: calc(50% + 132px);
-  bottom: 8px;
+  position: relative;
+  flex: 1;
+  display: flex;
 }
 
 .more-menu-toggle {
@@ -1032,11 +1037,37 @@ input {
   align-items: center;
   justify-content: center;
   gap: 5px;
-  min-width: 66px;
-  padding: 8px 5px;
-  border-radius: var(--radius);
-  color: var(--ink-soft);
-  font-size: 12px;
+  width: 100%;
+}
+
+.more-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 19;
+}
+
+.save-error-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 20px 8px;
+  padding: 8px 10px 8px 12px;
+  border: 1px solid rgba(168, 85, 107, 0.35);
+  border-radius: 8px;
+  background: rgba(168, 85, 107, 0.1);
+  color: var(--rose);
+  font-size: 13px;
+}
+
+.mini-list li.is-done {
+  opacity: 0.6;
+  text-decoration: line-through;
+}
+
+.task-row.is-overdue .task-date-line {
+  color: var(--rose);
+  font-weight: 600;
 }
 
 .more-menu-toggle.is-active {
@@ -1225,6 +1256,7 @@ body.is-dark[data-theme="sunset"] {
   --ink: #f5eee7;
   --ink-soft: #c5b8af;
   --line: #51453f;
+  --rose: #e79aad; /* the light-theme rose is unreadable on dark cards */
 }
 
 body.is-dark[data-theme="forest"] {
@@ -1233,6 +1265,7 @@ body.is-dark[data-theme="forest"] {
   --ink: #edf6ee;
   --ink-soft: #b8cbbd;
   --line: #3a5143;
+  --rose: #eba3a3;
 }
 
 body.is-dark[data-theme="midnight"] {
