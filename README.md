@@ -34,7 +34,8 @@ This starts the Vercel local environment (Vite + the `/api` routes) at http://lo
 
 1. Create a Supabase project
 2. Open SQL Editor
-3. Run the SQL from `supabase/schema.sql`
+3. Run the SQL from `supabase/schema.sql`, then every file in `supabase/migrations/` (oldest first).
+   `2026-09-23-enable-rls.sql` turns on Row Level Security: required, or the public key can read your data
 4. Copy the project URL and service role key into `.env`
 
 ## Deploy to Vercel
@@ -61,8 +62,8 @@ This app supports:
 - sign up with username + password
 - login with username + password
 - persistent login token stored locally
-- forgot password flow using the question: "What is that you are worried about?"
-- answer must be `me` to reset the password immediately
+- password reset with a personal recovery question (the answer is stored hashed)
+- lockout after repeated wrong guesses, and other devices are signed out after a password change
 
 ## Important note
 

@@ -4,6 +4,9 @@ create table if not exists public.users (
   password_hash text not null,
   recovery_question text not null default 'What is that you are worried about?',
   recovery_answer text not null,
+  failed_attempts integer not null default 0,
+  locked_until timestamptz,
+  token_version integer not null default 0,
   created_at timestamptz not null default now()
 );
 
@@ -84,6 +87,7 @@ create table if not exists public.assistant_conversations (
   id text primary key,
   user_id uuid not null unique references public.users(id) on delete cascade,
   messages jsonb not null default '[]'::jsonb,
+  usage jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -105,6 +109,10 @@ create table if not exists public.journal_entries (
   created_at timestamptz not null default now()
 );
 
+alter table public.users add column if not exists failed_attempts integer not null default 0;
+alter table public.users add column if not exists locked_until timestamptz;
+alter table public.users add column if not exists token_version integer not null default 0;
+alter table public.assistant_conversations add column if not exists usage jsonb not null default '{}'::jsonb;
 alter table public.tasks add column if not exists date text;
 alter table public.tasks add column if not exists time text;
 alter table public.tasks add column if not exists details text;
@@ -135,3 +143,6 @@ create index if not exists idx_settings_user_id on public.settings(user_id);
 create index if not exists idx_assistant_conversations_user_id on public.assistant_conversations(user_id);
 create index if not exists idx_journal_entries_user_id on public.journal_entries(user_id);
 create index if not exists idx_assistant_memories_user_id on public.assistant_memories(user_id);
+
+-- Login throttling helpers and Row Level Security: see supabase/migrations/2026-09-23-auth-hardening.sql
+-- and supabase/migrations/2026-09-23-enable-rls.sql (both are required for a secure setup).

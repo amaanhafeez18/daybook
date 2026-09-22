@@ -4,7 +4,7 @@ This project has been converted into a lightweight prototype that supports:
 
 - username/password sign up and login
 - persistent login using a saved token in localStorage
-- forgot-password flow with the custom question: "What is that you are worried about?"
+- password reset with a personal recovery question and answer (stored hashed)
 - shared data across devices via a backend API and database
 - Vercel deployment
 - iPhone home-screen install
@@ -19,6 +19,8 @@ This is still intentionally cheap and simple. It is designed as a prototype, not
 4. Wait for the project to be created.
 5. Open the SQL editor.
 6. Copy the contents of `supabase/schema.sql` and run it.
+7. Run each file in `supabase/migrations/` in date order. `2026-09-23-enable-rls.sql` is required:
+   it turns on Row Level Security so the public (publishable) key can't read or change your data.
 
 This creates the app tables plus `assistant_conversations`, which stores each user's recent assistant chat history.
 
@@ -39,7 +41,7 @@ SUPABASE_URL=https://YOUR-PROJECT.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=YOUR_SERVICE_ROLE_KEY
 JWT_SECRET=some-long-random-secret
 OPENAI_API_KEY=sk-your-openai-api-key
-OPENAI_MODEL=gpt-4o-mini
+OPENAI_MODEL=gpt-5-mini
 ```
 
 How to find them:
@@ -48,7 +50,7 @@ How to find them:
 - `SUPABASE_SERVICE_ROLE_KEY`: same place, under Project API keys
 - `JWT_SECRET`: any long random string like `daybook-dev-secret-abc-123`
 - `OPENAI_API_KEY`: create an API key in the OpenAI dashboard. Keep it server-side only.
-- `OPENAI_MODEL`: use `gpt-4o-mini` for the lowest-cost fast assistant configuration.
+- `OPENAI_MODEL`: `gpt-5-mini` is the default: accurate with tools and inexpensive thanks to prompt caching.
 
 ## 3) Install dependencies
 
@@ -76,7 +78,7 @@ This starts the Vercel local environment (Vite + the `/api` routes) at http://lo
    - `SUPABASE_SERVICE_ROLE_KEY`
    - `JWT_SECRET`
    - `OPENAI_API_KEY`
-   - `OPENAI_MODEL` (set to `gpt-4o-mini`)
+   - `OPENAI_MODEL` (set to `gpt-5-mini`)
 5. Deploy
 
 ### Option B: Vercel CLI
@@ -99,7 +101,7 @@ This makes it behave like an app.
 ## 7) Important notes for this prototype
 
 - This is a cheap prototype, not a production-grade auth system.
-- The password reset question is intentionally simple: it accepts only the answer `me`.
+- Password reset uses a personal recovery question. Accounts created before this change must set one in Settings → Security before reset works.
 - Session persistence is done with a saved token in localStorage for convenience.
 - This is acceptable for a prototype, but a real app should use secure HTTP-only cookies and stronger auth patterns.
 
@@ -110,7 +112,7 @@ The app now:
 - shows a login screen when no user is signed in
 - creates an account with username/password plus the custom question
 - signs in and keeps the user logged in on the same device
-- allows password reset with the custom question
+- allows password reset with a personal recovery question
 - stores tasks/calendar/friends/notes in the database instead of browser localStorage
 - provides a floating assistant that remembers recent conversation and can manage Daybook data
 
@@ -120,7 +122,7 @@ Click the floating sparkle button after signing in. You can type or use browser 
 
 The assistant uses the OpenAI Responses API (`POST https://api.openai.com/v1/responses`) with custom function tools on the Vercel server. The browser never receives `OPENAI_API_KEY`. Conversation history is stored in Supabase and limited to the most recent messages sent to the model to control cost and latency. The app manages its own conversation record in Supabase and uses `store: false` for OpenAI responses.
 
-For this prototype, `gpt-4o-mini` is the recommended OpenAI model because it is fast, inexpensive, and supports structured tool calls through Responses. Set `OPENAI_MODEL` to another Responses-compatible tool-capable OpenAI model later without changing the UI. Do not use the retired Assistants API.
+`gpt-5-mini` (low reasoning effort) is the default model: it handles multi-step tool use reliably and costs roughly $0.001–0.002 per message with prompt caching. Set `OPENAI_MODEL` to another Responses-compatible tool-capable OpenAI model later without changing the UI. Do not use the retired Assistants API.
 
 ## 10) What you need next
 
