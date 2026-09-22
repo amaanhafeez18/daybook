@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import jwt from 'jsonwebtoken'
 
 export function getSupabase() {
   const url = process.env.SUPABASE_URL
@@ -38,4 +39,25 @@ export function parseAuthHeader(req) {
   const header = req.headers.authorization || ''
   const token = header.startsWith('Bearer ') ? header.slice(7) : ''
   return token
+}
+
+// No fallback secret: a default would let anyone forge tokens if the env var is missing.
+export function getJwtSecret() {
+  const secret = process.env.JWT_SECRET
+  if (!secret) {
+    throw new Error('Missing JWT_SECRET environment variable. Add it in Vercel Project Settings → Environment Variables.')
+  }
+  return secret
+}
+
+// Returns the decoded token, or null when it is missing, expired, or invalid.
+export function verifyRequestToken(req) {
+  const secret = getJwtSecret()
+  const token = parseAuthHeader(req)
+  if (!token) return null
+  try {
+    return jwt.verify(token, secret)
+  } catch {
+    return null
+  }
 }

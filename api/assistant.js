@@ -1,7 +1,5 @@
-import jwt from 'jsonwebtoken'
-import { getSupabase, parseAuthHeader, readJsonBody } from './db.js'
+import { getSupabase, readJsonBody, verifyRequestToken } from './db.js'
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me'
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini'
 const MAX_MESSAGES = 40
 
@@ -326,9 +324,8 @@ export default async function handler(req, res) {
       debug.push({ step: 'assistant.config', ok: false, message: 'OPENAI_API_KEY is missing' })
       return sendJson(res, 503, { error: 'Assistant is not configured. Add OPENAI_API_KEY in Vercel.', debug })
     }
-    const token = parseAuthHeader(req)
-    if (!token) return sendJson(res, 401, { error: 'Missing auth token.' })
-    const user = jwt.verify(token, JWT_SECRET)
+    const user = verifyRequestToken(req)
+    if (!user) return sendJson(res, 401, { error: 'Your session has expired. Please log in again.' })
     const supabase = getSupabase()
     const { data: record } = await supabase.from('assistant_conversations').select('*').eq('user_id', user.id).maybeSingle()
     const history = Array.isArray(record?.messages) ? record.messages.map(normalizeMessage).slice(-MAX_MESSAGES) : []

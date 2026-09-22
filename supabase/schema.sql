@@ -69,6 +69,7 @@ create table if not exists public.classes (
   time text,
   room text,
   end_date text,
+  day_details jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
 );
 
@@ -108,6 +109,14 @@ alter table public.friends add column if not exists reminder_days integer;
 alter table public.classes add column if not exists end_date text;
 alter table public.friends add column if not exists relationship text not null default 'friend';
 alter table public.friends add column if not exists organization text;
+alter table public.friends add column if not exists note text;
+alter table public.friends add column if not exists photo_url text;
+alter table public.friends add column if not exists birthday text;
+alter table public.friends add column if not exists current_status text;
+alter table public.friends add column if not exists facts text;
+alter table public.classes add column if not exists time text;
+alter table public.classes add column if not exists room text;
+alter table public.classes add column if not exists day_details jsonb not null default '{}'::jsonb;
 
 create index if not exists idx_tasks_user_id on public.tasks(user_id);
 create index if not exists idx_events_user_id on public.events(user_id);

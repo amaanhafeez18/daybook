@@ -1,8 +1,6 @@
 import jwt from 'jsonwebtoken'
 import bcrypt from 'bcryptjs'
-import { getSupabase, readJsonBody, parseAuthHeader } from './db.js'
-
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me'
+import { getSupabase, readJsonBody, getJwtSecret, verifyRequestToken } from './db.js'
 
 function isConfigError(error) {
   return /Missing SUPABASE_URL|Missing JWT_SECRET|SUPABASE_SERVICE_ROLE_KEY|Environment Variables/.test(error?.message || '')
@@ -15,7 +13,7 @@ function sendJson(res, statusCode, payload) {
 }
 
 function buildToken(user) {
-  return jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '30d' })
+  return jwt.sign({ id: user.id, username: user.username }, getJwtSecret(), { expiresIn: '30d' })
 }
 
 export default async function handler(req, res) {
@@ -37,15 +35,14 @@ export default async function handler(req, res) {
     const supabase = getSupabase()
 
     if (method === 'GET') {
-      const token = parseAuthHeader(req)
-      if (!token) {
-        return sendJson(res, 401, { error: 'Missing token' })
+      const decoded = verifyRequestToken(req)
+      if (!decoded) {
+        return sendJson(res, 401, { error: 'Invalid session' })
       }
 
-      const decoded = jwt.verify(token, JWT_SECRET)
       const { data: user, error } = await supabase
         .from('users')
-        .select('id, username, recovery_question, recovery_answer')
+        .select('id, username')
         .eq('id', decoded.id)
         .single()
 
@@ -188,6 +185,49 @@ export default async function handler(req, res) {
         token: buildToken({ id: user.id, username: user.username }),
         user: { id: user.id, username: user.username }
       })
+    }
+
+    if (action === 'change') {
+      const decoded = verifyRequestToken(req)
+      if (!decoded) {
+        return sendJson(res, 401, { error: 'Your session has expired. Please log in again.' })
+      }
+
+      const currentPassword = String(body.currentPassword || '').trim()
+      const newPassword = String(body.newPassword || '').trim()
+      if (!currentPassword || !newPassword) {
+        return sendJson(res, 400, { error: 'Enter your current password and a new password.' })
+      }
+      if (newPassword.length < 6) {
+        return sendJson(res, 400, { error: 'New password must be at least 6 characters.' })
+      }
+
+      const { data: user, error } = await supabase
+        .from('users')
+        .select('id, password_hash')
+        .eq('id', decoded.id)
+        .single()
+
+      if (error || !user) {
+        return sendJson(res, 401, { error: 'Invalid session' })
+      }
+
+      const passwordMatches = await bcrypt.compare(currentPassword, user.password_hash)
+      if (!passwordMatches) {
+        return sendJson(res, 400, { error: 'Current password is incorrect.' })
+      }
+
+      const passwordHash = await bcrypt.hash(newPassword, 10)
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({ password_hash: passwordHash })
+        .eq('id', user.id)
+
+      if (updateError) {
+        return sendJson(res, 500, { error: 'Unable to update password.' })
+      }
+
+      return sendJson(res, 200, { ok: true })
     }
 
     return sendJson(res, 404, { error: 'Unknown auth action.' })
