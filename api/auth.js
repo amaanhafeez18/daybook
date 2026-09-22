@@ -1,6 +1,5 @@
-import jwt from 'jsonwebtoken'
 import bcrypt from 'bcryptjs'
-import { getSupabase, readJsonBody, getJwtSecret, verifyRequestToken } from './db.js'
+import { clientIp, getSupabase, readJsonBody, signToken, underLimit, verifyRequestToken, verifyTokenVersion } from './db.js'
 
 const USERNAME_PATTERN = /^[a-z0-9._-]{3,32}$/
 const MIN_PASSWORD_LENGTH = 8
@@ -21,10 +20,6 @@ function sendJson(res, statusCode, payload) {
   res.statusCode = statusCode
   res.setHeader('Content-Type', 'application/json')
   res.end(JSON.stringify(payload))
-}
-
-function buildToken(user) {
-  return jwt.sign({ id: user.id, username: user.username }, getJwtSecret(), { expiresIn: '30d' })
 }
 
 function normalizeAnswer(answer) {
@@ -57,8 +52,8 @@ function recoveryProblem(question, answer) {
   return ''
 }
 
-// Lockout uses users.failed_attempts / users.locked_until when those columns exist
-// (supabase/migrations/2026-09-23-auth-hardening.sql); without them it is skipped.
+// Account lockout uses users.failed_attempts / locked_until and the daybook_record_auth_failure
+// function (supabase/migrations/2026-09-23-auth-hardening.sql). Without them it is skipped.
 function lockedMinutes(user) {
   if (!user?.locked_until) return 0
   const remaining = new Date(user.locked_until).getTime() - Date.now()
@@ -67,6 +62,9 @@ function lockedMinutes(user) {
 
 async function recordFailure(supabase, user) {
   if (!user || !('failed_attempts' in user)) return
+  // Atomic in the database, so many parallel guesses can't slip past the limit.
+  const { error } = await supabase.rpc('daybook_record_auth_failure', { p_user_id: user.id, p_max: MAX_FAILED_ATTEMPTS, p_lock_minutes: LOCK_MINUTES })
+  if (!error) return
   const attempts = (user.failed_attempts || 0) + 1
   const patch = attempts >= MAX_FAILED_ATTEMPTS
     ? { failed_attempts: 0, locked_until: new Date(Date.now() + LOCK_MINUTES * 60000).toISOString() }
@@ -80,12 +78,13 @@ async function clearFailures(supabase, user) {
   await supabase.from('users').update({ failed_attempts: 0, locked_until: null }).eq('id', user.id)
 }
 
-function lockedResponse(res, minutes) {
+function tooMany(res, minutes) {
   return sendJson(res, 429, { error: `Too many attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.` })
 }
 
 async function findUserByUsername(supabase, username) {
-  const { data } = await supabase.from('users').select('*').eq('username', username).maybeSingle()
+  const { data, error } = await supabase.from('users').select('*').eq('username', username).maybeSingle()
+  if (error) throw Object.assign(new Error('Database unavailable. Please try again.'), { status: 503 })
   return data || null
 }
 
@@ -94,6 +93,13 @@ async function answerMatches(user, answer) {
   if (status === 'hashed') return bcrypt.compare(normalizeAnswer(answer), user.recovery_answer)
   if (status === 'legacy') return normalizeAnswer(answer) === normalizeAnswer(user.recovery_answer)
   return false
+}
+
+// A password change or reset bumps token_version, signing out every other device.
+function afterPasswordChange(user, patch) {
+  if ('token_version' in user) patch.token_version = (user.token_version || 0) + 1
+  if ('failed_attempts' in user) Object.assign(patch, { failed_attempts: 0, locked_until: null })
+  return patch
 }
 
 export default async function handler(req, res) {
@@ -115,10 +121,8 @@ export default async function handler(req, res) {
     if (method === 'GET') {
       const decoded = verifyRequestToken(req)
       if (!decoded) return sendJson(res, 401, { error: 'Invalid session' })
-
-      const { data: user } = await supabase.from('users').select('*').eq('id', decoded.id).maybeSingle()
+      const user = await verifyTokenVersion(supabase, decoded)
       if (!user) return sendJson(res, 401, { error: 'Invalid session' })
-
       return sendJson(res, 200, { user: publicUser(user) })
     }
 
@@ -126,8 +130,14 @@ export default async function handler(req, res) {
 
     const body = await readJsonBody(req)
     const action = body.action
+    const ip = clientIp(req)
 
     if (action === 'signup') {
+      if (process.env.ALLOW_SIGNUPS === 'false') {
+        return sendJson(res, 403, { error: 'New sign-ups are closed.' })
+      }
+      if (!(await underLimit(supabase, `signup:${ip}`, 5, 3600))) return tooMany(res, 60)
+
       const username = String(body.username || '').trim().toLowerCase()
       const password = String(body.password || '').trim()
       const question = String(body.recoveryQuestion || '').trim()
@@ -153,17 +163,19 @@ export default async function handler(req, res) {
       if (error?.code === '23505') return sendJson(res, 409, { error: 'That username is already taken.' })
       if (error || !user) return sendJson(res, 500, { error: 'Unable to create account.' })
 
-      return sendJson(res, 200, { token: buildToken(user), user: publicUser(user) })
+      return sendJson(res, 200, { token: signToken(user), user: publicUser(user) })
     }
 
     if (action === 'login') {
+      if (!(await underLimit(supabase, `login:${ip}`, 30, 600))) return tooMany(res, 10)
+
       const username = String(body.username || '').trim().toLowerCase()
       const password = String(body.password || '').trim()
       if (!username || !password) return sendJson(res, 400, { error: 'Enter your username and password.' })
 
       const user = await findUserByUsername(supabase, username)
       const minutes = lockedMinutes(user)
-      if (minutes) return lockedResponse(res, minutes)
+      if (minutes) return tooMany(res, minutes)
 
       const passwordMatches = await bcrypt.compare(password, user?.password_hash || DUMMY_HASH)
       if (!user || !passwordMatches) {
@@ -172,10 +184,12 @@ export default async function handler(req, res) {
       }
 
       await clearFailures(supabase, user)
-      return sendJson(res, 200, { token: buildToken(user), user: publicUser(user) })
+      return sendJson(res, 200, { token: signToken(user), user: publicUser(user) })
     }
 
     if (action === 'forgot') {
+      if (!(await underLimit(supabase, `recover:${ip}`, 20, 600))) return tooMany(res, 10)
+
       const username = String(body.username || '').trim().toLowerCase()
       if (!username) return sendJson(res, 400, { error: 'Enter your username.' })
 
@@ -189,6 +203,8 @@ export default async function handler(req, res) {
     }
 
     if (action === 'reset') {
+      if (!(await underLimit(supabase, `recover:${ip}`, 20, 600))) return tooMany(res, 10)
+
       const username = String(body.username || '').trim().toLowerCase()
       const newPassword = String(body.newPassword || '').trim()
       if (!username || !normalizeAnswer(body.answer) || !newPassword) {
@@ -200,7 +216,7 @@ export default async function handler(req, res) {
       const user = await findUserByUsername(supabase, username)
       if (!user) return sendJson(res, 404, { error: 'No account found with that username.' })
       const minutes = lockedMinutes(user)
-      if (minutes) return lockedResponse(res, minutes)
+      if (minutes) return tooMany(res, minutes)
       if (recoveryStatus(user) === 'none') {
         return sendJson(res, 409, { error: 'Password reset isn’t set up for this account.' })
       }
@@ -210,26 +226,25 @@ export default async function handler(req, res) {
         return sendJson(res, 400, { error: 'That answer doesn’t match.' })
       }
 
-      const patch = { password_hash: await bcrypt.hash(newPassword, 10) }
+      const patch = afterPasswordChange(user, { password_hash: await bcrypt.hash(newPassword, 10) })
       // Upgrade older plain-text answers to a hash now that we know the answer.
       if (recoveryStatus(user) === 'legacy') patch.recovery_answer = await bcrypt.hash(normalizeAnswer(body.answer), 10)
-      if ('failed_attempts' in user) Object.assign(patch, { failed_attempts: 0, locked_until: null })
 
       const { error: updateError } = await supabase.from('users').update(patch).eq('id', user.id)
       if (updateError) return sendJson(res, 500, { error: 'Unable to update password.' })
 
-      return sendJson(res, 200, { token: buildToken(user), user: publicUser({ ...user, ...patch }) })
+      const updated = { ...user, ...patch }
+      return sendJson(res, 200, { token: signToken(updated), user: publicUser(updated) })
     }
 
     // Everything below needs a signed-in user who confirms their current password.
     if (action === 'change' || action === 'set_recovery') {
       const decoded = verifyRequestToken(req)
       if (!decoded) return sendJson(res, 401, { error: 'Your session has expired. Please log in again.' })
-
-      const { data: user } = await supabase.from('users').select('*').eq('id', decoded.id).maybeSingle()
-      if (!user) return sendJson(res, 401, { error: 'Invalid session' })
+      const user = await verifyTokenVersion(supabase, decoded)
+      if (!user) return sendJson(res, 401, { error: 'Your session has expired. Please log in again.' })
       const minutes = lockedMinutes(user)
-      if (minutes) return lockedResponse(res, minutes)
+      if (minutes) return tooMany(res, minutes)
 
       const currentPassword = String(body.currentPassword || '').trim()
       if (!currentPassword) return sendJson(res, 400, { error: 'Enter your current password.' })
@@ -238,26 +253,27 @@ export default async function handler(req, res) {
         return sendJson(res, 400, { error: 'Current password is incorrect.' })
       }
 
-      const patch = {}
+      let patch
       if (action === 'change') {
         const newPassword = String(body.newPassword || '').trim()
         const problem = passwordProblem(newPassword)
         if (problem) return sendJson(res, 400, { error: problem })
-        patch.password_hash = await bcrypt.hash(newPassword, 10)
+        patch = afterPasswordChange(user, { password_hash: await bcrypt.hash(newPassword, 10) })
       } else {
         const question = String(body.question || '').trim()
         const answer = normalizeAnswer(body.answer)
         const problem = recoveryProblem(question, answer)
         if (problem) return sendJson(res, 400, { error: problem })
-        patch.recovery_question = question
-        patch.recovery_answer = await bcrypt.hash(answer, 10)
+        patch = { recovery_question: question, recovery_answer: await bcrypt.hash(answer, 10) }
+        if ('failed_attempts' in user) Object.assign(patch, { failed_attempts: 0, locked_until: null })
       }
-      if ('failed_attempts' in user) Object.assign(patch, { failed_attempts: 0, locked_until: null })
 
       const { error: updateError } = await supabase.from('users').update(patch).eq('id', user.id)
       if (updateError) return sendJson(res, 500, { error: 'Unable to save that change.' })
 
-      return sendJson(res, 200, { ok: true, user: publicUser({ ...user, ...patch }) })
+      const updated = { ...user, ...patch }
+      // A new token keeps this device signed in after other devices are signed out.
+      return sendJson(res, 200, { ok: true, token: signToken(updated), user: publicUser(updated) })
     }
 
     return sendJson(res, 404, { error: 'Unknown auth action.' })
@@ -268,6 +284,7 @@ export default async function handler(req, res) {
         error: 'Server is not configured yet. Add SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, and JWT_SECRET in Vercel.'
       })
     }
+    if (error.status === 503) return sendJson(res, 503, { error: error.message })
     return sendJson(res, 500, { error: 'Something went wrong. Please try again.' })
   }
 }

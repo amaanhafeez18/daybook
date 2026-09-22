@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { getSupabase, readJsonBody, verifyRequestToken } from './db.js'
+import { getSupabase, readJsonBody, verifyRequestToken, verifyTokenVersion } from './db.js'
 
 // gpt-5-mini: strong tool use at low cost ($0.25/M input, $0.025/M cached, $2/M output).
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-5-mini'
@@ -13,6 +13,11 @@ const MAX_STORED_MESSAGES = 40 // kept in the database and shown in the chat
 const MAX_MODEL_MESSAGES = 20 // sent to the model each turn; durable facts live in memories
 const MAX_TOOL_ROUNDS = 5
 const MAX_AUDIO_BYTES = 3 * 1024 * 1024 // Vercel caps request bodies at 4.5 MB (base64 adds a third)
+const MAX_MESSAGE_CHARS = 4000
+// Protects the OpenAI bill if an account is misused. Override with ASSISTANT_DAILY_LIMIT.
+const DAILY_MESSAGE_LIMIT = Number(process.env.ASSISTANT_DAILY_LIMIT) || 200
+const JOURNAL_PREVIEW_CHARS = 400
+const FACTS_PREVIEW_CHARS = 500
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 function sendJson(res, statusCode, payload) {
@@ -31,6 +36,28 @@ function nowIso() {
 
 function isIsoDate(value) {
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
+}
+
+function isTime(value) {
+  return typeof value === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(value)
+}
+
+// '' clears a date/time; anything else must be well-formed.
+function checkDateTime(args, { dateRequired = false } = {}) {
+  if (args.date !== undefined && args.date !== '' && !isIsoDate(args.date)) return 'Dates must be YYYY-MM-DD.'
+  if (dateRequired && args.date !== undefined && !isIsoDate(args.date)) return 'An event needs a date (YYYY-MM-DD).'
+  if (args.time !== undefined && args.time !== '' && !isTime(args.time)) return 'Times must be 24-hour HH:MM.'
+  return ''
+}
+
+// The user's calendar date for a stored timestamp.
+function localDateOf(timestamp, timeZone) {
+  const date = new Date(timestamp || Date.now())
+  try {
+    return date.toLocaleDateString('en-CA', { timeZone })
+  } catch {
+    return date.toISOString().slice(0, 10)
+  }
 }
 
 function addDays(iso, delta) {
@@ -207,7 +234,8 @@ const tools = [
     type: { type: 'string', enum: ['journal', 'notes', 'completed_tasks', 'archived_tasks', 'past_events'] },
     query: { type: 'string', description: 'Optional text to filter by.' },
   }, ['type']),
-  tool('update_settings', 'Change Daybook display settings.', {
+  tool('update_settings', 'Change Daybook display settings. appearance: system (follow the device), light, or dark.', {
+    appearance: { type: 'string', enum: ['system', 'light', 'dark'] },
     theme: { type: 'string', enum: ['sunset', 'forest', 'midnight'] },
     darkMode: { type: 'boolean' },
     displayName: { type: 'string' },
@@ -285,7 +313,7 @@ function buildSnapshot(data, ctx, username) {
         organization: friend.organization,
         birthday: friend.birthday,
         status: truncate(friend.current_status, 200),
-        facts: truncate(friend.facts || friend.note, 500),
+        facts: truncate(friend.facts || friend.note, FACTS_PREVIEW_CHARS),
         lastTalked: last,
         daysSinceTalked: last ? daysBetween(last, today) : undefined,
       })
@@ -293,8 +321,8 @@ function buildSnapshot(data, ctx, username) {
     journal: data.journal_entries
       .sort((a, b) => b.date.localeCompare(a.date))
       .slice(0, 5)
-      .map((entry) => compact({ date: entry.date, title: entry.title, mood: entry.mood, text: truncate(entry.body, 400) })),
-    notes: data.voice_notes.slice(0, 10).map((note) => compact({ date: String(note.created_at || '').slice(0, 10), text: truncate(note.text, 300) })),
+      .map((entry) => compact({ date: entry.date, title: entry.title, mood: entry.mood, text: truncate(entry.body, JOURNAL_PREVIEW_CHARS) })),
+    notes: data.voice_notes.slice(0, 10).map((note) => compact({ date: localDateOf(note.created_at, ctx.timeZone), text: truncate(note.text, 300) })),
     settings: compact({ theme: data.settings.theme, darkMode: data.settings.darkMode }),
   })
 }
@@ -448,13 +476,17 @@ function findOwned(list, id, label) {
 
 async function executeTool(supabase, userId, name, args, data, ctx) {
   if (name === 'create_task') {
+    const problem = checkDateTime(args)
+    if (problem) return { ok: false, message: problem }
     const task = { id: newId(), user_id: userId, text: args.text, date: args.date || '', time: args.time || '', details: args.details || '', priority: args.priority || 'medium', done: false, archived: false, calendar_event_id: null, created_at: nowIso() }
     if (task.date) task.calendar_event_id = newId()
     const { error } = await supabase.from('tasks').insert(task)
     if (error) throw error
     if (task.date) {
-      const { error: eventError } = await supabase.from('events').insert({ id: task.calendar_event_id, task_id: task.id, user_id: userId, date: task.date, time: task.time, title: task.text, created_at: nowIso() })
+      const event = { id: task.calendar_event_id, task_id: task.id, user_id: userId, date: task.date, time: task.time, title: task.text, created_at: nowIso() }
+      const { error: eventError } = await supabase.from('events').insert(event)
       if (eventError) throw eventError
+      data.events.push(event)
     }
     data.tasks.unshift(task)
     return { ok: true, message: `Created task "${task.text}".`, id: task.id }
@@ -462,6 +494,8 @@ async function executeTool(supabase, userId, name, args, data, ctx) {
 
   if (name === 'update_task') {
     const task = findOwned(data.tasks, args.taskId, 'task')
+    const problem = checkDateTime(args)
+    if (problem) return { ok: false, message: problem }
     const patch = {}
     for (const field of ['text', 'date', 'time', 'details', 'priority', 'done', 'archived']) {
       if (args[field] !== undefined) patch[field] = args[field]
@@ -473,11 +507,18 @@ async function executeTool(supabase, userId, name, args, data, ctx) {
     // Keep the calendar in step with the task, the same way the app does.
     const linked = data.events.filter((event) => event.task_id === task.id)
     if (task.done || task.archived || !task.date) {
-      if (linked.length) await supabase.from('events').delete().eq('task_id', task.id).eq('user_id', userId)
+      if (linked.length) {
+        await supabase.from('events').delete().eq('task_id', task.id).eq('user_id', userId)
+        data.events = data.events.filter((event) => event.task_id !== task.id)
+      }
     } else if (linked.length) {
-      await supabase.from('events').update({ title: task.text, date: task.date, time: task.time || '' }).eq('task_id', task.id).eq('user_id', userId)
+      const eventPatch = { title: task.text, date: task.date, time: task.time || '' }
+      await supabase.from('events').update(eventPatch).eq('task_id', task.id).eq('user_id', userId)
+      linked.forEach((event) => Object.assign(event, eventPatch))
     } else {
-      await supabase.from('events').insert({ id: newId(), task_id: task.id, user_id: userId, title: task.text, date: task.date, time: task.time || '', created_at: nowIso() })
+      const event = { id: newId(), task_id: task.id, user_id: userId, title: task.text, date: task.date, time: task.time || '', created_at: nowIso() }
+      await supabase.from('events').insert(event)
+      data.events.push(event)
     }
     const verb = patch.done === true ? 'Completed' : patch.archived === true ? 'Archived' : patch.done === false ? 'Reopened' : 'Updated'
     return { ok: true, message: `${verb} task "${task.text}".` }
@@ -486,6 +527,7 @@ async function executeTool(supabase, userId, name, args, data, ctx) {
   if (name === 'create_event') {
     const event = { id: newId(), task_id: newId(), user_id: userId, title: args.title, date: args.date, time: args.time || '', created_at: nowIso() }
     if (!isIsoDate(event.date)) return { ok: false, message: 'An event needs a date (YYYY-MM-DD).' }
+    if (event.time && !isTime(event.time)) return { ok: false, message: 'Times must be 24-hour HH:MM.' }
     const { error } = await supabase.from('events').insert(event)
     if (error) throw error
     const { error: taskError } = await supabase.from('tasks').insert({ id: event.task_id, user_id: userId, text: event.title, date: event.date, time: event.time, details: '', priority: 'medium', done: false, archived: false, calendar_event_id: event.id, created_at: nowIso() })
@@ -496,6 +538,8 @@ async function executeTool(supabase, userId, name, args, data, ctx) {
 
   if (name === 'update_event') {
     const event = findOwned(data.events, args.eventId, 'event')
+    const problem = checkDateTime(args, { dateRequired: true })
+    if (problem) return { ok: false, message: problem }
     const patch = {}
     for (const field of ['title', 'date', 'time']) if (args[field] !== undefined) patch[field] = args[field]
     const { error } = await supabase.from('events').update(patch).eq('id', event.id).eq('user_id', userId)
@@ -506,7 +550,11 @@ async function executeTool(supabase, userId, name, args, data, ctx) {
       if (patch.title !== undefined) taskPatch.text = patch.title
       if (patch.date !== undefined) taskPatch.date = patch.date
       if (patch.time !== undefined) taskPatch.time = patch.time
-      if (Object.keys(taskPatch).length) await supabase.from('tasks').update(taskPatch).eq('id', event.task_id).eq('user_id', userId)
+      if (Object.keys(taskPatch).length) {
+        await supabase.from('tasks').update(taskPatch).eq('id', event.task_id).eq('user_id', userId)
+        const task = data.tasks.find((item) => item.id === event.task_id)
+        if (task) Object.assign(task, taskPatch)
+      }
     }
     return { ok: true, message: `Updated "${event.title}".` }
   }
@@ -536,7 +584,12 @@ async function executeTool(supabase, userId, name, args, data, ctx) {
     if (args.organization !== undefined) patch.organization = args.organization
     if (args.birthday !== undefined) patch.birthday = args.birthday
     if (args.currentStatus !== undefined) patch.current_status = args.currentStatus
-    if (args.facts !== undefined) patch.facts = args.facts
+    if (args.facts !== undefined) {
+      if (String(friend.facts || '').length > FACTS_PREVIEW_CHARS) {
+        return { ok: false, message: `${friend.name} has a long facts list, so I can only add to it (use addFact).` }
+      }
+      patch.facts = args.facts
+    }
     if (args.addFact) {
       const existing = String(patch.facts ?? friend.facts ?? '').trim()
       patch.facts = existing ? `${existing}\n${args.addFact.trim()}` : args.addFact.trim()
@@ -575,12 +628,21 @@ async function executeTool(supabase, userId, name, args, data, ctx) {
   if (name === 'write_journal') {
     const date = isIsoDate(args.date) ? args.date : ctx.localDate
     const existing = data.journal_entries.find((entry) => entry.date === date)
+    if (existing && args.mode === 'replace' && String(existing.body || '').length > JOURNAL_PREVIEW_CHARS) {
+      return { ok: false, message: 'That entry is longer than what I can see, so I can only add to it (mode "append").' }
+    }
     const body = existing && args.mode !== 'replace' ? `${existing.body}\n\n${args.body}`.trim() : args.body
     const fields = { title: args.title || existing?.title || 'Untitled entry', body, mood: args.mood ?? existing?.mood ?? '' }
-    const { error } = existing
-      ? await supabase.from('journal_entries').update(fields).eq('id', existing.id).eq('user_id', userId)
-      : await supabase.from('journal_entries').insert({ id: newId(), user_id: userId, date, ...fields, created_at: nowIso() })
-    if (error) throw error
+    if (existing) {
+      const { error } = await supabase.from('journal_entries').update(fields).eq('id', existing.id).eq('user_id', userId)
+      if (error) throw error
+      Object.assign(existing, fields)
+    } else {
+      const entry = { id: newId(), user_id: userId, date, ...fields, created_at: nowIso() }
+      const { error } = await supabase.from('journal_entries').insert(entry)
+      if (error) throw error
+      data.journal_entries.unshift(entry)
+    }
     return { ok: true, message: `${existing ? 'Updated' : 'Wrote'} your journal for ${date}.` }
   }
 
@@ -615,7 +677,7 @@ async function executeTool(supabase, userId, name, args, data, ctx) {
     const matches = (text) => !query || String(text || '').toLowerCase().includes(query)
     let items = []
     if (args.type === 'journal') items = data.journal_entries.filter((entry) => matches(`${entry.title} ${entry.body}`)).map((entry) => compact({ date: entry.date, title: entry.title, mood: entry.mood, text: truncate(entry.body, 1500) }))
-    if (args.type === 'notes') items = data.voice_notes.filter((note) => matches(note.text)).map((note) => ({ date: String(note.created_at).slice(0, 10), text: truncate(note.text, 1000) }))
+    if (args.type === 'notes') items = data.voice_notes.filter((note) => matches(note.text)).map((note) => ({ date: localDateOf(note.created_at, ctx.timeZone), text: truncate(note.text, 1000) }))
     if (args.type === 'completed_tasks') items = data.tasks.filter((task) => task.done && !task.archived && matches(task.text)).map((task) => compact({ id: task.id, text: task.text, date: task.date }))
     if (args.type === 'archived_tasks') items = data.tasks.filter((task) => task.archived && matches(task.text)).map((task) => compact({ id: task.id, text: task.text, date: task.date }))
     if (args.type === 'past_events') items = data.events.filter((event) => event.date < addDays(ctx.localDate, -7) && matches(event.title)).map((event) => compact({ id: event.id, title: event.title, date: event.date, time: event.time }))
@@ -623,7 +685,12 @@ async function executeTool(supabase, userId, name, args, data, ctx) {
   }
 
   if (name === 'update_settings') {
-    const value = { ...data.settings, ...compact(args) }
+    const changes = compact(args)
+    if (changes.darkMode !== undefined) {
+      changes.appearance = changes.appearance || (changes.darkMode ? 'dark' : 'light')
+      delete changes.darkMode
+    }
+    const value = { ...data.settings, ...changes }
     const { error } = data.settingsRow
       ? await supabase.from('settings').update({ value }).eq('id', data.settingsRow.id).eq('user_id', userId)
       : await supabase.from('settings').insert({ id: newId(), user_id: userId, value, created_at: nowIso() })
@@ -663,10 +730,17 @@ export default async function handler(req, res) {
     if (!user) return sendJson(res, 401, { error: 'Your session has expired. Please log in again.' })
     const supabase = getSupabase()
 
-    // For a new message, start loading the planner data while the conversation is fetched.
+    // For a new message, start loading the planner data while the session and conversation load.
     const dataPromise = req.method === 'POST' ? loadData(supabase, user.id) : null
     dataPromise?.catch(() => {}) // errors surface where it is awaited below
-    const { data: record } = await supabase.from('assistant_conversations').select('*').eq('user_id', user.id).maybeSingle()
+    const [account, conversation] = await Promise.all([
+      verifyTokenVersion(supabase, user),
+      supabase.from('assistant_conversations').select('*').eq('user_id', user.id).maybeSingle(),
+    ])
+    if (!account) return sendJson(res, 401, { error: 'Your session has expired. Please log in again.' })
+    // If the history can't be read, stop: saving later would overwrite it with this one exchange.
+    if (conversation.error) return fail(503, 'Couldn’t load your conversation. Please try again.')
+    const record = conversation.data
     const history = Array.isArray(record?.messages) ? record.messages.map(normalizeMessage).slice(-MAX_STORED_MESSAGES) : []
 
     if (req.method === 'GET') {
@@ -704,6 +778,10 @@ export default async function handler(req, res) {
 
     const ctx = readClientContext(body.context)
     const isVoice = Boolean(body.audio)
+    if (String(body.message || '').length > MAX_MESSAGE_CHARS) return fail(413, `Messages can be up to ${MAX_MESSAGE_CHARS} characters.`)
+    // Daily cap, counted in assistant_conversations.usage when that column exists.
+    const usage = record && 'usage' in record ? (record.usage?.date === ctx.localDate ? record.usage : { date: ctx.localDate, count: 0 }) : null
+    if (usage && usage.count >= DAILY_MESSAGE_LIMIT) return fail(429, 'You’ve reached today’s assistant limit. It resets tomorrow.')
     emit({ type: 'status', text: isVoice ? 'Listening…' : 'Thinking…' })
 
     const data = await dataPromise
@@ -774,7 +852,14 @@ export default async function handler(req, res) {
       { role: 'user', content: text, createdAt: nowIso(), ...(isVoice ? { voice: true } : {}) },
       { role: 'assistant', content: reply, createdAt: nowIso(), ...(results.length ? { actions: results.filter((result) => result.tool !== 'search').map(({ tool: toolName, ok, message }) => ({ tool: toolName, ok, message })) } : {}) },
     ].slice(-MAX_STORED_MESSAGES)
-    await supabase.from('assistant_conversations').upsert({ id: record?.id || newId(), user_id: user.id, messages: nextHistory, updated_at: nowIso() }, { onConflict: 'user_id' })
+    const saved = await supabase.from('assistant_conversations').upsert({
+      id: record?.id || newId(),
+      user_id: user.id,
+      messages: nextHistory,
+      updated_at: nowIso(),
+      ...(usage ? { usage: { date: usage.date, count: usage.count + 1 } } : {}),
+    }, { onConflict: 'user_id' })
+    if (saved.error) debug.push({ step: 'history.save_failed', message: saved.error.message })
 
     const payload = {
       reply,

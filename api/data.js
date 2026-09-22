@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { getSupabase, readJsonBody, verifyRequestToken } from './db.js'
+import { getSupabase, readJsonBody, selectAll, verifyRequestToken, verifyTokenVersion } from './db.js'
 
 function isConfigError(error) {
   return /Missing SUPABASE_URL|Missing JWT_SECRET|SUPABASE_SERVICE_ROLE_KEY|Environment Variables/.test(error?.message || '')
@@ -117,10 +117,13 @@ function chunks(list, size = 100) {
 
 async function ownedIdsFor(supabase, tableName, userId, ids) {
   // Small batches check just those ids; large ones read every id the user owns (keeps URLs short).
-  const query = supabase.from(tableName).select('id').eq('user_id', userId)
-  const { data, error } = ids && ids.length <= 100 ? await query.in('id', ids) : await query
-  if (error) throw error
-  return new Set((data || []).map((row) => row.id))
+  if (ids && ids.length <= 100) {
+    const { data, error } = await supabase.from(tableName).select('id').eq('user_id', userId).in('id', ids)
+    if (error) throw error
+    return new Set((data || []).map((row) => row.id))
+  }
+  const rows = await selectAll(() => supabase.from(tableName).select('id').eq('user_id', userId).order('id'))
+  return new Set(rows.map((row) => row.id))
 }
 
 // Rows the user already owns are updated in place. New rows use a plain insert, so an id that
@@ -170,14 +173,14 @@ async function patchRows(supabase, tableName, userId, upsert, remove) {
 
 async function readKey(supabase, key, userId) {
   const tableName = TABLES[key]
-  const { data, error } = await supabase
+  const rows = await selectAll(() => supabase
     .from(tableName)
     .select('*')
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
-  if (error) throw error
-  if (tableName === 'settings') return data?.[0]?.value || {}
-  return (data || []).map(normalizeRowForClient)
+    .order('id'))
+  if (tableName === 'settings') return rows[0]?.value || {}
+  return rows.map(normalizeRowForClient)
 }
 
 export default async function handler(req, res) {
@@ -200,20 +203,23 @@ export default async function handler(req, res) {
     }
 
     const supabase = getSupabase()
+    const expired = () => sendJson(res, 401, { error: 'Your session has expired. Please log in again.' })
 
     if (method === 'GET') {
       // ?keys=tasks,events,... loads several lists in one request (one cold start instead of many).
-      if (req.query?.keys) {
-        const keys = [...new Set(String(req.query.keys).split(',').map((key) => key.trim()).filter(Boolean))]
-        if (!keys.length || keys.some((key) => !TABLES[key])) return sendJson(res, 400, { error: 'Unknown data key.' })
-        const values = await Promise.all(keys.map((key) => readKey(supabase, key, decoded.id)))
-        return sendJson(res, 200, Object.fromEntries(keys.map((key, index) => [key, values[index]])))
-      }
+      const keys = req.query?.keys
+        ? [...new Set(String(req.query.keys).split(',').map((key) => key.trim()).filter(Boolean))]
+        : [req.query?.key || 'tasks']
+      if (!keys.length || keys.some((key) => !TABLES[key])) return sendJson(res, 400, { error: 'Unknown data key.' })
 
-      const key = req.query?.key || 'tasks'
-      if (!TABLES[key]) return sendJson(res, 400, { error: 'Unknown data key.' })
-      return sendJson(res, 200, await readKey(supabase, key, decoded.id))
+      // The session check runs alongside the reads; nothing is returned unless it passes.
+      const [user, ...values] = await Promise.all([verifyTokenVersion(supabase, decoded), ...keys.map((key) => readKey(supabase, key, decoded.id))])
+      if (!user) return expired()
+      if (!req.query?.keys) return sendJson(res, 200, values[0])
+      return sendJson(res, 200, Object.fromEntries(keys.map((key, index) => [key, values[index]])))
     }
+
+    if (!(await verifyTokenVersion(supabase, decoded))) return expired()
 
     if (method === 'PATCH') {
       const body = await readJsonBody(req)
@@ -231,7 +237,9 @@ export default async function handler(req, res) {
       if (tableName === 'settings') {
         await saveSettings(supabase, decoded.id, body.value)
       } else {
-        await replaceRows(supabase, tableName, decoded.id, body.value ?? [])
+        // A missing or malformed list must never be treated as "delete everything".
+        if (!Array.isArray(body.value)) return sendJson(res, 400, { error: 'Expected a list.' })
+        await replaceRows(supabase, tableName, decoded.id, body.value)
       }
 
       return sendJson(res, 200, { ok: true })
@@ -240,6 +248,7 @@ export default async function handler(req, res) {
     return sendJson(res, 404, { error: 'Unsupported method.' })
   } catch (error) {
     console.error('Data API error:', error)
+    if (error.status === 503) return sendJson(res, 503, { error: error.message })
     if (isConfigError(error)) {
       return sendJson(res, 503, {
         error: 'Server is not configured yet. Add SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, and JWT_SECRET in Vercel.'
