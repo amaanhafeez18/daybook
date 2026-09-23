@@ -7,15 +7,18 @@ import { apiRequest, readJson, writeJson } from './api.js'
 //   * Edits apply immediately and are saved as small diffs (only what changed), queued per list,
 //     retried when the connection comes back, and merged with server changes made elsewhere.
 
-export const LIST_KEYS = ['tasks', 'events', 'friends', 'contactLogs', 'classes', 'journalEntries', 'voiceNotes']
+export const LIST_KEYS = ['tasks', 'events', 'friends', 'contactLogs', 'classes', 'journalEntries', 'voiceNotes', 'gymSessions', 'bodyWeights']
 const ALL_KEYS = [...LIST_KEYS, 'settings']
 const CACHE_PREFIX = 'daybook.data.'
 const SYNCED_PREFIX = 'daybook.synced.'
+// Lists whose record of the server copy is stored as { id, h } fingerprints (h: a hash of the
+// row's JSON) instead of a second full copy: workouts are large and iOS gives a site ~5 MB.
+const FINGERPRINTED = new Set(['gymSessions'])
 const SAVE_DELAY_MS = 350
 const RETRY_DELAYS_MS = [3000, 10000, 30000, 60000]
 
 function emptyData() {
-  return { tasks: [], events: [], friends: [], contactLogs: [], classes: [], journalEntries: [], voiceNotes: [], settings: {} }
+  return { tasks: [], events: [], friends: [], contactLogs: [], classes: [], journalEntries: [], voiceNotes: [], gymSessions: [], bodyWeights: [], settings: {} }
 }
 
 function isValid(key, value) {
@@ -25,6 +28,7 @@ function isValid(key, value) {
 let state = {
   data: emptyData(),
   loaded: false, // true once the cache or the server has provided data
+  hydrated: false, // true once real data is in: cached settings were found or a refresh succeeded
   syncing: false,
   lastSyncedAt: null,
   pendingSaves: 0,
@@ -63,10 +67,50 @@ export function useData(key) {
   return useStore((current) => current.data[key])
 }
 
+// Settings as the server last confirmed them (after a load or a save), without unsaved edits.
+export function getSyncedSettings() {
+  return synced.settings ?? null
+}
+
 // ---- diffs -------------------------------------------------------------------------------
 
 function sameValue(a, b) {
   return a === b || JSON.stringify(a) === JSON.stringify(b)
+}
+
+// cyrb53: a fast 53-bit string hash (not cryptographic), enough to tell whether a row changed.
+function hashString(text) {
+  let h1 = 0xdeadbeef
+  let h2 = 0x41c6ce57
+  for (let i = 0; i < text.length; i += 1) {
+    const code = text.charCodeAt(i)
+    h1 = Math.imul(h1 ^ code, 2654435761)
+    h2 = Math.imul(h2 ^ code, 1597334677)
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909)
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909)
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36)
+}
+
+// Rows are replaced, never changed in place, so each row's hash is computed once.
+const rowHashes = new WeakMap()
+
+function rowHash(row) {
+  if (!row || typeof row !== 'object') return hashString(String(JSON.stringify(row)))
+  let hash = rowHashes.get(row)
+  if (hash === undefined) {
+    hash = hashString(JSON.stringify(row))
+    rowHashes.set(row, hash)
+  }
+  return hash
+}
+
+// A stored stand-in for a server row (see FINGERPRINTED); only ever found in `synced`.
+const isFingerprint = (row) => !!row && typeof row.h === 'string' && 'id' in row && Object.keys(row).length === 2
+
+function sameRow(base, row) {
+  if (base === row) return true
+  return isFingerprint(base) ? base.h === rowHash(row) : sameValue(base, row)
 }
 
 function diffList(base, next) {
@@ -76,7 +120,7 @@ function diffList(base, next) {
   for (const item of next || []) {
     nextIds.add(item.id)
     const previous = baseById.get(item.id)
-    if (!previous || !sameValue(previous, item)) upsert.push(item)
+    if (!previous || !sameRow(previous, item)) upsert.push(item)
   }
   const remove = (base || []).filter((item) => !nextIds.has(item.id)).map((item) => item.id)
   return { upsert, remove }
@@ -116,6 +160,48 @@ function hasLocalChanges(key) {
   return upsert.length > 0 || remove.length > 0
 }
 
+// ---- device copy -------------------------------------------------------------------------
+// Per key the device keeps the cache (the value as shown, unsaved edits included) and a record
+// of what the server had; the next launch diffs the two to find edits that still need saving.
+// So the cache must never be older than the record: rows missing from an old cache would read
+// as local deletions and be deleted on the server. A failed write (storage full) leaves the old
+// value in place, so after any failed write both are removed, and a record without a cache is
+// ignored. The cache is written before the record.
+
+const uncached = new Set(ALL_KEYS) // keys whose cache isn't known to hold the current value
+
+function forget(key) {
+  uncached.add(key)
+  try {
+    localStorage.removeItem(CACHE_PREFIX + key)
+    localStorage.removeItem(SYNCED_PREFIX + key)
+  } catch {
+    // storage unavailable
+  }
+}
+
+function recordForStorage(key) {
+  const value = synced[key] ?? emptyData()[key]
+  if (!FINGERPRINTED.has(key) || !Array.isArray(value)) return value
+  return value.map((row) => (isFingerprint(row) ? row : { id: row?.id, h: rowHash(row) }))
+}
+
+function storeRecord(key) {
+  if (!writeJson(SYNCED_PREFIX + key, recordForStorage(key))) forget(key)
+}
+
+// Writes the cache, then the record when asked to or when the stored pair was missing (so unsaved
+// edits in the new cache still read as unsaved on the next launch).
+function storeCache(key, value, withRecord = false) {
+  // Settings are cached only once real data is in, so cached settings always mean the user's
+  // plan has loaded (see hydrated) and never a stand-in made while the first load was pending.
+  if ((key === 'settings' && !state.hydrated) || !writeJson(CACHE_PREFIX + key, value)) {
+    forget(key)
+    return
+  }
+  if (uncached.delete(key) || withRecord) storeRecord(key)
+}
+
 // ---- loading -----------------------------------------------------------------------------
 
 // Show whatever this device already has, instantly.
@@ -124,15 +210,20 @@ export function hydrateFromCache() {
   let found = false
   for (const key of ALL_KEYS) {
     const cached = readJson(CACHE_PREFIX + key)
-    if (isValid(key, cached)) {
+    const hasCache = isValid(key, cached)
+    if (hasCache) {
       data[key] = cached
       found = true
+      uncached.delete(key)
+    } else {
+      uncached.add(key)
     }
     const confirmed = readJson(SYNCED_PREFIX + key)
-    // Without a record of what the server had, assume the cache matches it.
-    synced[key] = isValid(key, confirmed) ? confirmed : data[key]
+    // The record only counts next to a cache (see above). Without one, assume the cache
+    // matches the server.
+    synced[key] = hasCache && isValid(key, confirmed) ? confirmed : data[key]
   }
-  setState({ data, loaded: found })
+  setState({ data, loaded: found, hydrated: !uncached.has('settings') })
   for (const key of ALL_KEYS) if (hasLocalChanges(key)) scheduleSave(key, 0)
 }
 
@@ -161,10 +252,10 @@ export function refresh() {
           data[key] = local.upsert.length || local.remove.length ? applyDiff(server, local) : server
         }
         synced[key] = server
-        writeJson(SYNCED_PREFIX + key, server)
-        writeJson(CACHE_PREFIX + key, data[key])
       }
-      setState({ data, loaded: true, syncing: false, lastSyncedAt: Date.now(), offline: false })
+      setState({ data, loaded: true, hydrated: true, syncing: false, lastSyncedAt: Date.now(), offline: false })
+      // After setState: listeners may have edited again, and settings are cached once hydrated.
+      for (const key of ALL_KEYS) storeCache(key, state.data[key], true)
       for (const key of ALL_KEYS) if (hasLocalChanges(key)) scheduleSave(key, 0)
     } catch (error) {
       if (startedIn !== generation) return
@@ -187,8 +278,9 @@ export function updateData(key, updater) {
   const previous = state.data[key]
   const next = typeof updater === 'function' ? updater(previous) : updater
   if (next === previous) return
+  // Before setState, so an edit a listener makes in response is written after this one.
+  storeCache(key, next)
   setState({ data: { ...state.data, [key]: next } })
-  writeJson(CACHE_PREFIX + key, next)
   scheduleSave(key)
 }
 
@@ -230,7 +322,9 @@ async function flush(key) {
       // A refresh may have replaced synced[key] meanwhile: apply this save on top of it instead.
       if (key === 'settings') synced.settings = synced.settings === base ? target : mergeSettings(synced.settings || {}, set)
       else synced[key] = synced[key] === base ? target : applyDiff(synced[key] || [], { upsert, remove })
-      writeJson(SYNCED_PREFIX + key, synced[key])
+      // The cache is current or missing; if missing (an earlier write failed), it goes first.
+      if (uncached.has(key)) storeCache(key, state.data[key])
+      else storeRecord(key)
       retryAttempt = 0
       setState({ saveError: '', offline: false })
     } catch (error) {
@@ -284,7 +378,8 @@ export function resetStore() {
   retryAttempt = 0
   refreshPromise = null
   synced = {}
-  setState({ data: emptyData(), loaded: false, syncing: false, lastSyncedAt: null, pendingSaves: 0, saveError: '', offline: false })
+  for (const key of ALL_KEYS) uncached.add(key)
+  setState({ data: emptyData(), loaded: false, hydrated: false, syncing: false, lastSyncedAt: null, pendingSaves: 0, saveError: '', offline: false })
 }
 
 export function newId() {

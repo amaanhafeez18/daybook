@@ -1,0 +1,135 @@
+/* =========================================================================================
+   Gym: shared tokens and the components in common.jsx. Loaded after App.css, glass.css and
+   apple.css, so it only adds gym- classes and --gym- tokens (dark mode follows the same
+   data-appearance / prefers-color-scheme pattern as App.css).
+   ========================================================================================= */
+
+:root {
+  /* Single-series chart colour per accent: light and dark values, picked by appearance below.
+     Each keeps >= 4.5:1 on the card background. The wash is the area fill under a line. */
+  --gym-chart-l: #B9561F; --gym-chart-wash-l: rgba(185, 86, 31, 0.1);
+  --gym-chart-d: #CD702F; --gym-chart-wash-d: rgba(205, 112, 47, 0.12);
+  --gym-chart: var(--gym-chart-l);
+  --gym-chart-wash: var(--gym-chart-wash-l);
+  --gym-grid: rgba(60, 60, 67, 0.12);
+
+  /* Set types (text on their -soft tint keeps >= 4.5:1) and personal-record gold. */
+  --gym-warmup: #B02E00; --gym-warmup-soft: rgba(201, 52, 0, 0.12);
+  --gym-drop: #0040DD; --gym-drop-soft: rgba(0, 64, 221, 0.1);
+  --gym-failure: #C00013; --gym-failure-soft: rgba(215, 0, 21, 0.1);
+  --gym-pr: #8A5C00; --gym-pr-soft: rgba(255, 204, 0, 0.2);
+
+  /* Routine colours (ROUTINE_COLORS in lib/gym/state.js). White text on each keeps >= 4.5:1,
+     so they stay the same in dark mode. */
+  --gym-c-red: #D0433B;
+  --gym-c-orange: #BA5A18;
+  --gym-c-amber: #9A6D07;
+  --gym-c-green: #2E8540;
+  --gym-c-teal: #12808A;
+  --gym-c-blue: #3368D6;
+  --gym-c-indigo: #6450D6;
+  --gym-c-pink: #C23F7E;
+  --gym-c-none: #8A8F98;
+}
+
+:root[data-accent='forest'] {
+  --gym-chart-l: #067D4D; --gym-chart-wash-l: rgba(6, 125, 77, 0.1);
+  --gym-chart-d: #33A36D; --gym-chart-wash-d: rgba(51, 163, 109, 0.12);
+}
+:root[data-accent='midnight'] {
+  --gym-chart-l: #4A56D6; --gym-chart-wash-l: rgba(74, 86, 214, 0.1);
+  --gym-chart-d: #7581E6; --gym-chart-wash-d: rgba(117, 129, 230, 0.12);
+}
+
+:root[data-appearance='dark'] {
+  --gym-chart: var(--gym-chart-d);
+  --gym-chart-wash: var(--gym-chart-wash-d);
+  --gym-grid: rgba(235, 235, 245, 0.12);
+  --gym-warmup: #FFB340; --gym-warmup-soft: rgba(255, 179, 64, 0.16);
+  --gym-drop: #409CFF; --gym-drop-soft: rgba(64, 156, 255, 0.16);
+  --gym-failure: #FF6961; --gym-failure-soft: rgba(255, 105, 97, 0.16);
+  --gym-pr: #FFD60A; --gym-pr-soft: rgba(255, 214, 10, 0.16);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-appearance='system'] {
+    --gym-chart: var(--gym-chart-d);
+    --gym-chart-wash: var(--gym-chart-wash-d);
+    --gym-grid: rgba(235, 235, 245, 0.12);
+    --gym-warmup: #FFB340; --gym-warmup-soft: rgba(255, 179, 64, 0.16);
+    --gym-drop: #409CFF; --gym-drop-soft: rgba(64, 156, 255, 0.16);
+    --gym-failure: #FF6961; --gym-failure-soft: rgba(255, 105, 97, 0.16);
+    --gym-pr: #FFD60A; --gym-pr-soft: rgba(255, 214, 10, 0.16);
+  }
+}
+
+/* ---- routine colour ---------------------------------------------------------------------- */
+
+.gym-dot { display: inline-block; flex-shrink: 0; border-radius: 50%; background: var(--gym-dot, var(--gym-c-none)); }
+.gym-dot.is-missing { background: none; border: 1.5px dashed var(--text-3); }
+
+.gym-routine-chip {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-width: 0;
+  min-height: 26px; padding: 3px 10px; border-radius: 999px;
+  background: var(--surface-2); color: var(--text);
+  font-size: 13px; font-weight: 600; line-height: 1.2; letter-spacing: -0.01em;
+}
+.gym-routine-chip.has-color, .gym-routine-chip.is-missing { padding-left: 8px; }
+.gym-routine-chip.is-missing { color: var(--text-2); }
+@supports (background: color-mix(in srgb, red 50%, blue)) {
+  .gym-routine-chip.has-color { background: color-mix(in srgb, var(--gym-dot) 14%, transparent); }
+}
+.gym-routine-chip-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---- set type badge ---------------------------------------------------------------------- */
+
+.gym-set-badge {
+  display: inline-grid; place-items: center; flex-shrink: 0;
+  min-width: 28px; height: 28px; padding: 0 6px; border-radius: 8px;
+  background: var(--surface-2); color: var(--text);
+  font-size: 14px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums;
+}
+.gym-set-badge.is-warmup { background: var(--gym-warmup-soft); color: var(--gym-warmup); }
+.gym-set-badge.is-drop { background: var(--gym-drop-soft); color: var(--gym-drop); }
+.gym-set-badge.is-failure { background: var(--gym-failure-soft); color: var(--gym-failure); }
+
+/* Trophy / PR label, shared by the workout, summary and history screens. */
+.gym-pr-badge {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px;
+  background: var(--gym-pr-soft); color: var(--gym-pr); font-size: 12px; font-weight: 700; white-space: nowrap;
+}
+
+/* ---- inputs (16px so iOS doesn't zoom) ------------------------------------------------------ */
+
+.gym-input {
+  width: 100%; min-width: 0; min-height: 40px; padding: 6px 8px;
+  border: 1px solid transparent; border-radius: 10px;
+  background: var(--surface-2); color: var(--text);
+  font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; text-align: center;
+  appearance: none; -webkit-appearance: none;
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+.gym-input::placeholder { color: var(--text-3); font-weight: 500; opacity: 1; }
+.gym-input:focus { outline: none; background: var(--card-bg, var(--surface)); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.gym-input:disabled { opacity: 0.55; }
+
+/* ---- stat tiles & section headers ------------------------------------------------------------ */
+
+.gym-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+.gym-stat {
+  display: flex; flex-direction: column; gap: 2px; min-width: 0;
+  padding: 12px 14px; border-radius: 20px; background: var(--card-bg, var(--surface));
+}
+.gym-stat-label { font-size: 13px; font-weight: 600; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gym-stat-value {
+  font-family: var(--font-display, var(--font)); font-size: 28px; font-weight: 700; line-height: 1.15;
+  letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--text); overflow-wrap: anywhere;
+}
+.gym-stat-sub { font-size: 13px; color: var(--text-2); }
+
+.gym-section-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 32px; margin: 24px 4px 8px; }
+.gym-section-header:first-child { margin-top: 0; }
+.gym-section-header h2 { min-width: 0; font-family: var(--font-display, var(--font)); font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
+.gym-section-header > :not(h2) { flex-shrink: 0; }
+
+.gym-empty .empty-state { padding: 32px 16px; }

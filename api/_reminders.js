@@ -1,6 +1,9 @@
 // Shared by api/cron.js (scheduled reminders) and api/push.js (test notifications).
 // Files starting with "_" are not deployed as their own serverless functions.
 import webpush from 'web-push'
+// Pure, dependency-free gym modules shared with the app.
+import { resolveDay } from '../src/lib/gym/schedule.js'
+import { estimateMinutes } from '../src/lib/gym/stats.js'
 
 // Keep in sync with src/lib/notifications.js.
 export const DEFAULT_NOTIFICATIONS = {
@@ -12,6 +15,8 @@ export const DEFAULT_NOTIFICATIONS = {
   overdue: true,
   overdueTime: '18:00',
   people: true, // catch-ups and birthdays (in the summary, plus "Talk to…" task reminders)
+  gym: false, // workout reminder on days the gym plan shows a routine (not rest, skipped, shifted or done)
+  gymTime: '17:00', // local time of the workout reminder
   quietHours: false,
   quietStart: '22:00',
   quietEnd: '07:00',
@@ -181,11 +186,65 @@ function isReminderTask(task) {
   return typeof task.details === 'string' && task.details.startsWith('friend-reminder:')
 }
 
+// ---- gym ------------------------------------------------------------------------------------
+
+const isObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+
+// Today's gym day when it shows an existing routine that still needs doing (status 'today'),
+// else null: no plan, rest, skipped, shifted, done, deleted routine, or sessions unknown.
+function plannedWorkout(settings, gymSessions, today) {
+  const gym = settings?.gym
+  if (!isObject(gym) || !Array.isArray(gym.schedule?.versions) || !gym.schedule.versions.length) return null
+  if (!Array.isArray(gymSessions)) return null // couldn't load sessions: don't remind about a workout that may be done
+  try {
+    const day = resolveDay(gym, gymSessions, today, today)
+    return day.status === 'today' && day.routine ? day : null
+  } catch (error) {
+    // The gym plan must never stop task reminders.
+    console.error('Gym day failed:', error.message || error)
+    return null
+  }
+}
+
+// A workout for today is already in progress (settings.gym.active, synced by the app).
+function workoutInProgress(gym, today, timeZone) {
+  const active = gym?.active
+  if (!isObject(active)) return false
+  if (active.date === today) return true
+  const started = Date.parse(active.startedAt)
+  return Number.isFinite(started) && localNow(started, timeZone).date === today
+}
+
+// 'Push' → 'Push day'; a name that already ends in "day" stays as it is ('Leg Day').
+function gymDayName(routine) {
+  const name = typeof routine?.name === 'string' && routine.name.trim() ? routine.name.trim() : 'Workout'
+  return /\bday$/i.test(name) ? name : `${name} day`
+}
+
+function workoutReminder(day, today, time, timeZone) {
+  const count = Array.isArray(day.routine.exercises) ? day.routine.exercises.filter(isObject).length : 0
+  const minutes = estimateMinutes(day.routine)
+  const parts = []
+  if (count) parts.push(`${count} exercise${count === 1 ? '' : 's'}`)
+  if (minutes) parts.push(`~${minutes} min`)
+  if (day.deload) parts.push('Deload week')
+  return {
+    key: `gym:${today}`,
+    fireAt: zonedToUtc(today, time, timeZone),
+    title: `${gymDayName(day.routine)} today`,
+    body: parts.join(' · ') || 'Time to train',
+    url: '/#/gym',
+    tag: 'gym',
+  }
+}
+
 // ---- what is due ----------------------------------------------------------------------------
 
 // Every notification that should fire around `now` for one user, oldest first.
 // contactLogs: [{ friend_id, date }], or null when unavailable (falls back to "Talk to…" tasks).
-export function dueNotifications({ settings, tasks, friends, contactLogs = null, classes }, now = Date.now()) {
+// gymSessions: gym session rows with at least { date } from the last few days, or null when
+// unavailable (gym reminders then wait for a later run within SEND_WINDOW_MS).
+export function dueNotifications({ settings, tasks, friends, contactLogs = null, classes, gymSessions = null }, now = Date.now()) {
   const prefs = notificationPrefs(settings)
   const timeZone = safeZone(settings?.timeZone || 'UTC')
   const today = localNow(now, timeZone).date
@@ -193,6 +252,7 @@ export function dueNotifications({ settings, tasks, friends, contactLogs = null,
   const open = tasks.filter((task) => !task.done && !task.archived)
   // Overdue counts leave out catch-up tasks when those notifications are off.
   const counted = open.filter((task) => prefs.people || !isReminderTask(task))
+  const workout = prefs.gym || prefs.dailySummary ? plannedWorkout(settings, gymSessions, today) : null
   const candidates = []
 
   // Task reminders
@@ -245,6 +305,7 @@ export function dueNotifications({ settings, tasks, friends, contactLogs = null,
     if (dueToday.length) lines.push(`${dueToday.length} due today: ${dueToday.slice(0, 3).map((task) => task.text).join(', ')}${dueToday.length > 3 ? '…' : ''}`)
     if (overdue.length) lines.push(`${overdue.length} overdue`)
     if (classCount) lines.push(`${classCount} class${classCount === 1 ? '' : 'es'}`)
+    if (workout) lines.push(`Gym: ${gymDayName(workout.routine)}`)
     if (prefs.people) {
       // Feb 29 birthdays are marked on Mar 1 in other years.
       const year = Number(today.slice(0, 4))
@@ -285,6 +346,12 @@ export function dueNotifications({ settings, tasks, friends, contactLogs = null,
       const names = [...stillOpen, ...overdue].slice(0, 3).map((task) => task.text).join(', ')
       candidates.push({ key: `overdue:${today}`, fireAt: zonedToUtc(today, prefs.overdueTime, timeZone), title: 'Before the day ends', body: `${parts.join(' · ')}: ${names}`, url: '/#/tasks', tag: 'evening-nudge' })
     }
+  }
+
+  // Workout reminder on gym days, unless today's workout is already under way
+  if (prefs.gym && workout && !workoutInProgress(settings.gym, today, timeZone)) {
+    const time = isTime(prefs.gymTime) ? prefs.gymTime : DEFAULT_NOTIFICATIONS.gymTime
+    candidates.push(workoutReminder(workout, today, time, timeZone))
   }
 
   return candidates

@@ -15,7 +15,9 @@ const TABLES = {
   voiceNotes: 'voice_notes',
   classes: 'classes',
   settings: 'settings',
-  journalEntries: 'journal_entries'
+  journalEntries: 'journal_entries',
+  gymSessions: 'gym_sessions',
+  bodyWeights: 'body_weights'
 }
 
 // Columns each table accepts (matches supabase/schema.sql). Unknown fields are dropped
@@ -27,7 +29,9 @@ const COLUMNS = {
   contact_logs: ['id', 'friend_id', 'date', 'created_at'],
   voice_notes: ['id', 'text', 'created_at'],
   classes: ['id', 'name', 'days', 'time', 'room', 'end_date', 'day_details', 'created_at'],
-  journal_entries: ['id', 'date', 'title', 'body', 'mood', 'created_at']
+  journal_entries: ['id', 'date', 'title', 'body', 'mood', 'created_at'],
+  gym_sessions: ['id', 'date', 'name', 'routine_id', 'started_at', 'ended_at', 'duration_sec', 'exercises', 'note', 'planned', 'bodyweight_kg', 'is_deload', 'created_at'],
+  body_weights: ['id', 'date', 'kg', 'created_at']
 }
 
 // camelCase client field -> snake_case column
@@ -41,9 +45,84 @@ const FIELD_TO_COLUMN = {
   reminderDays: 'reminder_days',
   dayDetails: 'day_details',
   reminderMinutes: 'reminder_minutes',
+  routineId: 'routine_id',
+  startedAt: 'started_at',
+  endedAt: 'ended_at',
+  durationSec: 'duration_sec',
+  bodyweightKg: 'bodyweight_kg',
+  isDeload: 'is_deload',
   createdAt: 'created_at'
 }
 const COLUMN_TO_FIELD = Object.fromEntries(Object.entries(FIELD_TO_COLUMN).map(([field, column]) => [column, field]))
+
+// Gym columns with a strict type are coerced both ways, so a float duration or a null list
+// can't fail a save and an odd stored value can't reach the client. jsonb passes through as is.
+const COERCE = {
+  gym_sessions: { duration_sec: 'integer', bodyweight_kg: 'number', exercises: 'list', is_deload: 'boolean' },
+  body_weights: { kg: 'number' }
+}
+
+function toNumber(value) {
+  const number = typeof value === 'string' && value.trim() ? Number(value) : value
+  return typeof number === 'number' && Number.isFinite(number) ? number : null
+}
+
+function toInteger(value) {
+  const number = toNumber(value)
+  if (number === null) return null
+  const rounded = Math.round(number)
+  return Math.abs(rounded) <= 2147483647 ? rounded : null // Postgres integer range
+}
+
+function coerce(type, value) {
+  if (type === 'number') return toNumber(value)
+  if (type === 'integer') return toInteger(value)
+  if (type === 'list') return Array.isArray(value) ? value : []
+  if (type === 'boolean') return value === true
+  return value
+}
+
+function coerceRow(row, tableName) {
+  for (const [column, type] of Object.entries(COERCE[tableName] || {})) {
+    if (column in row) row[column] = coerce(type, row[column])
+  }
+  return row
+}
+
+// Tables added by a later migration. Until it has run, reads return an empty list (the app loads
+// every key in one request, so one missing table must not break sign-in) and saves explain the fix.
+const GYM_MIGRATION = 'Gym data can’t sync until the database is updated. Run supabase/migrations/2026-09-26-gym.sql in Supabase.'
+const OPTIONAL_TABLES = {
+  gym_sessions: GYM_MIGRATION,
+  body_weights: GYM_MIGRATION
+}
+const warnedMissing = new Set()
+
+function isMissingTable(error) {
+  if (!error) return false
+  if (error.code === 'PGRST205' || error.code === '42P01') return true
+  const message = String(error.message || '')
+  if (MISSING_COLUMN.test(message)) return false
+  return /Could not find the table|relation .* does not exist|schema cache/i.test(message)
+}
+
+function warnMissingTable(tableName) {
+  if (warnedMissing.has(tableName)) return
+  warnedMissing.add(tableName)
+  console.warn(`Table "${tableName}" is missing; returning no rows. ${OPTIONAL_TABLES[tableName]}`)
+}
+
+// Runs a save and turns "table missing" on an optional table into a 503 with instructions.
+async function forTable(tableName, run) {
+  try {
+    return await run()
+  } catch (error) {
+    if (OPTIONAL_TABLES[tableName] && isMissingTable(error)) {
+      throw Object.assign(new Error(OPTIONAL_TABLES[tableName]), { status: 503 })
+    }
+    throw error
+  }
+}
 
 function sendJson(res, statusCode, payload) {
   res.statusCode = statusCode
@@ -69,13 +148,13 @@ function normalizeRowForDb(item, tableName, userId) {
   next.id = next.id ? String(next.id) : randomUUID()
   next.created_at = toIsoString(next.created_at)
   next.user_id = userId
-  return next
+  return coerceRow(next, tableName)
 }
 
-function normalizeRowForClient(item) {
+function normalizeRowForClient(item, tableName) {
   if (!item) return item
   const next = {}
-  for (const [key, value] of Object.entries(item)) {
+  for (const [key, value] of Object.entries(coerceRow({ ...item }, tableName))) {
     next[COLUMN_TO_FIELD[key] || key] = value
   }
   return next
@@ -100,16 +179,51 @@ async function saveSettings(supabase, userId, value) {
 
 const isPlainObject = (value) => !!value && typeof value === 'object' && !Array.isArray(value)
 
-// Writes only the fields a device changed; plain-object fields (notifications) merge one level deep.
-async function patchSettings(supabase, userId, set) {
-  const { data, error } = await supabase.from('settings').select('value').eq('user_id', userId)
-    .order('created_at', { ascending: false }).order('id').limit(1)
-  if (error) throw error
-  const value = { ...(isPlainObject(data?.[0]?.value) ? data[0].value : {}) }
+// Each changed field replaces the saved one, except an object over an object (notifications, gym),
+// which merges one level deep. The database function patch_settings uses the same rules.
+function mergeSettings(saved, set) {
+  const value = { ...(isPlainObject(saved) ? saved : {}) }
   for (const [field, next] of Object.entries(isPlainObject(set) ? set : {})) {
     value[field] = isPlainObject(next) && isPlainObject(value[field]) ? { ...value[field], ...next } : next
   }
-  await saveSettings(supabase, userId, value)
+  return value
+}
+
+// patch_settings comes from supabase/migrations/2026-09-26-gym.sql. Until that has run, saves use the
+// older read-modify-write; a missing function is remembered for a while (so each save doesn't pay for a
+// failing call) and then tried again, in case the migration has run since.
+const SETTINGS_RPC_RETRY_MS = 10 * 60 * 1000
+let settingsRpcMissingAt = null
+let warnedSettingsRpc = false
+
+function isMissingFunction(error) {
+  if (!error) return false
+  if (error.code === 'PGRST202' || error.code === '42883') return true
+  return /Could not find the function/i.test(String(error.message || ''))
+}
+
+// Writes only the fields a device changed. The merge runs in the database in one locked step, so a
+// device saving its workout can't put back a schedule the assistant changed a moment earlier.
+async function patchSettings(supabase, userId, set) {
+  const patch = isPlainObject(set) ? set : {}
+  if (settingsRpcMissingAt === null || Date.now() - settingsRpcMissingAt >= SETTINGS_RPC_RETRY_MS) {
+    const { error } = await supabase.rpc('patch_settings', { p_user: userId, p_patch: patch })
+    if (!error) {
+      settingsRpcMissingAt = null
+      return
+    }
+    if (!isMissingFunction(error)) throw error
+    settingsRpcMissingAt = Date.now()
+    if (!warnedSettingsRpc) {
+      warnedSettingsRpc = true
+      console.warn('Function "patch_settings" is missing; saving settings without it. Run supabase/migrations/2026-09-26-gym.sql in Supabase.')
+    }
+  }
+
+  const { data, error } = await supabase.from('settings').select('value').eq('user_id', userId)
+    .order('created_at', { ascending: false }).order('id').limit(1)
+  if (error) throw error
+  await saveSettings(supabase, userId, mergeSettings(data?.[0]?.value, patch))
 }
 
 function toDbRows(value, tableName, userId) {
@@ -204,14 +318,21 @@ async function patchRows(supabase, tableName, userId, upsert, remove) {
 
 async function readKey(supabase, key, userId) {
   const tableName = TABLES[key]
-  const rows = await selectAll(() => supabase
-    .from(tableName)
-    .select('*')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false })
-    .order('id'))
+  let rows
+  try {
+    rows = await selectAll(() => supabase
+      .from(tableName)
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .order('id'))
+  } catch (error) {
+    if (!OPTIONAL_TABLES[tableName] || !isMissingTable(error)) throw error
+    warnMissingTable(tableName)
+    return []
+  }
   if (tableName === 'settings') return rows[0]?.value || {}
-  return rows.map(normalizeRowForClient)
+  return rows.map((row) => normalizeRowForClient(row, tableName))
 }
 
 export default async function handler(req, res) {
@@ -260,7 +381,7 @@ export default async function handler(req, res) {
         await patchSettings(supabase, decoded.id, body.set)
         return sendJson(res, 200, { ok: true })
       }
-      await patchRows(supabase, tableName, decoded.id, body.upsert, body.delete)
+      await forTable(tableName, () => patchRows(supabase, tableName, decoded.id, body.upsert, body.delete))
       return sendJson(res, 200, { ok: true })
     }
 
@@ -274,7 +395,7 @@ export default async function handler(req, res) {
       } else {
         // A missing or malformed list must never be treated as "delete everything".
         if (!Array.isArray(body.value)) return sendJson(res, 400, { error: 'Expected a list.' })
-        await replaceRows(supabase, tableName, decoded.id, body.value)
+        await forTable(tableName, () => replaceRows(supabase, tableName, decoded.id, body.value))
       }
 
       return sendJson(res, 200, { ok: true })

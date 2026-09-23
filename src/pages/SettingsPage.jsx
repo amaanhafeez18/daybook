@@ -5,6 +5,7 @@ import { Avatar, Button, Field, PasswordInput, Segmented, Switch } from '../comp
 import { confirmAction, toast } from '../components/ui/feedback.jsx'
 import { RECOVERY_QUESTIONS } from '../components/AuthScreen.jsx'
 import { authRequest, writePref } from '../lib/api.js'
+import { navigate } from '../lib/router.js'
 import { refresh, updateSettings, useData, useStore } from '../lib/store.js'
 import { classSchedule, deleteClass, deleteTaskForever, restoreTask, saveClass } from '../lib/planner.js'
 import { ACCENTS, APPEARANCES, resolveAppearance } from '../lib/theme.js'
@@ -273,6 +274,9 @@ function NotificationSettings({ settings }) {
   }
 
   const on = support === 'granted' && enabledHere
+  // The server only sends workout reminders once a gym schedule exists.
+  const gymVersions = settings.gym?.schedule?.versions
+  const hasGymPlan = Array.isArray(gymVersions) && gymVersions.length > 0
   const allDayValue = prefs.allDayTime ? prefs.allDayMode : 'off'
   // The assistant can store any lead; show it rather than a wrong option.
   const leadOptions = LEAD_OPTIONS.filter((option) => option.value !== 1440)
@@ -325,7 +329,7 @@ function NotificationSettings({ settings }) {
       </div>
 
       <div className="card settings-card pref-card">
-        <Switch label="Morning summary" description="What’s due, overdue, classes and birthdays" checked={prefs.dailySummary} onChange={(dailySummary) => set({ dailySummary })} />
+        <Switch label="Morning summary" description="What’s due, overdue, classes, birthdays and gym" checked={prefs.dailySummary} onChange={(dailySummary) => set({ dailySummary })} />
         {prefs.dailySummary && (
           <div className="pref-row">
             <label htmlFor="pref-summary">Time</label>
@@ -338,6 +342,21 @@ function NotificationSettings({ settings }) {
             <label htmlFor="pref-evening">Time</label>
             <input id="pref-evening" className="input" type="time" value={prefs.overdueTime} onChange={(event) => set({ overdueTime: event.target.value || '18:00' })} />
           </div>
+        )}
+        <Switch label="Workout reminder" description="On gym days, at a time you choose" checked={!!prefs.gym} onChange={(gym) => set({ gym })} />
+        {prefs.gym && (
+          <>
+            <div className="pref-row">
+              <label htmlFor="pref-gym">Time</label>
+              <input id="pref-gym" className="input" type="time" value={prefs.gymTime} onChange={(event) => set({ gymTime: event.target.value || '17:00' })} />
+            </div>
+            {!hasGymPlan && (
+              <div className="pref-row">
+                <span className="field-hint">Starts once you set up a gym plan.</span>
+                <button type="button" className="link-btn" onClick={() => navigate('gym')}>Set up</button>
+              </div>
+            )}
+          </>
         )}
         <Switch label="Catch-ups and birthdays" description="Reminders to reach out to people" checked={prefs.people} onChange={(people) => set({ people })} />
         <Switch label="Quiet hours" description="Hold reminders until quiet hours end" checked={prefs.quietHours} onChange={(quietHours) => set({ quietHours })} />

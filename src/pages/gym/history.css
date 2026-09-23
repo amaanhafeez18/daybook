@@ -1,0 +1,394 @@
+/* =========================================================================================
+   Gym calendar, day sheet, history list and session detail (CalendarTab, DaySheet,
+   HistoryTab, SessionDetail). Tokens only (App.css → glass.css → apple.css → gym-common.css),
+   so light and dark mode follow the app.
+   ========================================================================================= */
+
+:root { --gym-sticky-top: calc(var(--topbar-h) + var(--safe-top)); }
+@media (min-width: 900px) { :root { --gym-sticky-top: 0px; } }
+
+/* ---- grouped action list (iOS inset grouped rows) ---------------------------------------- */
+
+.gym-hl-list { border-radius: 22px; background: var(--card-bg); overflow: hidden; }
+.sheet .gym-hl-list { background: var(--surface-2); }
+.gym-hl-list > li { position: relative; }
+.gym-hl-list > li + li::before {
+  content: ''; position: absolute; top: 0; left: 58px; right: 0; height: 1px;
+  background: var(--separator, var(--border)); transform: scaleY(0.5); transform-origin: top; pointer-events: none;
+}
+.gym-hl-row {
+  width: 100%; display: flex; align-items: center; gap: 14px; min-height: 52px; padding: 8px 14px;
+  text-align: left; color: var(--text); transition: background 0.2s;
+}
+.gym-hl-row:active:not(:disabled) { background: var(--surface-2); }
+.sheet .gym-hl-row:active:not(:disabled) { background: var(--surface-3); }
+.gym-hl-row:disabled { opacity: 0.5; }
+.gym-hl-icon {
+  flex-shrink: 0; width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center;
+  background: var(--accent); color: var(--on-accent);
+}
+.gym-hl-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.gym-hl-label { font-size: 17px; letter-spacing: -0.02em; }
+.gym-hl-text small { font-size: 13px; color: var(--text-2); }
+.gym-hl-chevron { color: var(--text-3); flex-shrink: 0; }
+.gym-hl-row.is-danger { color: var(--danger); }
+.gym-hl-row.is-danger .gym-hl-icon { background: var(--danger); color: #fff; }
+@media (hover: hover) {
+  .gym-hl-row:hover:not(:disabled) { background: var(--surface-2); }
+  .sheet .gym-hl-row:hover:not(:disabled) { background: var(--surface-3); }
+}
+
+/* ---- calendar ------------------------------------------------------------------------------ */
+
+.gym-cal { display: flex; flex-direction: column; gap: 12px; }
+.gym-cal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; }
+.gym-cal-title {
+  min-width: 0; font-family: var(--font-display, var(--font)); font-size: 22px; font-weight: 700;
+  letter-spacing: -0.025em; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.gym-cal-head .month-nav { flex-shrink: 0; gap: 6px; }
+.gym-cal-head .month-nav .icon-btn { width: 44px; height: 44px; }
+.gym-cal-head .month-nav .btn { min-height: 40px; }
+
+.gym-cal-stats { display: flex; flex-wrap: wrap; gap: 8px; }
+.gym-cal-stats .stat { gap: 7px; min-height: 34px; font-variant-numeric: tabular-nums; }
+.gym-cal-stats .stat .icon { color: var(--text-3); }
+
+.gym-cal-hint { display: flex; align-items: center; gap: 12px; padding: 14px 16px; }
+.gym-cal-hint-icon { flex-shrink: 0; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); }
+.gym-cal-hint-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 14px; color: var(--text-2); }
+.gym-cal-hint-text strong { font-size: 16px; color: var(--text); }
+
+.gym-cal-card { padding: 10px 6px 12px; touch-action: pan-y pinch-zoom; overflow: hidden; }
+.gym-cal-weekdays, .gym-cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.gym-cal-weekdays span { padding: 2px 0 6px; text-align: center; font-size: 12px; font-weight: 600; color: var(--text-3); letter-spacing: 0.02em; }
+.gym-cal-grid { row-gap: 2px; }
+.gym-cal-grid.from-next { animation: gym-cal-next 0.34s var(--ios-sheet, ease) both; }
+.gym-cal-grid.from-prev { animation: gym-cal-prev 0.34s var(--ios-sheet, ease) both; }
+@keyframes gym-cal-next { from { opacity: 0; transform: translateX(28px); } }
+@keyframes gym-cal-prev { from { opacity: 0; transform: translateX(-28px); } }
+
+.gym-cal-cell {
+  position: relative; min-width: 0; min-height: 52px; padding: 4px 0 3px;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  border-radius: 14px; color: var(--text); -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none; user-select: none; touch-action: pan-y pinch-zoom;
+  transition: transform 0.35s var(--spring, ease), background 0.2s;
+}
+.gym-cal-cell.is-outside { pointer-events: none; }
+button.gym-cal-cell:active { transform: scale(0.9); transition-duration: 0.1s; }
+@media (hover: hover) { button.gym-cal-cell:hover { background: var(--surface-2); } }
+
+.gym-cal-num {
+  display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%;
+  font-size: 16px; font-weight: 500; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -0.01em;
+  transition: background 0.2s, box-shadow 0.2s;
+}
+.gym-cal-cell.is-past .gym-cal-num { color: var(--text-2); }
+
+/* planned: outlined circle in the routine colour */
+.gym-cal-cell.st-upcoming .gym-cal-num,
+.gym-cal-cell.st-today .gym-cal-num { box-shadow: inset 0 0 0 2px var(--gym-dot); color: var(--text); font-weight: 600; }
+.gym-cal-cell.is-missing .gym-cal-num { box-shadow: none; outline: 1.5px dashed var(--text-3); outline-offset: -1.5px; }
+
+/* done: filled circle (routine colours keep white text readable in both themes) */
+.gym-cal-cell.st-done .gym-cal-num { background: var(--gym-dot, var(--accent)); color: #fff; font-weight: 700; }
+.gym-cal-cell.st-done.is-accent .gym-cal-num { background: var(--accent); color: var(--on-accent); }
+
+.gym-cal-cell.st-skipped .gym-cal-num { color: var(--text-3); }
+.gym-cal-cell.st-missed .gym-cal-num { color: var(--text-2); }
+
+/* today: ring with a gap, around whatever the day shows */
+.gym-cal-cell.is-today .gym-cal-num { outline: 2px solid var(--accent); outline-offset: 2px; }
+.gym-cal-cell.is-today:not(.st-done) .gym-cal-num { color: var(--accent); font-weight: 700; }
+
+.gym-cal-mark {
+  display: flex; align-items: center; justify-content: center; gap: 3px; max-width: 100%; height: 11px;
+  font-size: 10.5px; font-weight: 700; line-height: 1; letter-spacing: 0; color: var(--gym-dot, var(--text-2));
+}
+.gym-cal-abbr { white-space: nowrap; overflow: hidden; }
+.gym-cal-cell.st-skipped .gym-cal-mark { color: var(--text-3); }
+.gym-cal-cell.st-skipped .gym-cal-abbr { text-decoration: line-through; text-decoration-thickness: 1.5px; }
+.gym-cal-cell.st-shifted .gym-cal-mark { color: var(--text-2); }
+.gym-cal-dot { display: block; width: 5px; height: 5px; border-radius: 50%; background: var(--dot, var(--accent)); }
+.gym-cal-dot.is-missed { width: 6px; height: 6px; background: var(--danger); }
+
+.gym-cal-edit {
+  position: absolute; top: 1px; right: calc(50% - 22px); width: 15px; height: 15px; border-radius: 50%;
+  display: grid; place-items: center; background: var(--card-bg, var(--surface)); color: var(--text-2);
+  box-shadow: 0 0 0 1px var(--border-strong), 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.gym-cal-foot { margin-top: 10px; padding: 10px 6px 0; border-top: 0.5px solid var(--separator, var(--border)); }
+.gym-cal-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 14px; font-size: 12px; color: var(--text-2); }
+.gym-cal-legend > span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.gym-key { display: inline-block; width: 12px; height: 12px; border-radius: 50%; }
+.gym-key-done { background: var(--accent); }
+.gym-key-planned { box-shadow: inset 0 0 0 1.75px var(--accent); }
+.gym-key-today { width: 10px; height: 10px; outline: 1.75px solid var(--accent); outline-offset: 1.5px; }
+.gym-key-missed { width: 6px; height: 6px; background: var(--danger); }
+.gym-key-struck { font-weight: 700; color: var(--text-3); text-decoration: line-through; text-decoration-thickness: 1.5px; }
+.gym-key-edit {
+  display: inline-grid; place-items: center; width: 14px; height: 14px; border-radius: 50%;
+  background: var(--card-bg, var(--surface)); color: var(--text-2); box-shadow: 0 0 0 1px var(--border-strong);
+}
+.gym-cal-routines { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 10px; }
+.gym-cal-rkey {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 26px; padding: 3px 10px 3px 3px;
+  border-radius: 999px; background: var(--surface-2); color: var(--text); font-size: 13px; font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+@supports (background: color-mix(in srgb, red 50%, blue)) {
+  .gym-cal-rkey { background: color-mix(in srgb, var(--gym-dot) 13%, transparent); }
+}
+.gym-cal-rkey b {
+  flex-shrink: 0; display: grid; place-items: center; min-width: 20px; height: 20px; padding: 0 4px;
+  border-radius: 999px; background: var(--gym-dot); color: #fff; font-size: 10.5px; font-weight: 700;
+}
+
+@media (min-width: 640px) {
+  .gym-cal-title { font-size: 26px; }
+  .gym-cal-card { padding: 14px 12px 14px; }
+  .gym-cal-cell { min-height: 62px; }
+  .gym-cal-num { width: 38px; height: 38px; font-size: 17px; }
+  .gym-cal-mark { height: 12px; font-size: 11px; }
+  .gym-cal-edit { right: calc(50% - 25px); }
+}
+
+/* ---- day sheet ------------------------------------------------------------------------------ */
+
+.gym-day { display: flex; flex-direction: column; gap: 20px; padding-bottom: 4px; }
+.gym-day-h {
+  margin: 0 0 8px 16px; font-size: 13px; font-weight: 400; letter-spacing: 0.01em;
+  text-transform: uppercase; color: var(--text-2); font-variant-numeric: tabular-nums;
+}
+
+.gym-day-plan { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border-radius: 22px; background: var(--surface-2); }
+.gym-day-plan-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-height: 30px; }
+.gym-day-label { font-size: 13px; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.01em; margin-right: 2px; }
+.gym-day-status {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 4px; min-height: 26px; padding: 3px 10px;
+  border-radius: 999px; font-size: 13px; font-weight: 600; background: var(--surface-2); color: var(--text-2);
+}
+.gym-day-status.is-success { background: var(--success-soft); color: var(--success); }
+.gym-day-status.is-danger { background: var(--danger-soft); color: var(--danger); }
+.gym-day-status.is-accent { background: var(--accent-soft); color: var(--accent); }
+.gym-day-notes { display: flex; flex-direction: column; gap: 6px; }
+.gym-day-notes li { display: flex; align-items: flex-start; gap: 8px; font-size: 14px; color: var(--text-2); }
+.gym-day-notes .icon { margin-top: 2px; color: var(--text-3); }
+
+.gym-day-list { border-radius: 22px; background: var(--surface-2); overflow: hidden; }
+.gym-day-list > li { position: relative; }
+.gym-day-list > li + li::before {
+  content: ''; position: absolute; top: 0; left: 16px; right: 0; height: 1px;
+  background: var(--separator, var(--border)); transform: scaleY(0.5); transform-origin: top; pointer-events: none;
+}
+.gym-day-session { display: flex; align-items: center; }
+.gym-day-session-main {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; min-height: 60px; padding: 8px 6px 8px 16px;
+  text-align: left; color: var(--text); transition: background 0.2s;
+}
+.gym-day-session-main:active { background: var(--surface-3); }
+.gym-day-session-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.gym-day-session-text strong { font-size: 17px; font-weight: 600; letter-spacing: -0.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gym-day-session-text small { font-size: 14px; color: var(--text-2); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gym-day-session-delete { flex-shrink: 0; width: 44px; height: 44px; margin-right: 6px; color: var(--text-3); }
+.gym-day-session-delete:hover { color: var(--danger); }
+
+.gym-day-preview > li { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 46px; padding: 8px 16px; }
+.gym-day-ex { min-width: 0; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gym-day-ex-sets { flex-shrink: 0; font-size: 14px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.gym-day-empty { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 16px; border-radius: 22px; background: var(--surface-2); font-size: 15px; color: var(--text-2); }
+
+.gym-day-log { display: flex; flex-direction: column; gap: 12px; }
+.gym-day-picker {
+  display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+  margin: 0 -20px; padding: 2px 20px 4px;
+}
+.gym-day-picker::-webkit-scrollbar { display: none; }
+.gym-day-pick {
+  flex-shrink: 0; display: inline-flex; align-items: center; gap: 7px; min-height: 40px; padding: 0 15px 0 13px;
+  border-radius: 999px; background: var(--surface-2); color: var(--text); font-size: 15px; font-weight: 500;
+  white-space: nowrap; box-shadow: inset 0 0 0 1px transparent; transition: background 0.2s, box-shadow 0.2s, transform 0.35s var(--spring, ease);
+}
+.gym-day-pick:active { transform: scale(0.95); transition-duration: 0.1s; }
+.gym-day-pick[aria-pressed='true'] { box-shadow: inset 0 0 0 2px var(--gym-dot, var(--accent)); font-weight: 600; }
+@supports (background: color-mix(in srgb, red 50%, blue)) {
+  .gym-day-pick[aria-pressed='true'] { background: color-mix(in srgb, var(--gym-dot, var(--accent)) 14%, transparent); }
+}
+.gym-day-log-actions { display: grid; grid-template-columns: 1fr; gap: 10px; }
+@media (min-width: 480px) { .gym-day-log-actions { grid-template-columns: 1fr 1fr; } }
+.gym-day-log-actions .btn { min-width: 0; }
+.gym-day-hint { margin: 0 6px; font-size: 13px; color: var(--text-2); }
+
+.gym-day-move { display: flex; align-items: center; gap: 8px; padding: 2px 14px 14px 58px; }
+.gym-day-move .input { flex: 1; min-width: 0; min-height: 42px; padding: 8px 12px; background: var(--card-bg); }
+.gym-day-move .btn { flex-shrink: 0; min-height: 40px; }
+
+/* ---- history ------------------------------------------------------------------------------ */
+
+.gym-hist { display: flex; flex-direction: column; gap: 12px; }
+.gym-hist-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 40px; }
+.gym-hist-count { font-size: 15px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.gym-hist-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.gym-hist-actions .btn { min-height: 40px; padding: 0 14px; }
+
+.gym-hist-search { min-height: 44px; flex: none; }
+.gym-hist-search input { min-width: 0; font-size: 16px; }
+.gym-hist-search input::-webkit-search-cancel-button { display: none; }
+.gym-hist-clear {
+  flex-shrink: 0; width: 22px; height: 22px; margin-right: -2px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--text-3); color: var(--card-bg, var(--surface));
+}
+
+.gym-hist-filters {
+  display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+  margin: 0 calc(-1 * var(--page-pad)); padding: 2px var(--page-pad) 4px;
+}
+.gym-hist-filters::-webkit-scrollbar { display: none; }
+.gym-hist-filters .chip { flex-shrink: 0; display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+.gym-hist-filters .chip.is-active .gym-dot { box-shadow: 0 0 0 1.5px var(--on-accent); }
+
+.gym-hist-group { display: flex; flex-direction: column; }
+/* Sticks just under GymPage's sticky section tabs (title bar + 4px + 44px control + 6px),
+   the same offset as the Exercises tab's letter headers. */
+.gym-hist-month {
+  position: sticky; top: calc(var(--topbar-h) + var(--safe-top) + 54px); z-index: 5;
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  margin: 6px calc(-1 * var(--page-pad)) 6px; padding: 8px calc(var(--page-pad) + 4px);
+  background: var(--bg); font-family: var(--font-display, var(--font)); font-size: 20px; font-weight: 700; letter-spacing: -0.02em;
+}
+@supports (background: color-mix(in srgb, red 50%, blue)) {
+  .gym-hist-month {
+    background: color-mix(in srgb, var(--bg) 78%, transparent);
+    -webkit-backdrop-filter: blur(18px) saturate(180%); backdrop-filter: blur(18px) saturate(180%);
+  }
+}
+@media (min-width: 900px) { .gym-hist-month { top: 62px; } }
+.gym-hist-month-count { font-family: var(--font); font-size: 13px; font-weight: 500; letter-spacing: 0; color: var(--text-2); font-variant-numeric: tabular-nums; }
+
+.gym-hist-list { display: flex; flex-direction: column; gap: 10px; }
+.gym-hist-card {
+  width: 100%; display: flex; flex-direction: column; gap: 8px; padding: 14px 16px;
+  border-radius: 22px; background: var(--card-bg); color: var(--text); text-align: left;
+  transition: transform 0.35s var(--spring, ease), background 0.2s;
+}
+.gym-hist-card:active { transform: scale(0.98); transition-duration: 0.1s; }
+@media (hover: hover) { .gym-hist-card:hover { box-shadow: 0 0 0 1px var(--border-strong); } }
+.gym-hist-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.gym-hist-name { flex: 1; min-width: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gym-hist-when { flex-shrink: 0; font-size: 14px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.gym-hist-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; font-size: 14px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.gym-hist-meta > span { display: inline-flex; align-items: center; gap: 5px; }
+.gym-hist-meta > span > .icon { color: var(--text-3); }
+.gym-hist-meta .gym-pr-badge { gap: 4px; }
+.gym-hist-sets { display: flex; flex-direction: column; gap: 4px; padding-top: 9px; border-top: 0.5px solid var(--separator, var(--border)); }
+.gym-hist-set { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 12px; font-size: 15px; }
+.gym-hist-ex { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gym-hist-val { color: var(--text-2); font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.gym-hist-more { font-size: 14px; color: var(--text-3); }
+.gym-hist-quick { font-size: 14px; color: var(--text-3); }
+.gym-hist-more-wrap { display: flex; justify-content: center; padding: 6px 0 4px; }
+
+/* ---- session detail ------------------------------------------------------------------------- */
+
+.gym-sd { display: flex; flex-direction: column; gap: 16px; }
+.gym-sd-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; margin-top: -6px; }
+.gym-sd-nav .btn { min-height: 38px; }
+.gym-sd-back {
+  display: inline-flex; align-items: center; gap: 0; min-height: 44px; margin-left: -10px; padding: 0 10px 0 2px;
+  border-radius: 12px; color: var(--accent); font-size: 17px; letter-spacing: -0.02em; transition: opacity 0.2s;
+}
+.gym-sd-back:active { opacity: 0.45; }
+
+.gym-sd-header { display: flex; flex-direction: column; gap: 4px; }
+.gym-sd-title { font-size: 32px; line-height: 1.12; overflow-wrap: anywhere; }
+.gym-sd-when { font-size: 15px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.gym-sd-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.gym-deload-badge {
+  display: inline-flex; align-items: center; gap: 4px; min-height: 26px; padding: 3px 10px; border-radius: 999px;
+  background: var(--surface-2); color: var(--info); font-size: 13px; font-weight: 600;
+}
+@supports (background: color-mix(in srgb, red 50%, blue)) {
+  .gym-deload-badge { background: color-mix(in srgb, var(--info) 13%, transparent); }
+}
+
+.gym-sd-stats .gym-stat-value { font-size: 24px; }
+
+.gym-sd-quick { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 14px; }
+.gym-sd-quick-icon { flex-shrink: 0; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: var(--success-soft); color: var(--success); }
+.gym-sd-quick-text { flex: 1; min-width: 180px; display: flex; flex-direction: column; gap: 2px; }
+.gym-sd-quick-text h2 { font-size: 17px; }
+.gym-sd-quick-text p { font-size: 14px; color: var(--text-2); }
+
+.gym-sd-note { display: flex; gap: 12px; align-items: flex-start; font-size: 16px; line-height: 1.45; }
+.gym-sd-note > .icon { flex-shrink: 0; margin-top: 2px; color: var(--text-3); }
+
+.gym-sd-prs { display: flex; flex-direction: column; gap: 10px; }
+.gym-sd-prs-head { display: flex; align-items: center; gap: 10px; }
+.gym-sd-prs-head h2 { font-size: 17px; }
+.gym-sd-trophy { flex-shrink: 0; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--gym-pr-soft); color: var(--gym-pr); }
+.gym-sd-pr-list { display: flex; flex-direction: column; }
+.gym-sd-pr-list li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 38px; position: relative; }
+.gym-sd-pr-list li + li::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+  background: var(--separator, var(--border)); transform: scaleY(0.5); transform-origin: top;
+}
+.gym-sd-pr-name { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gym-sd-pr-list strong { font-size: 15px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.gym-sd-exercises { display: flex; flex-direction: column; gap: 10px; }
+.gym-sd-ex { padding: 14px 16px 10px; }
+.gym-sd-ex.is-superset { box-shadow: inset 4px 0 0 var(--accent); }
+.gym-sd-ex-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.gym-sd-ss {
+  flex-shrink: 0; display: inline-grid; place-items: center; min-width: 30px; height: 24px; padding: 0 7px;
+  border-radius: 8px; background: var(--accent-soft); color: var(--accent); font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.gym-sd-ex-name {
+  flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 2px; min-height: 32px; text-align: left;
+  font-size: 17px; font-weight: 600; letter-spacing: -0.02em; color: var(--text);
+}
+.gym-sd-ex-name > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gym-sd-ex-name .icon { color: var(--text-3); }
+button.gym-sd-ex-name:active { opacity: 0.6; }
+.gym-sd-ex-prs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.gym-sd-ex-note { margin-top: 6px; font-size: 14px; color: var(--text-2); font-style: italic; white-space: pre-wrap; overflow-wrap: anywhere; }
+.gym-sd-empty-sets { margin-top: 6px; font-size: 14px; color: var(--text-3); }
+
+.gym-sd-table { width: 100%; margin-top: 8px; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.gym-sd-table th {
+  padding: 2px 0 6px; text-align: left; font-size: 12px; font-weight: 600; letter-spacing: 0.03em;
+  text-transform: uppercase; color: var(--text-3);
+}
+.gym-sd-table td { padding: 4px 0; font-size: 16px; vertical-align: middle; }
+.gym-sd-table th + th, .gym-sd-table td + td { padding-left: 12px; }
+.gym-sd-table .col-set { width: 44px; }
+.gym-sd-table .col-value { font-weight: 500; }
+.gym-sd-table .col-rpe { width: 1%; white-space: nowrap; color: var(--text-2); font-size: 15px; }
+.gym-sd-table .col-pr { width: 1%; white-space: nowrap; text-align: right; }
+.gym-sd-table tr.is-warmup .col-value { color: var(--text-2); font-weight: 400; }
+.gym-sd-set-pr { font-size: 11.5px; padding: 2px 7px; }
+.gym-sd-set-pr-visual { display: inline-flex; align-items: center; gap: 3px; }
+
+/* edit mode */
+.gym-sd-editbar {
+  position: sticky; top: calc(var(--gym-sticky-top) + 4px); z-index: 8;
+  display: flex; align-items: center; gap: 8px; min-height: 50px; padding: 5px 5px 5px 16px; border-radius: 999px;
+  background: var(--glass-bg-strong, var(--surface)); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border, var(--border)); box-shadow: var(--glass-highlight, none), var(--glass-shadow, var(--shadow-md));
+}
+@media (min-width: 900px) { .gym-sd-editbar { top: 12px; } }
+.gym-sd-editbar .gym-sd-back { margin-left: -6px; padding: 0 8px; }
+.gym-sd-editbar .gym-sd-edit-title {
+  flex: 1; min-width: 0; text-align: center; font-family: var(--font); font-size: 17px; font-weight: 600;
+  letter-spacing: -0.02em; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.gym-sd-editbar .btn { min-height: 40px; padding: 0 18px; }
+.gym-sd-form { display: flex; flex-direction: column; gap: 14px; }
+.gym-sd-form .field-row { gap: 10px; }
+.gym-sd-edit-foot { display: flex; gap: 10px; padding-top: 4px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .gym-cal-grid.from-next, .gym-cal-grid.from-prev { animation: none; }
+}

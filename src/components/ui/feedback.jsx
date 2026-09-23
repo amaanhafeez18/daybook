@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import Icon from './Icon.jsx'
 import Sheet from './Sheet.jsx'
 
@@ -62,33 +62,43 @@ function ToastItem({ item, onDismiss }) {
 
 // ---- confirmation ------------------------------------------------------------------------
 // Only for permanent actions: `if (await confirmAction({...})) ...`
+// Resolves true (confirm button), false (the cancel button, which cancelLabel can name as an
+// action, e.g. 'Resume') or null (dismissed: backdrop, Escape or close).
 
 let confirmListener = null
 
-export function confirmAction({ title, message, confirmLabel = 'Delete', tone = 'danger' }) {
+export function confirmAction({ title, message, confirmLabel = 'Delete', tone = 'danger', cancelLabel = 'Cancel' }) {
   return new Promise((resolve) => {
     if (!confirmListener) {
       resolve(window.confirm(message || title))
       return
     }
-    confirmListener({ title, message, confirmLabel, tone, resolve })
+    confirmListener({ title, message, confirmLabel, tone, cancelLabel, resolve })
   })
 }
 
 export function ConfirmHost() {
   const [request, setRequest] = useState(null)
   const [open, setOpen] = useState(false)
+  const pending = useRef(null)
   const messageId = useId()
 
   useEffect(() => {
     confirmListener = (next) => {
+      pending.current?.resolve(null) // a newer question replaces one still open
+      pending.current = next
       setRequest(next)
       setOpen(true)
     }
-    return () => { confirmListener = null }
+    return () => {
+      confirmListener = null
+      pending.current?.resolve(null)
+      pending.current = null
+    }
   }, [])
 
   const settle = (value) => {
+    if (pending.current === request) pending.current = null
     request?.resolve(value)
     setOpen(false)
   }
@@ -96,7 +106,7 @@ export function ConfirmHost() {
   return (
     <Sheet
       open={open}
-      onClose={() => settle(false)}
+      onClose={() => settle(null)}
       title={request?.title}
       size="sm"
       initialFocus={false}
@@ -104,7 +114,7 @@ export function ConfirmHost() {
       describedBy={request?.message ? messageId : undefined}
       footer={(
         <>
-          <button type="button" className="btn btn-secondary" onClick={() => settle(false)}>Cancel</button>
+          <button type="button" className="btn btn-secondary" onClick={() => settle(false)}>{request?.cancelLabel || 'Cancel'}</button>
           <button type="button" className={`btn ${request?.tone === 'danger' ? 'btn-danger' : 'btn-primary'}`} onClick={() => settle(true)} data-autofocus>
             {request?.confirmLabel}
           </button>
