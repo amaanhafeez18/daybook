@@ -21,7 +21,7 @@ const TABLES = {
 // Columns each table accepts (matches supabase/schema.sql). Unknown fields are dropped
 // so a stray client field can never make a save fail.
 const COLUMNS = {
-  tasks: ['id', 'text', 'done', 'date', 'time', 'details', 'priority', 'archived', 'calendar_event_id', 'created_at'],
+  tasks: ['id', 'text', 'done', 'date', 'time', 'details', 'priority', 'archived', 'calendar_event_id', 'reminder_minutes', 'created_at'],
   events: ['id', 'date', 'time', 'title', 'task_id', 'created_at'],
   friends: ['id', 'name', 'relationship', 'reminder_days', 'organization', 'note', 'photo_url', 'birthday', 'current_status', 'facts', 'created_at'],
   contact_logs: ['id', 'friend_id', 'date', 'created_at'],
@@ -40,6 +40,7 @@ const FIELD_TO_COLUMN = {
   taskId: 'task_id',
   reminderDays: 'reminder_days',
   dayDetails: 'day_details',
+  reminderMinutes: 'reminder_minutes',
   createdAt: 'created_at'
 }
 const COLUMN_TO_FIELD = Object.fromEntries(Object.entries(FIELD_TO_COLUMN).map(([field, column]) => [column, field]))
@@ -128,17 +129,30 @@ async function ownedIdsFor(supabase, tableName, userId, ids) {
 
 // Rows the user already owns are updated in place. New rows use a plain insert, so an id that
 // belongs to another user fails instead of being taken over.
+const MISSING_COLUMN = /Could not find the '([^']+)' column/
+
+// Retries once without a column the live database doesn't have yet (a migration not yet run),
+// so a new optional field can never make saving fail.
+async function tolerant(run, rows) {
+  let { error } = await run(rows)
+  const missing = error && MISSING_COLUMN.exec(error.message || '')
+  if (missing) {
+    console.warn(`Column "${missing[1]}" is missing; saving without it. Run the latest Supabase migration.`)
+    const trimmed = rows.map(({ [missing[1]]: _dropped, ...rest }) => rest)
+    ;({ error } = await run(trimmed))
+  }
+  if (error) throw error
+}
+
 async function writeRows(supabase, tableName, rows, ownedIds) {
   const existingRows = rows.filter((row) => ownedIds.has(row.id))
   const newRows = rows.filter((row) => !ownedIds.has(row.id))
 
   for (const batch of chunks(existingRows)) {
-    const { error } = await supabase.from(tableName).upsert(batch, { onConflict: 'id', defaultToNull: false })
-    if (error) throw error
+    await tolerant((rows) => supabase.from(tableName).upsert(rows, { onConflict: 'id', defaultToNull: false }), batch)
   }
   for (const batch of chunks(newRows)) {
-    const { error } = await supabase.from(tableName).insert(batch, { defaultToNull: false })
-    if (error) throw error
+    await tolerant((rows) => supabase.from(tableName).insert(rows, { defaultToNull: false }), batch)
   }
 }
 

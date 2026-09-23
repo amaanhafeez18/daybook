@@ -4,7 +4,7 @@ import Icon, { BrandMark } from './components/ui/Icon.jsx'
 import { ConfirmHost, Toaster, toast } from './components/ui/feedback.jsx'
 import TodayPage from './pages/TodayPage.jsx'
 import { SESSION_EXPIRED_EVENT, clearSession, fetchSession, getCachedUser, getToken, readJson, readPref, writePref } from './lib/api.js'
-import { hydrateFromCache, refresh, resetStore, retryUnsaved, useStore } from './lib/store.js'
+import { getState, hydrateFromCache, refresh, resetStore, retryUnsaved, updateSettings, useStore } from './lib/store.js'
 import { ensureFriendReminders } from './lib/planner.js'
 import { applyTheme } from './lib/theme.js'
 
@@ -100,7 +100,11 @@ function Shell({ user, onUserChange, onSignOut }) {
   // Data: cache first, then the server; refresh again whenever the app returns to the foreground.
   useEffect(() => {
     hydrateFromCache()
-    refresh().then(ensureFriendReminders).catch(() => ensureFriendReminders())
+    const saveTimeZone = () => {
+      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
+      if (timeZone && getState().data.settings.timeZone !== timeZone) updateSettings({ timeZone })
+    }
+    refresh().then(() => { ensureFriendReminders(); saveTimeZone() }).catch(() => ensureFriendReminders())
     let last = Date.now()
     const onVisible = () => {
       if (document.visibilityState !== 'visible') return

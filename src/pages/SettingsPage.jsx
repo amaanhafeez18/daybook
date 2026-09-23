@@ -10,6 +10,7 @@ import { classSchedule, deleteClass, deleteTaskForever, restoreTask, saveClass }
 import { ACCENTS, APPEARANCES, resolveAppearance } from '../lib/theme.js'
 import { PRAYER_METHODS } from '../lib/environment.js'
 import { formatDateShort, formatTime, timeToMinutes } from '../lib/dates.js'
+import { LEAD_OPTIONS, currentSubscription, disableNotifications, enableNotifications, notificationPrefs, pushSupport, sendTestNotification } from '../lib/notifications.js'
 
 export default function SettingsPage({ user, onUserChange, onSignOut }) {
   const settings = useData('settings')
@@ -100,6 +101,8 @@ export default function SettingsPage({ user, onUserChange, onSignOut }) {
           </div>
         </div>
       </section>
+
+      <NotificationSettings settings={settings} />
 
       <section className="settings-group">
         <h2>Prayer times</h2>
@@ -212,6 +215,136 @@ export default function SettingsPage({ user, onUserChange, onSignOut }) {
       <PasswordSheet open={securitySheet === 'password'} onClose={() => setSecuritySheet(null)} onUserChange={onUserChange} />
       <RecoverySheet open={securitySheet === 'recovery'} onClose={() => setSecuritySheet(null)} onUserChange={onUserChange} />
     </div>
+  )
+}
+
+// ---- notifications -----------------------------------------------------------------------
+
+const DEVICE_STATUS = {
+  install: 'Add Daybook to your Home Screen (Share → Add to Home Screen), then open it from there to turn on notifications.',
+  unsupported: 'This browser doesn’t support notifications.',
+  dev: 'Available in the installed app (not the local dev server).',
+  denied: 'Blocked. Allow notifications for Daybook in your phone’s Settings → Notifications.',
+}
+
+function NotificationSettings({ settings }) {
+  const prefs = notificationPrefs(settings)
+  const [support, setSupport] = useState(pushSupport)
+  const [enabledHere, setEnabledHere] = useState(false)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => { currentSubscription().then((subscription) => setEnabledHere(!!subscription)).catch(() => {}) }, [])
+
+  const set = (patch) => updateSettings({ notifications: { ...prefs, ...patch } })
+
+  async function enable() {
+    setBusy(true)
+    try {
+      await enableNotifications()
+      setEnabledHere(true)
+      toast('Notifications are on for this device', { tone: 'success' })
+    } catch (error) {
+      toast(error.message, { tone: 'error', duration: 7000 })
+    } finally {
+      setSupport(pushSupport())
+      setBusy(false)
+    }
+  }
+
+  async function disable() {
+    setBusy(true)
+    await disableNotifications()
+    setEnabledHere(false)
+    setBusy(false)
+    toast('Notifications are off for this device')
+  }
+
+  async function test() {
+    try {
+      await sendTestNotification()
+      toast('Test sent — it should arrive in a few seconds')
+    } catch (error) {
+      toast(error.message, { tone: 'error' })
+    }
+  }
+
+  const on = support === 'granted' && enabledHere
+  const allDayValue = prefs.allDayTime ? prefs.allDayMode : 'off'
+
+  return (
+    <section className="settings-group">
+      <h2>Notifications</h2>
+      <div className="card settings-card settings-list">
+        <div className="settings-row is-static">
+          <span className="settings-row-icon"><Icon name="bell" size={18} /></span>
+          <span className="settings-row-text">
+            <strong>This device</strong>
+            <small>{DEVICE_STATUS[support] || (on ? 'On — reminders arrive here' : 'Off')}</small>
+          </span>
+          {!DEVICE_STATUS[support] && (on
+            ? <Button variant="secondary" size="sm" loading={busy} onClick={disable}>Turn off</Button>
+            : <Button size="sm" loading={busy} onClick={enable}>Turn on</Button>)}
+        </div>
+        {on && (
+          <button type="button" className="settings-row" onClick={test}>
+            <span className="settings-row-icon"><Icon name="send" size={18} /></span>
+            <span className="settings-row-text"><strong>Send a test notification</strong></span>
+          </button>
+        )}
+      </div>
+
+      <div className="card settings-card pref-card">
+        <div className="pref-row">
+          <label htmlFor="pref-lead">Tasks with a time</label>
+          <select id="pref-lead" className="input" value={prefs.taskLead} onChange={(event) => set({ taskLead: Number(event.target.value) })}>
+            {LEAD_OPTIONS.filter((option) => option.value !== 1440).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+        </div>
+        <div className="pref-row">
+          <label htmlFor="pref-allday">Tasks without a time</label>
+          <select id="pref-allday" className="input" value={allDayValue} onChange={(event) => (event.target.value === 'off' ? set({ allDayTime: '' }) : set({ allDayMode: event.target.value, allDayTime: prefs.allDayTime || '09:00' }))}>
+            <option value="day">On the day</option>
+            <option value="before">The day before</option>
+            <option value="off">No reminder</option>
+          </select>
+        </div>
+        {allDayValue !== 'off' && (
+          <div className="pref-row">
+            <label htmlFor="pref-allday-time">Remind at</label>
+            <input id="pref-allday-time" className="input" type="time" value={prefs.allDayTime} onChange={(event) => set({ allDayTime: event.target.value || '09:00' })} />
+          </div>
+        )}
+      </div>
+
+      <div className="card settings-card pref-card">
+        <Switch label="Morning summary" description="What’s due, overdue, classes and birthdays" checked={prefs.dailySummary} onChange={(dailySummary) => set({ dailySummary })} />
+        {prefs.dailySummary && (
+          <div className="pref-row">
+            <label htmlFor="pref-summary">Time</label>
+            <input id="pref-summary" className="input" type="time" value={prefs.dailySummaryTime} onChange={(event) => set({ dailySummaryTime: event.target.value || '08:00' })} />
+          </div>
+        )}
+        <Switch label="Evening check-in" description="Anything still open or overdue" checked={prefs.overdue} onChange={(overdue) => set({ overdue })} />
+        {prefs.overdue && (
+          <div className="pref-row">
+            <label htmlFor="pref-evening">Time</label>
+            <input id="pref-evening" className="input" type="time" value={prefs.overdueTime} onChange={(event) => set({ overdueTime: event.target.value || '18:00' })} />
+          </div>
+        )}
+        <Switch label="Catch-ups and birthdays" description="Reminders to reach out to people" checked={prefs.people} onChange={(people) => set({ people })} />
+        <Switch label="Quiet hours" description="Hold reminders until quiet hours end" checked={prefs.quietHours} onChange={(quietHours) => set({ quietHours })} />
+        {prefs.quietHours && (
+          <div className="pref-row">
+            <label htmlFor="pref-quiet-start">From</label>
+            <span className="pref-range">
+              <input id="pref-quiet-start" className="input" type="time" value={prefs.quietStart} onChange={(event) => set({ quietStart: event.target.value || '22:00' })} />
+              <span>to</span>
+              <input aria-label="Quiet hours end" className="input" type="time" value={prefs.quietEnd} onChange={(event) => set({ quietEnd: event.target.value || '07:00' })} />
+            </span>
+          </div>
+        )}
+      </div>
+    </section>
   )
 }
 

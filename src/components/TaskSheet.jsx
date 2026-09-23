@@ -4,6 +4,8 @@ import { AutoTextarea, Button, Field, Segmented } from './ui/primitives.jsx'
 import { toast } from './ui/feedback.jsx'
 import { archiveTask, createTask, isReminderMarker, restoreTask, setTaskDone, updateTask } from '../lib/planner.js'
 import { addDaysISO, todayISO } from '../lib/dates.js'
+import { LEAD_OPTIONS, notificationPrefs } from '../lib/notifications.js'
+import { useData } from '../lib/store.js'
 
 const PRIORITIES = [
   { id: 'low', label: 'Low' },
@@ -11,18 +13,19 @@ const PRIORITIES = [
   { id: 'urgent', label: 'Urgent' },
 ]
 
-const EMPTY = { text: '', details: '', date: '', time: '', priority: 'medium' }
+const EMPTY = { text: '', details: '', date: '', time: '', priority: 'medium', reminderMinutes: '' }
 
 // Create a task (task = null) or edit an existing one.
 export default function TaskSheet({ open, onClose, task = null, defaults = {} }) {
   const [form, setForm] = useState(EMPTY)
   const [error, setError] = useState('')
+  const prefs = notificationPrefs(useData('settings'))
 
   useEffect(() => {
     if (!open) return
     setError('')
     setForm(task
-      ? { text: task.text || '', details: isReminderMarker(task.details) ? '' : task.details || '', date: task.date || '', time: task.time || '', priority: task.priority || 'medium' }
+      ? { text: task.text || '', details: isReminderMarker(task.details) ? '' : task.details || '', date: task.date || '', time: task.time || '', priority: task.priority || 'medium', reminderMinutes: Number.isInteger(task.reminderMinutes) ? String(task.reminderMinutes) : '' }
       : { ...EMPTY, ...defaults })
   }, [open, task?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -41,7 +44,7 @@ export default function TaskSheet({ open, onClose, task = null, defaults = {} })
       setError('Give the task a name.')
       return
     }
-    const fields = { ...form, text, details: form.details.trim() }
+    const fields = { ...form, text, details: form.details.trim(), reminderMinutes: form.reminderMinutes === '' ? null : Number(form.reminderMinutes) }
     if (task) {
       // Keep the internal reminder marker if the user didn't add notes of their own.
       if (isReminderMarker(task.details) && !fields.details) fields.details = task.details
@@ -101,6 +104,27 @@ export default function TaskSheet({ open, onClose, task = null, defaults = {} })
             <input className="input" type="time" value={form.time} onChange={(event) => set('time')(event.target.value)} aria-label="Time" disabled={!form.date} />
           </div>
         </div>
+        {form.date && (
+          <Field label="Reminder">
+            {(id) => (
+              <select id={id} className="input" value={form.reminderMinutes} onChange={(event) => set('reminderMinutes')(event.target.value)}>
+                {form.time ? (
+                  <>
+                    <option value="">Default ({(LEAD_OPTIONS.find((option) => option.value === Number(prefs.taskLead)) || LEAD_OPTIONS[3]).label.toLowerCase()})</option>
+                    {LEAD_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </>
+                ) : (
+                  <>
+                    <option value="">Default ({prefs.allDayTime ? `${prefs.allDayMode === 'before' ? 'day before' : 'on the day'} at ${prefs.allDayTime}` : 'none'})</option>
+                    <option value="0">On the day{prefs.allDayTime ? ` at ${prefs.allDayTime}` : ''}</option>
+                    <option value="1440">The day before</option>
+                    <option value="-1">No reminder</option>
+                  </>
+                )}
+              </select>
+            )}
+          </Field>
+        )}
         <div className="field">
           <span className="field-label" id="priority-label">Priority</span>
           <Segmented options={PRIORITIES} value={form.priority} onChange={set('priority')} label="Priority" />

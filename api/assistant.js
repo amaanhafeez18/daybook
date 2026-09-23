@@ -168,6 +168,7 @@ const tools = [
     time: TIME,
     details: { type: 'string' },
     priority: { type: 'string', enum: ['urgent', 'medium', 'low'] },
+    reminderMinutes: { type: 'integer', description: 'Reminder override: minutes before a timed task (0 = at the time, 1440 = a day before); for tasks without a time 0 = on the day, 1440 = day before; -1 = no reminder. Omit to use the default.' },
   }, ['text']),
   tool('update_task', 'Change an existing task by id: rename, reschedule, add details, change priority, complete (done=true), reopen (done=false), or archive (archived=true). Only include fields that change.', {
     taskId: { type: 'string' },
@@ -178,6 +179,7 @@ const tools = [
     priority: { type: 'string', enum: ['urgent', 'medium', 'low'] },
     done: { type: 'boolean' },
     archived: { type: 'boolean' },
+    reminderMinutes: { type: 'integer', description: 'Reminder override: minutes before a timed task (0 = at the time, 1440 = a day before); for tasks without a time 0 = on the day, 1440 = day before; -1 = no reminder. Omit to use the default.' },
   }, ['taskId']),
   tool('create_event', 'Add a calendar event (it also appears as a task).', {
     title: { type: 'string' },
@@ -257,6 +259,24 @@ const tools = [
     prayerMethod: { type: 'string', enum: PRAYER_METHOD_IDS },
     prayerSchool: { type: 'integer', enum: [0, 1] },
     darkMode: { type: 'boolean', description: 'Deprecated; prefer appearance.' },
+    notifications: {
+      type: 'object',
+      description: 'Push-notification preferences (partial update). taskLead: minutes before timed tasks (0 at time, -1 off). allDayTime HH:MM or "" for no reminder on tasks without a time; allDayMode "day" or "before". dailySummary/overdue/people/quietHours booleans with dailySummaryTime, overdueTime, quietStart, quietEnd as HH:MM.',
+      properties: {
+        taskLead: { type: 'integer' },
+        allDayTime: { type: 'string' },
+        allDayMode: { type: 'string', enum: ['day', 'before'] },
+        dailySummary: { type: 'boolean' },
+        dailySummaryTime: { type: 'string' },
+        overdue: { type: 'boolean' },
+        overdueTime: { type: 'string' },
+        people: { type: 'boolean' },
+        quietHours: { type: 'boolean' },
+        quietStart: { type: 'string' },
+        quietEnd: { type: 'string' },
+      },
+      additionalProperties: false,
+    },
   }),
   tool('update_class', 'Edit a class by id: rename, change its weekly schedule (replaces all days), or its end date.', {
     classId: { type: 'string' },
@@ -339,6 +359,7 @@ function buildSnapshot(data, ctx, username) {
       priority: task.priority === 'medium' ? '' : task.priority,
       details: task.details?.startsWith('friend-reminder:') ? '' : truncate(task.details, 200),
       overdue: task.date && task.date < today ? true : undefined,
+      reminderMinutes: Number.isInteger(task.reminder_minutes) ? task.reminder_minutes : undefined,
     })),
     recentlyCompleted: activeTasks.filter((task) => task.done).slice(0, 8).map((task) => compact({ id: task.id, text: task.text, date: task.date })),
     calendar: data.events
@@ -394,6 +415,7 @@ function buildSnapshot(data, ctx, username) {
       showPrayerTimes: data.settings.showPrayerTimes !== false,
       prayerMethod: data.settings.prayerMethod || 'auto',
       prayerSchool: Number(data.settings.prayerSchool || 0) === 1 ? 'Hanafi' : 'Standard',
+      notifications: data.settings.notifications || 'defaults (15 min before timed tasks, 9:00 AM on the day for untimed tasks, morning summary 8:00 AM, evening check-in 6:00 PM, people reminders on, no quiet hours)',
     },
     locationKnown: Boolean(ctx.location),
   })
@@ -404,7 +426,7 @@ function buildInstructions(snapshot, ctx, { voice }) {
 
 Current local time: ${ctx.weekday} ${ctx.localDate} ${ctx.localTime} (${ctx.timeZone}).
 
-What you can do (with tools): add, edit, reschedule, complete, reopen and archive tasks; add, move and remove calendar events; add, update and remove people and log catch-ups; add, edit and remove classes; read, write, append to and delete journal entries; save and delete notes; remember and forget facts; search older history; change any setting (light/dark/system appearance, accent colour, display name, prayer times card, prayer calculation method, Hanafi/standard Asr); and look up live weather and prayer times for the user's location. You cannot change the password, recovery question or log out — point the user to Settings → Security for those.
+What you can do (with tools): add, edit, reschedule, complete, reopen and archive tasks; add, move and remove calendar events; add, update and remove people and log catch-ups; add, edit and remove classes; read, write, append to and delete journal entries; save and delete notes; remember and forget facts; search older history; set per-task reminders and change notification preferences (reminder timing, morning summary, evening check-in, people reminders, quiet hours); change any setting (light/dark/system appearance, accent colour, display name, prayer times card, prayer calculation method, Hanafi/standard Asr); and look up live weather and prayer times for the user's location. You cannot change the password, recovery question or log out — point the user to Settings → Security for those.
 
 How to act:
 - Chat naturally. Answer questions from the snapshot directly; don't call tools just to read data you already have.
@@ -556,7 +578,7 @@ async function executeTool(supabase, userId, name, args, data, ctx) {
   if (name === 'create_task') {
     const problem = checkDateTime(args)
     if (problem) return { ok: false, message: problem }
-    const task = { id: newId(), user_id: userId, text: args.text, date: args.date || '', time: args.time || '', details: args.details || '', priority: args.priority || 'medium', done: false, archived: false, calendar_event_id: null, created_at: nowIso() }
+    const task = { id: newId(), user_id: userId, text: args.text, date: args.date || '', time: args.time || '', details: args.details || '', priority: args.priority || 'medium', done: false, archived: false, calendar_event_id: null, created_at: nowIso(), ...(Number.isInteger(args.reminderMinutes) ? { reminder_minutes: args.reminderMinutes } : {}) }
     if (task.date) task.calendar_event_id = newId()
     const { error } = await supabase.from('tasks').insert(task)
     if (error) throw error
@@ -578,6 +600,7 @@ async function executeTool(supabase, userId, name, args, data, ctx) {
     for (const field of ['text', 'date', 'time', 'details', 'priority', 'done', 'archived']) {
       if (args[field] !== undefined) patch[field] = args[field]
     }
+    if (Number.isInteger(args.reminderMinutes)) patch.reminder_minutes = args.reminderMinutes
     const { error } = await supabase.from('tasks').update(patch).eq('id', task.id).eq('user_id', userId)
     if (error) throw error
     Object.assign(task, patch)
@@ -768,6 +791,13 @@ async function executeTool(supabase, userId, name, args, data, ctx) {
     if (changes.prayerMethod !== undefined) changes.prayerMethod = String(changes.prayerMethod)
     if (changes.prayerSchool !== undefined) changes.prayerSchool = Number(changes.prayerSchool) === 1 ? 1 : 0
     if (changes.displayName !== undefined) changes.displayName = String(changes.displayName).trim().slice(0, 40)
+    if (changes.notifications) {
+      for (const key of ['allDayTime', 'dailySummaryTime', 'overdueTime', 'quietStart', 'quietEnd']) {
+        const value = changes.notifications[key]
+        if (value !== undefined && value !== '' && !isTime(value)) return { ok: false, message: `${key} must be HH:MM.` }
+      }
+      changes.notifications = { ...(data.settings.notifications || {}), ...changes.notifications }
+    }
     if (changes.darkMode !== undefined) {
       changes.appearance = changes.appearance || (changes.darkMode ? 'dark' : 'light')
       delete changes.darkMode
