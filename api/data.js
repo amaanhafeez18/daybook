@@ -251,7 +251,7 @@ export default async function handler(req, res) {
     if (error.status === 503) return sendJson(res, 503, { error: error.message })
     if (isConfigError(error)) {
       return sendJson(res, 503, {
-        error: 'Server is not configured yet. Add SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, and JWT_SECRET in Vercel.'
+        error: error.message.startsWith('Server setup problem') ? error.message : 'Server is not configured yet. Add SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, and JWT_SECRET in Vercel.'
       })
     }
     return sendJson(res, 500, { error: error.message || 'Unexpected data error.' })
