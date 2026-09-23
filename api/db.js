@@ -11,10 +11,14 @@ export function getSupabase() {
     throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY environment variables. Add them in Vercel Project Settings → Environment Variables.')
   }
 
-  // The server needs the secret key: with Row Level Security on, the public key can't see any rows.
-  if (!warnedAboutKey && (key.startsWith('sb_publishable_') || isAnonJwt(key))) {
-    warnedAboutKey = true
-    console.warn('SUPABASE_SERVICE_ROLE_KEY looks like the public (publishable/anon) key. Use the secret key from Supabase → Project Settings → API Keys.')
+  // The server needs the secret key: with Row Level Security on, the public key sees no rows, which
+  // would look like "no account found" / failed sign-ups. Fail loudly with the real cause instead.
+  if (key.startsWith('sb_publishable_') || isAnonJwt(key)) {
+    if (!warnedAboutKey) {
+      warnedAboutKey = true
+      console.error('SUPABASE_SERVICE_ROLE_KEY is the public (publishable/anon) key. Use the secret key from Supabase → Project Settings → API Keys.')
+    }
+    throw new Error('Server setup problem: SUPABASE_SERVICE_ROLE_KEY is set to the public key. Put the Supabase secret key (sb_secret_…) in Vercel Environment Variables and redeploy.')
   }
 
   return createClient(url, key, {
