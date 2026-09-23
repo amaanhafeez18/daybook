@@ -1,0 +1,10 @@
+/* =========================================================================================
+   Journal additions. Loaded with the lazy JournalPage chunk (after App.css / glass.css /
+   apple.css), but rules that meet one of theirs use a heavier selector rather than rely on
+   that order.
+   ========================================================================================= */
+
+/* Phones: the subtitle is filler; the Entries / Notes switch right below says what this page is. */
+@media (max-width: 639px) {
+  .journal-page .page-subtitle { display: none; }
+}

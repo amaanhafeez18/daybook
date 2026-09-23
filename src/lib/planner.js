@@ -120,7 +120,7 @@ export function updateEvent(id, patch) {
   updateData('events', (list) => list.map((item) => (item.id === id ? { ...item, ...patch } : item)))
 }
 
-// Removing an event archives its task (restorable from Settings). Returns an undo function.
+// Removing an event archives its task (restorable from Tasks → Completed → Archived). Returns an undo function.
 export function deleteEvent(id) {
   const event = data().events.find((item) => item.id === id)
   if (!event) return () => {}

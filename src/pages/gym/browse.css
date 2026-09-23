@@ -1,0 +1,14 @@
+/* =========================================================================================
+   Gym: the links at the foot of the Routines tab (RoutinesTab's MoreLinks) and the exercise
+   library page they open (GymPage's ExercisesPage). Loaded after App.css / glass.css / apple.css
+   and routines.css; gym-br- classes, plus one more specific override of exercises.css.
+   ========================================================================================= */
+
+.gym-br-links { margin-top: 20px; }
+.gym-br-links .gym-as-row { min-height: 54px; }
+.gym-br-links .gym-as-row > .gym-br-chevron { flex-shrink: 0; margin-right: -4px; color: var(--text-3); }
+
+/* The library page has no sticky section tabs, so its letter headings stick right under the
+   title bar (exercises.css leaves room for the tabs). */
+.gym-br-page .gym-lib-letter { top: calc(var(--topbar-h) + var(--safe-top)); }
+@media (min-width: 900px) { .gym-br-page .gym-lib-letter { top: 0; } }

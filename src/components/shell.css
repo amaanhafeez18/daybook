@@ -1,0 +1,50 @@
+/* =========================================================================================
+   Shell extras: drag-to-close sheets and the distraction-free workout ("focus mode").
+   Imported by App.jsx and Sheet.jsx, which main.jsx loads BEFORE App.css / glass.css / apple.css,
+   so every rule here either styles something those files don't, or is more specific than theirs.
+   ========================================================================================= */
+
+/* ---- sheets: swipe down on the handle or header to close (phones; Sheet.jsx) ----------------- */
+
+/* A 24px-tall row around the 5px handle bar; the negative margin keeps the old spacing (8px + 5px). */
+.sheet-grab {
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+  height: 24px;
+  margin-bottom: -11px;
+  touch-action: none;
+  cursor: grab;
+}
+@media (max-width: 639px) {
+  /* The browser mustn't take the gesture for a scroll; the title isn't text to select. */
+  .sheet .sheet-header { touch-action: none; -webkit-user-select: none; user-select: none; }
+  .sheet.is-dragging, .sheet.is-dragging .sheet-grab { cursor: grabbing; }
+  .sheet.is-dragging { -webkit-user-select: none; user-select: none; }
+}
+@media (min-width: 640px) {
+  .sheet-grab { display: none; }
+}
+
+/* ---- focus mode: html.is-focus while #/gym/workout shows (App.jsx) ---------------------------
+   Phones and tablets drop the top bar and the tab bar; the workout's own header moves to the top
+   safe area and its rest timer to the bottom one (workout.css). Zeroing the bar heights moves
+   everything positioned from them (toasts, sticky offsets, scroll margins) along with it.
+   The desktop sidebar doesn't cost logging space, so ≥900px stays as it is. */
+@media (max-width: 899px) {
+  html.is-focus { --topbar-h: 0px; --nav-h: 0px; }
+  html.is-focus .topbar, html.is-focus .nav { display: none; }
+  html.is-focus .page { padding-top: calc(var(--safe-top) + 12px); }
+  /* Covers the strip above the floating header, so sets scrolling past don't show through. */
+  html.is-focus .shell-main::before {
+    content: '';
+    position: fixed;
+    z-index: 24;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: calc(var(--safe-top) + 4px);
+    background: var(--bg);
+    pointer-events: none;
+  }
+}

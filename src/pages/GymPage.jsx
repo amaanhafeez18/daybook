@@ -8,6 +8,7 @@ import { hasPlan, routineById, routineColor, useActiveWorkout, useGym, useToday 
 import { formatDuration } from '../lib/gym/units.js'
 import { navigate } from '../lib/router.js'
 import { refresh, useStore } from '../lib/store.js'
+import { goBack } from './gym/common.jsx'
 import TodayTab from './gym/TodayTab.jsx'
 import CalendarTab from './gym/CalendarTab.jsx'
 import RoutinesTab from './gym/RoutinesTab.jsx'
@@ -23,23 +24,29 @@ import ToolsSheet from './gym/ToolsSheet.jsx'
 import GymSettingsSheet from './gym/GymSettingsSheet.jsx'
 import './gym/gym-common.css'
 import './gym/gym.css'
+import './gym/browse.css'
 
-// #/gym/<view>/<param>: five tabs under one header, and detail views that take the whole page.
+// #/gym/<view>/<param>: four tabs under one header, the exercise library (opened from Routines)
+// as a page of its own, and detail views that take the whole page.
 
 const TABS = [
   { id: 'today', label: 'Today', hash: '#/gym' },
   { id: 'calendar', label: 'Calendar', hash: '#/gym/calendar' },
   { id: 'routines', label: 'Routines', hash: '#/gym/routines' },
   { id: 'history', label: 'History', hash: '#/gym/history' },
-  { id: 'exercises', label: 'Exercises', hash: '#/gym/exercises' },
 ]
-const TAB_VIEWS = { today: TodayTab, calendar: CalendarTab, routines: RoutinesTab, history: HistoryTab, exercises: ExercisesTab }
+const TAB_VIEWS = { today: TodayTab, calendar: CalendarTab, routines: RoutinesTab, history: HistoryTab }
+const PAGE_VIEWS = { exercises: ExercisesPage }
 const DETAIL_VIEWS = { workout: WorkoutScreen, session: SessionDetail, routine: RoutineEditor, exercise: ExerciseDetail, stats: StatsView }
+const knownView = (view) => !!(TAB_VIEWS[view] || PAGE_VIEWS[view] || DETAIL_VIEWS[view])
+// How deep a view sits: tabs, then the library, then details. Going deeper keeps the scroll
+// position of the view left behind; coming back up restores it.
+const viewLevel = (view) => (TAB_VIEWS[view] ? 0 : PAGE_VIEWS[view] ? 1 : 2)
 
 function parseHash() {
   const parts = window.location.hash.replace(/^#\/?/, '').split('?')[0].split('/').filter(Boolean)
   const view = parts[1] || 'today'
-  if (!TAB_VIEWS[view] && !DETAIL_VIEWS[view]) return { view: 'today', param: null }
+  if (!knownView(view)) return { view: 'today', param: null }
   let param = parts.slice(2).join('/')
   try {
     param = decodeURIComponent(param)
@@ -58,8 +65,8 @@ export default function GymPage() {
   const hydrated = useStore((state) => state.hydrated)
   const [toolsOpen, setToolsOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  // Scroll position of the tab a detail view was opened from, restored on the way back.
-  const tabScroll = useRef({ view: null, y: 0 })
+  // Scroll positions of the views a deeper one was opened from, restored on the way back.
+  const scrolls = useRef({})
   const previous = useRef(route)
 
   useEffect(() => {
@@ -75,15 +82,15 @@ export default function GymPage() {
     const from = previous.current
     previous.current = route
     if (from === route) return
-    const leavingTab = !!TAB_VIEWS[from.view] && !!DETAIL_VIEWS[route.view]
-    const returning = !!TAB_VIEWS[route.view] && !!DETAIL_VIEWS[from.view] && tabScroll.current.view === route.view
-    if (leavingTab) tabScroll.current = { view: from.view, y: window.scrollY }
-    const y = returning ? tabScroll.current.y : 0
+    const deeper = viewLevel(route.view) > viewLevel(from.view)
+    const returning = viewLevel(route.view) < viewLevel(from.view)
+    if (deeper) scrolls.current[from.view] = window.scrollY
+    const y = returning ? scrolls.current[route.view] || 0 : 0
     window.scrollTo({ top: 0 })
     if (y) requestAnimationFrame(() => window.scrollTo({ top: y }))
   }, [route])
 
-  const Detail = DETAIL_VIEWS[route.view]
+  const Detail = DETAIL_VIEWS[route.view] || PAGE_VIEWS[route.view]
   if (Detail) {
     return (
       <div className="gym-shell gym-shell-detail">
@@ -135,6 +142,24 @@ export default function GymPage() {
 
       <ToolsSheet open={toolsOpen} onClose={() => setToolsOpen(false)} initialTab="plates" />
       <GymSettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+    </div>
+  )
+}
+
+// The exercise library: rarely needed, so it's a row on the Routines tab rather than a tab.
+function ExercisesPage({ today }) {
+  return (
+    <div className="gym-st gym-br-page">
+      <div className="gym-xd-top">
+        <button type="button" className="gym-xd-back" onClick={() => goBack('gym/routines')}>
+          <Icon name="chevronLeft" size={22} />
+          Routines
+        </button>
+      </div>
+      <header className="gym-st-head">
+        <h1>Exercises</h1>
+      </header>
+      <ExercisesTab today={today} />
     </div>
   )
 }

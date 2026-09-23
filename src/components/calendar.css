@@ -1,0 +1,67 @@
+/* =========================================================================================
+   Calendar additions: the Month/Week fold, paging animation hooks and a leaner phone header.
+   Loaded with the lazy CalendarPage chunk (after App.css / glass.css / apple.css), but rules
+   that meet one of theirs use a heavier selector rather than rely on that order.
+   ========================================================================================= */
+
+/* Sideways swipes page the month (or week); vertical drags still scroll the page. */
+.calendar-page .cal-card { touch-action: pan-y pinch-zoom; }
+
+/* The grid's box. Clips only while it grows or shrinks, so the selected day's shadow shows otherwise. */
+.cal-clip { position: relative; }
+.cal-clip.is-morphing { overflow: hidden; }
+
+/* ---- footer: legend and the Month/Week fold ------------------------------------------------ */
+
+.cal-foot {
+  display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px 14px;
+  padding-top: 10px;
+}
+.cal-foot .calendar-legend { padding: 0; }
+
+.cal-fold {
+  position: relative; display: inline-flex; align-items: center; gap: 4px;
+  min-height: 30px; padding: 0 12px 0 9px; border-radius: 999px;
+  background: var(--surface-2); color: var(--text-2);
+  font-size: 13px; font-weight: 600; letter-spacing: -0.01em;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.35s var(--spring, ease), opacity 0.2s;
+}
+/* 44 px touch target around the 30 px pill. */
+.cal-fold::after { content: ''; position: absolute; inset: -7px -6px; }
+.cal-fold:active { transform: scale(0.94); opacity: 0.7; transition-duration: 0.1s; }
+.cal-fold-chevron { flex-shrink: 0; transition: transform 0.3s var(--ease, ease); }
+/* Month showing: the chevron points up (fold to a week); week showing: down (unfold). */
+.cal-fold[aria-expanded='true'] .cal-fold-chevron { transform: rotate(180deg); }
+@media (hover: hover) {
+  .cal-fold:hover { color: var(--text); }
+}
+
+/* The legend in an empty agenda (phones only; wider screens keep it under the grid). */
+.cal-legend-line {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 14px;
+  margin-top: -10px; padding: 0 8px 8px;
+  font-size: 12px; color: var(--text-2);
+}
+.cal-legend-line span { display: inline-flex; align-items: center; gap: 6px; }
+
+/* ---- phones ----------------------------------------------------------------------------------- */
+
+@media (max-width: 639px) {
+  /* "N items this month" and the legend cost ~55 px and say little on a phone. */
+  .calendar-page .page-subtitle { display: none; }
+  .cal-foot .calendar-legend { display: none; }
+  .cal-foot { padding-top: 4px; }
+  .cal-fold { min-height: 28px; }
+  .cal-fold::after { inset: -8px -6px; }
+}
+
+@media (min-width: 640px) {
+  .cal-legend-line { display: none; }
+}
+
+/* Tablets: legend on the left, the fold on the right. */
+@media (min-width: 640px) and (max-width: 999px) {
+  .cal-foot { justify-content: space-between; }
+  .cal-foot .calendar-legend { justify-content: flex-start; }
+}

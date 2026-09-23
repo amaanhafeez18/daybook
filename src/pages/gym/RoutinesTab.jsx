@@ -19,6 +19,7 @@ import SplitWizard from './SplitWizard.jsx'
 import { beginWorkout } from './startWorkout.js'
 import './routines.css'
 import './wizard.css'
+import './browse.css'
 
 // ---- shared with the routine editor ------------------------------------------------------------
 
@@ -275,6 +276,7 @@ export default function RoutinesTab({ today }) {
             A routine is one training day, like Push, Pull or Legs, with its exercises and target sets. Type your split, like “push pull legs rest”, and the wizard sets it all up.
           </GymEmpty>
         </div>
+        <MoreLinks />
         {sheets}
       </div>
     )
@@ -370,17 +372,38 @@ export default function RoutinesTab({ today }) {
         )
       })}
 
-      {!reordering && (
-        <div className="gym-rt-foot">
-          <button type="button" className="link-btn gym-rt-template-link" onClick={() => setTemplatesOpen(true)}>
-            <Icon name="layers" size={18} />
-            Add routines from a template
-          </button>
-        </div>
-      )}
+      {!reordering && <MoreLinks onTemplates={() => setTemplatesOpen(true)} />}
 
       {sheets}
     </div>
+  )
+}
+
+// The foot of the tab: the exercise library (no longer a tab of its own) and, once there are
+// routines, templates to add more.
+function MoreLinks({ onTemplates }) {
+  return (
+    <ul className="card-list gym-br-links">
+      <li>
+        <button type="button" className="gym-as-row" onClick={() => navigate('gym/exercises')}>
+          <Icon name="book" size={20} />
+          <span className="gym-as-label">
+            Browse exercises
+            <small>Records and history for each one</small>
+          </span>
+          <Icon name="chevronRight" size={18} className="gym-br-chevron" />
+        </button>
+      </li>
+      {onTemplates && (
+        <li>
+          <button type="button" className="gym-as-row" onClick={onTemplates}>
+            <Icon name="layers" size={20} />
+            <span className="gym-as-label">Add routines from a template</span>
+            <Icon name="chevronRight" size={18} className="gym-br-chevron" />
+          </button>
+        </li>
+      )}
+    </ul>
   )
 }
 

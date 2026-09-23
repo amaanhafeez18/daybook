@@ -788,8 +788,9 @@ describe('reminderPreview and the late all-day reminder (B5)', () => {
     const groups = groupDue([...due, { key: 'summary', title: 'Your day', body: 'x' }])
     assert.deepEqual(groups.map((group) => group.length), [3, 1])
     assert.deepEqual(combineReminders(groups[0]), { title: '3 tasks due today', body: 'Buy milk, Pay rent, Urgent: Call Ali', url: '/#/tasks', tag: 'late-allday' })
-    // One claimed item is sent as it is; mixed days and long lists read naturally.
-    assert.deepEqual(combineReminders([due[0]]), { title: 'Buy milk', body: 'Due today', url: '/#/tasks', tag: 'task-a' })
+    // One claimed item is sent as it is (tapping it opens that task); mixed days and long lists read naturally.
+    assert.deepEqual(combineReminders([due[0]]), { title: 'Buy milk', body: 'Due today', url: '/#/tasks/a', tag: 'task-a' })
+    assert.equal(run([task('x y/z', 'Odd id', '00', { created_at: `${TODAY}T14:50:00Z` })], `${TODAY}T15:00:00Z`)[0].url, '/#/tasks/x%20y%2Fz')
     const many = [...due, { ...due[0], title: 'D', body: 'Due tomorrow' }, { ...due[0], title: 'E' }]
     assert.deepEqual(combineReminders(many), { title: '5 tasks coming up', body: 'Buy milk, Pay rent, Urgent: Call Ali and 2 more', url: '/#/tasks', tag: 'late-allday' })
     // A pending task doesn't hold back reminders due for more than a few minutes.

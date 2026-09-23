@@ -273,9 +273,9 @@ function PersonSheet({ friendId, onClose, onCatchUp }) {
     const patch = { ...form, name: form.name.trim() }
     // Keep a legacy note in step, so clearing the field doesn't bring it back.
     if (friend.note) patch.note = form.facts
+    // The sheet switches back to showing the person with the changes: no toast needed.
     updateFriend(friend.id, patch)
     setEditing(false)
-    toast('Saved')
   }
 
   function remove() {

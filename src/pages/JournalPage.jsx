@@ -5,6 +5,7 @@ import { confirmAction, toast } from '../components/ui/feedback.jsx'
 import { getState, retryUnsaved, useData } from '../lib/store.js'
 import { MOODS, addNote, deleteJournalEntry, deleteNote, moodEmoji, saveJournalEntry } from '../lib/planner.js'
 import { addDaysISO, formatDateLong, formatDateShort, relativeDay, todayISO } from '../lib/dates.js'
+import '../components/journal.css'
 
 const AUTOSAVE_MS = 700
 
