@@ -14,6 +14,9 @@
         var a = ['system', 'light', 'dark'].indexOf(s.appearance) >= 0 ? s.appearance : (s.darkMode ? 'dark' : 'system')
         document.documentElement.dataset.appearance = a
         if (['sunset', 'forest', 'midnight'].indexOf(s.theme) >= 0) document.documentElement.dataset.accent = s.theme
+        if (a !== 'system') document.addEventListener('DOMContentLoaded', function () {
+          document.querySelectorAll('meta[name="theme-color"]').forEach(function (m) { m.removeAttribute('media'); m.setAttribute('content', a === 'dark' ? '#0E1116' : '#F6F4EF') })
+        })
       } catch (e) {}
     </script>
 
@@ -23,7 +26,10 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Daybook" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <meta name="theme-color" content="#F6F4EF" />
+    <meta name="format-detection" content="telephone=no" />
+    <!-- iOS colours the status bar from theme-color; theme.js keeps it in sync with the app theme. -->
+    <meta name="theme-color" content="#F6F4EF" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0E1116" media="(prefers-color-scheme: dark)" />
 
     <!-- Inter, loaded without blocking the first render (system font until it arrives). -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />

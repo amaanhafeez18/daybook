@@ -68,6 +68,7 @@ export default function AssistantPage({ displayName }) {
   async function send(payload, shownText) {
     if (busy) return
     window.speechSynthesis?.cancel()
+    if (speak) unlockSpeech()
     const userId = nextId()
     const replyId = nextId()
     const isVoice = !!payload.audio
@@ -142,7 +143,8 @@ export default function AssistantPage({ displayName }) {
     const next = !speak
     setSpeak(next)
     writePref('speakReplies', next)
-    if (!next) window.speechSynthesis?.cancel()
+    if (next) unlockSpeech()
+    else window.speechSynthesis?.cancel()
     toast(next ? 'Replies will be read aloud' : 'Replies won’t be read aloud')
   }
 
@@ -303,6 +305,7 @@ function Composer({ text, setText, busy, onSubmit, onAudio, onStop }) {
     let audioContext = null
     try {
       audioContext = new (window.AudioContext || window.webkitAudioContext)()
+      audioContext.resume?.().catch(() => {}) // iOS starts audio contexts suspended
       const analyser = audioContext.createAnalyser()
       analyser.fftSize = 512
       audioContext.createMediaStreamSource(stream).connect(analyser)
@@ -497,6 +500,16 @@ async function streamAssistant(payload, signal, onEvent) {
 
 function clientContext() {
   return { localDate: todayISO(), localTime: nowTimeHHMM(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }
+}
+
+// iOS Safari only speaks after a user gesture; an empty utterance during the tap unlocks it for the
+// reply that arrives seconds later.
+function unlockSpeech() {
+  try {
+    if ('speechSynthesis' in window) window.speechSynthesis.speak(new SpeechSynthesisUtterance(''))
+  } catch {
+    // not supported
+  }
 }
 
 function speakText(text) {
