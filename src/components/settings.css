@@ -1,0 +1,53 @@
+/* Settings: section deep links (#/settings/prayer), the Danger zone and the "Clear all data" sheet.
+   Loaded by SettingsPage after App.css → glass.css → apple.css, so these win at equal specificity. */
+
+/* ---- sections --------------------------------------------------------------------------------- */
+/* A deep link lands the section just below the sticky top bar. */
+.settings-page .settings-group { scroll-margin-top: calc(var(--topbar-h) + var(--safe-top) + 8px); }
+@media (min-width: 900px) {
+  .settings-page .settings-group { scroll-margin-top: 20px; }
+}
+/* Where a deep link landed: a brief accent ring around the section's card. */
+.settings-group.set-landed > .card { animation: set-landed 1.6s var(--ease) both; }
+@keyframes set-landed {
+  0%, 40% { box-shadow: 0 0 0 2px var(--accent); }
+  100% { box-shadow: 0 0 0 2px transparent; }
+}
+
+/* ---- danger zone ------------------------------------------------------------------------------ */
+.settings-group.set-danger > h2 { color: var(--danger); }
+/* iOS grouped-list footer under a card. */
+.set-footnote { margin: 8px 16px 0; font-size: 13px; line-height: 1.4; color: var(--text-2); }
+
+/* Second paragraph of the first confirmation ("Your account and login stay…"). */
+.set-confirm-keep { display: block; margin-top: 10px; }
+
+/* ---- password sheet --------------------------------------------------------------------------- */
+.set-wipe-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--danger-soft);
+  color: var(--text);
+}
+.set-wipe-note p { margin: 0; font-size: 15px; line-height: 1.4; }
+.set-wipe-icon {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--danger);
+  color: #fff;
+}
+.set-wipe-field.is-shaking { animation: set-shake 0.42s ease; }
+@keyframes set-shake {
+  15% { transform: translateX(-9px); }
+  35% { transform: translateX(8px); }
+  55% { transform: translateX(-6px); }
+  75% { transform: translateX(4px); }
+  90% { transform: translateX(-2px); }
+}

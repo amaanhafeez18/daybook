@@ -1,0 +1,63 @@
+/* =========================================================================================
+   Today-page food card (FoodQuickCard). Rules that meet a shared class (.card, .btn) use a
+   heavier selector, so they hold whichever order the stylesheets load in. The review inside it
+   comes from pages/food/food-shared.css.
+   ========================================================================================= */
+
+.card.fq-card { display: flex; flex-direction: column; gap: 12px; padding: 14px 14px 14px 16px; }
+.fq-head { display: flex; align-items: center; gap: 11px; min-height: 36px; }
+.fq-ring { flex-shrink: 0; }
+.fq-head-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.fq-head-text h3 { font-size: 17px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.2; }
+.fq-sum { font-size: 14px; color: var(--text-2); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fq-sum .is-over { color: var(--food-over); }
+.skeleton.fq-skel { width: 60%; height: 12px; margin-top: 4px; }
+.fq-all {
+  flex-shrink: 0; display: inline-flex; align-items: center; gap: 1px; min-height: 40px; padding: 0 2px 0 8px;
+  border-radius: 10px; color: var(--accent); font-size: 15px; font-weight: 500;
+}
+.fq-all:active { opacity: 0.6; }
+
+.fq-bar {
+  display: flex; align-items: center; gap: 2px; min-height: 48px; padding: 3px 3px 3px 16px; border-radius: 999px;
+  background: var(--surface-2); color: var(--text-3); transition: box-shadow 0.15s;
+}
+.fq-bar:focus-within { box-shadow: 0 0 0 3px var(--accent-soft); }
+.fq-bar.is-recording { padding-left: 3px; color: var(--text); }
+.fq-bar .recorder { flex: 1; min-width: 0; }
+.fq-bar .waveform { height: 26px; }
+.fq-input {
+  flex: 1; min-width: 0; padding: 8px 2px; border: 0; outline: none; background: none;
+  color: var(--text); font-size: 16px !important;
+}
+.fq-input::placeholder { color: var(--text-3); }
+.fq-input:disabled { opacity: 0.6; }
+.fq-btn, .fq-send {
+  flex-shrink: 0; display: grid; place-items: center; width: 42px; height: 42px; border-radius: 50%;
+  transition: transform 0.3s var(--spring, ease), background 0.15s, opacity 0.15s;
+}
+.fq-btn { color: var(--text); }
+.fq-btn.is-mic { color: var(--accent); }
+.fq-btn:disabled, .fq-send:disabled { opacity: 0.4; }
+.fq-send { background: var(--accent); color: var(--on-accent); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3); }
+.fq-btn:active:not(:disabled), .fq-send:active:not(:disabled) { transform: scale(0.9); }
+.fq-btn:active:not(:disabled) { background: var(--card-bg, var(--surface)); }
+
+.fq-panel { display: flex; flex-direction: column; gap: 10px; animation: rise 0.22s var(--ease, ease); }
+.fq-status { display: flex; align-items: center; gap: 10px; min-height: 36px; font-size: 15px; color: var(--text-2); }
+.fq-link { margin-left: auto; min-height: 36px; padding: 0 6px; color: var(--accent); font-size: 15px; font-weight: 600; }
+.fq-thumb { width: 56px; height: 56px; border-radius: 14px; object-fit: cover; }
+.fq-panel .food-est-skel-row { background: var(--surface-2); }
+.fq-actions { display: flex; gap: 8px; }
+.fq-actions.is-wrap { flex-wrap: wrap; }
+.fq-actions .btn { min-height: 44px; }
+.fq-error {
+  display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px; border-radius: 14px;
+  background: var(--danger-soft); color: var(--danger); font-size: 14px; font-weight: 500;
+}
+.fq-error .icon { flex-shrink: 0; margin-top: 1px; }
+
+@media (hover: hover) {
+  .fq-btn:hover:not(:disabled) { background: var(--card-bg, var(--surface)); }
+  .fq-all:hover { opacity: 0.75; }
+}

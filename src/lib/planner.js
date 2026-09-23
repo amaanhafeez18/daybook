@@ -73,8 +73,11 @@ export function setTaskDone(id, done) {
     const known = data().friends.some((friend) => friend.id === friendId)
     const loggedToday = data().contactLogs.some((log) => (log.friendId || log.friend_id) === friendId && log.date === today)
     if (known && !loggedToday) updateData('contactLogs', (list) => [{ id: logId, friendId, date: today, createdAt: nowIso() }, ...list.filter((log) => log.id !== logId)])
-  } else if (data().contactLogs.some((log) => log.id === logId)) {
-    updateData('contactLogs', (list) => list.filter((log) => log.id !== logId))
+  } else {
+    // Unticking takes back the log the tick added, unless a note has been written on it since:
+    // then the catch-up really happened, and removing it would lose the note.
+    const log = data().contactLogs.find((item) => item.id === logId)
+    if (log && !cleanNote(log.note)) updateData('contactLogs', (list) => list.filter((item) => item.id !== logId))
   }
   return updated
 }
@@ -264,19 +267,79 @@ export function removeFriend(id) {
   }
 }
 
-// Logs a catch-up and completes any open "Talk to …" reminder for that person. Returns undo.
-export function logContact(friendId, date = todayISO()) {
-  // One catch-up per person per day: a second tap (or the assistant) doesn't add a duplicate.
+// A catch-up's `note` is what you talked about (dated, per conversation). It is different from
+// the person's currentStatus (what they're doing now) and facts (durable details).
+export const CONTACT_NOTE_MAX = 4000
+const cleanNote = (note) => (typeof note === 'string' ? note.replace(/\r\n?/g, '\n').trim().slice(0, CONTACT_NOTE_MAX) : '')
+
+// Adds `note` to `current` on a new line, unless it is already there as a whole line (block).
+function appendNote(current, note) {
+  const base = cleanNote(current)
+  if (!note) return base
+  if (!base) return note
+  if (base === note || base.startsWith(`${note}\n`) || base.endsWith(`\n${note}`) || base.includes(`\n${note}\n`)) return base
+  return `${base}\n${note}`.slice(0, CONTACT_NOTE_MAX)
+}
+
+// One line for lists: the note's lines joined with " · ".
+export function contactTopic(note) {
+  return cleanNote(note).split('\n').map((line) => line.trim()).filter(Boolean).join(' · ')
+}
+
+// Logs a catch-up, with an optional note on what you talked about, and completes any open
+// "Talk to …" reminder for that person. There's one catch-up per person per day: logging the
+// same day again (a second tap, the assistant) adds the note to that day's log on a new line
+// instead of creating a duplicate. Returns undo, with the log's id as undo.logId.
+export function logContact(friendId, date = todayISO(), note = '') {
+  const text = cleanNote(note)
   const existing = data().contactLogs.find((item) => (item.friendId || item.friend_id) === friendId && item.date === date)
-  const log = existing || { id: newId(), friendId, date, createdAt: nowIso() }
-  if (!existing) updateData('contactLogs', (list) => [log, ...list])
+  let log = existing
+  let noteChanged = false
+  if (existing) {
+    const merged = appendNote(existing.note, text)
+    noteChanged = merged !== (existing.note || '')
+    if (noteChanged) updateData('contactLogs', (list) => list.map((item) => (item.id === existing.id ? { ...item, note: merged } : item)))
+  } else {
+    log = { id: newId(), friendId, date, ...(text ? { note: text } : {}), createdAt: nowIso() }
+    updateData('contactLogs', (list) => [log, ...list])
+  }
   const reminders = data().tasks.filter((task) => !task.done && !task.archived && typeof task.details === 'string' && task.details.startsWith(`friend-reminder:${friendId}:`))
   // updateTask, not setTaskDone: this already logged the catch-up.
   for (const task of reminders) updateTask(task.id, { done: true })
-  return () => {
+  const undo = () => {
     if (!existing) updateData('contactLogs', (list) => list.filter((item) => item.id !== log.id))
+    // An explicit '' (not a missing field), so a note that was already saved is cleared on the server.
+    else if (noteChanged) updateData('contactLogs', (list) => list.map((item) => (item.id === existing.id ? { ...item, note: existing.note || '' } : item)))
     for (const task of reminders) updateTask(task.id, { done: false })
   }
+  undo.logId = log.id
+  return undo
+}
+
+// Replaces a catch-up's note ('' clears it). Returns undo.
+export function updateContactNote(id, note) {
+  const log = data().contactLogs.find((item) => item.id === id)
+  if (!log) return () => {}
+  const text = cleanNote(note)
+  const previous = log.note || ''
+  if (text === previous) return () => {}
+  updateData('contactLogs', (list) => list.map((item) => (item.id === id ? { ...item, note: text } : item)))
+  return () => updateData('contactLogs', (list) => list.map((item) => (item.id === id ? { ...item, note: previous } : item)))
+}
+
+// The latest catch-up per person: { [friendId]: { date, note } }, where note joins the notes of
+// every log on that day (normally one).
+export function lastCatchUpMap(logs = data().contactLogs) {
+  const map = {}
+  for (const log of logs) {
+    const friendId = log.friendId || log.friend_id
+    if (!friendId || !log.date) continue
+    const note = cleanNote(log.note)
+    const current = map[friendId]
+    if (!current || log.date > current.date) map[friendId] = { date: log.date, note }
+    else if (log.date === current.date && note) map[friendId] = { date: log.date, note: appendNote(current.note, note) }
+  }
+  return map
 }
 
 // Returns an undo function.

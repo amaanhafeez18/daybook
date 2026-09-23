@@ -1,0 +1,262 @@
+/* =========================================================================================
+   Food: tokens, the progress ring, macro bars and the AI estimate review. Shared by the Food
+   page and the Today food card, so it may load before or after App.css / glass.css / apple.css:
+   it only defines food- classes and --food- tokens (never restyles a shared class on its own).
+   Macro colours: the first three categorical slots of the data-viz palette (validated all-pairs
+   for colour-vision deficiency in both modes); every bar also carries its name in text.
+   ========================================================================================= */
+
+:root {
+  --food-protein: #2A78D6;
+  --food-carbs: #1BAF7A;
+  --food-fat: #EB6834;
+  --food-fiber: #4A3AA7;
+  --food-limit: #8A8A8E;
+  /* Over the calorie goal: amber (never red). Text on the card keeps >= 4.5:1. */
+  --food-over: #A15C00;
+  --food-over-soft: rgba(161, 92, 0, 0.12);
+  /* Single-series chart colour per accent (same steps as the gym charts). */
+  --food-chart-l: #B9561F; --food-chart-wash-l: rgba(185, 86, 31, 0.1);
+  --food-chart-d: #CD702F; --food-chart-wash-d: rgba(205, 112, 47, 0.14);
+  --food-chart: var(--food-chart-l);
+  --food-chart-wash: var(--food-chart-wash-l);
+  --food-grid: rgba(60, 60, 67, 0.12);
+}
+:root[data-accent='forest'] {
+  --food-chart-l: #067D4D; --food-chart-wash-l: rgba(6, 125, 77, 0.1);
+  --food-chart-d: #33A36D; --food-chart-wash-d: rgba(51, 163, 109, 0.14);
+}
+:root[data-accent='midnight'] {
+  --food-chart-l: #4A56D6; --food-chart-wash-l: rgba(74, 86, 214, 0.1);
+  --food-chart-d: #7581E6; --food-chart-wash-d: rgba(117, 129, 230, 0.14);
+}
+:root[data-appearance='dark'] {
+  --food-protein: #3987E5;
+  --food-carbs: #199E70;
+  --food-fat: #D95926;
+  --food-fiber: #9085E9;
+  --food-limit: #8D8D93;
+  --food-over: #FFB340;
+  --food-over-soft: rgba(255, 179, 64, 0.16);
+  --food-chart: var(--food-chart-d);
+  --food-chart-wash: var(--food-chart-wash-d);
+  --food-grid: rgba(235, 235, 245, 0.12);
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-appearance='system'] {
+    --food-protein: #3987E5;
+    --food-carbs: #199E70;
+    --food-fat: #D95926;
+    --food-fiber: #9085E9;
+    --food-limit: #8D8D93;
+    --food-over: #FFB340;
+    --food-over-soft: rgba(255, 179, 64, 0.16);
+    --food-chart: var(--food-chart-d);
+    --food-chart-wash: var(--food-chart-wash-d);
+    --food-grid: rgba(235, 235, 245, 0.12);
+  }
+}
+
+/* ---- ring ----------------------------------------------------------------------------------- */
+
+.food-ring { position: relative; display: inline-grid; place-items: center; flex-shrink: 0; }
+.food-ring svg { position: absolute; inset: 0; overflow: visible; }
+.food-ring-track { fill: none; stroke: var(--surface-2); }
+.food-ring-arc { fill: none; stroke: var(--accent); stroke-linecap: round; transition: stroke-dashoffset 0.6s var(--ease), stroke 0.2s; }
+.food-ring.is-over .food-ring-arc { stroke: var(--food-over); }
+.food-ring.is-muted .food-ring-arc { stroke: var(--accent); opacity: 0.35; }
+.food-ring-center {
+  position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  max-width: 78%; text-align: center; line-height: 1.1;
+}
+
+/* ---- macro bars ----------------------------------------------------------------------------- */
+
+.food-macros { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 14px; }
+.food-macro { --food-macro-color: var(--food-limit); min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.food-macro.is-protein { --food-macro-color: var(--food-protein); }
+.food-macro.is-carbs { --food-macro-color: var(--food-carbs); }
+.food-macro.is-fat { --food-macro-color: var(--food-fat); }
+.food-macro.is-fiber { --food-macro-color: var(--food-fiber); }
+.food-macro-top { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.food-macro-name { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-2); }
+.food-macro-name::before { content: ''; flex-shrink: 0; width: 8px; height: 8px; border-radius: 50%; background: var(--food-macro-color); }
+.food-macro-value { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; color: var(--text); }
+.food-macro-value small { font-size: 13px; font-weight: 500; color: var(--text-2); white-space: nowrap; }
+.food-macro-track { position: relative; display: block; height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+.food-macro-track.is-empty { visibility: hidden; }
+.food-macro-fill { display: block; height: 100%; border-radius: 3px; background: var(--food-macro-color); transition: width 0.5s var(--ease); }
+.food-macro.is-over .food-macro-fill { background: var(--food-over); }
+.food-macro.is-over .food-macro-value { color: var(--food-over); }
+
+/* ---- meal / day picker chips (native select or date input laid over a label) ------------------ */
+
+.food-pick {
+  position: relative; display: inline-flex; align-items: center; gap: 4px; min-height: 36px; max-width: 100%;
+  padding: 0 11px 0 14px; border-radius: 999px; background: var(--surface-2); color: var(--text);
+  font-size: 15px; font-weight: 600; letter-spacing: -0.01em; cursor: pointer; white-space: nowrap;
+}
+.food-pick-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.food-pick .icon { color: var(--text-2); }
+.food-pick select, .food-pick input {
+  position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0;
+  opacity: 0; font-size: 16px; cursor: pointer; appearance: none; -webkit-appearance: none; color: transparent; background: none;
+}
+.food-pick:focus-within { box-shadow: 0 0 0 3px var(--accent-soft); }
+
+/* Hidden photo picker (PhotoInput), outside the app shell. */
+.food-file-input { position: fixed; top: 0; left: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+
+/* ---- estimate review ------------------------------------------------------------------------ */
+
+.food-rv { display: flex; flex-direction: column; }
+.food-rv-top { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.food-rv-query { margin: 0 4px 10px; font-size: 15px; color: var(--text-2); overflow-wrap: anywhere; }
+.food-rv-note {
+  display: flex; align-items: flex-start; gap: 8px; margin: 0 0 8px; padding: 12px 14px; border-radius: 16px;
+  background: var(--surface-2); color: var(--text-2); font-size: 15px;
+}
+.food-rv-note .icon { margin-top: 1px; }
+
+.food-rv-list { display: flex; flex-direction: column; gap: 8px; }
+.food-rv-item {
+  padding: 10px 12px 10px 14px; border-radius: 18px; background: var(--card-bg, var(--surface));
+  box-shadow: 0 0 0 1px transparent inset; animation: rise 0.2s var(--ease);
+}
+.food-rv-item.is-low { box-shadow: 0 0 0 1.5px var(--food-over) inset; }
+.food-rv-head { display: flex; align-items: flex-start; gap: 6px; }
+.food-rv-name {
+  flex: 1; min-width: 0; min-height: 34px; display: flex; flex-direction: column; justify-content: center;
+  text-align: left; color: var(--text); border-radius: 8px;
+}
+.food-rv-name-text { font-size: 17px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.25; overflow-wrap: anywhere; }
+.food-rv-brand { font-size: 13px; color: var(--text-2); }
+.food-rv-kcal {
+  flex-shrink: 0; padding-top: 6px; font-size: 17px; font-weight: 600; letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--text);
+}
+.food-rv-kcal small { font-size: 13px; font-weight: 500; color: var(--text-2); }
+.food-rv-approx { margin-right: 1px; color: var(--text-2); }
+.food-rv-remove {
+  position: relative; flex-shrink: 0; display: grid; place-items: center; width: 30px; height: 30px; margin: 2px -6px 0 0;
+  border-radius: 50%; color: var(--text-3);
+}
+.food-rv-remove::after { content: ''; position: absolute; inset: -7px; }
+.food-rv-remove:active { background: var(--surface-2); color: var(--text); }
+
+.food-rv-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; margin-top: 6px; }
+.food-rv-stepper { display: inline-flex; align-items: center; padding: 2px; border-radius: 999px; background: var(--surface-2); }
+.food-rv-stepper button {
+  display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; color: var(--accent);
+  transition: transform 0.3s var(--spring, var(--ease)), background 0.15s;
+}
+.food-rv-stepper button:active:not(:disabled) { transform: scale(0.88); background: var(--card-bg, var(--surface)); }
+.food-rv-stepper button:disabled { color: var(--text-3); opacity: 0.6; }
+.food-rv-stepper output {
+  min-width: 44px; padding: 0 4px; text-align: center; font-size: 15px; font-weight: 600;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.food-rv-macros {
+  flex: 1 1 120px; min-width: 0; display: flex; flex-wrap: wrap; gap: 0 8px;
+  font-size: 13px; color: var(--text-2); font-variant-numeric: tabular-nums;
+}
+.food-rv-portion { color: var(--text-2); }
+.food-rv-dots { display: inline-flex; gap: 3px; margin-left: auto; }
+.food-rv-dots i { display: block; width: 6px; height: 6px; border-radius: 50%; background: var(--surface-3); }
+.food-rv-dots i.is-on { background: var(--text-2); }
+.food-rv-dots.is-low i.is-on { background: var(--food-over); }
+.food-rv-check { display: flex; align-items: center; gap: 5px; margin-top: 6px; font-size: 13px; font-weight: 600; color: var(--food-over); }
+
+.food-rv-assume { display: block; width: 100%; margin-top: 6px; font-size: 13px; line-height: 1.35; color: var(--text-2); text-align: left; }
+.food-rv-assume.is-collapsed { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.food-rv-detail { margin-top: 2px; }
+.food-rv-options { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.food-rv-option {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 13px; border-radius: 999px;
+  background: var(--surface-2); color: var(--text); font-size: 14px; font-weight: 500;
+  transition: transform 0.3s var(--spring, var(--ease)), background 0.15s, color 0.15s;
+}
+.food-rv-option small { font-size: 12px; font-weight: 600; opacity: 0.75; font-variant-numeric: tabular-nums; }
+.food-rv-option.is-active { background: var(--accent); color: var(--on-accent); }
+.food-rv-option:active:not(:disabled) { transform: scale(0.95); }
+
+.food-rv-link {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 4px;
+  color: var(--accent); font-size: 15px; font-weight: 600;
+}
+.food-rv-link:disabled { opacity: 0.5; }
+.food-rv-edit { margin-top: 4px; }
+.food-rv-editor { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.food-rv-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; font-size: 12px; font-weight: 500; color: var(--text-2); }
+.food-rv-field.is-wide { grid-column: 1 / -1; }
+.food-rv-field > span { margin-left: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.food-rv-input {
+  width: 100%; min-width: 0; min-height: 40px; padding: 6px 10px; border: 1px solid transparent; border-radius: 11px;
+  background: var(--surface-2); color: var(--text); font-size: 16px; font-weight: 500; font-variant-numeric: tabular-nums;
+  appearance: none; -webkit-appearance: none;
+}
+.food-rv-input:focus { outline: none; border-color: var(--accent); background: var(--card-bg, var(--surface)); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+.food-rv-removed { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 6px; padding: 0 4px 0 14px; font-size: 14px; color: var(--text-2); }
+
+.food-rv-total {
+  position: relative; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px;
+  margin-top: 12px; padding: 12px 4px 0;
+}
+.food-rv-total::before {
+  content: ''; position: absolute; top: 0; left: 4px; right: 4px; height: 1px;
+  background: var(--separator, var(--border)); transform: scaleY(0.5); transform-origin: top;
+}
+.food-rv-total-label { font-size: 16px; font-weight: 600; }
+.food-rv-total-kcal { margin-left: auto; font-size: 22px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.food-rv-total-kcal small { font-size: 14px; font-weight: 500; color: var(--text-2); letter-spacing: 0; }
+.food-rv-total-macros { width: 100%; text-align: right; font-size: 13px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+
+.food-rv-question {
+  display: flex; align-items: flex-start; gap: 8px; margin-top: 12px; padding: 10px 14px;
+  border-radius: 18px 18px 18px 6px; background: var(--accent-soft); color: var(--text); font-size: 15px;
+}
+.food-rv-question .icon { flex-shrink: 0; margin-top: 2px; color: var(--accent); }
+
+.food-rv-fix {
+  display: flex; align-items: center; gap: 8px; min-height: 48px; margin-top: 12px; padding: 4px 4px 4px 14px;
+  border-radius: 999px; background: var(--surface-2); color: var(--text-3);
+  transition: box-shadow 0.15s;
+}
+.food-rv-fix:focus-within { box-shadow: 0 0 0 3px var(--accent-soft); color: var(--accent); }
+.food-rv-fix-input { flex: 1; min-width: 0; border: 0; outline: none; background: none; color: var(--text); font-size: 16px; }
+.food-rv-fix-input::placeholder { color: var(--text-3); }
+.food-rv-fix-btn {
+  flex-shrink: 0; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%;
+  background: var(--accent); color: var(--on-accent); transition: transform 0.3s var(--spring, var(--ease)), opacity 0.15s;
+}
+.food-rv-fix-btn:disabled { opacity: 0.3; }
+.food-rv-fix-btn:active:not(:disabled) { transform: scale(0.9); }
+.food-rv-fix-btn.is-busy { background: var(--surface-3); color: var(--text); }
+.food-rv-status { margin: 6px 14px 0; font-size: 13px; color: var(--text-2); }
+.food-rv-error { margin: 6px 14px 0; font-size: 13px; font-weight: 500; color: var(--danger); }
+.food-rv-disclaimer { margin: 10px 8px 0; font-size: 12px; line-height: 1.35; color: var(--text-3); text-align: center; }
+.food-rv[aria-busy='true'] .food-rv-list { opacity: 0.55; transition: opacity 0.2s; }
+
+/* Compact (inside the Today card): items sit on the card, so they take the grouped fill. */
+.food-rv.is-compact .food-rv-item { background: var(--surface-2); }
+.food-rv.is-compact .food-rv-stepper { background: var(--card-bg, var(--surface)); }
+.food-rv.is-compact .food-rv-input { background: var(--card-bg, var(--surface)); }
+.food-rv.is-compact .food-rv-option { background: var(--card-bg, var(--surface)); }
+.food-rv.is-compact .food-rv-option.is-active { background: var(--accent); }
+.food-rv.is-compact .food-rv-fix { background: var(--surface-2); }
+
+/* Estimating: two placeholder rows. */
+.food-est-skel { display: flex; flex-direction: column; gap: 8px; }
+.food-est-skel-row { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 18px; background: var(--card-bg, var(--surface)); }
+.food-est-skel-row .skeleton:first-child { width: 55%; height: 16px; }
+.food-est-skel-row .skeleton:last-child { width: 80%; height: 12px; }
+.food-est-status { display: flex; align-items: center; gap: 10px; margin: 4px 4px 12px; font-size: 15px; color: var(--text-2); }
+
+@media (hover: hover) {
+  .food-rv-remove:hover { background: var(--surface-2); color: var(--text); }
+  .food-rv-option:hover:not(.is-active) { background: var(--surface-3); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .food-ring-arc, .food-macro-fill { transition: none; }
+}

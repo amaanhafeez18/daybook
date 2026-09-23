@@ -2,7 +2,8 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  EQUIPMENT, EXERCISES, MUSCLES, TEMPLATES, TRACKING, allExercises, buildTemplate, exerciseById, newRoutineExercise, searchExercises,
+  DAY_TYPES, EQUIPMENT, EXERCISES, MUSCLES, TEMPLATES, TRACKING, allExercises, buildTemplate, dayTemplate, exerciseById, matchDayType,
+  newRoutineExercise, parseSplit, searchExercises,
 } from '../src/lib/gym/library.js'
 import {
   LB, formatDistance, formatDuration, formatNumber, formatPace, formatVolume, formatWeight, fromKg, fromMeters, parseDecimal,
@@ -231,6 +232,181 @@ describe('templates', () => {
     assert.equal(estimateMinutes(null), 0)
     assert.equal(estimateMinutes({ exercises: [{ restSec: 0, sets: [{}] }] }), 5)
     assert.equal(estimateMinutes({ exercises: [{ restSec: 'x', sets: 'nope' }, null] }), 5)
+  })
+})
+
+// ---- custom splits (split wizard) ------------------------------------------------------------
+
+describe('custom splits', () => {
+  const ROUTINE_COLOR_IDS = ['red', 'orange', 'amber', 'green', 'teal', 'blue', 'indigo', 'pink']
+  const shape = (rows) => rows.map((row) => [row.exerciseId, row.sets.length, row.sets[0].repsMin ?? row.sets[0].durationSec])
+
+  test('DAY_TYPES: unique ids and names, routine colours, rest last', () => {
+    assert.deepEqual(DAY_TYPES.map((t) => t.name), [
+      'Push', 'Pull', 'Legs', 'Upper', 'Lower', 'Chest', 'Back', 'Shoulders', 'Arms', 'Full Body', 'Core', 'Glutes', 'Cardio', 'Rest',
+    ])
+    assert.equal(new Set(DAY_TYPES.map((t) => t.id)).size, DAY_TYPES.length)
+    for (const type of DAY_TYPES) {
+      if (type.rest) assert.equal(type.color, null)
+      else assert.ok(ROUTINE_COLOR_IDS.includes(type.color), type.id)
+      assert.ok(type.hint, type.id)
+    }
+    assert.equal(DAY_TYPES.at(-1).id, 'rest')
+  })
+
+  test('every day type round-trips through parseSplit and matchDayType', () => {
+    for (const type of DAY_TYPES) {
+      assert.deepEqual(parseSplit(type.name), [type.name])
+      assert.equal(matchDayType(type.name), type)
+      assert.equal(matchDayType(type.name.toUpperCase()), type)
+    }
+  })
+
+  test('parseSplit: separators, rest words and repeats', () => {
+    const cases = {
+      'push pull shoulders legs rest rest': ['Push', 'Pull', 'Shoulders', 'Legs', 'Rest', 'Rest'],
+      'PPL x2 + rest': ['Push', 'Pull', 'Legs', 'Push', 'Pull', 'Legs', 'Rest'],
+      'upper/lower/rest': ['Upper', 'Lower', 'Rest'],
+      'Push, Pull, Legs then off': ['Push', 'Pull', 'Legs', 'Rest'],
+      'push -> pull → legs => rest day': ['Push', 'Pull', 'Legs', 'Rest'],
+      'push; pull | legs\nday off': ['Push', 'Pull', 'Legs', 'Rest'],
+      'push-pull-legs-rest': ['Push', 'Pull', 'Legs', 'Rest'],
+      'rest x2': ['Rest', 'Rest'],
+      'push ×2': ['Push', 'Push'],
+      'pplx2 rest': ['Push', 'Pull', 'Legs', 'Push', 'Pull', 'Legs', 'Rest'],
+      '2x ppl, rest': ['Push', 'Pull', 'Legs', 'Push', 'Pull', 'Legs', 'Rest'],
+      'push pull legs 2 rest': ['Push', 'Pull', 'Legs', 'Rest', 'Rest'],
+      'ppl, rest twice': ['Push', 'Pull', 'Legs', 'Rest', 'Rest'],
+      'upper lower rest x2': ['Upper', 'Lower', 'Rest', 'Upper', 'Lower', 'Rest'],
+      'bro split': ['Chest', 'Back', 'Shoulders', 'Legs', 'Arms'],
+      'Mon push, Tue pull, Wed legs': ['Push', 'Pull', 'Legs'],
+      'active recovery': ['Rest'],
+    }
+    for (const [text, expected] of Object.entries(cases)) assert.deepEqual(parseSplit(text), expected, text)
+  })
+
+  test('parseSplit: multi-word days, labels and custom names', () => {
+    const cases = {
+      'shoulder day, legs & abs, full body, day off': ['Shoulders', 'Legs & Abs', 'Full Body', 'Rest'],
+      'chest and triceps, back and biceps, legs': ['Chest & Triceps', 'Back & Biceps', 'Legs'],
+      'back biceps chest tris legs': ['Back & Biceps', 'Chest & Triceps', 'Legs'],
+      'legs w/ abs': ['Legs & Abs'],
+      'chest & back': ['Chest & Back'],
+      // "and" before a main day lists it; "&" always joins.
+      'push, pull and legs': ['Push', 'Pull', 'Legs'],
+      'upper a lower a rest upper b lower b rest rest': ['Upper A', 'Lower A', 'Rest', 'Upper B', 'Lower B', 'Rest', 'Rest'],
+      'push1 pull1 legs1': ['Push 1', 'Pull 1', 'Legs 1'],
+      'Push 2': ['Push 2'],
+      'heavy legs, light push': ['Heavy Legs', 'Light Push'],
+      'Full-body': ['Full Body'],
+      'legday, restday': ['Legs', 'Rest'],
+      'sholders, glutse': ['Shoulders', 'Glutes'],
+      'push pull hot yoga legs': ['Push', 'Pull', 'Hot Yoga', 'Legs'],
+      'run, swim, bike': ['Run', 'Swim', 'Bike'],
+      'a push day': ['Push'],
+    }
+    for (const [text, expected] of Object.entries(cases)) assert.deepEqual(parseSplit(text), expected, text)
+  })
+
+  test('parseSplit: numbered lists and numbered labels', () => {
+    const cases = {
+      // List numbers are dropped, however they're written.
+      '1. push 2. pull 3. legs 4. rest': ['Push', 'Pull', 'Legs', 'Rest'],
+      '1) push 2) pull 3) legs': ['Push', 'Pull', 'Legs'],
+      '1 push 2 pull 3 legs': ['Push', 'Pull', 'Legs'],
+      '1: push, 2: pull, 3: legs, 4: rest': ['Push', 'Pull', 'Legs', 'Rest'],
+      '1. PPL 2. rest': ['Push', 'Pull', 'Legs', 'Rest'],
+      'day 1 push, day 2 pull, day 3 legs': ['Push', 'Pull', 'Legs'],
+      'day 1: push, day 2: pull': ['Push', 'Pull'],
+      'day1 push day2 pull': ['Push', 'Pull'],
+      'push day 1, pull day 2': ['Push', 'Pull'],
+      'week 1 push pull legs week 2 upper lower': ['Push', 'Pull', 'Legs', 'Upper', 'Lower'],
+      // Numbers after a day are labels once one of them is ("1" always is).
+      'push 1 pull 1 push 2 pull 2': ['Push 1', 'Pull 1', 'Push 2', 'Pull 2'],
+      'upper 1 lower 1 upper 2 lower 2': ['Upper 1', 'Lower 1', 'Upper 2', 'Lower 2'],
+      'push1 pull1 push 2 pull 2': ['Push 1', 'Pull 1', 'Push 2', 'Pull 2'],
+      'push 1 pull': ['Push 1', 'Pull'],
+      // The app's own "Push 1, Pull 2" text reads back unchanged.
+      'Push 1, Pull 2': ['Push 1', 'Pull 2'],
+      'Push 2, Pull 2': ['Push 2', 'Pull 2'],
+      // Still counts.
+      'push pull legs 2 rest': ['Push', 'Pull', 'Legs', 'Rest', 'Rest'],
+      '1 push': ['Push'],
+      '2 push 2 pull': ['Push', 'Push', 'Pull', 'Pull'],
+    }
+    for (const [text, expected] of Object.entries(cases)) assert.deepEqual(parseSplit(text), expected, text)
+  })
+
+  test('parseSplit: empty, junk and caps', () => {
+    assert.deepEqual(parseSplit(''), [])
+    assert.deepEqual(parseSplit('   , / ->'), [])
+    assert.deepEqual(parseSplit(null), [])
+    assert.deepEqual(parseSplit(42), [])
+    assert.deepEqual(parseSplit('x2'), [])
+    assert.deepEqual(parseSplit('constructor'), ['Constructor'])
+    assert.equal(parseSplit('ppl x20').length, 30) // repeats are capped at 10
+    assert.equal(parseSplit('ppl x9, ppl x9').length, 31) // at most 31 days
+    assert.ok(parseSplit('supercalifragilistic '.repeat(10)).every((name) => name.length <= 40))
+  })
+
+  test('matchDayType: fuzzy day names', () => {
+    const cases = {
+      'shoulder day': 'shoulders', 'legs & abs': 'legs', 'Legs & Abs': 'legs', 'Full body': 'fullBody', 'day off': 'rest', Off: 'rest',
+      'Upper A': 'upper', 'Push 2': 'push', 'Heavy Legs': 'legs', Quads: 'legs', HIIT: 'cardio', 'Glute day': 'glutes', abs: 'core',
+      'Back & Biceps': 'back', Biceps: 'arms',
+    }
+    for (const [name, id] of Object.entries(cases)) assert.equal(matchDayType(name)?.id, id, name)
+    for (const name of ['Yoga', 'Hot Yoga', '', null, 'constructor']) assert.equal(matchDayType(name), null, String(name))
+  })
+
+  test('dayTemplate: template days match the onboarding templates', () => {
+    const today = '2026-09-23'
+    const built = [...buildTemplate('ppl-r', today, counter()).routines, ...buildTemplate('bro', today, counter()).routines,
+      ...buildTemplate('upper-lower', today, counter()).routines, ...buildTemplate('full-body', today, counter()).routines]
+    for (const routine of built) {
+      assert.deepEqual(shape(dayTemplate(routine.name, counter())), shape(routine.exercises), routine.name)
+      assert.deepEqual(dayTemplate(routine.name, counter())[0].sets, routine.exercises[0].sets, routine.name)
+    }
+    assert.deepEqual(shape(dayTemplate('shoulder day', counter())), shape(built.find((r) => r.name === 'Shoulders').exercises))
+  })
+
+  test('dayTemplate: Core, Glutes and Cardio have 3-6 real exercises', () => {
+    for (const name of ['Core', 'Glutes', 'Cardio']) {
+      const rows = dayTemplate(name, counter())
+      assert.ok(rows.length >= 3 && rows.length <= 6, name)
+      for (const row of rows) {
+        const entry = exerciseById(row.exerciseId)
+        assert.ok(entry, row.exerciseId)
+        assert.equal(row.name, entry.name)
+        assert.equal(row.tracking, entry.tracking)
+        assert.ok(row.sets.length >= 1)
+      }
+    }
+    const cardio = dayTemplate('Cardio', counter())
+    assert.deepEqual(cardio[0].sets, [{ type: 'normal', weightKg: null, repsMin: null, repsMax: null, durationSec: 1200, distanceM: null, rpe: null }])
+    assert.equal(dayTemplate('Core', counter()).find((row) => row.exerciseId === 'plank').sets[0].durationSec, 60)
+  })
+
+  test('dayTemplate: a second focus adds a couple of exercises, capped at 8', () => {
+    const legsAbs = dayTemplate('legs & abs', counter()).map((row) => row.exerciseId)
+    assert.deepEqual(legsAbs.slice(0, 5), dayTemplate('Legs', counter()).map((row) => row.exerciseId))
+    assert.deepEqual(legsAbs.slice(5), ['hanging-leg-raise', 'cable-crunch'])
+    const chestTris = dayTemplate('Chest & Triceps', counter()).map((row) => row.exerciseId)
+    assert.deepEqual(chestTris.slice(4), ['triceps-pushdown', 'overhead-cable-extension'])
+    // Push already has pushdowns and overhead extensions: nothing is doubled.
+    const pushTris = dayTemplate('Push & Triceps', counter()).map((row) => row.exerciseId)
+    assert.equal(new Set(pushTris).size, pushTris.length)
+    assert.ok(dayTemplate('Upper & Abs & Biceps & Calves', counter()).length <= 8)
+  })
+
+  test('dayTemplate: rest and custom names are empty; ids come from makeId', () => {
+    assert.deepEqual(dayTemplate('Rest', counter()), [])
+    assert.deepEqual(dayTemplate('Day off'), [])
+    assert.deepEqual(dayTemplate('Hot Yoga', counter()), [])
+    assert.deepEqual(dayTemplate(undefined), [])
+    const rows = dayTemplate('Push', counter())
+    assert.deepEqual(rows.map((row) => row.id), ['id1', 'id2', 'id3', 'id4', 'id5', 'id6'])
+    assert.equal(new Set(dayTemplate('Legs', 'not a function').map((row) => row.id)).size, 5)
   })
 })
 

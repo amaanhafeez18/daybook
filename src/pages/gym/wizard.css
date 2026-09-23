@@ -1,0 +1,368 @@
+/* =========================================================================================
+   Gym: split wizard (SplitWizard.jsx) and its entry points in Onboarding, the Routines tab and
+   the schedule editor. Loaded after App.css, glass.css, apple.css and gym-common.css; only wiz-
+   classes. Colours come from theme tokens (light + dark follow the app); --wiz-c is a routine
+   colour (ROUTINE_COLORS keep >= 4.5:1 with white text in both modes).
+   ========================================================================================= */
+
+/* ---- sheet: near full screen on phones, a wider dialog on larger screens ------------------- */
+
+@media (max-width: 639px) {
+  .sheet:has(> .sheet-body > .wiz) { height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 30px); }
+}
+@media (min-width: 640px) {
+  .sheet:has(> .sheet-body > .wiz) { max-width: 640px; height: min(860px, calc(100dvh - 48px)); }
+}
+.sheet:has(> .sheet-body > .wiz) > .sheet-body { flex: 1 1 auto; min-height: 0; }
+
+/* Step indicator in the sheet header. */
+.wiz-progress { display: flex; flex-direction: column; gap: 8px; }
+.wiz-progress-label { font-size: 14px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.wiz-progress-bar { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; width: min(100%, 240px); }
+.wiz-progress-bar > span { height: 4px; border-radius: 2px; background: var(--surface-3); transition: background 0.35s var(--ios-sheet, ease); }
+.wiz-progress-bar > span.is-on { background: var(--accent); }
+
+.wiz-foot-hint { flex-basis: 100%; margin: 0 4px -2px; font-size: 13px; color: var(--text-2); text-align: center; }
+
+/* ---- layout -------------------------------------------------------------------------------- */
+
+.wiz { display: block; }
+.wiz-step { display: flex; flex-direction: column; gap: 24px; animation: wiz-in 0.3s var(--ios-sheet, ease); }
+.wiz-section { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.wiz-section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.wiz-label {
+  margin: 0 4px; font-size: 13px; font-weight: 400; color: var(--text-2);
+  text-transform: uppercase; letter-spacing: 0.01em;
+}
+.wiz-counts { margin-right: 4px; font-size: 13px; color: var(--text-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wiz-help { margin: 0 4px; font-size: 14px; line-height: 1.35; color: var(--text-2); }
+.wiz-intro { margin: 0 4px; font-size: 15px; line-height: 1.4; color: var(--text-2); }
+.wiz-empty {
+  padding: 14px 16px; border: 1.5px dashed var(--border-strong); border-radius: 16px;
+  font-size: 15px; line-height: 1.4; color: var(--text-2); text-align: center;
+}
+.wiz-warn {
+  display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px; border-radius: 14px;
+  background: var(--warning-soft); color: var(--text); font-size: 14px; line-height: 1.35;
+}
+.wiz-warn .icon { flex-shrink: 0; margin-top: 1px; color: var(--warning); }
+.wiz-warn .link-btn { padding: 0; font-size: 14px; font-weight: 600; }
+
+@keyframes wiz-in { from { opacity: 0; transform: translateY(6px); } }
+@keyframes wiz-pop { from { opacity: 0; transform: scale(0.96); } }
+
+/* ---- step 1: type it ----------------------------------------------------------------------- */
+
+.wiz-type {
+  position: relative; display: flex; align-items: center; min-height: 52px; border-radius: 16px;
+  background: var(--surface-2); border: 1px solid transparent;
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+.wiz-type:focus-within { background: var(--card-bg); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.wiz-type-icon { position: absolute; left: 14px; color: var(--accent); pointer-events: none; }
+.wiz-input {
+  flex: 1; min-width: 0; height: 50px; padding: 0 46px 0 42px; border: 0; background: none; outline: none;
+  color: var(--text); font-size: 17px; letter-spacing: -0.015em;
+}
+.wiz-input::placeholder { color: var(--text-3); opacity: 1; }
+.wiz-clear { position: absolute; right: 4px; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; }
+.wiz-clear .icon { width: 22px; height: 22px; padding: 4px; border-radius: 50%; background: var(--text-3); color: var(--card-bg); }
+
+.wiz-examples { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.wiz-examples-label { margin: 0 4px; font-size: 14px; color: var(--text-2); }
+.wiz-example {
+  min-height: 44px; padding: 0 14px; border-radius: 999px; background: var(--accent-soft); color: var(--accent);
+  font-size: 14px; font-weight: 600; transition: transform 0.35s var(--spring, ease);
+}
+.wiz-example:active { transform: scale(0.94); }
+
+/* ---- day chips (the sequence and "Today is") ------------------------------------------------ */
+
+.wiz-seq, .wiz-anchor { display: flex; flex-wrap: wrap; gap: 8px; }
+.wiz-seq > li { max-width: 100%; min-width: 0; }
+.wiz-seq > li.wiz-seq-loop { display: grid; place-items: center; width: 28px; height: 44px; color: var(--text-3); }
+.wiz-day {
+  display: inline-flex; align-items: center; gap: 8px; max-width: 100%; min-height: 44px; padding: 0 16px 0 5px;
+  border: 1.5px solid transparent; border-radius: 999px; background: var(--surface-2); color: var(--text);
+  font-size: 16px; font-weight: 600; letter-spacing: -0.015em;
+  transition: transform 0.35s var(--spring, ease), box-shadow 0.2s, background 0.2s;
+}
+@supports (background: color-mix(in srgb, red 50%, blue)) {
+  .wiz-day { background: color-mix(in srgb, var(--wiz-c, var(--gym-c-none)) 15%, var(--card-bg)); }
+}
+.wiz-day:active { transform: scale(0.94); }
+.wiz-day-num {
+  flex-shrink: 0; display: grid; place-items: center; min-width: 32px; height: 32px; padding: 0 6px; border-radius: 999px;
+  background: var(--wiz-c, var(--gym-c-none)); color: #fff; font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.wiz-day-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wiz-day.is-rest { background: transparent; border-style: dashed; border-color: var(--border-strong); color: var(--text-2); font-weight: 500; }
+.wiz-day.is-rest .wiz-day-num { background: var(--surface-2); color: var(--text-2); }
+.wiz-day.is-selected { box-shadow: 0 0 0 2.5px var(--accent); }
+.wiz-anchor .wiz-day.is-selected { background: var(--accent); border-color: transparent; color: var(--on-accent); }
+.wiz-anchor .wiz-day.is-selected .wiz-day-num { background: rgba(255, 255, 255, 0.25); color: var(--on-accent); }
+
+.wiz-dayactions {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 4px; border-radius: 18px;
+  background: var(--surface-2); animation: wiz-pop 0.2s var(--ios-sheet, ease);
+}
+.wiz-dayactions button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-height: 44px; min-width: 0; border-radius: 14px;
+  color: var(--accent); font-size: 15px; font-weight: 600; transition: background 0.15s;
+}
+.wiz-dayactions button:active:not(:disabled) { background: var(--surface-3); }
+.wiz-dayactions button:disabled { color: var(--text-3); cursor: default; }
+.wiz-dayactions button.is-danger { color: var(--danger); }
+
+/* ---- step 1: weekly rows ------------------------------------------------------------------- */
+
+.wiz-week { display: flex; flex-direction: column; gap: 4px; }
+.wiz-week-row { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 4px; border-radius: 16px; }
+.wiz-week-row.is-today { background: var(--accent-soft); }
+.wiz-week-dow { flex-shrink: 0; width: 44px; padding-left: 8px; font-size: 15px; font-weight: 600; color: var(--text-2); }
+.wiz-week-row.is-today .wiz-week-dow { color: var(--accent); }
+.wiz-week-pick { position: relative; flex: 1; min-width: 0; }
+.wiz-week-dot, .wiz-week-rest {
+  position: absolute; left: 14px; top: 50%; z-index: 1; width: 10px; height: 10px; border-radius: 50%;
+  transform: translateY(-50%); pointer-events: none;
+}
+.wiz-week-dot { background: var(--wiz-c, var(--gym-c-none)); }
+.wiz-week-rest { border: 1.5px solid var(--text-3); }
+.input.wiz-select {
+  min-height: 44px; padding: 8px 36px 8px 32px; font-size: 16px; text-overflow: ellipsis; background-color: var(--surface-2);
+}
+.wiz-week-row.is-today .input.wiz-select { background-color: var(--card-bg); }
+.wiz-week-today { flex-shrink: 0; padding: 0 8px; font-size: 12px; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: 0.03em; }
+
+/* ---- step 1: palette ------------------------------------------------------------------------ */
+
+.wiz-palette { display: flex; flex-wrap: wrap; gap: 8px; }
+.wiz-pal {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 16px 0 14px; border-radius: 999px;
+  background: var(--surface-2); color: var(--text); font-size: 15px; font-weight: 600; letter-spacing: -0.01em;
+  transition: transform 0.35s var(--spring, ease), background 0.15s, opacity 0.15s;
+}
+.wiz-pal:active:not(:disabled) { transform: scale(0.94); background: var(--surface-3); }
+.wiz-pal:disabled { opacity: 0.45; cursor: default; }
+.wiz-pal-dot { flex-shrink: 0; width: 10px; height: 10px; border-radius: 50%; background: var(--wiz-c, var(--gym-c-none)); }
+.wiz-pal.is-rest .wiz-pal-dot { background: none; border: 1.5px solid var(--text-3); }
+.wiz-pal.is-custom { gap: 6px; background: none; border: 1.5px dashed var(--border-strong); color: var(--accent); }
+@media (hover: hover) {
+  .wiz-pal:hover:not(:disabled) { background: var(--surface-3); }
+  .wiz-pal.is-custom:hover:not(:disabled) { background: var(--accent-soft); }
+}
+
+.wiz-custom { display: flex; align-items: center; gap: 8px; animation: wiz-pop 0.2s var(--ios-sheet, ease); }
+.input.wiz-custom-input { flex: 1; min-width: 0; min-height: 44px; font-size: 16px; }
+.wiz-custom .btn { flex-shrink: 0; min-height: 44px; }
+
+/* ---- step 1: how it repeats ----------------------------------------------------------------- */
+
+.wiz-modes { display: grid; gap: 8px; }
+@media (min-width: 560px) { .wiz-modes { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.wiz-mode {
+  display: flex; align-items: flex-start; gap: 12px; width: 100%; padding: 14px; border-radius: 18px;
+  background: var(--surface-2); color: var(--text); text-align: left;
+  transition: background 0.2s, box-shadow 0.2s, transform 0.35s var(--spring, ease);
+}
+.wiz-mode:active { transform: scale(0.98); }
+.wiz-mode.is-on { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); }
+.wiz-mode-radio {
+  flex-shrink: 0; display: grid; place-items: center; width: 22px; height: 22px; margin-top: 1px;
+  border: 1.5px solid var(--text-3); border-radius: 50%; transition: background 0.2s, border-color 0.2s;
+}
+.wiz-mode.is-on .wiz-mode-radio { background: var(--accent); border-color: var(--accent); }
+.wiz-mode.is-on .wiz-mode-radio::after { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--on-accent); }
+.wiz-mode-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.wiz-mode-text strong { font-size: 17px; font-weight: 600; letter-spacing: -0.02em; }
+.wiz-mode-text small { font-size: 14px; line-height: 1.3; color: var(--text-2); }
+.wiz-mode-icon { margin-top: 1px; color: var(--text-3); }
+.wiz-mode.is-on .wiz-mode-icon { color: var(--accent); }
+
+/* ---- preview: next two weeks --------------------------------------------------------------- */
+
+.wiz-strip {
+  display: flex; gap: 8px; margin: 0 -20px; padding: 2px 20px 6px; overflow-x: auto;
+  scroll-snap-type: x proximity; scroll-padding-inline: 20px; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+}
+.wiz-strip::-webkit-scrollbar { display: none; }
+.wiz-strip-day {
+  flex: 0 0 68px; display: flex; flex-direction: column; align-items: center; gap: 1px; min-width: 0;
+  padding: 10px 5px; border-radius: 18px; background: var(--surface-2); scroll-snap-align: start;
+}
+.wiz-strip-day.is-today { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); }
+.wiz-strip-dow { font-size: 12px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.03em; }
+.wiz-strip-day.is-today .wiz-strip-dow { color: var(--accent); }
+.wiz-strip-date { font-size: 20px; font-weight: 700; line-height: 1.25; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.wiz-strip-slot {
+  display: inline-flex; align-items: center; justify-content: center; gap: 3px; max-width: 100%; margin-top: 6px;
+  padding: 3px 7px; border-radius: 999px; background: var(--wiz-c, var(--gym-c-none)); color: #fff;
+  font-size: 12px; font-weight: 700; line-height: 1.25;
+}
+.wiz-strip-slot > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wiz-strip-slot .icon { flex-shrink: 0; }
+.wiz-strip-slot.is-rest, .wiz-strip-slot.is-muted, .wiz-strip-slot.is-skipped { background: var(--card-bg); color: var(--text-2); }
+.wiz-strip-slot.is-skipped > span { text-decoration: line-through; }
+.wiz-strip-slot.is-done { background: var(--success-soft); color: var(--success); }
+@media (min-width: 560px) {
+  .wiz-strip { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); margin: 0; padding: 0; overflow: visible; }
+  .wiz-strip-day { flex: none; }
+}
+
+/* ---- step 2: workouts ---------------------------------------------------------------------- */
+
+.wiz-wo { display: flex; flex-direction: column; gap: 12px; padding: 14px 14px 12px; border-radius: 22px; background: var(--surface-2); }
+.wiz-wo-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.wiz-wo-dot {
+  flex-shrink: 0; width: 14px; height: 14px; margin-left: 4px; border-radius: 50%;
+  background: var(--wiz-c, var(--gym-c-none)); box-shadow: 0 0 0 3px var(--surface-3);
+}
+@supports (background: color-mix(in srgb, red 50%, blue)) {
+  .wiz-wo-dot { box-shadow: 0 0 0 3px color-mix(in srgb, var(--wiz-c, var(--gym-c-none)) 24%, transparent); }
+}
+.wiz-wo-name {
+  flex: 1; min-width: 0; height: 44px; padding: 0 12px; border: 1px solid transparent; border-radius: 12px;
+  background: var(--card-bg); color: var(--text); outline: none;
+  font-size: 18px; font-weight: 700; letter-spacing: -0.02em; transition: border-color 0.15s, box-shadow 0.15s;
+}
+.wiz-wo-name:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.wiz-wo-name[aria-invalid='true'] { border-color: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft); }
+.wiz-wo-title {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 18px; font-weight: 700; letter-spacing: -0.02em;
+}
+.wiz-wo-when {
+  flex-shrink: 0; max-width: 42%; font-size: 13px; font-weight: 600; color: var(--text-2); text-align: right;
+  font-variant-numeric: tabular-nums; overflow-wrap: anywhere;
+}
+.wiz-wo-error { margin: -4px 4px 0; font-size: 13px; font-weight: 500; color: var(--danger); }
+.wiz-wo-choice { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
+.wiz-wo-choice > span { flex-shrink: 0; margin-left: 4px; font-size: 15px; color: var(--text-2); }
+.wiz-wo-choice .input.wiz-select { width: auto; min-width: 0; max-width: 72%; padding-left: 14px; background-color: var(--card-bg); }
+
+.wiz-swatches { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); max-width: 400px; margin: -4px -2px; }
+.wiz-swatch { display: grid; place-items: center; height: 44px; border-radius: 12px; }
+.wiz-swatch-dot {
+  display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--wiz-sw); color: #fff;
+  transition: transform 0.35s var(--spring, ease), box-shadow 0.2s;
+}
+.wiz-swatch-dot .icon { opacity: 0; transform: scale(0.5); transition: opacity 0.15s, transform 0.3s var(--spring, ease); }
+.wiz-swatch[aria-checked='true'] .wiz-swatch-dot { box-shadow: 0 0 0 2.5px var(--card-bg), 0 0 0 4.5px var(--wiz-sw); }
+.wiz-swatch[aria-checked='true'] .wiz-swatch-dot .icon { opacity: 1; transform: none; }
+.wiz-swatch:active .wiz-swatch-dot { transform: scale(0.86); }
+
+.wiz-ex-list { display: flex; flex-direction: column; overflow: hidden; border-radius: 16px; background: var(--card-bg); }
+.wiz-ex-list > li { position: relative; }
+.wiz-ex-list > li + li::before {
+  content: ''; position: absolute; top: 0; left: 50px; right: 0; height: 1px;
+  background: var(--separator, var(--border)); transform: scaleY(0.5); transform-origin: top; pointer-events: none;
+}
+.wiz-ex {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 54px; padding: 8px 14px;
+  color: var(--text); text-align: left; transition: background 0.15s;
+}
+.wiz-ex:active { background: var(--surface-2); }
+.wiz-ex-check {
+  flex-shrink: 0; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%;
+  border: 1.5px solid var(--accent); background: var(--accent); color: var(--on-accent);
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+}
+.wiz-ex.is-off .wiz-ex-check { background: none; border-color: var(--text-3); color: transparent; }
+.wiz-ex-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.wiz-ex-name { font-size: 16px; letter-spacing: -0.015em; overflow-wrap: anywhere; transition: color 0.2s; }
+.wiz-ex-sets { font-size: 13px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.wiz-ex.is-off .wiz-ex-name { color: var(--text-2); }
+.wiz-ex.is-off .wiz-ex-sets { color: var(--text-3); }
+
+.wiz-wo-foot { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 12px; }
+.wiz-add-ex {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 16px 0 12px; border-radius: 999px;
+  background: var(--card-bg); color: var(--accent); font-size: 15px; font-weight: 600;
+  transition: transform 0.35s var(--spring, ease), background 0.15s;
+}
+.wiz-add-ex:active { transform: scale(0.95); }
+.wiz-wo-sum { margin-right: 4px; font-size: 14px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.wiz-wo-existing { display: flex; flex-direction: column; gap: 4px; padding: 0 4px; }
+.wiz-wo-existing .wiz-help { margin: 2px 0 0; }
+.wiz-wo-preview { font-size: 14px; line-height: 1.4; color: var(--text-2); }
+.wiz-wo .wiz-help { margin-top: -4px; }
+.wiz-wo .wiz-empty { border-color: var(--border-strong); background: none; }
+
+/* ---- step 3: summary ------------------------------------------------------------------------ */
+
+.wiz-summary { display: flex; flex-direction: column; overflow: hidden; border-radius: 18px; background: var(--surface-2); }
+.wiz-summary > li { position: relative; display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; }
+.wiz-summary > li + li::before {
+  content: ''; position: absolute; top: 0; left: 56px; right: 0; height: 1px;
+  background: var(--separator, var(--border)); transform: scaleY(0.5); transform-origin: top; pointer-events: none;
+}
+.wiz-summary-icon {
+  flex-shrink: 0; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px;
+  background: var(--accent); color: var(--on-accent);
+}
+.wiz-summary-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.wiz-summary-text strong { font-size: 16px; font-weight: 600; letter-spacing: -0.015em; }
+.wiz-summary-text small { font-size: 14px; line-height: 1.35; color: var(--text-2); }
+.wiz-summary-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0; }
+.wiz-tag {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 26px; padding: 3px 10px 3px 8px;
+  border-radius: 999px; background: var(--card-bg); color: var(--text); font-size: 13px; font-weight: 600;
+}
+@supports (background: color-mix(in srgb, red 50%, blue)) {
+  .wiz-tag { background: color-mix(in srgb, var(--wiz-c, var(--gym-c-none)) 14%, var(--card-bg)); }
+}
+.wiz-tag-dot { flex-shrink: 0; width: 8px; height: 8px; border-radius: 50%; background: var(--wiz-c, var(--gym-c-none)); }
+
+/* ---- entry points ---------------------------------------------------------------------------- */
+
+/* Onboarding: "Build my own split", above the ready-made templates. */
+.wiz-onb-card {
+  display: flex; align-items: center; gap: 14px; width: 100%; padding: 16px; border-radius: 26px;
+  background: var(--card-bg); color: var(--text); text-align: left; box-shadow: inset 0 0 0 1.5px var(--accent);
+  transition: transform 0.35s var(--spring, ease);
+}
+@supports (background: color-mix(in srgb, red 50%, blue)) {
+  .wiz-onb-card {
+    background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 16%, var(--card-bg)), var(--card-bg) 72%);
+    box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 38%, transparent);
+  }
+}
+.wiz-onb-card:active { transform: scale(0.98); }
+.wiz-onb-icon {
+  flex-shrink: 0; display: grid; place-items: center; width: 48px; height: 48px; border-radius: 15px;
+  background: var(--accent); color: var(--on-accent); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+.wiz-onb-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.wiz-onb-text strong { font-size: 18px; font-weight: 700; letter-spacing: -0.02em; }
+.wiz-onb-text small { font-size: 14px; line-height: 1.35; color: var(--text-2); }
+.wiz-onb-try { margin-top: 4px; font-size: 14px; font-weight: 600; color: var(--accent); overflow-wrap: anywhere; }
+.wiz-onb-chevron { flex-shrink: 0; color: var(--text-3); }
+.wiz-onb-heading { margin: 10px 16px -4px; font-size: 13px; font-weight: 400; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.01em; }
+.wiz-onb-scratch { display: inline-flex; align-self: center; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px; }
+
+/* Routines tab: split card link. */
+.wiz-split-link {
+  display: inline-flex; align-self: flex-start; align-items: center; gap: 8px; min-height: 44px; margin: -8px 0 -10px; padding: 0 4px;
+  color: var(--accent); font-size: 16px; font-weight: 600; letter-spacing: -0.015em;
+}
+.wiz-split-link:active { opacity: 0.6; }
+.wiz-split-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.empty-state .wiz-split-actions { justify-content: center; }
+.empty-state .wiz-split-actions .btn { margin-top: 8px; }
+
+/* Schedule editor: "Use the split wizard" row. */
+.wiz-sched-link {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 10px 14px; border-radius: 18px;
+  background: var(--accent-soft); color: var(--text); text-align: left; transition: transform 0.35s var(--spring, ease);
+}
+.wiz-sched-link:active { transform: scale(0.98); }
+.wiz-sched-link > .icon:first-child { color: var(--accent); }
+.wiz-sched-link > .icon:last-child { color: var(--text-3); }
+.wiz-sched-link-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.wiz-sched-link-text strong { font-size: 16px; font-weight: 600; letter-spacing: -0.015em; }
+.wiz-sched-link-text small { font-size: 13px; color: var(--text-2); }
+
+@media (prefers-reduced-motion: reduce) {
+  .wiz-step, .wiz-dayactions, .wiz-custom { animation: none; }
+  .wiz-swatch-dot, .wiz-swatch-dot .icon, .wiz-progress-bar > span { transition: none; }
+}
