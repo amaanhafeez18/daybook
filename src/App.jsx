@@ -132,12 +132,22 @@ function Shell({ user, onUserChange, onSignOut }) {
     document.title = `${[...NAV, ...SECONDARY].find((item) => item.id === route)?.label || 'Daybook'} · Daybook`
   }, [route])
 
+  // iOS-style navigation bar: once the large page title scrolls away, a compact title appears.
+  const [scrolled, setScrolled] = useState(false)
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 44)
+    onScroll()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+
   useEffect(() => {
     if (saveError) toast(`Couldn’t sync: ${saveError}`, { tone: 'error', action: { label: 'Retry', onClick: retryUnsaved } })
   }, [saveError])
 
   const displayName = settings?.displayName?.trim() || user.username
   const syncState = offline ? 'offline' : pendingSaves > 0 || syncing ? 'syncing' : 'synced'
+  const routeLabel = [...NAV, ...SECONDARY].find((item) => item.id === route)?.label || 'Daybook'
 
   return (
     <div className="shell">
@@ -150,8 +160,8 @@ function Shell({ user, onUserChange, onSignOut }) {
         <ul className="nav-list">
           {NAV.map((item) => (
             <li key={item.id}>
-              <a href={`#/${item.id}`} className={`nav-item ${route === item.id ? 'is-active' : ''}`} aria-current={route === item.id ? 'page' : undefined}>
-                <span className="nav-icon"><Icon name={item.icon} size={22} /></span>
+              <a href={`#/${item.id}`} className={`nav-item ${route === item.id ? 'is-active' : ''}`} aria-current={route === item.id ? 'page' : undefined} aria-label={item.label} title={item.label}>
+                <span className="nav-icon"><Icon name={item.icon} size={24} strokeWidth={route === item.id ? 2.1 : 1.8} /></span>
                 <span className="nav-label">{item.label}</span>
               </a>
             </li>
@@ -170,10 +180,11 @@ function Shell({ user, onUserChange, onSignOut }) {
       </nav>
 
       <div className="shell-main">
-        <header className="topbar">
+        <header className={`topbar ${scrolled ? 'is-scrolled' : ''}`}>
           <div className="topbar-brand">
             <BrandMark size={28} />
           </div>
+          <span className="topbar-title" aria-hidden={!scrolled}>{routeLabel}</span>
           <SyncBadge state={syncState} />
           <div className="topbar-actions">
             {SECONDARY.map((item) => (

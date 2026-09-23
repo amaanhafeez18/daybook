@@ -1,0 +1,232 @@
+/* =========================================================================================
+   Apple polish layer, loaded after glass.css.
+   Apple system colours and text styles, icon-only tab bar, iOS navigation-bar title that
+   appears on scroll, inset hairline separators, plain grouped cells, spring press feedback,
+   iOS sheet curve, and "+" buttons in the header instead of a floating action button.
+   ========================================================================================= */
+
+:root {
+  --text: #000000;
+  --text-2: #6C6C70;
+  --text-3: #8A8A8E;
+  --danger: #FF3B30; --danger-soft: rgba(255, 59, 48, 0.12);
+  --success: #248A3D; --success-soft: rgba(52, 199, 89, 0.14);
+  --warning: #C93400; --warning-soft: rgba(255, 149, 0, 0.14);
+  --info: #007AFF;
+  --pink: #FF2D55;
+  --card-bg: #FFFFFF;
+  --separator: rgba(60, 60, 67, 0.29);
+  --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ios-sheet: cubic-bezier(0.32, 0.72, 0, 1);
+  --nav-h: 60px;
+}
+
+:root[data-appearance='dark'] {
+  --bg: #000000;
+  --surface: #1C1C1E;
+  --text: #FFFFFF;
+  --text-2: #AEAEB2;
+  --text-3: #8D8D93;
+  --danger: #FF453A; --danger-soft: rgba(255, 69, 58, 0.16);
+  --success: #30D158; --success-soft: rgba(48, 209, 88, 0.16);
+  --warning: #FF9F0A; --warning-soft: rgba(255, 159, 10, 0.16);
+  --info: #0A84FF;
+  --pink: #FF375F;
+  --card-bg: #1C1C1E;
+  --separator: rgba(84, 84, 88, 0.65);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-appearance='system'] {
+    --bg: #000000;
+    --surface: #1C1C1E;
+    --text: #FFFFFF;
+    --text-2: #AEAEB2;
+    --text-3: #8D8D93;
+    --danger: #FF453A; --danger-soft: rgba(255, 69, 58, 0.16);
+    --success: #30D158; --success-soft: rgba(48, 209, 88, 0.16);
+    --warning: #FF9F0A; --warning-soft: rgba(255, 159, 10, 0.16);
+    --info: #0A84FF;
+    --pink: #FF375F;
+    --card-bg: #1C1C1E;
+    --separator: rgba(84, 84, 88, 0.65);
+  }
+}
+
+/* A quieter colour field: Apple backgrounds are calm; the glass carries the depth. */
+body::before { opacity: 0.5; }
+
+/* ---- Apple text styles --------------------------------------------------------------------- */
+body { font-size: 16px; line-height: 1.35; letter-spacing: -0.015em; }
+.task-title, .person-text strong, .settings-row-text strong, .agenda-body strong, .entry-text strong { font-size: 17px; font-weight: 400; letter-spacing: -0.02em; }
+.card-header h3 { font-size: 17px; font-weight: 600; letter-spacing: -0.02em; }
+.page-subtitle, .task-notes, .person-text small, .settings-row-text small, .agenda-body small { font-size: 15px; }
+.group-title, .settings-group > h2, .settings-group-header h2 {
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  color: var(--text-2);
+  margin-left: 16px;
+}
+.eyebrow { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.02em; }
+.link-btn { font-size: 17px; font-weight: 400; }
+.link-btn:hover { text-decoration: none; opacity: 0.7; }
+.muted { font-size: 15px; }
+
+/* ---- plain grouped cells (no card chrome) -------------------------------------------------- */
+.card, .card-list, .agenda-item, .entry-card, .note-card, .settings-card {
+  background: var(--card-bg);
+  border: 0;
+  box-shadow: none;
+}
+.card { border-radius: 26px; }
+.card-list { border-radius: 26px; }
+.agenda-item, .entry-card { border-radius: 18px; }
+.suggestion { background: var(--card-bg); border: 0; box-shadow: none; border-radius: 22px; }
+.entry-card.is-active { box-shadow: 0 0 0 2px var(--accent); }
+
+/* ---- inset hairline separators, like iOS lists --------------------------------------------- */
+.task-list > li + li, .card-list > li + li, .people-mini li + li, .prayer-list li + li,
+.history-list li + li, .memory-list li + li, .compact-list li + li,
+.settings-row + .settings-row, .settings-list > .settings-row + .settings-row {
+  border-top: 0;
+  position: relative;
+}
+.task-list > li + li::before, .card-list > li + li::before, .people-mini li + li::before,
+.prayer-list li + li::before, .history-list li + li::before, .memory-list li + li::before,
+.compact-list li + li::before, .settings-row + .settings-row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: var(--sep-inset, 0px);
+  height: 1px;
+  background: var(--separator);
+  transform: scaleY(0.5);
+  transform-origin: top;
+  pointer-events: none;
+}
+.task-list { --sep-inset: 36px; }
+.card-list { --sep-inset: 52px; }
+.person-list { --sep-inset: 70px; }
+.people-mini { --sep-inset: 48px; }
+.compact-list { --sep-inset: 26px; }
+.settings-list { --sep-inset: 62px; }
+.card-list .task-row { padding-left: 16px; padding-right: 16px; }
+
+/* ---- Reminders-style check circles ------------------------------------------------------------ */
+.check { width: 24px; height: 24px; border: 1.5px solid var(--text-3); }
+.check.is-checked { animation: check-pop 0.32s var(--spring); }
+@keyframes check-pop { 0% { transform: scale(0.7); } 100% { transform: scale(1); } }
+.task-row.is-done { opacity: 0.55; }
+.task-row.is-done .task-title { text-decoration: none; color: var(--text-2); }
+.meta-chip { font-size: 13px; font-weight: 500; padding: 2px 8px; }
+
+/* ---- press feedback with a gentle spring --------------------------------------------------- */
+.btn, .icon-btn, .chip, .send-btn, .segmented button, .swatch, .mood, .day-cell, .nav-icon {
+  transition: transform 0.35s var(--spring), background 0.2s, color 0.2s, opacity 0.2s, box-shadow 0.2s;
+}
+.btn:active:not(:disabled), .icon-btn:active, .chip:active, .send-btn:active:not(:disabled),
+.swatch:active, .mood:active, .day-cell:active, .nav-item:active .nav-icon { transform: scale(0.92); transition-duration: 0.1s; }
+.settings-row:active, .person-main:active, .task-body:active, .entry-card:active, .suggestion:active, .agenda-body:active, .journal-teaser:active {
+  opacity: 1;
+  background: var(--surface-2);
+}
+.task-body, .person-main, .agenda-body { border-radius: 12px; margin: -4px -6px; padding: 4px 6px; }
+
+/* ---- icon-only floating tab bar ---------------------------------------------------------------- */
+@media (max-width: 899px) {
+  .nav { height: var(--nav-h); padding: 5px; }
+  .nav-item { gap: 0; }
+  .nav-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .nav-icon { max-width: none; width: 100%; height: 100%; border-radius: 999px; }
+  .nav-item { color: var(--text); }
+  .nav-item.is-active { color: var(--accent); }
+}
+
+/* ---- navigation bar title that appears once the large title scrolls away ----------------------- */
+.topbar { position: sticky; }
+.topbar-title {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translate(-50%, 6px);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s, transform 0.3s var(--ios-sheet);
+  white-space: nowrap;
+}
+.topbar.is-scrolled .topbar-title { opacity: 1; transform: translate(-50%, 0); }
+.topbar.is-scrolled {
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+}
+@supports not (background: color-mix(in srgb, red 50%, blue)) {
+  .topbar.is-scrolled { background: var(--glass-bg-strong); }
+}
+@media (min-width: 900px) {
+  .topbar-title { display: none; }
+  .topbar.is-scrolled { background: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+
+/* ---- "+" in the header instead of a floating action button (phones) ------------------------------ */
+@media (max-width: 899px) {
+  .fab { display: none !important; }
+  .page-header-row { align-items: center; }
+  .page-header-row > .btn {
+    display: inline-grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    min-height: 44px;
+    padding: 0;
+    gap: 0;
+    font-size: 0;
+    border-radius: 50%;
+    color: var(--accent);
+    background: var(--glass-bg);
+    background-image: none;
+    -webkit-backdrop-filter: var(--glass-blur);
+    backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-highlight), var(--glass-shadow);
+  }
+  .page-header-row > .btn .icon { width: 22px; height: 22px; }
+  /* The calendar's "Today" button lives in the header too and must stay visible. */
+  .month-nav .btn { display: inline-flex; }
+}
+
+/* ---- sheets use the iOS sheet curve -------------------------------------------------------------- */
+.sheet { animation-duration: 0.45s; animation-timing-function: var(--ios-sheet); }
+.sheet-header h2 { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
+.sheet-header .icon-btn { background: var(--surface-2); width: 32px; height: 32px; color: var(--text-2); }
+.sheet-body { padding-top: 8px; }
+
+/* ---- small details ------------------------------------------------------------------------------ */
+.empty-icon { border-radius: 50%; }
+.stat { font-size: 14px; }
+.segmented button { font-size: 14px; font-weight: 500; }
+.segmented button.is-active { font-weight: 600; }
+.input { font-size: 17px; }
+.field-label { font-size: 13px; font-weight: 400; text-transform: uppercase; letter-spacing: 0.01em; margin-left: 4px; }
+.day-cell { font-size: 17px; }
+.day-cell.is-today:not(.is-selected) .day-number { color: var(--danger); }
+.dot-event { background: var(--accent); }
+.msg-body { font-size: 17px; line-height: 1.4; }
+.msg-bubble { font-size: 17px; line-height: 1.35; }
+.toast { font-size: 15px; }
+.badge-count { background: var(--danger); color: #fff; }
+.settings-row-icon { width: 30px; height: 30px; border-radius: 8px; }
+.settings-row { min-height: 50px; padding-top: 8px; padding-bottom: 8px; }
+.settings-group-header .btn { font-size: 15px; }
