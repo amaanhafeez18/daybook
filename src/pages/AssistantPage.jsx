@@ -16,7 +16,7 @@ const SUGGESTIONS = [
   { icon: 'sun', text: 'What’s on my plate today?' },
   { icon: 'calendar', text: 'Help me plan the rest of my week' },
   { icon: 'people', text: 'Who should I catch up with?' },
-  { icon: 'journal', text: 'How has my week been, going by my journal?' },
+  { icon: 'moon', text: 'What are today’s prayer times?' },
 ]
 
 let messageId = 0
@@ -89,7 +89,7 @@ export default function AssistantPage({ displayName }) {
         else if (event.type === 'action') patchMessage(replyId, (message) => ({ actions: [...message.actions, { tool: event.tool, ok: event.ok, message: event.message }] }))
       })
       patchMessage(userId, { pending: false, ...(done.transcript ? { content: done.transcript } : {}) })
-      patchMessage(replyId, { content: done.reply, streaming: false, status: '', actions: (done.results || []).filter((result) => result.tool !== 'search') })
+      patchMessage(replyId, { content: done.reply, streaming: false, status: '', actions: (done.results || []).filter((result) => !['search', 'read_journal', 'get_weather', 'get_prayer_times'].includes(result.tool) || !result.ok) })
       if (done.memories) setMemories(done.memories)
       if (done.dataChanged) refresh().catch(() => {})
       if (speak) speakText(done.reply)
@@ -498,8 +498,15 @@ async function streamAssistant(payload, signal, onEvent) {
   return done
 }
 
+// Local date/time/zone so "today" is right, plus the last known location for weather and prayer times.
 function clientContext() {
-  return { localDate: todayISO(), localTime: nowTimeHHMM(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }
+  const location = readPref('location', null)
+  return {
+    localDate: todayISO(),
+    localTime: nowTimeHHMM(),
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    ...(location ? { location: { lat: location.lat, lon: location.lon } } : {}),
+  }
 }
 
 // iOS Safari only speaks after a user gesture; an empty utterance during the tap unlocks it for the
