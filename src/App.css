@@ -730,6 +730,41 @@ button.settings-row:hover { background: var(--surface-2); }
   .auth-card { box-shadow: var(--shadow-md); }
 }
 
+/* ---- iPhone / touch ------------------------------------------------------------------------ */
+
+html, body { overscroll-behavior-y: none; }
+button, a, .nav, .chip, .segmented, .day-cell, .mood { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: manipulation; }
+input[type='date'], input[type='time'] { text-align: left; }
+input[type='date']::-webkit-date-and-time-value, input[type='time']::-webkit-date-and-time-value { text-align: left; min-height: 1.4em; }
+
+@media (pointer: coarse) {
+  /* iOS zooms into any field under 16px; keep every field at 16px on touch screens. */
+  .input, .input-sm, .search-field input, .quick-add-input, .composer-input, textarea, select { font-size: 16px !important; }
+
+  /* While typing, the keyboard covers the bottom bar anyway: hide it so fields and the assistant
+     composer sit directly above the keyboard. */
+  .shell:has(input:focus, textarea:focus, select:focus) .nav,
+  .shell:has(input:focus, textarea:focus, select:focus) .fab { display: none; }
+  .shell:has(input:focus, textarea:focus) .composer-dock { bottom: 0; padding-bottom: calc(8px + var(--safe-bottom)); }
+}
+
+/* Hover effects only on devices that can hover (otherwise they stick after a tap on iOS). */
+@media (hover: none) {
+  .suggestion:hover:not(:disabled) { transform: none; border-color: var(--border); }
+  .icon-btn:hover { background: none; color: var(--text-2); }
+  .icon-btn.is-active:hover { background: var(--accent-soft); color: var(--accent); }
+  .icon-btn-soft:hover { background: var(--accent-soft); color: var(--accent); }
+  .btn-secondary:hover:not(:disabled) { background: var(--surface-2); }
+  .chip:hover { border-color: var(--border); color: var(--text-2); }
+  .chip.is-active:hover { border-color: var(--accent); color: var(--on-accent); }
+  button.settings-row:hover, .day-cell:hover:not(.is-blank), .mood:hover { background: none; }
+  .mood.is-active:hover { background: var(--accent-soft); }
+  .day-cell.is-selected:hover { background: var(--accent); }
+}
+
+/* Pressed feedback in place of hover. */
+.settings-row:active, .person-main:active, .task-body:active, .entry-card:active, .suggestion:active, .agenda-body:active { opacity: 0.7; }
+
 /* ---- motion preferences -------------------------------------------------------------------- */
 
 @media (prefers-reduced-motion: reduce) {

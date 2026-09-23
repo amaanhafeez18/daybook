@@ -34,7 +34,10 @@ export function isDarkMode() {
 // Keeps the browser/status bar colour matched to the page background.
 function syncThemeColor() {
   const color = isDarkMode() ? '#0E1116' : '#F6F4EF'
-  document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => meta.setAttribute('content', color))
+  document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => {
+    meta.removeAttribute('media')
+    meta.setAttribute('content', color)
+  })
   document.documentElement.style.colorScheme = isDarkMode() ? 'dark' : 'light'
 }
 
