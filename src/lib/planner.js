@@ -57,7 +57,28 @@ function syncTaskEvent(task) {
   updateData('events', (list) => [event, ...list.filter((item) => item.id !== event.id)])
 }
 
-export const setTaskDone = (id, done) => updateTask(id, { done })
+// A friend-reminder task's catch-up log uses a fixed id, so undoing the completion removes it.
+const catchUpLogId = (taskId) => `catch-up-${taskId}`
+const reminderFriendId = (task) => (isReminderMarker(task?.details) ? task.details.split(':')[1] || null : null)
+
+// Completing a "Talk to …" reminder also logs the catch-up, so the reminder doesn't come back tomorrow.
+export function setTaskDone(id, done) {
+  const before = data().tasks.find((task) => task.id === id)
+  const updated = updateTask(id, { done })
+  const friendId = reminderFriendId(before)
+  if (!updated || !friendId || !!before.done === !!done) return updated
+  const logId = catchUpLogId(id)
+  if (done) {
+    const today = todayISO()
+    const known = data().friends.some((friend) => friend.id === friendId)
+    const loggedToday = data().contactLogs.some((log) => (log.friendId || log.friend_id) === friendId && log.date === today)
+    if (known && !loggedToday) updateData('contactLogs', (list) => [{ id: logId, friendId, date: today, createdAt: nowIso() }, ...list.filter((log) => log.id !== logId)])
+  } else if (data().contactLogs.some((log) => log.id === logId)) {
+    updateData('contactLogs', (list) => list.filter((log) => log.id !== logId))
+  }
+  return updated
+}
+
 export const archiveTask = (id) => updateTask(id, { archived: true })
 export const restoreTask = (id) => updateTask(id, { archived: false })
 
@@ -66,8 +87,9 @@ export function deleteTaskForever(id) {
   updateData('events', (list) => list.filter((event) => event.taskId !== id))
 }
 
-export function archiveCompletedTasks() {
-  const ids = data().tasks.filter((task) => task.done && !task.archived).map((task) => task.id)
+// onlyIds limits it to the tasks shown (e.g. search results).
+export function archiveCompletedTasks(onlyIds = null) {
+  const ids = data().tasks.filter((task) => task.done && !task.archived && (!onlyIds || onlyIds.includes(task.id))).map((task) => task.id)
   if (ids.length) updateData('tasks', (list) => list.map((task) => (ids.includes(task.id) ? { ...task, archived: true } : task)))
   return ids
 }
@@ -227,36 +249,47 @@ export function updateFriend(id, patch) {
   updateData('friends', (list) => list.map((friend) => (friend.id === id ? { ...friend, ...next } : friend)))
 }
 
-// Removes a person and their history. Returns an undo function.
+// Removes a person, their history and their open "Talk to …" reminders. Returns an undo function.
 export function removeFriend(id) {
   const friend = data().friends.find((item) => item.id === id)
   const logs = data().contactLogs.filter((log) => (log.friendId || log.friend_id) === id)
+  const reminders = data().tasks.filter((task) => !task.done && !task.archived && typeof task.details === 'string' && task.details.startsWith(`friend-reminder:${id}:`))
   updateData('friends', (list) => list.filter((item) => item.id !== id))
   if (logs.length) updateData('contactLogs', (list) => list.filter((log) => (log.friendId || log.friend_id) !== id))
+  reminders.forEach((task) => archiveTask(task.id))
   return () => {
     if (friend) updateData('friends', (list) => [...list, friend])
     if (logs.length) updateData('contactLogs', (list) => [...logs, ...list])
+    reminders.forEach((task) => restoreTask(task.id))
   }
 }
 
 // Logs a catch-up and completes any open "Talk to …" reminder for that person. Returns undo.
 export function logContact(friendId, date = todayISO()) {
-  const log = { id: newId(), friendId, date, createdAt: nowIso() }
-  updateData('contactLogs', (list) => [log, ...list])
+  // One catch-up per person per day: a second tap (or the assistant) doesn't add a duplicate.
+  const existing = data().contactLogs.find((item) => (item.friendId || item.friend_id) === friendId && item.date === date)
+  const log = existing || { id: newId(), friendId, date, createdAt: nowIso() }
+  if (!existing) updateData('contactLogs', (list) => [log, ...list])
   const reminders = data().tasks.filter((task) => !task.done && !task.archived && typeof task.details === 'string' && task.details.startsWith(`friend-reminder:${friendId}:`))
-  for (const task of reminders) setTaskDone(task.id, true)
+  // updateTask, not setTaskDone: this already logged the catch-up.
+  for (const task of reminders) updateTask(task.id, { done: true })
   return () => {
-    updateData('contactLogs', (list) => list.filter((item) => item.id !== log.id))
-    for (const task of reminders) setTaskDone(task.id, false)
+    if (!existing) updateData('contactLogs', (list) => list.filter((item) => item.id !== log.id))
+    for (const task of reminders) updateTask(task.id, { done: false })
   }
 }
 
+// Returns an undo function.
 export function removeContactLog(id) {
-  updateData('contactLogs', (list) => list.filter((log) => log.id !== id))
+  const log = data().contactLogs.find((item) => item.id === id)
+  updateData('contactLogs', (list) => list.filter((item) => item.id !== id))
+  return () => log && updateData('contactLogs', (list) => (list.some((item) => item.id === log.id) ? list : [log, ...list]))
 }
 
 // Once a day, add a "Talk to …" task for anyone who is due a catch-up.
 export function ensureFriendReminders() {
+  // Only on data confirmed by the server this session, never on an empty or stale cache.
+  if (!getState().lastSyncedAt) return
   const today = todayISO()
   if (readPref('remindersCheckedOn') === today) return
   writePref('remindersCheckedOn', today)

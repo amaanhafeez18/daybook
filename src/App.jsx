@@ -3,9 +3,10 @@ import AuthScreen from './components/AuthScreen.jsx'
 import Icon, { BrandMark } from './components/ui/Icon.jsx'
 import { ConfirmHost, Toaster, toast } from './components/ui/feedback.jsx'
 import TodayPage from './pages/TodayPage.jsx'
-import { SESSION_EXPIRED_EVENT, clearSession, fetchSession, getCachedUser, getToken, readJson, readPref, writePref } from './lib/api.js'
+import { SESSION_EXPIRED_EVENT, clearSession, fetchSession, getCachedUser, getToken, readJson, readPref, tokenUserId, writePref } from './lib/api.js'
 import { getState, hydrateFromCache, refresh, resetStore, retryUnsaved, updateSettings, useStore } from './lib/store.js'
 import { ensureFriendReminders } from './lib/planner.js'
+import { syncSubscription } from './lib/notifications.js'
 import { applyTheme } from './lib/theme.js'
 
 // Only Today ships in the first bundle; other pages load on first visit (then stay cached).
@@ -42,11 +43,13 @@ export default function App() {
   const [checking, setChecking] = useState(() => !!getToken() && !getCachedUser())
 
   const signOut = useCallback((message) => {
+    // Several requests can report the same expired session; only the first one shows the toast.
+    const hadSession = !!getToken()
     clearSession()
     resetStore()
     applyTheme({})
     setUser(null)
-    if (message) toast(message)
+    if (message && hadSession) toast(message)
   }, [])
 
   useEffect(() => {
@@ -54,6 +57,7 @@ export default function App() {
     if (!getToken()) return
     fetchSession()
       .then((current) => {
+        if (current === undefined) return // the session changed during the check
         if (current) setUser(current)
         else signOut('Your session expired. Please log in again.')
       })
@@ -67,7 +71,21 @@ export default function App() {
     return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired)
   }, [signOut])
 
-  if (checking) return <Splash />
+  // Another tab signed out or into a different account: start over with that session, instead
+  // of saving this tab's data with the other account's token.
+  useEffect(() => {
+    const onStorage = (event) => {
+      if (event.key !== null && event.key !== 'daybook.session.token') return
+      const token = getToken()
+      if (token ? tokenUserId(token) === user?.id : !user) return // same account (e.g. renewed token) or already signed out
+      resetStore()
+      window.location.reload()
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [user])
+
+  if (checking) return <><Splash /><Toaster /></>
 
   return (
     <>
@@ -104,14 +122,14 @@ function Shell({ user, onUserChange, onSignOut }) {
       const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
       if (timeZone && getState().data.settings.timeZone !== timeZone) updateSettings({ timeZone })
     }
-    refresh().then(() => { ensureFriendReminders(); saveTimeZone() }).catch(() => ensureFriendReminders())
+    refresh().then(() => { ensureFriendReminders(); saveTimeZone(); syncSubscription(user.id) }).catch(() => ensureFriendReminders())
     let last = Date.now()
     const onVisible = () => {
       if (document.visibilityState !== 'visible') return
       retryUnsaved()
       if (Date.now() - last > 30000) {
         last = Date.now()
-        refresh().then(ensureFriendReminders).catch(() => {})
+        refresh().then(() => { ensureFriendReminders(); syncSubscription(user.id) }).catch(() => {})
       }
     }
     document.addEventListener('visibilitychange', onVisible)

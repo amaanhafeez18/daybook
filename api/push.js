@@ -58,12 +58,13 @@ export default async function handler(req, res) {
     }
 
     if (body.action === 'test') {
-      const sent = await sendToUser(supabase, decoded.id, {
+      const { sent, failed } = await sendToUser(supabase, decoded.id, {
         title: 'Daybook',
         body: 'Notifications are working. You’ll be reminded about your tasks here.',
         url: '/#/settings',
         tag: 'test',
       })
+      if (!sent && failed) return sendJson(res, 502, { error: 'Couldn’t reach your devices right now. Please try again.' })
       if (!sent) return sendJson(res, 404, { error: 'No devices with notifications turned on.' })
       return sendJson(res, 200, { ok: true, sent })
     }

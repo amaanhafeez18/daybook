@@ -102,6 +102,21 @@ function afterPasswordChange(user, patch) {
   return patch
 }
 
+// Signed-out devices must stop receiving reminders too; keep only the device making the change.
+// Without token_version (older database) other devices stay signed in, so their reminders stay too.
+async function forgetOtherDevices(supabase, user, keepEndpoint) {
+  if (!('token_version' in user)) return
+  let query = supabase.from('push_subscriptions').delete().eq('user_id', user.id)
+  const keep = typeof keepEndpoint === 'string' ? keepEndpoint.slice(0, 1000) : ''
+  if (keep) query = query.neq('endpoint', keep)
+  const { error } = await query
+  if (error && !/push_subscriptions|42P01|PGRST205/.test(`${error.code} ${error.message}`)) console.error('Push cleanup failed:', error.message)
+}
+
+// Sessions slide: a check more than a day after the token was issued returns a fresh one,
+// so people who use the app are never signed out by the 30-day expiry.
+const RENEW_AFTER_SECONDS = 86400
+
 export default async function handler(req, res) {
   try {
     const method = req.method || 'GET'
@@ -123,7 +138,8 @@ export default async function handler(req, res) {
       if (!decoded) return sendJson(res, 401, { error: 'Invalid session' })
       const user = await verifyTokenVersion(supabase, decoded)
       if (!user) return sendJson(res, 401, { error: 'Invalid session' })
-      return sendJson(res, 200, { user: publicUser(user) })
+      const renew = Date.now() / 1000 - (decoded.iat || 0) > RENEW_AFTER_SECONDS
+      return sendJson(res, 200, { user: publicUser(user), ...(renew ? { token: signToken(user) } : {}) })
     }
 
     if (method !== 'POST') return sendJson(res, 405, { error: 'Unsupported method.' })
@@ -232,6 +248,7 @@ export default async function handler(req, res) {
 
       const { error: updateError } = await supabase.from('users').update(patch).eq('id', user.id)
       if (updateError) return sendJson(res, 500, { error: 'Unable to update password.' })
+      await forgetOtherDevices(supabase, user, body.keepEndpoint)
 
       const updated = { ...user, ...patch }
       return sendJson(res, 200, { token: signToken(updated), user: publicUser(updated) })
@@ -270,6 +287,7 @@ export default async function handler(req, res) {
 
       const { error: updateError } = await supabase.from('users').update(patch).eq('id', user.id)
       if (updateError) return sendJson(res, 500, { error: 'Unable to save that change.' })
+      if (action === 'change') await forgetOtherDevices(supabase, user, body.keepEndpoint)
 
       const updated = { ...user, ...patch }
       // A new token keeps this device signed in after other devices are signed out.

@@ -16,8 +16,11 @@ export function parseISO(iso) {
   return new Date(`${iso}T12:00:00`)
 }
 
+// Rejects impossible dates such as 2027-02-29 (some engines roll them over to the next month).
 export function isISODate(value) {
-  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(parseISO(value).getTime())
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const date = parseISO(value)
+  return !Number.isNaN(date.getTime()) && date.getDate() === Number(value.slice(8, 10))
 }
 
 export function addDaysISO(iso, delta) {
@@ -69,20 +72,38 @@ export function compareTimes(a, b) {
   return left - right
 }
 
+// Date labels run per row on every render, so formatters are cached. They are pinned to UTC and
+// given UTC noon, so the output matches local formatting and can't go stale if the zone changes.
+const formatters = new Map()
+
+function formatUTC(year, monthIndex, day, options) {
+  const key = JSON.stringify(options)
+  let formatter = formatters.get(key)
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(undefined, { ...options, timeZone: 'UTC' })
+    formatters.set(key, formatter)
+  }
+  const date = new Date(0)
+  date.setUTCFullYear(year, monthIndex, day)
+  date.setUTCHours(12)
+  return formatter.format(date)
+}
+
+const formatISODate = (iso, options) => formatUTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1, Number(iso.slice(8, 10)), options)
+
 export function formatDateShort(iso) {
   if (!isISODate(iso)) return iso || ''
-  const date = parseISO(iso)
-  const sameYear = date.getFullYear() === new Date().getFullYear()
-  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }) })
+  const sameYear = Number(iso.slice(0, 4)) === new Date().getFullYear()
+  return formatISODate(iso, sameYear ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 export function formatDateLong(iso) {
   if (!isISODate(iso)) return iso || ''
-  return parseISO(iso).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
+  return formatISODate(iso, { weekday: 'long', month: 'long', day: 'numeric' })
 }
 
 export function formatMonthYear(year, month) {
-  return new Date(year, month, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+  return formatUTC(year, month, 1, { month: 'long', year: 'numeric' })
 }
 
 // "Today", "Tomorrow", "Yesterday", "Friday" (within the week ahead), otherwise "Sep 22".
@@ -92,7 +113,7 @@ export function relativeDay(iso, today = todayISO()) {
   if (delta === 0) return 'Today'
   if (delta === 1) return 'Tomorrow'
   if (delta === -1) return 'Yesterday'
-  if (delta > 1 && delta < 7) return parseISO(iso).toLocaleDateString(undefined, { weekday: 'long' })
+  if (delta > 1 && delta < 7) return formatISODate(iso, { weekday: 'long' })
   return formatDateShort(iso)
 }
 

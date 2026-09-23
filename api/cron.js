@@ -37,35 +37,51 @@ export default async function handler(req, res) {
 
     const report = []
     await Promise.all(userIds.map(async (userId) => {
-      const [settings, tasks, friends, classes] = await Promise.all([
-        supabase.from('settings').select('value').eq('user_id', userId).limit(1),
-        supabase.from('tasks').select('*').eq('user_id', userId).eq('done', false).eq('archived', false).limit(1000),
-        supabase.from('friends').select('id, name, birthday').eq('user_id', userId).limit(1000),
-        supabase.from('classes').select('*').eq('user_id', userId).limit(200),
-      ])
-      for (const result of [settings, tasks, friends, classes]) if (result.error) throw result.error
+      // One user's bad data or a failed query must not stop everyone else's reminders.
+      try {
+        const [settings, tasks, friends, classes, logs] = await Promise.all([
+          supabase.from('settings').select('value').eq('user_id', userId).order('created_at', { ascending: false }).limit(1),
+          supabase.from('tasks').select('*').eq('user_id', userId).eq('done', false).eq('archived', false).limit(1000),
+          // '*' so databases without relationship / reminder_days still work.
+          supabase.from('friends').select('*').eq('user_id', userId).limit(1000),
+          supabase.from('classes').select('*').eq('user_id', userId).limit(200),
+          supabase.from('contact_logs').select('friend_id, date').eq('user_id', userId).order('date', { ascending: false }).limit(1000),
+        ])
+        for (const result of [settings, tasks, friends, classes]) if (result.error) throw result.error
+        if (logs.error) console.error('Contact logs failed:', userId, logs.error.message)
 
-      const due = dueNotifications({
-        settings: settings.data?.[0]?.value || {},
-        tasks: tasks.data || [],
-        friends: friends.data || [],
-        contactLogs: [],
-        classes: classes.data || [],
-      }, now)
+        const due = dueNotifications({
+          settings: settings.data?.[0]?.value || {},
+          tasks: tasks.data || [],
+          friends: friends.data || [],
+          contactLogs: logs.error ? null : (logs.data || []),
+          classes: classes.data || [],
+        }, now)
 
-      for (const item of due) {
-        if (dryRun) {
-          report.push({ userId, key: item.key, fireAt: new Date(item.fireAt).toISOString(), title: item.title, body: item.body })
-          continue
+        for (const item of due) {
+          if (dryRun) {
+            report.push({ userId, key: item.key, fireAt: new Date(item.fireAt).toISOString(), title: item.title, body: item.body })
+            continue
+          }
+          // Record first: the unique key means overlapping runs can never send twice.
+          const { error: logError } = await supabase.from('notification_log').insert({ user_id: userId, key: item.key })
+          if (logError) {
+            if (logError.code !== '23505') console.error('Notification log failed:', logError.message)
+            continue
+          }
+          let result = { sent: 0, failed: 1 }
+          try {
+            result = await sendToUser(supabase, userId, { title: item.title, body: item.body, url: item.url, tag: item.tag })
+          } catch (err) {
+            console.error('Reminder send failed:', err.message || err)
+          }
+          // Nothing reached any device: release the key so the next run retries within SEND_WINDOW_MS.
+          if (!result.sent && result.failed) await supabase.from('notification_log').delete().eq('user_id', userId).eq('key', item.key)
+          report.push({ key: item.key, sent: result.sent, failed: result.failed })
         }
-        // Record first: the unique key means overlapping runs can never send twice.
-        const { error: logError } = await supabase.from('notification_log').insert({ user_id: userId, key: item.key })
-        if (logError) {
-          if (logError.code !== '23505') console.error('Notification log failed:', logError.message)
-          continue
-        }
-        const sent = await sendToUser(supabase, userId, { title: item.title, body: item.body, url: item.url, tag: item.tag })
-        report.push({ key: item.key, sent })
+      } catch (error) {
+        console.error('Cron user failed:', userId, error.message)
+        report.push({ userId, error: error.message })
       }
     }))
 

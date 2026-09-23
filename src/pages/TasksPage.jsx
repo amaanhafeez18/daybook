@@ -60,7 +60,8 @@ export default function TasksPage({ loaded }) {
   }
 
   function clearCompleted() {
-    const ids = archiveCompletedTasks()
+    // Only what the list shows: a search hides the other completed tasks.
+    const ids = archiveCompletedTasks(query.trim() ? done.map((task) => task.id) : null)
     if (ids.length) toast(`Archived ${ids.length} completed task${ids.length === 1 ? '' : 's'}`, { action: { label: 'Undo', onClick: () => unarchiveTasks(ids) } })
   }
 
@@ -137,10 +138,6 @@ export default function TasksPage({ loaded }) {
           </ul>
         </section>
       )}
-
-      <button type="button" className="fab" onClick={() => setEditing({})} aria-label="New task">
-        <Icon name="plus" size={26} />
-      </button>
 
       <TaskSheet open={!!editing} task={editing?.id ? editing : null} onClose={() => setEditing(null)} />
     </div>

@@ -33,6 +33,7 @@ alter table public.notification_log enable row level security;
 
 -- ---- Part 2: run the reminder check every minute ----------------------------------------------
 -- Replace YOUR_CRON_SECRET with the same value as CRON_SECRET in Vercel, and the URL if yours differs.
+-- Run history is purged by 2026-09-25-cron-log-cleanup.sql (kept separate so it can be re-run without the secret).
 
 create extension if not exists pg_cron;
 create extension if not exists pg_net;

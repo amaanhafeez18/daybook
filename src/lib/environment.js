@@ -23,7 +23,8 @@ export function useLocation() {
   const [coords, setCoords] = useState(() => readPref('location', null))
   const [status, setStatus] = useState(() => (typeof navigator !== 'undefined' && navigator.geolocation ? 'idle' : 'unsupported'))
 
-  const locate = useCallback(() => {
+  // `quiet` refreshes (on launch) don't surface a timeout/unavailable error; the user didn't ask.
+  const request = useCallback((maxAge, quiet = false) => {
     if (!navigator.geolocation) return
     setStatus('locating')
     navigator.geolocation.getCurrentPosition(
@@ -33,22 +34,25 @@ export function useLocation() {
         setCoords(next)
         setStatus('granted')
       },
-      (error) => setStatus(error.code === 1 ? 'denied' : 'error'),
-      { enableHighAccuracy: false, timeout: 15000, maximumAge: LOCATION_TTL_MS },
+      (error) => setStatus(error.code === 1 ? 'denied' : quiet ? 'idle' : 'error'),
+      { enableHighAccuracy: false, timeout: 15000, maximumAge: maxAge },
     )
   }, [])
+
+  // A tap should get the current spot, not a position cached hours ago somewhere else.
+  const locate = useCallback(() => request(60000), [request])
 
   useEffect(() => {
     if (!navigator.geolocation) return
     const fresh = coords && Date.now() - coords.savedAt < LOCATION_TTL_MS
     if (!navigator.permissions?.query) {
-      if (coords && !fresh) locate()
+      if (coords && !fresh) request(LOCATION_TTL_MS, true)
       return
     }
     navigator.permissions.query({ name: 'geolocation' }).then((permission) => {
       if (permission.state === 'granted') {
         setStatus('granted')
-        if (!fresh) locate()
+        if (!fresh) request(LOCATION_TTL_MS, true)
       } else if (permission.state === 'denied') {
         setStatus('denied')
       } else {
@@ -57,7 +61,9 @@ export function useLocation() {
     }).catch(() => {})
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { coords, status, locate }
+  // iOS reports 'prompt' on every launch, so a stale position is only refreshed when the user asks.
+  const stale = !!coords && Date.now() - coords.savedAt >= LOCATION_TTL_MS
+  return { coords, status, locate, stale }
 }
 
 // ---- weather (Open-Meteo, no key) ----------------------------------------------------------
@@ -68,6 +74,8 @@ export function useWeather(coords) {
     return cached && coords && sameSpot(cached.coords, coords) ? cached.data : null
   })
   const [error, setError] = useState('')
+  // Changes every WEATHER_TTL_MS, so a screen left open (re-rendered by useNow) refetches.
+  const bucket = Math.floor(Date.now() / WEATHER_TTL_MS)
 
   useEffect(() => {
     if (!coords) return undefined
@@ -79,7 +87,7 @@ export function useWeather(coords) {
     const controller = new AbortController()
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}`
       + '&current=temperature_2m,apparent_temperature,weather_code,relative_humidity_2m,wind_speed_10m,is_day'
-      + '&hourly=temperature_2m,weather_code,precipitation_probability&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max'
+      + '&hourly=temperature_2m,weather_code,precipitation_probability,is_day&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max'
       + '&forecast_days=2&timezone=auto'
     fetch(url, { signal: controller.signal })
       .then((response) => (response.ok ? response.json() : Promise.reject(new Error('Weather unavailable'))))
@@ -92,7 +100,7 @@ export function useWeather(coords) {
         if (err.name !== 'AbortError') setError('Weather is unavailable right now.')
       })
     return () => controller.abort()
-  }, [coords?.lat, coords?.lon]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [coords?.lat, coords?.lon, bucket]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return { weather, error }
 }
@@ -122,12 +130,14 @@ export function upcomingHours(weather, count = 5) {
     const time = new Date(times[index]).getTime()
     if (time < now - 30 * 60 * 1000) continue
     const date = new Date(times[index])
+    // Payloads cached before is_day was requested fall back to a fixed daytime window.
+    const isDay = weather.hourly.is_day?.[index] ?? (date.getHours() >= 6 && date.getHours() < 19 ? 1 : 0)
     result.push({
       key: times[index],
       label: result.length === 0 ? 'Now' : date.toLocaleTimeString(undefined, { hour: 'numeric' }),
       temp: Math.round(weather.hourly.temperature_2m[index]),
       rain: weather.hourly.precipitation_probability?.[index] ?? null,
-      icon: describeWeather(weather.hourly.weather_code[index], date.getHours() >= 6 && date.getHours() < 19 ? 1 : 0).icon,
+      icon: describeWeather(weather.hourly.weather_code[index], isDay).icon,
     })
   }
   return result

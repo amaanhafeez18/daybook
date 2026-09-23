@@ -35,13 +35,14 @@ export default function TodayPage({ displayName, loaded }) {
 
   const lastById = useMemo(() => lastContactMap(contactLogs), [contactLogs])
   const people = useMemo(() => friends.map((friend) => ({ friend, status: friendStatus(friend, lastById, today) })), [friends, lastById, today])
-  const catchUp = people.filter(({ status }) => status.due).sort((a, b) => (b.status.daysSince ?? 9999) - (a.status.daysSince ?? 9999)).slice(0, 4)
+  const dueFriends = people.filter(({ status }) => status.due).sort((a, b) => (b.status.daysSince ?? 9999) - (a.status.daysSince ?? 9999))
+  const catchUp = dueFriends.slice(0, 4)
   const birthdays = people.filter(({ status }) => status.daysToBirthday !== null && status.daysToBirthday <= 14).sort((a, b) => a.status.daysToBirthday - b.status.daysToBirthday).slice(0, 3)
   const journalToday = journalEntries.find((entry) => entry.date === today)
 
   const timeline = useMemo(() => [
     ...todayTasks.map((task) => ({ kind: 'task', key: `t-${task.id}`, time: task.time, task })),
-    ...todayClasses.map((item) => ({ kind: 'class', key: `c-${item.id}-${item.day}`, time: item.time, item })),
+    ...todayClasses.map((item, index) => ({ kind: 'class', key: `c-${item.id}-${item.time}-${index}`, time: item.time, item })),
   ].sort((a, b) => Number(a.task?.done || 0) - Number(b.task?.done || 0) || compareTimes(a.time, b.time)), [todayTasks, todayClasses])
 
   function quickAdd(event) {
@@ -75,7 +76,7 @@ export default function TodayPage({ displayName, loaded }) {
           <Stat icon="tasks" value={openToday} label={openToday === 1 ? 'task left today' : 'tasks left today'} tone={openToday ? 'accent' : ''} />
           {overdue.length > 0 && <Stat icon="alert" value={overdue.length} label="overdue" tone="danger" />}
           {doneToday > 0 && <Stat icon="check" value={doneToday} label="done" tone="success" />}
-          {catchUp.length > 0 && <Stat icon="people" value={catchUp.length} label="to catch up with" />}
+          {dueFriends.length > 0 && <Stat icon="people" value={dueFriends.length} label="to catch up with" />}
         </div>
       </header>
 
@@ -122,8 +123,8 @@ export default function TodayPage({ displayName, loaded }) {
               <p className="muted">Nothing planned yet.</p>
             ) : (
               <ul className="compact-list">
-                {tomorrowClasses.map((item) => (
-                  <li key={`c-${item.id}`}><Icon name="graduation" size={16} /><span>{item.name}</span><time>{item.time}</time></li>
+                {tomorrowClasses.map((item, index) => (
+                  <li key={`c-${item.id}-${index}`}><Icon name="graduation" size={16} /><span>{item.name}</span><time>{item.time}</time></li>
                 ))}
                 {tomorrowTasks.slice(0, 5).map((task) => (
                   <li key={task.id}>
@@ -221,6 +222,9 @@ function ClassRow({ item }) {
 function WeatherCard({ location }) {
   const { coords, status, locate } = location
   const { weather, error } = useWeather(coords)
+  const locateError = status === 'error'
+    ? <p className="muted">Couldn’t get your location. Check that Location Services is on, then try again.</p>
+    : null
 
   if (!coords) {
     return (
@@ -231,27 +235,40 @@ function WeatherCard({ location }) {
           <p className="muted">This browser can’t share your location.</p>
         ) : (
           <div className="journal-prompt">
-            <p>See the forecast and prayer times for where you are.</p>
-            <Button variant="secondary" size="sm" icon="pin" loading={status === 'locating'} onClick={locate}>Use my location</Button>
+            {locateError || <p>See the forecast and prayer times for where you are.</p>}
+            <Button variant="secondary" size="sm" icon="pin" loading={status === 'locating'} onClick={locate}>{status === 'error' ? 'Try again' : 'Use my location'}</Button>
           </div>
         )}
       </Card>
     )
   }
 
+  // iOS never refreshes the saved position on its own (see useLocation), so offer it here.
+  const updateAction = (
+    <button type="button" className="link-btn" onClick={locate} disabled={status === 'locating'}>
+      {status === 'locating' ? 'Locating…' : 'Update location'}
+    </button>
+  )
+  const locateNote = locateError || (status === 'denied'
+    ? <p className="muted">Location is blocked for Daybook, so this is for your last saved location.</p>
+    : null)
+
   if (!weather) {
-    return <Card title="Weather" icon="cloudSun">{error ? <p className="muted">{error}</p> : <Skeleton lines={2} />}</Card>
+    return <Card title="Weather" icon="cloudSun" action={updateAction}>{locateNote}{error ? <p className="muted">{error}</p> : <Skeleton lines={2} />}</Card>
   }
 
   const current = weather.current
   const condition = describeWeather(current.weather_code, current.is_day)
-  const high = Math.round(weather.daily?.temperature_2m_max?.[0])
-  const low = Math.round(weather.daily?.temperature_2m_min?.[0])
-  const rainChance = weather.daily?.precipitation_probability_max?.[0]
+  // Day 0 is only today until midnight; a payload fetched yesterday has today at index 1.
+  const dayIndex = Math.max(0, weather.daily?.time?.indexOf(todayISO()) ?? 0)
+  const high = Math.round(weather.daily?.temperature_2m_max?.[dayIndex])
+  const low = Math.round(weather.daily?.temperature_2m_min?.[dayIndex])
+  const rainChance = weather.daily?.precipitation_probability_max?.[dayIndex]
   const hours = upcomingHours(weather, 5)
 
   return (
-    <Card title="Weather" icon={condition.icon} className="weather-card">
+    <Card title="Weather" icon={condition.icon} className="weather-card" action={updateAction}>
+      {locateNote}
       <div className="weather-now">
         <span className="weather-icon"><Icon name={condition.icon} size={40} strokeWidth={1.5} /></span>
         <div>

@@ -38,6 +38,7 @@ function configure() {
 }
 
 // Sends to every device the user enabled; removes subscriptions the push service says are gone.
+// Returns { sent, failed }: failed counts devices that may be reachable later (not 404/410).
 export async function sendToUser(supabase, userId, payload) {
   configure()
   const { data: subscriptions, error } = await supabase
@@ -47,12 +48,13 @@ export async function sendToUser(supabase, userId, payload) {
     .eq('vapid_public', process.env.VAPID_PUBLIC_KEY)
   if (error) throw error
   let sent = 0
+  let failed = 0
   await Promise.all((subscriptions || []).map(async (subscription) => {
     try {
       await webpush.sendNotification(
         { endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth } },
         JSON.stringify(payload),
-        { TTL: 60 * 60, urgency: 'high' },
+        { TTL: 60 * 60, urgency: 'high', timeout: 10000 },
       )
       sent += 1
       await supabase.from('push_subscriptions').update({ last_success_at: new Date().toISOString() }).eq('id', subscription.id)
@@ -60,20 +62,42 @@ export async function sendToUser(supabase, userId, payload) {
       if (err.statusCode === 404 || err.statusCode === 410) {
         await supabase.from('push_subscriptions').delete().eq('id', subscription.id)
       } else {
+        failed += 1
         console.error('Push failed:', err.statusCode, err.body || err.message)
       }
     }
   }))
-  return sent
+  return { sent, failed }
 }
 
 // ---- time zones ---------------------------------------------------------------------------
 
+const zoneFormatters = new Map()
+
+// Throws a RangeError for an unknown time zone.
+function zoneFormatter(timeZone) {
+  let formatter = zoneFormatters.get(timeZone)
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
+    })
+    zoneFormatters.set(timeZone, formatter)
+  }
+  return formatter
+}
+
+// settings.timeZone is user-writable, so an invalid one falls back to UTC instead of throwing.
+function safeZone(zone) {
+  try {
+    zoneFormatter(zone)
+    return zone
+  } catch {
+    return 'UTC'
+  }
+}
+
 function zoneParts(timestamp, timeZone) {
-  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
-    timeZone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
-  }).formatToParts(new Date(timestamp)).map((part) => [part.type, part.value]))
-  return parts
+  return Object.fromEntries(zoneFormatter(timeZone).formatToParts(new Date(timestamp)).map((part) => [part.type, part.value]))
 }
 
 function offsetMinutes(timestamp, timeZone) {
@@ -101,6 +125,17 @@ function addDays(date, delta) {
   const value = new Date(`${date}T12:00:00Z`)
   value.setUTCDate(value.getUTCDate() + delta)
   return value.toISOString().slice(0, 10)
+}
+
+// Whole days from one YYYY-MM-DD date to another.
+function daysBetween(from, to) {
+  return Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86400000)
+}
+
+// Keep in sync with src/lib/planner.js reminderInterval / RELATIONSHIPS.
+function catchUpInterval(friend) {
+  if (friend.reminder_days !== undefined && friend.reminder_days !== null) return friend.reminder_days
+  return friend.relationship === 'close_friend' ? 10 : friend.relationship === 'acquaintance' ? null : 30
 }
 
 function toMinutes(time) {
@@ -149,12 +184,15 @@ function isReminderTask(task) {
 // ---- what is due ----------------------------------------------------------------------------
 
 // Every notification that should fire around `now` for one user, oldest first.
-export function dueNotifications({ settings, tasks, friends, contactLogs, classes }, now = Date.now()) {
+// contactLogs: [{ friend_id, date }], or null when unavailable (falls back to "Talk to…" tasks).
+export function dueNotifications({ settings, tasks, friends, contactLogs = null, classes }, now = Date.now()) {
   const prefs = notificationPrefs(settings)
-  const timeZone = settings?.timeZone || 'UTC'
+  const timeZone = safeZone(settings?.timeZone || 'UTC')
   const today = localNow(now, timeZone).date
   const tomorrow = addDays(today, 1)
   const open = tasks.filter((task) => !task.done && !task.archived)
+  // Overdue counts leave out catch-up tasks when those notifications are off.
+  const counted = open.filter((task) => prefs.people || !isReminderTask(task))
   const candidates = []
 
   // Task reminders
@@ -162,7 +200,7 @@ export function dueNotifications({ settings, tasks, friends, contactLogs, classe
     if (!isDate(task.date)) continue
     if (isReminderTask(task) && !prefs.people) continue
     const override = Number.isInteger(task.reminder_minutes) ? task.reminder_minutes : null
-    if (override === -1) continue
+    if (override !== null && override < 0) continue // negative = no reminder
 
     if (isTime(task.time)) {
       const lead = override ?? Number(prefs.taskLead)
@@ -178,7 +216,10 @@ export function dueNotifications({ settings, tasks, friends, contactLogs, classe
         tag: `task-${task.id}`,
       })
     } else {
-      let mode = override === null ? (prefs.allDayTime ? (prefs.allDayMode === 'before' ? 1440 : 0) : -1) : override
+      // Only all-day values count here (0 = on the day, >= 1440 = day before); a lead left over
+      // from when the task had a time falls back to the all-day default.
+      const allDayOverride = override === 0 || override >= 1440 ? override : null
+      const mode = allDayOverride === null ? (prefs.allDayTime ? (prefs.allDayMode === 'before' ? 1440 : 0) : -1) : allDayOverride
       if (mode < 0) continue
       const time = isTime(prefs.allDayTime) ? prefs.allDayTime : '09:00'
       const dayBefore = mode >= 1440
@@ -197,7 +238,7 @@ export function dueNotifications({ settings, tasks, friends, contactLogs, classe
   // Morning summary
   if (prefs.dailySummary && isTime(prefs.dailySummaryTime)) {
     const dueToday = open.filter((task) => task.date === today && !isReminderTask(task))
-    const overdue = open.filter((task) => isDate(task.date) && task.date < today)
+    const overdue = counted.filter((task) => isDate(task.date) && task.date < today)
     const weekday = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(`${today}T12:00:00Z`).getUTCDay()]
     const classCount = classes.filter((item) => (!item.end_date || item.end_date >= today) && (item.days || []).some((day) => (typeof day === 'string' ? day : day?.day) === weekday)).length
     const lines = []
@@ -205,10 +246,28 @@ export function dueNotifications({ settings, tasks, friends, contactLogs, classe
     if (overdue.length) lines.push(`${overdue.length} overdue`)
     if (classCount) lines.push(`${classCount} class${classCount === 1 ? '' : 'es'}`)
     if (prefs.people) {
-      const birthdays = friends.filter((friend) => isDate(friend.birthday) && (friend.birthday.slice(5) === today.slice(5) || friend.birthday.slice(5) === tomorrow.slice(5)))
-      for (const friend of birthdays) lines.push(`🎂 ${friend.name}’s birthday ${friend.birthday.slice(5) === today.slice(5) ? 'today' : 'tomorrow'}`)
-      const catchUps = open.filter((task) => task.date === today && isReminderTask(task))
-      if (catchUps.length) lines.push(`${catchUps.length} catch-up${catchUps.length === 1 ? '' : 's'} due`)
+      // Feb 29 birthdays are marked on Mar 1 in other years.
+      const year = Number(today.slice(0, 4))
+      const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0
+      const monthDay = (friend) => (friend.birthday.slice(5) === '02-29' && !leap ? '03-01' : friend.birthday.slice(5))
+      const birthdays = friends.filter((friend) => isDate(friend.birthday) && (monthDay(friend) === today.slice(5) || monthDay(friend) === tomorrow.slice(5)))
+      for (const friend of birthdays) lines.push(`🎂 ${friend.name}’s birthday ${monthDay(friend) === today.slice(5) ? 'today' : 'tomorrow'}`)
+      let catchUpCount
+      if (Array.isArray(contactLogs)) {
+        // From the contact history, so it doesn't depend on the app having created "Talk to…" tasks.
+        const lastById = {}
+        for (const log of contactLogs) {
+          if (log.friend_id && isDate(log.date) && (!lastById[log.friend_id] || log.date > lastById[log.friend_id])) lastById[log.friend_id] = log.date
+        }
+        catchUpCount = friends.filter((friend) => {
+          const interval = catchUpInterval(friend)
+          const last = lastById[friend.id]
+          return interval && (!last || daysBetween(last, today) >= interval)
+        }).length
+      } else {
+        catchUpCount = open.filter((task) => task.date === today && isReminderTask(task)).length
+      }
+      if (catchUpCount) lines.push(`${catchUpCount} catch-up${catchUpCount === 1 ? '' : 's'} due`)
     }
     if (lines.length) {
       candidates.push({ key: `summary:${today}`, fireAt: zonedToUtc(today, prefs.dailySummaryTime, timeZone), title: 'Your day', body: lines.join(' · '), url: '/#/today', tag: 'daily-summary' })
@@ -217,7 +276,7 @@ export function dueNotifications({ settings, tasks, friends, contactLogs, classe
 
   // Evening nudge for anything still open
   if (prefs.overdue && isTime(prefs.overdueTime)) {
-    const overdue = open.filter((task) => isDate(task.date) && task.date < today)
+    const overdue = counted.filter((task) => isDate(task.date) && task.date < today)
     const stillOpen = open.filter((task) => task.date === today && !isReminderTask(task))
     if (overdue.length || stillOpen.length) {
       const parts = []

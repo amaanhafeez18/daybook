@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { Fragment, memo, useCallback, useEffect, useRef, useState } from 'react'
 import Icon from '../components/ui/Icon.jsx'
 import Sheet from '../components/ui/Sheet.jsx'
 import { AutoTextarea, IconButton } from '../components/ui/primitives.jsx'
@@ -30,14 +30,21 @@ export default function AssistantPage({ displayName }) {
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [speak, setSpeak] = useState(() => readPref('speakReplies', false))
+  // Screen readers hear the finished reply once, not every streamed token.
+  const [announcement, setAnnouncement] = useState('')
   const endRef = useRef(null)
   const abortRef = useRef(null)
+  const busyRef = useRef(false)
+  const followRef = useRef(true) // keep the newest message in view unless the user scrolled up
+  const jumpRef = useRef(true) // next scroll is instant (first render, loaded history)
 
   // Server history (source of truth) and memories.
   useEffect(() => {
     apiRequest('/api/assistant')
       .then((response) => {
         const history = (response.messages || []).map((message) => ({ ...message, id: nextId() }))
+        jumpRef.current = true
+        followRef.current = true
         setMessages((current) => (current.some((message) => message.streaming || message.pending) ? current : history))
         writeJson(CHAT_CACHE, response.messages || [])
         setMemories(response.memories || [])
@@ -51,8 +58,22 @@ export default function AssistantPage({ displayName }) {
   }, [])
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [messages])
+    const onScroll = () => {
+      const end = endRef.current
+      if (end) followRef.current = end.getBoundingClientRect().bottom <= window.innerHeight + 150
+    }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+
+  // While a reply streams in, jump rather than restart a smooth scroll on every token.
+  useEffect(() => {
+    if (!followRef.current) return
+    const behavior = jumpRef.current || busy ? 'auto' : 'smooth'
+    jumpRef.current = false
+    const frame = requestAnimationFrame(() => endRef.current?.scrollIntoView({ block: 'end', behavior }))
+    return () => cancelAnimationFrame(frame)
+  }, [messages, busy])
 
   // Cache the finished conversation so it shows instantly next time.
   useEffect(() => {
@@ -66,45 +87,71 @@ export default function AssistantPage({ displayName }) {
   }
 
   async function send(payload, shownText) {
-    if (busy) return
+    if (busyRef.current) return
+    busyRef.current = true
     window.speechSynthesis?.cancel()
     if (speak) unlockSpeech()
     const userId = nextId()
     const replyId = nextId()
-    const isVoice = !!payload.audio
+    const hasAudio = !!payload.audio
+    const isVoice = hasAudio || !!payload.spoken
     setBusy(true)
+    setAnnouncement('')
+    followRef.current = true
     setMessages((current) => [
       ...current.filter((message) => !message.error),
-      { id: userId, role: 'user', content: shownText, voice: isVoice, pending: isVoice },
-      { id: replyId, role: 'assistant', content: '', streaming: true, status: isVoice ? 'Listening…' : 'Thinking…', actions: [] },
+      { id: userId, role: 'user', content: shownText, voice: isVoice, pending: hasAudio },
+      { id: replyId, role: 'assistant', content: '', streaming: true, status: hasAudio ? 'Listening…' : 'Thinking…', actions: [] },
     ])
 
     const controller = new AbortController()
     abortRef.current = controller
+    let acted = false // something was saved, so the request must not simply be sent again
+    let transcript = ''
     try {
       const done = await streamAssistant({ ...payload, context: clientContext() }, controller.signal, (event) => {
         if (event.type === 'status') patchMessage(replyId, { status: event.text })
-        else if (event.type === 'transcript') patchMessage(userId, { content: event.text, pending: false })
-        else if (event.type === 'delta') patchMessage(replyId, (message) => ({ content: message.content + event.text, status: '' }))
-        else if (event.type === 'action') patchMessage(replyId, (message) => ({ actions: [...message.actions, { tool: event.tool, ok: event.ok, message: event.message }] }))
+        else if (event.type === 'transcript') {
+          transcript = event.text
+          patchMessage(userId, { content: event.text, pending: false })
+        } else if (event.type === 'delta') patchMessage(replyId, (message) => ({ content: message.content + event.text, status: '' }))
+        else if (event.type === 'action') {
+          if (event.ok) acted = true
+          patchMessage(replyId, (message) => ({ actions: [...message.actions, { tool: event.tool, ok: event.ok, message: event.message }] }))
+        }
       })
       patchMessage(userId, { pending: false, ...(done.transcript ? { content: done.transcript } : {}) })
       patchMessage(replyId, { content: done.reply, streaming: false, status: '', actions: (done.results || []).filter((result) => !['search', 'read_journal', 'get_weather', 'get_prayer_times'].includes(result.tool) || !result.ok) })
       if (done.memories) setMemories(done.memories)
       if (done.dataChanged) refresh().catch(() => {})
       if (speak) speakText(done.reply)
+      else setAnnouncement(plainText(done.reply || ''))
     } catch (error) {
       if (error.name === 'AbortError') {
         // Stopped by the user: keep whatever arrived so far.
         patchMessage(replyId, (message) => ({ streaming: false, status: '', content: message.content || 'Stopped.' }))
         patchMessage(userId, { pending: false })
+        setAnnouncement('Stopped.')
+        if (acted) refresh().catch(() => {})
         return
       }
+      if (acted) {
+        // Keep the reply and its action chips, load what was saved, and offer no retry
+        // (it would repeat those actions).
+        patchMessage(replyId, () => ({ streaming: false, status: '' }))
+        patchMessage(userId, { pending: false })
+        refresh().catch(() => {})
+        setMessages((current) => current.concat({ id: nextId(), role: 'assistant', error: `${error.message} Some changes were already made.` }))
+        return
+      }
+      // Once a voice message is transcribed, a retry sends the text instead of the audio again.
+      const retry = transcript ? { payload: { message: transcript, spoken: true }, shownText: transcript, userId } : { payload, shownText, userId }
       setMessages((current) => current
-        .filter((message) => message.id !== replyId && !(message.id === userId && isVoice && message.pending))
-        .concat({ id: nextId(), role: 'assistant', error: error.message, retry: { payload, shownText } }))
+        .filter((message) => message.id !== replyId && !(message.id === userId && hasAudio && message.pending))
+        .concat({ id: nextId(), role: 'assistant', error: error.message, retry }))
     } finally {
       abortRef.current = null
+      busyRef.current = false
       setBusy(false)
     }
   }
@@ -122,11 +169,16 @@ export default function AssistantPage({ displayName }) {
     setMessages((current) => {
       const index = current.findIndex((item) => item.id === message.id)
       const previous = current[index - 1]
-      const dropPrevious = previous?.role === 'user' && previous.content === message.retry.shownText
-      return current.filter((_, position) => position !== index && !(dropPrevious && position === index - 1))
+      const failedId = message.retry.userId ?? (previous?.role === 'user' && previous.content === message.retry.shownText ? previous.id : null)
+      return current.filter((item, position) => position !== index && item.id !== failedId)
     })
     send(message.retry.payload, message.retry.shownText)
   }
+
+  // Stable across renders, so unchanged messages don't re-render while a reply streams.
+  const retryRef = useRef(retry)
+  retryRef.current = retry
+  const onRetry = useCallback((message) => retryRef.current(message), [])
 
   async function newChat() {
     if (messages.length && !(await confirmAction({ title: 'Start a new chat?', message: 'This clears the conversation. What I remember about you is kept.', confirmLabel: 'New chat', tone: 'default' }))) return
@@ -167,7 +219,8 @@ export default function AssistantPage({ displayName }) {
         </div>
       </header>
 
-      <div className="chat" aria-live="polite">
+      <p className="sr-only" aria-live="polite" aria-atomic="true">{announcement}</p>
+      <div className="chat">
         {empty ? (
           <div className="chat-welcome">
             <span className="assistant-avatar assistant-avatar-lg" aria-hidden="true"><Icon name="sparkles" size={30} /></span>
@@ -182,7 +235,7 @@ export default function AssistantPage({ displayName }) {
               ))}
             </div>
           </div>
-        ) : messages.map((message) => <Message key={message.id} message={message} onRetry={() => retry(message)} />)}
+        ) : messages.map((message) => <Message key={message.id} message={message} onRetry={onRetry} />)}
         <div ref={endRef} className="chat-end" />
       </div>
 
@@ -202,14 +255,14 @@ export default function AssistantPage({ displayName }) {
   )
 }
 
-function Message({ message, onRetry }) {
+const Message = memo(function Message({ message, onRetry }) {
   if (message.error) {
     return (
       <div className="msg msg-assistant msg-error" role="alert">
         <span className="assistant-avatar" aria-hidden="true"><Icon name="alert" size={16} /></span>
         <div className="msg-body">
           <p>{message.error}</p>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={onRetry}><Icon name="refresh" size={16} />Try again</button>
+          {message.retry && <button type="button" className="btn btn-secondary btn-sm" onClick={() => onRetry(message)}><Icon name="refresh" size={16} />Try again</button>}
         </div>
       </div>
     )
@@ -248,19 +301,31 @@ function Message({ message, onRetry }) {
       </div>
     </div>
   )
-}
+})
+
+const LIST_ITEM = /^\s*([-*•]|\d+[.)])\s+/
 
 // Minimal, safe markdown: paragraphs, bullet/numbered lists, **bold**, *italic*, `code`.
+// A block can mix text and list lines (e.g. an intro line followed by bullets).
 function RichText({ text }) {
   const blocks = text.trim().split(/\n{2,}/)
-  return blocks.map((block, index) => {
-    const lines = block.split('\n')
-    if (lines.every((line) => /^\s*([-*•]|\d+[.)])\s+/.test(line))) {
-      const ordered = /^\s*\d/.test(lines[0])
-      const List = ordered ? 'ol' : 'ul'
-      return <List key={index}>{lines.map((line, lineIndex) => <li key={lineIndex}>{inline(line.replace(/^\s*([-*•]|\d+[.)])\s+/, ''))}</li>)}</List>
+  return blocks.flatMap((block, index) => {
+    const groups = []
+    for (const line of block.split('\n')) {
+      const isItem = LIST_ITEM.test(line)
+      const last = groups[groups.length - 1]
+      if (last && last.isItem === isItem) last.lines.push(line)
+      else groups.push({ isItem, lines: [line] })
     }
-    return <p key={index}>{lines.map((line, lineIndex) => <Fragment key={lineIndex}>{lineIndex > 0 && <br />}{inline(line)}</Fragment>)}</p>
+    return groups.map(({ isItem, lines }, groupIndex) => {
+      const key = `${index}-${groupIndex}`
+      if (isItem) {
+        const ordered = /^\s*\d/.test(lines[0])
+        const List = ordered ? 'ol' : 'ul'
+        return <List key={key} start={ordered ? parseInt(lines[0], 10) || 1 : undefined}>{lines.map((line, lineIndex) => <li key={lineIndex}>{inline(line.replace(LIST_ITEM, ''))}</li>)}</List>
+      }
+      return <p key={key}>{lines.map((line, lineIndex) => <Fragment key={lineIndex}>{lineIndex > 0 && <br />}{inline(line)}</Fragment>)}</p>
+    })
   })
 }
 
@@ -282,14 +347,33 @@ function Composer({ text, setText, busy, onSubmit, onAudio, onStop }) {
   const recorderRef = useRef(null)
   const discardRef = useRef(false)
   const cleanupRef = useRef(null)
+  const mountedRef = useRef(false)
+  const startingRef = useRef(false)
+  // The recording finishes later; send it with the latest handler, not the one from when it started.
+  const onAudioRef = useRef(onAudio)
+  onAudioRef.current = onAudio
 
-  useEffect(() => () => {
-    discardRef.current = true
-    if (recorderRef.current?.state === 'recording') recorderRef.current.stop()
-    cleanupRef.current?.()
+  useEffect(() => {
+    mountedRef.current = true // set here too, for StrictMode's unmount/remount
+    return () => {
+      mountedRef.current = false
+      discardRef.current = true
+      if (recorderRef.current?.state === 'recording') recorderRef.current.stop()
+      cleanupRef.current?.()
+    }
   }, [])
 
   async function start() {
+    if (startingRef.current || recorderRef.current?.state === 'recording') return
+    startingRef.current = true
+    try {
+      await startRecording()
+    } finally {
+      startingRef.current = false
+    }
+  }
+
+  async function startRecording() {
     setMicError('')
     window.speechSynthesis?.cancel()
     let stream
@@ -299,10 +383,24 @@ function Composer({ text, setText, busy, onSubmit, onAudio, onStop }) {
       setMicError('Microphone access is blocked. Allow it in your browser settings to talk to Daybook.')
       return
     }
+    // Left the page while the permission prompt was open: release the microphone.
+    if (!mountedRef.current) {
+      stream.getTracks().forEach((track) => track.stop())
+      return
+    }
 
-    // Live level meter.
     let raf = 0
     let audioContext = null
+    let timer = null
+    const cleanup = () => {
+      cancelAnimationFrame(raf)
+      clearInterval(timer)
+      stream.getTracks().forEach((track) => track.stop())
+      audioContext?.close().catch(() => {})
+    }
+    cleanupRef.current = cleanup
+
+    // Live level meter.
     try {
       audioContext = new (window.AudioContext || window.webkitAudioContext)()
       audioContext.resume?.().catch(() => {}) // iOS starts audio contexts suspended
@@ -327,40 +425,45 @@ function Composer({ text, setText, busy, onSubmit, onAudio, onStop }) {
       // meter is decorative
     }
 
-    const mimeType = RECORDING_TYPES.find((type) => MediaRecorder.isTypeSupported(type))
-    const recorder = new MediaRecorder(stream, mimeType ? { mimeType, audioBitsPerSecond: 32000 } : undefined)
     const chunks = []
-    discardRef.current = false
-    let timer = null
-    cleanupRef.current = () => {
-      cancelAnimationFrame(raf)
-      clearInterval(timer)
-      stream.getTracks().forEach((track) => track.stop())
-      audioContext?.close().catch(() => {})
-    }
-    recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data) }
-    recorder.onstop = async () => {
-      cleanupRef.current?.()
-      setRecording(false)
-      setLevels(Array(28).fill(0.08))
-      if (discardRef.current) return
-      const blob = new Blob(chunks, { type: recorder.mimeType || mimeType || 'audio/webm' })
-      if (blob.size < 2000) {
-        setMicError('That was too short — hold on a moment longer before sending.')
-        return
+    let recorder
+    try {
+      const mimeType = RECORDING_TYPES.find((type) => MediaRecorder.isTypeSupported(type))
+      recorder = new MediaRecorder(stream, mimeType ? { mimeType, audioBitsPerSecond: 32000 } : undefined)
+      recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data) }
+      recorder.onstop = async () => {
+        cleanup()
+        setRecording(false)
+        setLevels(Array(28).fill(0.08))
+        if (discardRef.current) return
+        const blob = new Blob(chunks, { type: recorder.mimeType || mimeType || 'audio/webm' })
+        if (blob.size < 2000) {
+          setMicError('That was too short — hold on a moment longer before sending.')
+          return
+        }
+        try {
+          onAudioRef.current(await blobToBase64(blob), blob.type)
+        } catch (error) {
+          setMicError(error.message)
+        }
       }
-      onAudio(await blobToBase64(blob), blob.type)
+      discardRef.current = false
+      recorderRef.current = recorder
+      recorder.start()
+    } catch {
+      cleanup()
+      setLevels(Array(28).fill(0.08))
+      setMicError('Recording isn’t supported in this browser.')
+      return
     }
 
-    recorderRef.current = recorder
-    recorder.start()
     setSeconds(0)
     setRecording(true)
+    let elapsed = 0
     timer = setInterval(() => {
-      setSeconds((value) => {
-        if (value + 1 >= MAX_RECORDING_SECONDS && recorderRef.current?.state === 'recording') recorderRef.current.stop()
-        return value + 1
-      })
+      elapsed += 1
+      setSeconds(elapsed)
+      if (elapsed >= MAX_RECORDING_SECONDS && recorder.state === 'recording') recorder.stop()
     }, 1000)
   }
 
@@ -471,7 +574,8 @@ async function streamAssistant(payload, signal, onEvent) {
     const raw = await response.text()
     let data = {}
     try { data = JSON.parse(raw) } catch { /* not JSON */ }
-    if (response.status === 401) window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT))
+    // Only when the session that sent this is still the current one.
+    if (response.status === 401 && token && getToken() === token) window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT))
     throw new Error(data.error || `The assistant is unavailable right now (${response.status}).`)
   }
 
@@ -480,7 +584,15 @@ async function streamAssistant(payload, signal, onEvent) {
   let buffer = ''
   let done = null
   for (;;) {
-    const { value, done: finished } = await reader.read()
+    let chunk
+    try {
+      chunk = await reader.read()
+    } catch (error) {
+      // iOS reports a dropped connection as a bare "Load failed".
+      if (error.name === 'AbortError') throw error
+      throw new Error('The connection dropped before the reply finished. Please try again.')
+    }
+    const { value, done: finished } = chunk
     if (finished) break
     buffer += decoder.decode(value, { stream: true })
     let newline
@@ -519,11 +631,13 @@ function unlockSpeech() {
   }
 }
 
+// Reply text without markdown symbols, for speech and screen readers.
+const plainText = (text) => text.replace(/[*`_#>]/g, '').replace(/^\s*[-•]\s+/gm, '')
+
 function speakText(text) {
   if (!('speechSynthesis' in window)) return
-  const plain = text.replace(/[*`_#>]/g, '').replace(/^\s*[-•]\s+/gm, '')
   window.speechSynthesis.cancel()
-  window.speechSynthesis.speak(new SpeechSynthesisUtterance(plain))
+  window.speechSynthesis.speak(new SpeechSynthesisUtterance(plainText(text)))
 }
 
 function formatSeconds(total) {
