@@ -98,6 +98,20 @@ async function saveSettings(supabase, userId, value) {
   if (error) throw error
 }
 
+const isPlainObject = (value) => !!value && typeof value === 'object' && !Array.isArray(value)
+
+// Writes only the fields a device changed; plain-object fields (notifications) merge one level deep.
+async function patchSettings(supabase, userId, set) {
+  const { data, error } = await supabase.from('settings').select('value').eq('user_id', userId)
+    .order('created_at', { ascending: false }).order('id').limit(1)
+  if (error) throw error
+  const value = { ...(isPlainObject(data?.[0]?.value) ? data[0].value : {}) }
+  for (const [field, next] of Object.entries(isPlainObject(set) ? set : {})) {
+    value[field] = isPlainObject(next) && isPlainObject(value[field]) ? { ...value[field], ...next } : next
+  }
+  await saveSettings(supabase, userId, value)
+}
+
 function toDbRows(value, tableName, userId) {
   const rows = []
   const seen = new Set()
@@ -131,15 +145,18 @@ async function ownedIdsFor(supabase, tableName, userId, ids) {
 // belongs to another user fails instead of being taken over.
 const MISSING_COLUMN = /Could not find the '([^']+)' column/
 
-// Retries once without a column the live database doesn't have yet (a migration not yet run),
+// Retries without columns the live database doesn't have yet (a migration not yet run),
 // so a new optional field can never make saving fail.
 async function tolerant(run, rows) {
+  const dropped = new Set()
   let { error } = await run(rows)
-  const missing = error && MISSING_COLUMN.exec(error.message || '')
-  if (missing) {
+  while (error) {
+    const missing = MISSING_COLUMN.exec(error.message || '')
+    if (!missing || dropped.has(missing[1]) || dropped.size >= 5) break
+    dropped.add(missing[1])
     console.warn(`Column "${missing[1]}" is missing; saving without it. Run the latest Supabase migration.`)
-    const trimmed = rows.map(({ [missing[1]]: _dropped, ...rest }) => rest)
-    ;({ error } = await run(trimmed))
+    rows = rows.map(({ [missing[1]]: _dropped, ...rest }) => rest)
+    ;({ error } = await run(rows))
   }
   if (error) throw error
 }
@@ -238,7 +255,11 @@ export default async function handler(req, res) {
     if (method === 'PATCH') {
       const body = await readJsonBody(req)
       const tableName = TABLES[body.key]
-      if (!tableName || tableName === 'settings') return sendJson(res, 400, { error: 'Unknown data key.' })
+      if (!tableName) return sendJson(res, 400, { error: 'Unknown data key.' })
+      if (tableName === 'settings') {
+        await patchSettings(supabase, decoded.id, body.set)
+        return sendJson(res, 200, { ok: true })
+      }
       await patchRows(supabase, tableName, decoded.id, body.upsert, body.delete)
       return sendJson(res, 200, { ok: true })
     }

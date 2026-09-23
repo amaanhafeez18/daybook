@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Sheet from './ui/Sheet.jsx'
 import { AutoTextarea, Button, Field, Segmented } from './ui/primitives.jsx'
 import { toast } from './ui/feedback.jsx'
 import { archiveTask, createTask, isReminderMarker, restoreTask, setTaskDone, updateTask } from '../lib/planner.js'
 import { addDaysISO, todayISO } from '../lib/dates.js'
-import { LEAD_OPTIONS, notificationPrefs } from '../lib/notifications.js'
+import { LEAD_OPTIONS, leadLabel, notificationPrefs } from '../lib/notifications.js'
 import { useData } from '../lib/store.js'
 
 const PRIORITIES = [
@@ -15,8 +15,24 @@ const PRIORITIES = [
 
 const EMPTY = { text: '', details: '', date: '', time: '', priority: 'medium', reminderMinutes: '' }
 
+// The reminder a task will actually get, as a select value. Mirrors api/_reminders.js:
+// negative = none; without a time only 0 (on the day) and >= 1440 (day before) apply, anything
+// else falls back to the default.
+function effectiveReminder(value, timed) {
+  if (value === '' || value == null) return ''
+  const minutes = Number(value)
+  if (!Number.isInteger(minutes)) return ''
+  if (minutes < 0) return '-1'
+  if (!timed) return minutes >= 1440 ? '1440' : minutes === 0 ? '0' : ''
+  return String(minutes)
+}
+
 // Create a task (task = null) or edit an existing one.
-export default function TaskSheet({ open, onClose, task = null, defaults = {} }) {
+export default function TaskSheet({ open, onClose, task: taskProp = null, defaults = {} }) {
+  // Keep the last task while the sheet animates closed, so it doesn't switch to the "New task" layout.
+  const shownTask = useRef(taskProp)
+  if (open) shownTask.current = taskProp
+  const task = shownTask.current
   const [form, setForm] = useState(EMPTY)
   const [error, setError] = useState('')
   const prefs = notificationPrefs(useData('settings'))
@@ -30,6 +46,8 @@ export default function TaskSheet({ open, onClose, task = null, defaults = {} })
   }, [open, task?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const set = (field) => (value) => setForm((current) => ({ ...current, [field]: value }))
+  const reminderValue = effectiveReminder(form.reminderMinutes, Boolean(form.time))
+  const customLead = form.time && reminderValue !== '' && !LEAD_OPTIONS.some((option) => String(option.value) === reminderValue)
   const today = todayISO()
   const quickDates = [
     { id: today, label: 'Today' },
@@ -44,7 +62,7 @@ export default function TaskSheet({ open, onClose, task = null, defaults = {} })
       setError('Give the task a name.')
       return
     }
-    const fields = { ...form, text, details: form.details.trim(), reminderMinutes: form.reminderMinutes === '' ? null : Number(form.reminderMinutes) }
+    const fields = { ...form, text, details: form.details.trim(), reminderMinutes: reminderValue === '' ? null : Number(reminderValue) }
     if (task) {
       // Keep the internal reminder marker if the user didn't add notes of their own.
       if (isReminderMarker(task.details) && !fields.details) fields.details = task.details
@@ -107,11 +125,12 @@ export default function TaskSheet({ open, onClose, task = null, defaults = {} })
         {form.date && (
           <Field label="Reminder">
             {(id) => (
-              <select id={id} className="input" value={form.reminderMinutes} onChange={(event) => set('reminderMinutes')(event.target.value)}>
+              <select id={id} className="input" value={reminderValue} onChange={(event) => set('reminderMinutes')(event.target.value)}>
                 {form.time ? (
                   <>
                     <option value="">Default ({(LEAD_OPTIONS.find((option) => option.value === Number(prefs.taskLead)) || LEAD_OPTIONS[3]).label.toLowerCase()})</option>
                     {LEAD_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    {customLead && <option value={reminderValue}>{leadLabel(Number(reminderValue))}</option>}
                   </>
                 ) : (
                   <>

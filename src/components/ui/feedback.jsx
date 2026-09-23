@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import Icon from './Icon.jsx'
 import Sheet from './Sheet.jsx'
 
@@ -78,6 +78,7 @@ export function confirmAction({ title, message, confirmLabel = 'Delete', tone = 
 export function ConfirmHost() {
   const [request, setRequest] = useState(null)
   const [open, setOpen] = useState(false)
+  const messageId = useId()
 
   useEffect(() => {
     confirmListener = (next) => {
@@ -99,6 +100,8 @@ export function ConfirmHost() {
       title={request?.title}
       size="sm"
       initialFocus={false}
+      role="alertdialog"
+      describedBy={request?.message ? messageId : undefined}
       footer={(
         <>
           <button type="button" className="btn btn-secondary" onClick={() => settle(false)}>Cancel</button>
@@ -108,7 +111,7 @@ export function ConfirmHost() {
         </>
       )}
     >
-      {request?.message && <p className="confirm-message">{request.message}</p>}
+      {request?.message && <p id={messageId} className="confirm-message">{request.message}</p>}
     </Sheet>
   )
 }

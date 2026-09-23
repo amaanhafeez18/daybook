@@ -4,13 +4,13 @@ import Sheet from '../components/ui/Sheet.jsx'
 import { Avatar, Button, Field, PasswordInput, Segmented, Switch } from '../components/ui/primitives.jsx'
 import { confirmAction, toast } from '../components/ui/feedback.jsx'
 import { RECOVERY_QUESTIONS } from '../components/AuthScreen.jsx'
-import { authRequest } from '../lib/api.js'
+import { authRequest, writePref } from '../lib/api.js'
 import { refresh, updateSettings, useData, useStore } from '../lib/store.js'
 import { classSchedule, deleteClass, deleteTaskForever, restoreTask, saveClass } from '../lib/planner.js'
 import { ACCENTS, APPEARANCES, resolveAppearance } from '../lib/theme.js'
 import { PRAYER_METHODS } from '../lib/environment.js'
 import { formatDateShort, formatTime, timeToMinutes } from '../lib/dates.js'
-import { LEAD_OPTIONS, currentSubscription, disableNotifications, enableNotifications, notificationPrefs, pushSupport, sendTestNotification } from '../lib/notifications.js'
+import { LEAD_OPTIONS, currentSubscription, disableNotifications, enableNotifications, leadLabel, notificationPrefs, pushSupport, sendTestNotification, syncSubscription } from '../lib/notifications.js'
 
 export default function SettingsPage({ user, onUserChange, onSignOut }) {
   const settings = useData('settings')
@@ -37,7 +37,11 @@ export default function SettingsPage({ user, onUserChange, onSignOut }) {
 
   async function signOut() {
     const ok = await confirmAction({ title: 'Log out?', message: 'Your data stays safe in your account.', confirmLabel: 'Log out', tone: 'default' })
-    if (ok) onSignOut()
+    if (!ok) return
+    // Stop this device's reminders while the token can still delete the server row.
+    // disableNotifications swallows its own API error, then unsubscribes locally.
+    await Promise.race([disableNotifications().catch(() => {}), new Promise((resolve) => setTimeout(resolve, 3000))])
+    onSignOut()
   }
 
   return (
@@ -270,6 +274,10 @@ function NotificationSettings({ settings }) {
 
   const on = support === 'granted' && enabledHere
   const allDayValue = prefs.allDayTime ? prefs.allDayMode : 'off'
+  // The assistant can store any lead; show it rather than a wrong option.
+  const leadOptions = LEAD_OPTIONS.filter((option) => option.value !== 1440)
+  const taskLead = Number(prefs.taskLead)
+  if (Number.isFinite(taskLead) && !leadOptions.some((option) => option.value === taskLead)) leadOptions.push({ value: taskLead, label: leadLabel(taskLead) })
 
   return (
     <section className="settings-group">
@@ -297,7 +305,7 @@ function NotificationSettings({ settings }) {
         <div className="pref-row">
           <label htmlFor="pref-lead">Tasks with a time</label>
           <select id="pref-lead" className="input" value={prefs.taskLead} onChange={(event) => set({ taskLead: Number(event.target.value) })}>
-            {LEAD_OPTIONS.filter((option) => option.value !== 1440).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            {leadOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
         </div>
         <div className="pref-row">
@@ -357,10 +365,15 @@ function toHHMM(minutes) {
   return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`
 }
 
+// `raw` keeps the original text (e.g. "2 PM - 3 PM" from the assistant), which the time pickers
+// may not be able to show; it is saved unchanged unless that day's times are edited.
 function splitRange(text) {
-  const [start, end] = String(text || '').split(/\s*[-–]\s*/)
-  return { start: toHHMM(timeToMinutes(start)), end: toHHMM(timeToMinutes(end)) }
+  const raw = String(text || '').trim()
+  const [start, end] = raw.split(/\s*[-–]\s*/)
+  return { start: toHHMM(timeToMinutes(start)), end: toHHMM(timeToMinutes(end)), raw }
 }
+
+const rangeText = (start, end) => (start ? `${formatTime(start)}${end ? ` - ${formatTime(end)}` : ''}` : '')
 
 function ClassSheet({ item, onClose }) {
   const open = !!item
@@ -386,7 +399,7 @@ function ClassSheet({ item, onClose }) {
     else next[day] = { ...(Object.values(current)[0] || { start: '', end: '', room: '' }) }
     return next
   })
-  const setSlot = (day, field, value) => setSlots((current) => ({ ...current, [day]: { ...current[day], [field]: value } }))
+  const setSlot = (day, field, value) => setSlots((current) => ({ ...current, [day]: { ...current[day], [field]: value, ...(field === 'start' || field === 'end' ? { raw: null } : {}) } }))
 
   function submit(event) {
     event.preventDefault()
@@ -394,11 +407,17 @@ function ClassSheet({ item, onClose }) {
     if (!name.trim()) return setError('Give the class a name.')
     if (!days.length) return setError('Pick at least one day.')
     const dayDetails = Object.fromEntries(days.map((day) => {
-      const { start, end, room } = slots[day]
-      const time = start ? `${formatTime(start)}${end ? ` - ${formatTime(end)}` : ''}` : ''
+      const { start, end, room, raw } = slots[day]
+      const time = raw != null ? raw : rangeText(start, end)
       return [day, { time, room: room.trim() }]
     }))
-    saveClass({ ...(editing || {}), name: name.trim(), days, dayDetails, endDate, time: undefined, room: undefined })
+    saveClass({
+      ...(editing || {}), name: name.trim(), days, dayDetails, endDate,
+      // Clear legacy per-class time/room (null serializes; undefined is dropped). Only when present,
+      // so databases without these columns still save.
+      time: editing?.time ? null : undefined,
+      room: editing?.room ? null : undefined,
+    })
     toast(editing ? 'Class updated' : 'Class added')
     onClose()
   }
@@ -441,6 +460,7 @@ function ClassSheet({ item, onClose }) {
               <label className="mini-field"><span>Ends</span><input className="input" type="time" value={slots[day].end} onChange={(event) => setSlot(day, 'end', event.target.value)} /></label>
               <label className="mini-field"><span>Room</span><input className="input" value={slots[day].room} onChange={(event) => setSlot(day, 'room', event.target.value)} placeholder="Optional" /></label>
             </div>
+            {slots[day].raw && slots[day].raw !== rangeText(slots[day].start, slots[day].end) && <p className="field-hint">Currently: {slots[day].raw}</p>}
           </fieldset>
         ))}
         <Field label="Last day of classes" hint="Optional — classes stop showing after this date.">
@@ -464,8 +484,13 @@ function PasswordSheet({ open, onClose, onUserChange }) {
     setBusy(true)
     setError('')
     try {
-      const response = await authRequest('change', form)
+      // The server signs out (and stops reminders on) every other device; keep this one's.
+      const keepEndpoint = (await currentSubscription().catch(() => null))?.endpoint
+      const response = await authRequest('change', { ...form, keepEndpoint })
       if (response.user) onUserChange(response.user)
+      // Other devices' push registrations were removed; make sure this one is still registered.
+      writePref('pushSync', null)
+      if (response.user) syncSubscription(response.user.id)
       toast('Password updated. Your other devices were signed out.', { tone: 'success' })
       onClose()
     } catch (err) {

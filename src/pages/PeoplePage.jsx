@@ -39,7 +39,7 @@ export default function PeoplePage({ loaded }) {
         <Button icon="plus" onClick={() => setAdding(true)}>Add person</Button>
       </header>
 
-      {friends.length > 3 && (
+      {(friends.length > 3 || query) && (
         <label className="search-field search-field-wide">
           <Icon name="search" size={18} />
           <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search people" aria-label="Search people" />
@@ -84,10 +84,6 @@ export default function PeoplePage({ loaded }) {
           {people.length === 0 && <EmptyState icon="search" title="No matches">Try a different name.</EmptyState>}
         </>
       )}
-
-      <button type="button" className="fab" onClick={() => setAdding(true)} aria-label="Add person">
-        <Icon name="plus" size={26} />
-      </button>
 
       <PersonSheet friendId={openId} onClose={() => setOpenId(null)} />
       <AddPersonSheet open={adding} onClose={() => setAdding(false)} onAdded={(friend) => { setAdding(false); setOpenId(friend.id) }} />
@@ -192,14 +188,18 @@ function PersonSheet({ friendId, onClose }) {
   const status = friend ? friendStatus(friend, lastContactMap(contactLogs), today) : null
 
   function startEdit() {
-    setForm({ ...EMPTY_PERSON, ...Object.fromEntries(Object.keys(EMPTY_PERSON).map((key) => [key, friend[key] || EMPTY_PERSON[key]])) })
+    // Older people store their notes in `note`; show them here so they can be edited.
+    setForm({ ...EMPTY_PERSON, ...Object.fromEntries(Object.keys(EMPTY_PERSON).map((key) => [key, friend[key] || EMPTY_PERSON[key]])), facts: friend.facts || friend.note || '' })
     setEditing(true)
   }
 
   function save(event) {
     event.preventDefault()
     if (!form.name.trim()) return
-    updateFriend(friend.id, { ...form, name: form.name.trim() })
+    const patch = { ...form, name: form.name.trim() }
+    // Keep a legacy note in step, so clearing the field doesn't bring it back.
+    if (friend.note) patch.note = form.facts
+    updateFriend(friend.id, patch)
     setEditing(false)
     toast('Saved')
   }
@@ -208,6 +208,11 @@ function PersonSheet({ friendId, onClose }) {
     const undo = logContact(friend.id, date)
     setBackdate('')
     toast(date === today ? `Logged a catch-up with ${friend.name}` : `Logged a catch-up on ${formatDateShort(date)}`, { action: { label: 'Undo', onClick: undo } })
+  }
+
+  function removeLog(log) {
+    const undo = removeContactLog(log.id)
+    toast('Catch-up removed', { action: { label: 'Undo', onClick: undo } })
   }
 
   function remove() {
@@ -280,7 +285,7 @@ function PersonSheet({ friendId, onClose }) {
                   <li key={log.id}>
                     <span>{formatDateShort(log.date)}</span>
                     <small>{timeAgo(log.date)}</small>
-                    <button type="button" className="icon-btn icon-btn-sm" onClick={() => removeContactLog(log.id)} aria-label={`Remove catch-up on ${formatDateShort(log.date)}`}>
+                    <button type="button" className="icon-btn icon-btn-sm" onClick={() => removeLog(log)} aria-label={`Remove catch-up on ${formatDateShort(log.date)}`}>
                       <Icon name="close" size={16} />
                     </button>
                   </li>

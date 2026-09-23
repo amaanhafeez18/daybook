@@ -209,14 +209,6 @@ time, .tabular { font-variant-numeric: tabular-nums; }
 .icon-btn-soft:hover { background: var(--accent); color: var(--on-accent); }
 .badge-count { position: absolute; top: 3px; right: 2px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 999px; background: var(--accent); color: var(--on-accent); font-size: 10px; font-weight: 700; display: grid; place-items: center; }
 
-.fab {
-  position: fixed; right: 18px; bottom: calc(var(--nav-h) + var(--safe-bottom) + 16px); z-index: 25;
-  width: 56px; height: 56px; border-radius: 18px; display: grid; place-items: center;
-  background: var(--accent); color: var(--on-accent); box-shadow: var(--shadow-lg);
-  transition: transform 0.15s var(--ease);
-}
-.fab:active { transform: scale(0.94); }
-
 /* ---- forms ------------------------------------------------------------------------------- */
 
 .form-stack { display: flex; flex-direction: column; gap: 16px; }
@@ -438,7 +430,6 @@ select.input { background-image: linear-gradient(45deg, transparent 50%, var(--t
   .topbar { position: fixed; top: 12px; right: 16px; height: auto; padding: 0; background: none; border: 0; backdrop-filter: none; -webkit-backdrop-filter: none; z-index: 30; }
   .topbar-brand, .topbar-actions { display: none; }
   .page { padding-top: 36px; padding-bottom: 64px; }
-  .fab { bottom: 28px; right: 28px; }
   .toaster { bottom: 24px; left: calc(50% + 120px); }
 }
 
@@ -448,7 +439,7 @@ select.input { background-image: linear-gradient(45deg, transparent 50%, var(--t
 .page-header-row { flex-direction: row; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .page-subtitle { color: var(--text-2); font-size: 14px; margin-top: 2px; }
 .page-header-row .btn { display: none; }
-@media (min-width: 900px) { .page-header-row .btn { display: inline-flex; } .fab { display: none; } }
+@media (min-width: 900px) { .page-header-row .btn { display: inline-flex; } }
 
 /* ---- today ------------------------------------------------------------------------------- */
 
@@ -598,7 +589,7 @@ select.input { background-image: linear-gradient(45deg, transparent 50%, var(--t
 .entry-text span { color: var(--text-2); font-size: 13px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .notes { display: flex; flex-direction: column; gap: 12px; }
 .note-composer { display: flex; flex-direction: column; gap: 10px; }
-.note-composer .textarea { border: 0; padding: 0; box-shadow: none !important; }
+.note-composer .textarea { border: 0; padding: 0; background: none; box-shadow: none !important; }
 .note-composer-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .note-list { display: grid; gap: 12px; }
 @media (min-width: 700px) { .note-list { grid-template-columns: 1fr 1fr; } }
@@ -640,7 +631,8 @@ button.settings-row:hover { background: var(--surface-2); }
 .assistant-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .assistant-tools { display: flex; gap: 2px; }
 .chat { flex: 1; display: flex; flex-direction: column; gap: 16px; padding: 8px 0 16px; }
-.chat-end { height: 1px; }
+/* Scrolled into view with the composer dock (and tab bar) still covering the bottom. */
+.chat-end { height: 1px; scroll-margin-bottom: calc(var(--nav-h) + var(--safe-bottom) + 90px); }
 .chat-welcome { margin: auto 0; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; padding: 24px 0; animation: rise 0.3s var(--ease); }
 .chat-welcome h2 { font-size: 22px; }
 .chat-welcome > p { color: var(--text-2); max-width: 46ch; font-size: 14px; }
@@ -697,6 +689,7 @@ button.settings-row:hover { background: var(--surface-2); }
 @media (min-width: 900px) {
   .page-assistant { min-height: 100dvh; padding-bottom: 0; }
   .composer-dock { bottom: 0; padding-bottom: 20px; }
+  .chat-end { scroll-margin-bottom: 96px; }
 }
 
 /* ---- auth -------------------------------------------------------------------------------- */
@@ -743,9 +736,9 @@ input[type='date']::-webkit-date-and-time-value, input[type='time']::-webkit-dat
 
   /* While typing, the keyboard covers the bottom bar anyway: hide it so fields and the assistant
      composer sit directly above the keyboard. */
-  .shell:has(input:focus, textarea:focus, select:focus) .nav,
-  .shell:has(input:focus, textarea:focus, select:focus) .fab { display: none; }
+  .shell:has(input:focus, textarea:focus, select:focus) .nav { display: none; }
   .shell:has(input:focus, textarea:focus) .composer-dock { bottom: 0; padding-bottom: calc(8px + var(--safe-bottom)); }
+  .shell:has(input:focus, textarea:focus) .page-assistant { padding-bottom: 0; }
 }
 
 /* Hover effects only on devices that can hover (otherwise they stick after a tap on iOS). */

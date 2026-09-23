@@ -91,8 +91,27 @@ function applyDiff(list, { upsert, remove }) {
   return added.length ? [...added, ...result] : result
 }
 
+const isPlainObject = (value) => !!value && typeof value === 'object' && !Array.isArray(value)
+
+// Settings fields this device changed; plain-object fields (notifications) diff one level deep.
+function settingsChanges(base, next) {
+  const changes = {}
+  for (const [field, value] of Object.entries(next || {})) {
+    if (sameValue(base[field], value)) continue
+    changes[field] = isPlainObject(value) && isPlainObject(base[field]) ? changedFields(base[field], value) : value
+  }
+  return changes
+}
+
+// Applies settingsChanges the same way the server's PATCH does.
+function mergeSettings(server, changes) {
+  const out = { ...server }
+  for (const [field, value] of Object.entries(changes)) out[field] = isPlainObject(value) && isPlainObject(out[field]) ? { ...out[field], ...value } : value
+  return out
+}
+
 function hasLocalChanges(key) {
-  if (key === 'settings') return !sameValue(synced.settings || {}, state.data.settings)
+  if (key === 'settings') return Object.keys(settingsChanges(synced.settings || {}, state.data.settings)).length > 0
   const { upsert, remove } = diffList(synced[key] || [], state.data[key])
   return upsert.length > 0 || remove.length > 0
 }
@@ -125,6 +144,9 @@ export function refresh() {
     setState({ syncing: true })
     try {
       await flushAll()
+      // What the server had before this read: saves that finish while the GET is in flight
+      // must still count as local changes, whichever way the race goes.
+      const base = { ...synced }
       const result = await apiRequest(`/api/data?keys=${ALL_KEYS.join(',')}`)
       if (startedIn !== generation) return
       const data = { ...state.data }
@@ -132,9 +154,11 @@ export function refresh() {
         const server = isValid(key, result[key]) ? result[key] : emptyData()[key]
         if (key === 'settings') {
           // Settings are small: keep local values only for fields changed on this device.
-          data.settings = hasLocalChanges('settings') ? { ...server, ...changedFields(synced.settings || {}, state.data.settings) } : server
+          const local = settingsChanges(base.settings || {}, state.data.settings)
+          data.settings = Object.keys(local).length ? mergeSettings(server, local) : server
         } else {
-          data[key] = hasLocalChanges(key) ? applyDiff(server, diffList(synced[key] || [], state.data[key])) : server
+          const local = diffList(base[key] || [], state.data[key])
+          data[key] = local.upsert.length || local.remove.length ? applyDiff(server, local) : server
         }
         synced[key] = server
         writeJson(SYNCED_PREFIX + key, server)
@@ -184,12 +208,15 @@ async function flush(key) {
     return inFlight[key]
   }
   const target = state.data[key]
-  let request
+  const base = synced[key]
+  let request, upsert, remove, set
   if (key === 'settings') {
-    if (sameValue(synced.settings || {}, target)) return
-    request = { method: 'PUT', body: { key, value: target } }
+    // Only the fields changed here, so an old copy can't overwrite changes made elsewhere.
+    set = settingsChanges(base || {}, target)
+    if (!Object.keys(set).length) return
+    request = { method: 'PATCH', body: { key, set } }
   } else {
-    const { upsert, remove } = diffList(synced[key] || [], target)
+    ;({ upsert, remove } = diffList(base || [], target))
     if (!upsert.length && !remove.length) return
     request = { method: 'PATCH', body: { key, upsert, delete: remove } }
   }
@@ -200,8 +227,10 @@ async function flush(key) {
     try {
       await apiRequest('/api/data', request)
       if (startedIn !== generation) return
-      synced[key] = target
-      writeJson(SYNCED_PREFIX + key, target)
+      // A refresh may have replaced synced[key] meanwhile: apply this save on top of it instead.
+      if (key === 'settings') synced.settings = synced.settings === base ? target : mergeSettings(synced.settings || {}, set)
+      else synced[key] = synced[key] === base ? target : applyDiff(synced[key] || [], { upsert, remove })
+      writeJson(SYNCED_PREFIX + key, synced[key])
       retryAttempt = 0
       setState({ saveError: '', offline: false })
     } catch (error) {
@@ -270,4 +299,8 @@ if (typeof window !== 'undefined') {
     retryUnsaved()
   })
   window.addEventListener('offline', () => setState({ offline: true }))
+  // iOS suspends a backgrounded home-screen app, so send pending saves before that happens.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') retryUnsaved()
+  })
 }

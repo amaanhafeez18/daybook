@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../components/ui/Icon.jsx'
 import { AutoTextarea, Button, EmptyState, Segmented } from '../components/ui/primitives.jsx'
 import { confirmAction, toast } from '../components/ui/feedback.jsx'
-import { useData } from '../lib/store.js'
+import { getState, retryUnsaved, useData } from '../lib/store.js'
 import { MOODS, addNote, deleteJournalEntry, deleteNote, moodEmoji, saveJournalEntry } from '../lib/planner.js'
 import { addDaysISO, formatDateLong, formatDateShort, relativeDay, todayISO } from '../lib/dates.js'
 
@@ -40,6 +40,7 @@ function JournalEditor() {
   const [saveState, setSaveState] = useState('idle') // idle | pending | saved
   const timer = useRef(null)
   const pending = useRef(null)
+  const baseId = useRef(null) // id of the entry the draft was loaded from
 
   // Show the entry for the selected date. Also picks up the entry when data arrives (or changes on
   // another device) — but never while the user has unsaved typing.
@@ -48,18 +49,41 @@ function JournalEditor() {
     const dateChanged = shownDate.current !== date
     shownDate.current = date
     if (!dateChanged && pending.current) return
+    baseId.current = entry?.id || null
     setDraft({ title: entry?.title || '', body: entry?.body || '', mood: entry?.mood || '' })
     if (dateChanged) setSaveState('idle')
   }, [date, entry?.id, entry?.title, entry?.body, entry?.mood]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => () => flush(), []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // iOS may suspend or kill the app once it's hidden: save the draft and send it right away.
+  useEffect(() => {
+    const onHide = () => {
+      if (document.visibilityState !== 'hidden') return
+      flush()
+      retryUnsaved()
+    }
+    document.addEventListener('visibilitychange', onHide)
+    window.addEventListener('pagehide', flush)
+    return () => {
+      document.removeEventListener('visibilitychange', onHide)
+      window.removeEventListener('pagehide', flush)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   function flush() {
     clearTimeout(timer.current)
     if (pending.current) {
-      const { date: pendingDate, fields } = pending.current
+      const { date: pendingDate, fields, baseId: draftBase } = pending.current
       pending.current = null
-      saveJournalEntry(pendingDate, fields)
+      // An entry for this date arrived from elsewhere while typing: keep both texts.
+      const current = getState().data.journalEntries.find((item) => item.date === pendingDate)
+      let out = fields
+      if (current && current.id !== draftBase && (current.body || current.title)) {
+        out = { title: fields.title || current.title || '', mood: fields.mood || current.mood || '', body: [current.body, fields.body].filter(Boolean).join('\n\n') }
+      }
+      saveJournalEntry(pendingDate, out)
+      baseId.current = getState().data.journalEntries.find((item) => item.date === pendingDate)?.id || null
       setSaveState('saved')
     }
   }
@@ -67,7 +91,7 @@ function JournalEditor() {
   function update(field, value) {
     const next = { ...draft, [field]: value }
     setDraft(next)
-    pending.current = { date, fields: next }
+    pending.current = { date, fields: next, baseId: baseId.current }
     setSaveState('pending')
     clearTimeout(timer.current)
     timer.current = setTimeout(flush, field === 'mood' ? 0 : AUTOSAVE_MS)
@@ -85,7 +109,9 @@ function JournalEditor() {
     pending.current = null
     clearTimeout(timer.current)
     const undo = deleteJournalEntry(entry.id)
+    baseId.current = null
     setDraft({ title: '', body: '', mood: '' })
+    setSaveState('idle')
     toast('Entry deleted', { action: { label: 'Undo', onClick: () => { undo(); setDate(date) } } })
   }
 
@@ -153,18 +179,22 @@ function JournalEditor() {
           <EmptyState icon="journal" title="Your journal is empty">Write a few lines about today — it only takes a minute.</EmptyState>
         ) : (
           <ul className="entry-list">
-            {history.map((item) => (
-              <li key={item.id}>
-                <button type="button" className={`entry-card ${item.date === date ? 'is-active' : ''}`} onClick={() => goTo(item.date)}>
-                  <span className="entry-mood" aria-hidden="true">{moodEmoji(item.mood) || '📝'}</span>
-                  <span className="entry-text">
-                    <small>{relativeDay(item.date, today)}{relativeDay(item.date, today) !== formatDateShort(item.date) ? ` · ${formatDateShort(item.date)}` : ''}</small>
-                    <strong>{item.title || 'Untitled entry'}</strong>
-                    {item.body && <span>{item.body.slice(0, 140)}</span>}
-                  </span>
-                </button>
-              </li>
-            ))}
+            {history.map((item) => {
+              const rel = relativeDay(item.date, today)
+              const short = formatDateShort(item.date)
+              return (
+                <li key={item.id}>
+                  <button type="button" className={`entry-card ${item.date === date ? 'is-active' : ''}`} onClick={() => goTo(item.date)}>
+                    <span className="entry-mood" aria-hidden="true">{moodEmoji(item.mood) || '📝'}</span>
+                    <span className="entry-text">
+                      <small>{rel}{rel !== short ? ` · ${short}` : ''}</small>
+                      <strong>{item.title || 'Untitled entry'}</strong>
+                      {item.body && <span>{item.body.slice(0, 140)}</span>}
+                    </span>
+                  </button>
+                </li>
+              )
+            })}
           </ul>
         )}
       </section>

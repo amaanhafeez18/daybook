@@ -132,6 +132,7 @@ body { font-size: 16px; line-height: 1.35; letter-spacing: -0.015em; }
   opacity: 1;
   background: var(--surface-2);
 }
+.is-static:active { background: none; }
 .task-body, .person-main, .agenda-body { border-radius: 12px; margin: -4px -6px; padding: 4px 6px; }
 
 /* ---- icon-only floating tab bar ---------------------------------------------------------------- */
@@ -152,7 +153,6 @@ body { font-size: 16px; line-height: 1.35; letter-spacing: -0.015em; }
 }
 
 /* ---- navigation bar title that appears once the large title scrolls away ----------------------- */
-.topbar { position: sticky; }
 .topbar-title {
   position: absolute;
   left: 50%;
@@ -182,7 +182,6 @@ body { font-size: 16px; line-height: 1.35; letter-spacing: -0.015em; }
 
 /* ---- "+" in the header instead of a floating action button (phones) ------------------------------ */
 @media (max-width: 899px) {
-  .fab { display: none !important; }
   .page-header-row { align-items: center; }
   .page-header-row > .btn {
     display: inline-grid;

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import Icon, { BrandMark } from './ui/Icon.jsx'
 import { Button, Field, PasswordInput, Segmented } from './ui/primitives.jsx'
 import { authRequest } from '../lib/api.js'
+import { currentSubscription } from '../lib/notifications.js'
 
 export const RECOVERY_QUESTIONS = [
   'What was the name of your first pet?',
@@ -54,7 +55,9 @@ export default function AuthScreen({ onAuthenticated }) {
         setResetQuestion(response.question)
         setMode('reset')
       } else if (mode === 'reset') {
-        const response = await authRequest('reset', { username: form.username, answer: form.answer, newPassword: form.newPassword })
+        // Other devices are signed out and stop getting reminders; this one keeps its subscription.
+        const keepEndpoint = (await currentSubscription().catch(() => null))?.endpoint
+        const response = await authRequest('reset', { username: form.username, answer: form.answer, newPassword: form.newPassword, keepEndpoint })
         onAuthenticated(response.user)
       }
     } catch (err) {
@@ -175,6 +178,8 @@ export default function AuthScreen({ onAuthenticated }) {
 
             {mode === 'reset' && (
               <>
+                {/* Lets password managers save the new password to the right account. */}
+                <input type="text" name="username" autoComplete="username" value={form.username} readOnly hidden />
                 <div className="auth-question">
                   <Icon name="lock" size={18} />
                   <span>{resetQuestion}</span>

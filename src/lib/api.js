@@ -22,6 +22,16 @@ function setToken(token) {
   }
 }
 
+// The account id inside a session token (null if it can't be read). Used only to tell
+// accounts apart on this device; the server still verifies every token.
+export function tokenUserId(token = getToken()) {
+  try {
+    return JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).id ?? null
+  } catch {
+    return null
+  }
+}
+
 export function getCachedUser() {
   return readJson(USER_KEY)
 }
@@ -73,7 +83,7 @@ export async function apiRequest(url, { method = 'GET', body, headers, signal } 
     })
   } catch (error) {
     if (error.name === 'AbortError') throw error
-    throw new ApiError('You’re offline. Changes are saved on this device and will sync later.', 0)
+    throw new ApiError('You’re offline. Check your connection and try again.', 0)
   }
 
   const text = await response.text()
@@ -85,7 +95,8 @@ export async function apiRequest(url, { method = 'GET', body, headers, signal } 
   }
 
   if (!response.ok) {
-    if (response.status === 401 && token && !(url === '/api/auth' && method === 'GET')) {
+    // Only if the session that made this request is still the current one.
+    if (response.status === 401 && token && getToken() === token && !(url === '/api/auth' && method === 'GET')) {
       window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT))
     }
     throw new ApiError(payload.error || 'Something went wrong. Please try again.', response.status, payload)
@@ -101,15 +112,19 @@ export async function authRequest(action, payload = {}) {
 }
 
 // Returns the current user, null if the session was rejected, or throws when offline so the
-// app can keep running from its cache.
+// app can keep running from its cache. Returns undefined when the session changed during the
+// request (signed out or into another account), so the caller ignores the stale result.
 export async function fetchSession() {
-  if (!getToken()) return null
+  const sent = getToken()
+  if (!sent) return null
   try {
     const response = await apiRequest('/api/auth')
+    if (getToken() !== sent) return undefined
+    if (response.token) setToken(response.token) // sliding session: renewed while in use
     if (response.user) setCachedUser(response.user)
     return response.user || null
   } catch (error) {
-    if (error.status === 401) return null
+    if (error.status === 401) return getToken() === sent ? null : undefined
     throw error
   }
 }
@@ -123,6 +138,10 @@ export function clearSession() {
     for (const key of Object.keys(localStorage)) {
       if (USER_CACHE_PREFIXES.some((prefix) => key.startsWith(prefix))) localStorage.removeItem(key)
     }
+    // Per-day marker for the catch-up check; the next account must run its own.
+    localStorage.removeItem('daybook.prefs.remindersCheckedOn')
+    // The next account on this device must register it for push itself.
+    localStorage.removeItem('daybook.prefs.pushSync')
   } catch {
     // ignore
   }

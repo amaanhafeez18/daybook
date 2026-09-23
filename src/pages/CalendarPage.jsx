@@ -50,8 +50,9 @@ export default function CalendarPage() {
     }
     for (const friend of friends) {
       if (!isISODate(friend.birthday)) continue
-      const date = `${cursor.year}-${friend.birthday.slice(5)}`
-      if (date.startsWith(monthPrefix) && isISODate(date)) push(date, { kind: 'birthday', key: `b-${friend.id}`, time: '', title: `${friend.name}’s birthday` })
+      let date = `${cursor.year}-${friend.birthday.slice(5)}`
+      if (!isISODate(date)) date = `${cursor.year}-03-01` // Feb 29 in a non-leap year
+      if (date.startsWith(monthPrefix)) push(date, { kind: 'birthday', key: `b-${friend.id}`, time: '', title: `${friend.name}’s birthday` })
     }
     for (const list of Object.values(map)) list.sort((a, b) => compareTimes(a.time, b.time))
     return map
@@ -74,6 +75,12 @@ export default function CalendarPage() {
       const date = new Date(year, month + delta, 1)
       return { year: date.getFullYear(), month: date.getMonth() }
     })
+  }
+
+  // Completing removes the task from the calendar, so offer a way back.
+  function completeTask(item, done) {
+    setTaskDone(item.task.id, done)
+    if (done) toast(`Completed “${item.title}”`, { action: { label: 'Undo', onClick: () => setTaskDone(item.task.id, false) } })
   }
 
   function goToday() {
@@ -101,12 +108,14 @@ export default function CalendarPage() {
       <div className="calendar-layout">
         <section
           className="card month-card"
-          onTouchStart={(event) => { touchStart.current = event.touches[0].clientX }}
+          onTouchStart={(event) => { touchStart.current = { x: event.touches[0].clientX, y: event.touches[0].clientY } }}
           onTouchEnd={(event) => {
             if (touchStart.current === null) return
-            const delta = event.changedTouches[0].clientX - touchStart.current
+            const dx = event.changedTouches[0].clientX - touchStart.current.x
+            const dy = event.changedTouches[0].clientY - touchStart.current.y
             touchStart.current = null
-            if (Math.abs(delta) > 60) shiftMonth(delta < 0 ? 1 : -1)
+            // Mostly-horizontal swipes only, so scrolling the page doesn't change the month.
+            if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) shiftMonth(dx < 0 ? 1 : -1)
           }}
         >
           <div className="month-weekdays" aria-hidden="true">
@@ -159,7 +168,7 @@ export default function CalendarPage() {
                   <span className="agenda-bar" aria-hidden="true" />
                   {item.kind === 'event' ? (
                     <>
-                      {item.task && <Checkbox checked={!!item.task.done} onChange={(done) => setTaskDone(item.task.id, done)} label={`Complete ${item.title}`} />}
+                      {item.task && <Checkbox checked={!!item.task.done} onChange={(done) => completeTask(item, done)} label={`Complete ${item.title}`} />}
                       <button type="button" className="agenda-body" onClick={() => (item.task ? setTaskEditing(item.task) : setEventSheet({ event: item.event }))}>
                         <strong>{item.title}</strong>
                         {item.task?.details && !item.task.details.startsWith('friend-reminder:') && <small>{item.task.details}</small>}
@@ -189,7 +198,10 @@ export default function CalendarPage() {
 }
 
 function EventSheet({ state, onClose }) {
-  const editing = state?.event || null
+  // Keep the last state while the sheet animates closed, so it doesn't switch to "New event".
+  const lastState = useRef(state)
+  if (state) lastState.current = state
+  const editing = (state || lastState.current)?.event || null
   const [form, setForm] = useState({ title: '', date: '', time: '' })
   const [error, setError] = useState('')
 
