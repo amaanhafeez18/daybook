@@ -8,7 +8,9 @@ import { addDays, editSchedule, mod, plannedFor, resolveDay, resolveRange, setDe
 import { getGym, routineById, routineColor, saveSchedule, updateGym, useGym, useGymSessions } from '../../lib/gym/state.js'
 import { navigate } from '../../lib/router.js'
 import { GymEmpty, RoutineDot } from './common.jsx'
+import SplitWizard from './SplitWizard.jsx'
 import './routines.css'
+import './wizard.css'
 
 // Edits the plan: a rotation (cycle of 1-31 days, "Today is …") or a weekly plan, plus automatic
 // deloads. Saving is copy-on-write from today (tomorrow when today already has a workout), so
@@ -119,6 +121,7 @@ export default function ScheduleEditor({ open, onClose, today }) {
   const sessions = useGymSessions()
   const [state, setState] = useState(() => (open ? start(gym, sessions, today) : null))
   const [wasOpen, setWasOpen] = useState(open)
+  const [wizardOpen, setWizardOpen] = useState(false)
   const anchorId = useId()
   const deloadId = useId()
 
@@ -227,150 +230,172 @@ export default function ScheduleEditor({ open, onClose, today }) {
     toast(message, { action: { label: 'Undo', onClick: undoAll } })
   }
 
+  // Swaps this sheet for the split wizard (after confirming unsaved edits).
+  const openWizard = async () => {
+    if (dirty && !(await confirmAction({ title: 'Discard changes?', message: 'Your schedule edits will be lost.', confirmLabel: 'Discard' }))) return
+    onClose()
+    setWizardOpen(true)
+  }
+
   const noRoutines = !gym.routines.length
 
   return (
-    <Sheet
-      open={open}
-      onClose={requestClose}
-      title="Schedule"
-      description="Which routine falls on each day"
-      size="lg"
-      initialFocus={false}
-      footer={draft && !noRoutines ? (
-        <>
-          <button type="button" className="btn btn-secondary btn-grow" onClick={requestClose}>Cancel</button>
-          <button type="button" className="btn btn-primary btn-grow" onClick={save}>Save</button>
-        </>
-      ) : null}
-    >
-      {!draft ? null : noRoutines ? (
-        <GymEmpty
-          icon="calendar"
-          title="Create a routine first"
-          action={(
-            <Button icon="plus" onClick={() => { onClose(); navigate('gym/routine/new') }}>New routine</Button>
-          )}
-        >
-          Your schedule is made of routines, like Push or Legs, and rest days. Make at least one routine, then come back to plan your days.
-        </GymEmpty>
-      ) : (
-        <div className="gym-sched">
-          <div className="gym-sched-modes">
-            <Segmented options={MODES} value={draft.mode} onChange={switchMode} label="Schedule type" />
-            <p className="gym-sched-hint">
-              {draft.mode === 'rotation'
-                ? 'A cycle of days that repeats in order, whatever the weekday. Good for splits like Push, Pull, Legs, Rest.'
-                : 'The same routine on the same weekday, every week.'}
-            </p>
-          </div>
+    <>
+      <Sheet
+        open={open}
+        onClose={requestClose}
+        title="Schedule"
+        description="Which routine falls on each day"
+        size="lg"
+        initialFocus={false}
+        footer={draft && !noRoutines ? (
+          <>
+            <button type="button" className="btn btn-secondary btn-grow" onClick={requestClose}>Cancel</button>
+            <button type="button" className="btn btn-primary btn-grow" onClick={save}>Save</button>
+          </>
+        ) : null}
+      >
+        {!draft ? null : noRoutines ? (
+          <GymEmpty
+            icon="calendar"
+            title="Create a routine first"
+            action={(
+              <div className="wiz-split-actions">
+                <Button icon="wand" onClick={openWizard}>Build my split</Button>
+                <Button variant="secondary" icon="plus" onClick={() => { onClose(); navigate('gym/routine/new') }}>New routine</Button>
+              </div>
+            )}
+          >
+            Your schedule is made of routines, like Push or Legs, and rest days. Type your split in the wizard to create them all at once, or make one routine and come back.
+          </GymEmpty>
+        ) : (
+          <div className="gym-sched">
+            <div className="gym-sched-modes">
+              <Segmented options={MODES} value={draft.mode} onChange={switchMode} label="Schedule type" />
+              <p className="gym-sched-hint">
+                {draft.mode === 'rotation'
+                  ? 'A cycle of days that repeats in order, whatever the weekday. Good for splits like Push, Pull, Legs, Rest.'
+                  : 'The same routine on the same weekday, every week.'}
+              </p>
+            </div>
 
-          {draft.mode === 'rotation' ? (
-            <section className="gym-sched-section" aria-label="Rotation days">
-              <ol className="gym-sched-list">
-                {draft.rotation.slots.map((item, index, slots) => {
-                  const isAnchor = item.key === draft.anchorKey
-                  const routine = item.slot.kind === 'routine' ? routineById(gym, item.slot.routineId) : null
-                  return (
-                    <li key={item.key} className={`gym-sched-row${isAnchor ? ' is-anchor' : ''}`}>
-                      <span className="gym-sched-index" aria-hidden="true">{index + 1}</span>
-                      <SlotSelect
-                        slot={item.slot}
-                        routine={routine}
-                        gym={gym}
-                        label={`Day ${index + 1}${isAnchor ? ' (today)' : ''}`}
-                        onChange={(value) => setSlot(item.key, value)}
-                      />
-                      <IconButton icon="arrowUp" label={`Move day ${index + 1} up`} className="gym-sched-btn" size={18} disabled={index === 0} onClick={() => moveSlot(item.key, -1)} />
-                      <IconButton icon="arrowDown" label={`Move day ${index + 1} down`} className="gym-sched-btn" size={18} disabled={index === slots.length - 1} onClick={() => moveSlot(item.key, 1)} />
-                      <IconButton icon="minus" label={`Remove day ${index + 1}`} className="gym-sched-btn gym-sched-remove" size={18} disabled={slots.length <= 1} onClick={() => removeSlot(item.key)} />
-                    </li>
-                  )
-                })}
-              </ol>
-              <button type="button" className="gym-sched-add" onClick={addSlot} disabled={draft.rotation.slots.length >= MAX_SLOTS}>
-                <Icon name="plus" size={18} strokeWidth={2.2} />
-                {draft.rotation.slots.length >= MAX_SLOTS ? 'A rotation can have up to 31 days' : 'Add day'}
-              </button>
+            {draft.mode === 'rotation' ? (
+              <section className="gym-sched-section" aria-label="Rotation days">
+                <ol className="gym-sched-list">
+                  {draft.rotation.slots.map((item, index, slots) => {
+                    const isAnchor = item.key === draft.anchorKey
+                    const routine = item.slot.kind === 'routine' ? routineById(gym, item.slot.routineId) : null
+                    return (
+                      <li key={item.key} className={`gym-sched-row${isAnchor ? ' is-anchor' : ''}`}>
+                        <span className="gym-sched-index" aria-hidden="true">{index + 1}</span>
+                        <SlotSelect
+                          slot={item.slot}
+                          routine={routine}
+                          gym={gym}
+                          label={`Day ${index + 1}${isAnchor ? ' (today)' : ''}`}
+                          onChange={(value) => setSlot(item.key, value)}
+                        />
+                        <IconButton icon="arrowUp" label={`Move day ${index + 1} up`} className="gym-sched-btn" size={18} disabled={index === 0} onClick={() => moveSlot(item.key, -1)} />
+                        <IconButton icon="arrowDown" label={`Move day ${index + 1} down`} className="gym-sched-btn" size={18} disabled={index === slots.length - 1} onClick={() => moveSlot(item.key, 1)} />
+                        <IconButton icon="minus" label={`Remove day ${index + 1}`} className="gym-sched-btn gym-sched-remove" size={18} disabled={slots.length <= 1} onClick={() => removeSlot(item.key)} />
+                      </li>
+                    )
+                  })}
+                </ol>
+                <button type="button" className="gym-sched-add" onClick={addSlot} disabled={draft.rotation.slots.length >= MAX_SLOTS}>
+                  <Icon name="plus" size={18} strokeWidth={2.2} />
+                  {draft.rotation.slots.length >= MAX_SLOTS ? 'A rotation can have up to 31 days' : 'Add day'}
+                </button>
 
+                <div className="gym-sched-field">
+                  <label htmlFor={anchorId}>Today is</label>
+                  <select
+                    id={anchorId}
+                    className="input gym-sched-inline-select"
+                    value={draft.anchorKey ?? ''}
+                    onChange={(event) => update((current) => ({ ...current, anchorKey: event.target.value }))}
+                  >
+                    {draft.rotation.slots.map((item, index) => (
+                      <option key={item.key} value={item.key}>
+                        Day {index + 1} · {item.slot.kind === 'routine' ? routineLabel(gym, item.slot.routineId) : 'Rest'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </section>
+            ) : (
+              <section className="gym-sched-section" aria-label="Weekly plan">
+                <ul className="gym-sched-list">
+                  {Array.from({ length: 7 }, (_, i) => (firstWeekday + i) % 7).map((day) => {
+                    const slot = draft.weekly.slots[day] || REST
+                    const routine = slot.kind === 'routine' ? routineById(gym, slot.routineId) : null
+                    const isToday = day === weekday(today)
+                    return (
+                      <li key={day} className={`gym-sched-row${isToday ? ' is-anchor' : ''}`}>
+                        <span className="gym-sched-weekday" aria-hidden="true">{WEEKDAY_SHORT[day]}</span>
+                        <SlotSelect slot={slot} routine={routine} gym={gym} label={`${WEEKDAY_SHORT[day]}${isToday ? ' (today)' : ''}`} onChange={(value) => setWeekday(day, value)} />
+                        {isToday && <span className="gym-sched-today" aria-hidden="true">Today</span>}
+                      </li>
+                    )
+                  })}
+                </ul>
+              </section>
+            )}
+
+            <section className="gym-sched-section" aria-labelledby={`${anchorId}-preview`}>
+              <h3 className="gym-sched-title" id={`${anchorId}-preview`}>Next two weeks</h3>
+              {preview ? (
+                <ol className="gym-sched-strip">
+                  {preview.map((day) => <PreviewDay key={day.date} day={day} gym={gym} today={today} />)}
+                </ol>
+              ) : (
+                <p className="gym-sched-hint">Add at least one day to see a preview.</p>
+              )}
+            </section>
+
+            <section className="gym-sched-section">
               <div className="gym-sched-field">
-                <label htmlFor={anchorId}>Today is</label>
+                <label htmlFor={deloadId}>Deload week</label>
                 <select
-                  id={anchorId}
+                  id={deloadId}
                   className="input gym-sched-inline-select"
-                  value={draft.anchorKey ?? ''}
-                  onChange={(event) => update((current) => ({ ...current, anchorKey: event.target.value }))}
+                  value={draft.deloadEvery}
+                  onChange={(event) => update((current) => ({ ...current, deloadEvery: Number(event.target.value) }))}
                 >
-                  {draft.rotation.slots.map((item, index) => (
-                    <option key={item.key} value={item.key}>
-                      Day {index + 1} · {item.slot.kind === 'routine' ? routineLabel(gym, item.slot.routineId) : 'Rest'}
-                    </option>
+                  {[...new Set([...DELOAD_CHOICES, draft.deloadEvery])].sort((a, b) => a - b).map((weeks) => (
+                    <option key={weeks} value={weeks}>{weeks ? `Every ${weeks} weeks` : 'Off'}</option>
                   ))}
                 </select>
               </div>
+              <p className="gym-sched-hint gym-sched-field-hint">
+                {draft.deloadEvery
+                  ? `Every ${ordinal(draft.deloadEvery)} week is lighter: half the sets and 10% less weight, to recover.`
+                  : 'A regular lighter week (half the sets, 10% less weight) helps you recover and keep progressing.'}
+              </p>
             </section>
-          ) : (
-            <section className="gym-sched-section" aria-label="Weekly plan">
-              <ul className="gym-sched-list">
-                {Array.from({ length: 7 }, (_, i) => (firstWeekday + i) % 7).map((day) => {
-                  const slot = draft.weekly.slots[day] || REST
-                  const routine = slot.kind === 'routine' ? routineById(gym, slot.routineId) : null
-                  const isToday = day === weekday(today)
-                  return (
-                    <li key={day} className={`gym-sched-row${isToday ? ' is-anchor' : ''}`}>
-                      <span className="gym-sched-weekday" aria-hidden="true">{WEEKDAY_SHORT[day]}</span>
-                      <SlotSelect slot={slot} routine={routine} gym={gym} label={`${WEEKDAY_SHORT[day]}${isToday ? ' (today)' : ''}`} onChange={(value) => setWeekday(day, value)} />
-                      {isToday && <span className="gym-sched-today" aria-hidden="true">Today</span>}
-                    </li>
-                  )
-                })}
-              </ul>
-            </section>
-          )}
 
-          <section className="gym-sched-section" aria-labelledby={`${anchorId}-preview`}>
-            <h3 className="gym-sched-title" id={`${anchorId}-preview`}>Next two weeks</h3>
-            {preview ? (
-              <ol className="gym-sched-strip">
-                {preview.map((day) => <PreviewDay key={day.date} day={day} gym={gym} today={today} />)}
-              </ol>
-            ) : (
-              <p className="gym-sched-hint">Add at least one day to see a preview.</p>
-            )}
-          </section>
+            <button type="button" className="wiz-sched-link" onClick={openWizard}>
+              <Icon name="wand" size={20} />
+              <span className="wiz-sched-link-text">
+                <strong>Use the split wizard</strong>
+                <small>Type a new split, like “push pull legs rest”, and get routines for it.</small>
+              </span>
+              <Icon name="chevronRight" size={18} />
+            </button>
 
-          <section className="gym-sched-section">
-            <div className="gym-sched-field">
-              <label htmlFor={deloadId}>Deload week</label>
-              <select
-                id={deloadId}
-                className="input gym-sched-inline-select"
-                value={draft.deloadEvery}
-                onChange={(event) => update((current) => ({ ...current, deloadEvery: Number(event.target.value) }))}
-              >
-                {[...new Set([...DELOAD_CHOICES, draft.deloadEvery])].sort((a, b) => a - b).map((weeks) => (
-                  <option key={weeks} value={weeks}>{weeks ? `Every ${weeks} weeks` : 'Off'}</option>
-                ))}
-              </select>
-            </div>
-            <p className="gym-sched-hint gym-sched-field-hint">
-              {draft.deloadEvery
-                ? `Every ${ordinal(draft.deloadEvery)} week is lighter: half the sets and 10% less weight, to recover.`
-                : 'A regular lighter week (half the sets, 10% less weight) helps you recover and keep progressing.'}
+            <p className="gym-sched-note">
+              <Icon name="history" size={16} />
+              <span>
+                {hasSessionToday
+                  ? 'Changes start tomorrow, since you’ve already trained today. Past days never change.'
+                  : 'Changes start today. Past days never change.'}
+              </span>
             </p>
-          </section>
-
-          <p className="gym-sched-note">
-            <Icon name="history" size={16} />
-            <span>
-              {hasSessionToday
-                ? 'Changes start tomorrow, since you’ve already trained today. Past days never change.'
-                : 'Changes start today. Past days never change.'}
-            </span>
-          </p>
-        </div>
-      )}
-    </Sheet>
+          </div>
+        )}
+      </Sheet>
+      <SplitWizard open={wizardOpen} onClose={() => setWizardOpen(false)} today={today} />
+    </>
   )
 }
 

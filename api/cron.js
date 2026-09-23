@@ -1,5 +1,5 @@
 import { getSupabase } from './db.js'
-import { dueNotifications, pushConfigured, sendToUser } from './_reminders.js'
+import { combineReminders, dueNotifications, groupDue, pushConfigured, sendToUser } from './_reminders.js'
 
 // Called every minute by the Supabase scheduler (pg_cron + pg_net), see
 // supabase/migrations/2026-09-24-notifications.sql. Protected by CRON_SECRET.
@@ -71,26 +71,31 @@ export default async function handler(req, res) {
           gymSessions: gym.error ? (gymMissing ? [] : null) : (gym.data || []),
         }, now)
 
-        for (const item of due) {
+        for (const group of groupDue(due)) {
           if (dryRun) {
-            report.push({ userId, key: item.key, fireAt: new Date(item.fireAt).toISOString(), title: item.title, body: item.body })
+            const message = combineReminders(group)
+            report.push({ userId, key: group.map((item) => item.key).join(' + '), fireAt: new Date(group[0].fireAt).toISOString(), title: message.title, body: message.body })
             continue
           }
-          // Record first: the unique key means overlapping runs can never send twice.
-          const { error: logError } = await supabase.from('notification_log').insert({ user_id: userId, key: item.key })
-          if (logError) {
-            if (logError.code !== '23505') console.error('Notification log failed:', logError.message)
-            continue
+          // Record first: the unique key means overlapping runs can never send twice. A batch sends
+          // only the reminders this run claimed.
+          const claimed = []
+          for (const item of group) {
+            const { error: logError } = await supabase.from('notification_log').insert({ user_id: userId, key: item.key })
+            if (!logError) claimed.push(item)
+            else if (logError.code !== '23505') console.error('Notification log failed:', logError.message)
           }
+          if (!claimed.length) continue
+          const keys = claimed.map((item) => item.key)
           let result = { sent: 0, failed: 1 }
           try {
-            result = await sendToUser(supabase, userId, { title: item.title, body: item.body, url: item.url, tag: item.tag })
+            result = await sendToUser(supabase, userId, combineReminders(claimed))
           } catch (err) {
             console.error('Reminder send failed:', err.message || err)
           }
-          // Nothing reached any device: release the key so the next run retries within SEND_WINDOW_MS.
-          if (!result.sent && result.failed) await supabase.from('notification_log').delete().eq('user_id', userId).eq('key', item.key)
-          report.push({ key: item.key, sent: result.sent, failed: result.failed })
+          // Nothing reached any device: release the keys so the next run retries within SEND_WINDOW_MS.
+          if (!result.sent && result.failed) await supabase.from('notification_log').delete().eq('user_id', userId).in('key', keys)
+          report.push({ key: keys.join(' + '), sent: result.sent, failed: result.failed })
         }
       } catch (error) {
         console.error('Cron user failed:', userId, error.message)

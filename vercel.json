@@ -2,6 +2,9 @@
   "devCommand": "vite --port $PORT",
   "functions": {
     "api/assistant.js": {
+      "maxDuration": 120
+    },
+    "api/food.js": {
       "maxDuration": 60
     }
   }

@@ -1,14 +1,18 @@
-import React, { Suspense, lazy, useCallback, useEffect, useState } from 'react'
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react'
 import AuthScreen from './components/AuthScreen.jsx'
 import Icon, { BrandMark } from './components/ui/Icon.jsx'
+import { Avatar } from './components/ui/primitives.jsx'
 import { ConfirmHost, Toaster, toast } from './components/ui/feedback.jsx'
 import TodayPage from './pages/TodayPage.jsx'
 import WorkoutPill from './components/WorkoutPill.jsx'
 import { SESSION_EXPIRED_EVENT, clearSession, fetchSession, getCachedUser, getToken, readJson, readPref, tokenUserId, writePref } from './lib/api.js'
-import { getState, hydrateFromCache, refresh, resetStore, retryUnsaved, updateSettings, useStore } from './lib/store.js'
+import { getState, hydrateFromCache, refresh, resetStore, retryUnsaved, updateSettings, useData, useStore } from './lib/store.js'
 import { ensureFriendReminders } from './lib/planner.js'
 import { syncSubscription } from './lib/notifications.js'
 import { applyTheme } from './lib/theme.js'
+import { toISO } from './lib/dates.js'
+import { useNow } from './lib/environment.js'
+import './components/today.css'
 
 // Only Today ships in the first bundle; other pages load on first visit (then stay cached).
 const TasksPage = lazy(() => import('./pages/TasksPage.jsx'))
@@ -17,24 +21,40 @@ const PeoplePage = lazy(() => import('./pages/PeoplePage.jsx'))
 const AssistantPage = lazy(() => import('./pages/AssistantPage.jsx'))
 const JournalPage = lazy(() => import('./pages/JournalPage.jsx'))
 const GymPage = lazy(() => import('./pages/GymPage.jsx'))
+const FoodPage = lazy(() => import('./pages/FoodPage.jsx'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage.jsx'))
 
-const NAV = [
+// Phones: the five tabs sit in the bottom bar, the daily extras are top-bar icons and Settings is
+// the avatar on the left of the top bar. Desktop: tabs + extras in the sidebar, Settings at its foot.
+const TABS = [
   { id: 'today', label: 'Today', icon: 'home' },
   { id: 'tasks', label: 'Tasks', icon: 'tasks' },
   { id: 'calendar', label: 'Calendar', icon: 'calendar' },
   { id: 'people', label: 'People', icon: 'people' },
   { id: 'assistant', label: 'Assistant', icon: 'sparkles' },
 ]
-const SECONDARY = [
+const EXTRAS = [
   { id: 'journal', label: 'Journal', icon: 'journal' },
   { id: 'gym', label: 'Gym', icon: 'dumbbell' },
-  { id: 'settings', label: 'Settings', icon: 'settings' },
+  { id: 'food', label: 'Food', icon: 'utensils' },
 ]
-const ROUTES = [...NAV, ...SECONDARY].map((item) => item.id)
+const SETTINGS = { id: 'settings', label: 'Settings', icon: 'settings' }
+const PAGES = [...TABS, ...EXTRAS, SETTINGS]
+const ROUTES = PAGES.map((item) => item.id)
 const LEGACY_ROUTES = { summary: 'today', ai: 'assistant', friends: 'people' }
 
-// The first path segment picks the page; pages with sub-views (#/gym/workout, #/gym/session/<id>)
+// Tapping the link of the page already showing (same hash, so nothing would happen) scrolls it
+// back to the top, like tapping the current tab on iOS. From a sub-view (#/gym/stats) it still goes home.
+function scrollIfCurrent(event, id) {
+  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+  const current = window.location.hash.replace(/^#\/?/, '').replace(/\/+$/, '')
+  if (current !== id) return
+  event.preventDefault()
+  const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+  window.scrollTo({ top: 0, behavior: still ? 'auto' : 'smooth' })
+}
+
+// The first path segment picks the page; pages with sub-views (#/gym/workout, #/food/day/<date>)
 // read the rest of the hash themselves.
 function routeFromHash() {
   const raw = window.location.hash.replace(/^#\/?/, '').split(/[/?]/)[0]
@@ -156,7 +176,7 @@ function Shell({ user, onUserChange, onSignOut }) {
   useEffect(() => {
     writePref('lastRoute', route)
     window.scrollTo({ top: 0 })
-    document.title = `${[...NAV, ...SECONDARY].find((item) => item.id === route)?.label || 'Daybook'} · Daybook`
+    document.title = `${PAGES.find((item) => item.id === route)?.label || 'Daybook'} · Daybook`
   }, [route])
 
   // iOS-style navigation bar: once the large page title scrolls away, a compact title appears.
@@ -174,7 +194,7 @@ function Shell({ user, onUserChange, onSignOut }) {
 
   const displayName = settings?.displayName?.trim() || user.username
   const syncState = offline ? 'offline' : pendingSaves > 0 || syncing ? 'syncing' : 'synced'
-  const routeLabel = [...NAV, ...SECONDARY].find((item) => item.id === route)?.label || 'Daybook'
+  const routeLabel = PAGES.find((item) => item.id === route)?.label || 'Daybook'
 
   return (
     <div className="shell">
@@ -185,38 +205,46 @@ function Shell({ user, onUserChange, onSignOut }) {
           <span>Daybook</span>
         </div>
         <ul className="nav-list">
-          {NAV.map((item) => (
-            <li key={item.id}>
-              <a href={`#/${item.id}`} className={`nav-item ${route === item.id ? 'is-active' : ''}`} aria-current={route === item.id ? 'page' : undefined} aria-label={item.label} title={item.label}>
-                <span className="nav-icon"><Icon name={item.icon} size={24} strokeWidth={route === item.id ? 2.1 : 1.8} /></span>
-                <span className="nav-label">{item.label}</span>
-              </a>
+          {[...TABS, ...EXTRAS].map((item) => (
+            <li key={item.id} className={EXTRAS.includes(item) ? 'nav-extra' : undefined}>
+              <NavLink item={item} active={route === item.id} />
             </li>
           ))}
         </ul>
         <ul className="nav-list nav-secondary">
-          {SECONDARY.map((item) => (
-            <li key={item.id}>
-              <a href={`#/${item.id}`} className={`nav-item ${route === item.id ? 'is-active' : ''}`} aria-current={route === item.id ? 'page' : undefined}>
-                <span className="nav-icon"><Icon name={item.icon} size={22} /></span>
-                <span className="nav-label">{item.label}</span>
-              </a>
-            </li>
-          ))}
+          <li>
+            <NavLink item={SETTINGS} active={route === SETTINGS.id} />
+          </li>
         </ul>
       </nav>
 
       <div className="shell-main">
         <header className={`topbar ${scrolled ? 'is-scrolled' : ''}`}>
-          <div className="topbar-brand">
-            <BrandMark size={28} />
-          </div>
+          <a
+            href="#/settings"
+            className={`topbar-brand td-avatar-btn ${route === 'settings' ? 'is-active' : ''}`}
+            aria-label="Settings"
+            title="Settings"
+            aria-current={route === 'settings' ? 'page' : undefined}
+            onClick={(event) => scrollIfCurrent(event, 'settings')}
+          >
+            <Avatar name={displayName} size={32} />
+          </a>
           <span className="topbar-title" aria-hidden={!scrolled}>{routeLabel}</span>
           <SyncBadge state={syncState} />
           <div className="topbar-actions">
-            {SECONDARY.map((item) => (
-              <a key={item.id} href={`#/${item.id}`} className={`icon-btn ${route === item.id ? 'is-active' : ''}`} aria-label={item.label} title={item.label} aria-current={route === item.id ? 'page' : undefined}>
+            {EXTRAS.map((item) => (
+              <a
+                key={item.id}
+                href={`#/${item.id}`}
+                className={`icon-btn ${route === item.id ? 'is-active' : ''}`}
+                title={item.label}
+                aria-current={route === item.id ? 'page' : undefined}
+                onClick={(event) => scrollIfCurrent(event, item.id)}
+              >
                 <Icon name={item.icon} size={21} />
+                <span className="sr-only">{item.label}</span>
+                {item.id === 'journal' && <JournalDot />}
               </a>
             ))}
           </div>
@@ -232,6 +260,7 @@ function Shell({ user, onUserChange, onSignOut }) {
               {route === 'assistant' && <AssistantPage displayName={displayName} />}
               {route === 'journal' && <JournalPage />}
               {route === 'gym' && <GymPage />}
+              {route === 'food' && <FoodPage loaded={loaded} />}
               {route === 'settings' && <SettingsPage user={user} onUserChange={onUserChange} onSignOut={onSignOut} />}
             </Suspense>
           </ErrorBoundary>
@@ -242,13 +271,69 @@ function Shell({ user, onUserChange, onSignOut }) {
   )
 }
 
+function NavLink({ item, active }) {
+  return (
+    <a
+      href={`#/${item.id}`}
+      className={`nav-item ${active ? 'is-active' : ''}`}
+      aria-current={active ? 'page' : undefined}
+      title={item.label}
+      onClick={(event) => scrollIfCurrent(event, item.id)}
+    >
+      <span className="nav-icon"><Icon name={item.icon} size={24} strokeWidth={active ? 2.1 : 1.8} /></span>
+      <span className="nav-label">{item.label}</span>
+      {item.id === 'tasks' && <OverdueBadge />}
+      {item.id === 'journal' && <JournalDot />}
+    </a>
+  )
+}
+
+// Overdue open tasks, on the Tasks tab. Its own component, so the minute tick (for midnight)
+// doesn't re-render the shell.
+function OverdueBadge() {
+  const tasks = useData('tasks')
+  const today = toISO(useNow(60000))
+  const count = useMemo(() => tasks.filter((task) => !task.archived && !task.done && task.date && task.date < today).length, [tasks, today])
+  if (!count) return null
+  return (
+    <span className="td-nav-badge">
+      <span aria-hidden="true">{count > 99 ? '99+' : count}</span>
+      <span className="sr-only">, {count} overdue</span>
+    </span>
+  )
+}
+
+// Evening nudge (from 18:00) on the Journal icon while today has no entry yet.
+function JournalDot() {
+  const entries = useData('journalEntries')
+  const loaded = useStore((state) => state.loaded)
+  const now = useNow(60000)
+  const today = toISO(now)
+  if (!loaded || now.getHours() < 18 || entries.some((entry) => entry.date === today)) return null
+  return (
+    <>
+      <span className="td-dot" aria-hidden="true" />
+      <span className="sr-only">, nothing written today</span>
+    </>
+  )
+}
+
+// Compact: a cloud + "Offline", or just a spinner while saving. A tap explains.
 function SyncBadge({ state }) {
   if (state === 'synced') return <span className="sync-badge is-hidden" aria-hidden="true" />
+  const offline = state === 'offline'
   return (
-    <span className={`sync-badge is-${state}`} role="status">
-      <Icon name={state === 'offline' ? 'cloudOff' : 'refresh'} size={14} />
-      {state === 'offline' ? 'Offline · saved on this device' : 'Syncing…'}
-    </span>
+    <button
+      type="button"
+      className={`sync-badge td-sync is-${state}`}
+      aria-label={offline ? 'Offline: changes are saved on this device' : 'Saving changes'}
+      onClick={() => toast(offline
+        ? 'You’re offline. Changes are saved on this device and sync when you’re back online.'
+        : 'Saving your changes…')}
+    >
+      <Icon name={offline ? 'cloudOff' : 'refresh'} size={14} strokeWidth={2} />
+      {offline && <span className="td-sync-text" aria-hidden="true">Offline</span>}
+    </button>
   )
 }
 

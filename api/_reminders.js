@@ -23,6 +23,13 @@ export const DEFAULT_NOTIFICATIONS = {
 }
 
 const SEND_WINDOW_MS = 45 * 60 * 1000 // late cron runs still deliver, but stale reminders are dropped
+// An untimed task added after its all-day reminder time with an explicit all-day reminder (on the
+// day / the day before) is reminded once, this long after it was created, instead of never.
+const LATE_ALLDAY_DELAY_MS = 60 * 1000
+// Late all-day reminders due together are sent as one notification (api/cron.js); one added less than
+// LATE_ALLDAY_DELAY_MS ago holds back the others for up to this long, so they go out together.
+const LATE_ALLDAY_HOLD_MS = 5 * 60 * 1000
+export const LATE_ALLDAY_BATCH = 'late-allday'
 
 export function notificationPrefs(settings) {
   return { ...DEFAULT_NOTIFICATIONS, ...(settings?.notifications || {}) }
@@ -238,6 +245,105 @@ function workoutReminder(day, today, time, timeZone) {
   }
 }
 
+// ---- task reminders -------------------------------------------------------------------------
+
+// When one task's reminder fires under these prefs (before quiet hours), or why it doesn't.
+// → { off: 'nodate' | 'people' | 'task' | 'lead' | 'allday' }
+//   | { off: 'added', time, dayBefore }
+//   | { timed: true, key, fireAt, due, lead }
+//   | { timed: false, key, fireAt, time, dayBefore, scheduled, late }
+// An untimed task created after its all-day reminder time (on or before its date) gets:
+//   * with an explicit all-day reminder (reminder_minutes 0 = on the day, >= 1440 = the day before:
+//     the user or the assistant asked for one), late: one ping shortly after creation (once per key)
+//     when that is still on or before the due date after quiet hours; otherwise the passed time.
+//   * otherwise (a plain quick-add, a catch-up task the app adds on open) off 'added': no ping. The
+//     user has just typed it, and the evening nudge lists what's still open today.
+// Tasks may be database rows (snake_case) or app/assistant objects (camelCase).
+function taskReminderPlan(task, prefs, timeZone) {
+  if (!isDate(task.date)) return { off: 'nodate' }
+  if (isReminderTask(task) && !prefs.people) return { off: 'people' }
+  const minutes = task.reminder_minutes ?? task.reminderMinutes
+  const override = Number.isInteger(minutes) ? minutes : null
+  if (override !== null && override < 0) return { off: 'task' } // negative = no reminder
+
+  if (isTime(task.time)) {
+    const lead = override ?? Number(prefs.taskLead)
+    if (!Number.isFinite(lead) || lead < 0) return { off: 'lead' }
+    const due = zonedToUtc(task.date, task.time, timeZone)
+    return { timed: true, key: `task:${task.id}:${task.date}T${task.time}:${lead}`, fireAt: due - lead * 60000, due, lead }
+  }
+
+  // Only all-day values count here (0 = on the day, >= 1440 = day before); a lead left over
+  // from when the task had a time falls back to the all-day default.
+  const allDayOverride = override === 0 || override >= 1440 ? override : null
+  const mode = allDayOverride === null ? (prefs.allDayTime ? (prefs.allDayMode === 'before' ? 1440 : 0) : -1) : allDayOverride
+  if (mode < 0) return { off: 'allday' }
+  const time = isTime(prefs.allDayTime) ? prefs.allDayTime : '09:00'
+  const dayBefore = mode >= 1440
+  const scheduled = zonedToUtc(dayBefore ? addDays(task.date, -1) : task.date, time, timeZone)
+  const plan = { timed: false, key: `task:${task.id}:${task.date}:allday:${dayBefore ? 'before' : 'day'}`, fireAt: scheduled, time, dayBefore, scheduled, late: false }
+
+  // B5: added after the all-day time (see above).
+  const created = Date.parse(task.created_at ?? task.createdAt ?? '')
+  if (Number.isFinite(created) && created > scheduled && localNow(created, timeZone).date <= task.date) {
+    if (allDayOverride === null || isReminderTask(task)) return { off: 'added', time, dayBefore }
+    const fireAt = outsideQuietHours(created + LATE_ALLDAY_DELAY_MS, prefs, timeZone)
+    if (localNow(fireAt, timeZone).date <= task.date) return { ...plan, fireAt, late: true }
+  }
+  return plan
+}
+
+function taskTitle(task) {
+  return task.priority === 'urgent' ? `Urgent: ${task.text}` : task.text
+}
+
+const PREVIEW_OFF = {
+  nodate: 'no reminder will fire (the task has no date)',
+  people: 'no reminder will fire (catch-up reminders are off in Settings → Notifications)',
+  task: 'no reminder will fire (reminders are turned off for this task)',
+  lead: 'no reminder will fire (reminders for timed tasks are off in Settings → Notifications)',
+  allday: 'no reminder will fire (all-day reminders are off in Settings → Notifications; give it a time to get one)',
+}
+
+// When the reminder for `task` will actually fire, mirroring dueNotifications (quiet hours, the send
+// window, the late all-day rule). prefs: settings.notifications (defaults filled in here). A task
+// without created_at is taken to be created now.
+// → { at: epoch ms | null, label: 'today 7:45 PM' | null, warning: string | null }
+export function reminderPreview(task, prefs, timeZone, nowMs = Date.now()) {
+  const none = (warning) => ({ at: null, label: null, warning })
+  const item = isObject(task) ? task : {}
+  if (item.done || item.archived) return none(null)
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now()
+  const merged = { ...DEFAULT_NOTIFICATIONS, ...(isObject(prefs) ? prefs : {}) }
+  const zone = safeZone(typeof timeZone === 'string' && timeZone ? timeZone : 'UTC')
+  const today = localNow(now, zone).date
+  const withCreated = item.created_at || item.createdAt ? item : { ...item, created_at: new Date(now).toISOString() }
+  const plan = taskReminderPlan(withCreated, merged, zone)
+  if (plan.off === 'added') {
+    return none(`no reminder will fire (all-day reminders go at ${formatTime(plan.time)}${plan.dayBefore ? ' the day before' : ''}, which had passed when it was added; give it a time to get one)`)
+  }
+  if (plan.off) return none(PREVIEW_OFF[plan.off])
+
+  const planned = plan.fireAt
+  let at = outsideQuietHours(planned, merged, zone)
+  const quietMoved = at !== planned
+  const label = (timestamp) => {
+    const local = localNow(timestamp, zone)
+    return `${dayLabel(local.date, today)} ${formatTime(local.time)}`
+  }
+  if (at < now) {
+    // The next cron run (every minute) still sends anything up to SEND_WINDOW_MS late.
+    if (now - at <= SEND_WINDOW_MS) at = now
+    else if (item.date < today || (plan.timed && plan.due < now)) return none(`no reminder will fire (the task’s ${plan.timed ? 'date and time have' : 'date has'} passed)`)
+    else if (plan.timed) return none(`no reminder will fire (its reminder time, ${label(planned)}, has passed)`)
+    else return none(`no reminder will fire (all-day reminders go at ${formatTime(plan.time)}${plan.dayBefore ? ' the day before' : ''}, which has passed)`)
+  }
+  let warning = null
+  if (plan.late) warning = `all-day reminders go at ${formatTime(plan.time)}${plan.dayBefore ? ' the day before' : ''}, which has passed, so it pings once right after saving; give it a time for a proper reminder`
+  else if (quietMoved) warning = `the reminder falls in quiet hours, so it comes at ${formatTime(localNow(at, zone).time)} instead`
+  return { at, label: label(at), warning }
+}
+
 // ---- what is due ----------------------------------------------------------------------------
 
 // Every notification that should fire around `now` for one user, oldest first.
@@ -257,42 +363,18 @@ export function dueNotifications({ settings, tasks, friends, contactLogs = null,
 
   // Task reminders
   for (const task of open) {
-    if (!isDate(task.date)) continue
-    if (isReminderTask(task) && !prefs.people) continue
-    const override = Number.isInteger(task.reminder_minutes) ? task.reminder_minutes : null
-    if (override !== null && override < 0) continue // negative = no reminder
-
-    if (isTime(task.time)) {
-      const lead = override ?? Number(prefs.taskLead)
-      if (!Number.isFinite(lead) || lead < 0) continue
-      const due = zonedToUtc(task.date, task.time, timeZone)
+    const plan = taskReminderPlan(task, prefs, timeZone)
+    if (plan.off) continue
+    let body
+    if (plan.timed) {
       const when = `${dayLabel(task.date, today)} at ${formatTime(task.time)}`
-      candidates.push({
-        key: `task:${task.id}:${task.date}T${task.time}:${lead}`,
-        fireAt: due - lead * 60000,
-        title: task.priority === 'urgent' ? `Urgent: ${task.text}` : task.text,
-        body: lead === 0 ? `Due now (${formatTime(task.time)})` : task.date < today ? `Was due ${when}` : `Due ${when}`,
-        url: '/#/tasks',
-        tag: `task-${task.id}`,
-      })
+      body = plan.lead === 0 ? `Due now (${formatTime(task.time)})` : task.date < today ? `Was due ${when}` : `Due ${when}`
+    } else if (plan.late) {
+      body = localNow(plan.fireAt, timeZone).date === task.date ? 'Due today' : 'Due tomorrow'
     } else {
-      // Only all-day values count here (0 = on the day, >= 1440 = day before); a lead left over
-      // from when the task had a time falls back to the all-day default.
-      const allDayOverride = override === 0 || override >= 1440 ? override : null
-      const mode = allDayOverride === null ? (prefs.allDayTime ? (prefs.allDayMode === 'before' ? 1440 : 0) : -1) : allDayOverride
-      if (mode < 0) continue
-      const time = isTime(prefs.allDayTime) ? prefs.allDayTime : '09:00'
-      const dayBefore = mode >= 1440
-      const date = dayBefore ? addDays(task.date, -1) : task.date
-      candidates.push({
-        key: `task:${task.id}:${task.date}:allday:${dayBefore ? 'before' : 'day'}`,
-        fireAt: zonedToUtc(date, time, timeZone),
-        title: task.priority === 'urgent' ? `Urgent: ${task.text}` : task.text,
-        body: dayBefore ? 'Due tomorrow' : 'Due today',
-        url: '/#/tasks',
-        tag: `task-${task.id}`,
-      })
+      body = plan.dayBefore ? 'Due tomorrow' : 'Due today'
     }
+    candidates.push({ key: plan.key, fireAt: plan.fireAt, title: taskTitle(task), body, url: '/#/tasks', tag: `task-${task.id}`, ...(plan.late ? { batch: LATE_ALLDAY_BATCH } : {}) })
   }
 
   // Morning summary
@@ -354,8 +436,50 @@ export function dueNotifications({ settings, tasks, friends, contactLogs = null,
     candidates.push(workoutReminder(workout, today, time, timeZone))
   }
 
-  return candidates
-    .map((item) => ({ ...item, fireAt: outsideQuietHours(item.fireAt, prefs, timeZone) }))
+  const scheduled = candidates.map((item) => ({ ...item, fireAt: outsideQuietHours(item.fireAt, prefs, timeZone) }))
+  // A late all-day reminder for a task added under a minute ago holds back the due ones for a little
+  // while, so tasks added together are reminded together (api/cron.js sends a batch as one).
+  const waiting = scheduled.some((item) => item.batch && item.fireAt > now && item.fireAt - now <= LATE_ALLDAY_DELAY_MS)
+  return scheduled
     .filter((item) => item.fireAt <= now && now - item.fireAt <= SEND_WINDOW_MS)
+    .filter((item) => !(waiting && item.batch && now - item.fireAt < LATE_ALLDAY_HOLD_MS))
     .sort((a, b) => a.fireAt - b.fireAt)
+}
+
+// dueNotifications' list → groups, each sent as one notification by api/cron.js: items of the same
+// `batch` (late all-day reminders) together, at the first one's place; everything else on its own.
+export function groupDue(due) {
+  const groups = []
+  const byBatch = new Map()
+  for (const item of Array.isArray(due) ? due : []) {
+    if (!item?.batch) {
+      groups.push([item])
+    } else if (byBatch.has(item.batch)) {
+      byBatch.get(item.batch).push(item)
+    } else {
+      const group = [item]
+      byBatch.set(item.batch, group)
+      groups.push(group)
+    }
+  }
+  return groups
+}
+
+// One notification for reminders of the same batch sent together (see api/cron.js): '3 tasks due
+// today' / 'Buy milk, Pay rent, Call Ali and 2 more'. A single item is sent as it is.
+export function combineReminders(items) {
+  const list = (Array.isArray(items) ? items : []).filter(isObject)
+  if (list.length <= 1) {
+    const item = list[0] || {}
+    return { title: item.title, body: item.body, url: item.url, tag: item.tag }
+  }
+  const bodies = [...new Set(list.map((item) => item.body))]
+  const day = bodies.length === 1 ? /^Due (today|tomorrow)$/.exec(bodies[0])?.[1] : null
+  const names = list.map((item) => item.title)
+  return {
+    title: day ? `${list.length} tasks due ${day}` : `${list.length} tasks coming up`,
+    body: `${names.slice(0, 3).join(', ')}${names.length > 3 ? ` and ${names.length - 3} more` : ''}`,
+    url: '/#/tasks',
+    tag: LATE_ALLDAY_BATCH,
+  }
 }

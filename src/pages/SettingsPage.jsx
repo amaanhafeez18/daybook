@@ -1,17 +1,55 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../components/ui/Icon.jsx'
 import Sheet from '../components/ui/Sheet.jsx'
 import { Avatar, Button, Field, PasswordInput, Segmented, Switch } from '../components/ui/primitives.jsx'
 import { confirmAction, toast } from '../components/ui/feedback.jsx'
 import { RECOVERY_QUESTIONS } from '../components/AuthScreen.jsx'
-import { authRequest, writePref } from '../lib/api.js'
+import { authRequest, clearUserCaches, writePref } from '../lib/api.js'
 import { navigate } from '../lib/router.js'
-import { refresh, updateSettings, useData, useStore } from '../lib/store.js'
+import { flushAll, getState, refresh, resetStore, updateSettings, useData, useStore } from '../lib/store.js'
+import { discardActive, flushActive, getActiveWorkout, updateGym } from '../lib/gym/state.js'
 import { classSchedule, deleteClass, deleteTaskForever, restoreTask, saveClass } from '../lib/planner.js'
 import { ACCENTS, APPEARANCES, resolveAppearance } from '../lib/theme.js'
 import { PRAYER_METHODS } from '../lib/environment.js'
 import { formatDateShort, formatTime, timeToMinutes } from '../lib/dates.js'
 import { LEAD_OPTIONS, currentSubscription, disableNotifications, enableNotifications, leadLabel, notificationPrefs, pushSupport, sendTestNotification, syncSubscription } from '../lib/notifications.js'
+import '../components/settings.css'
+
+// #/settings/<id> opens Settings scrolled to that section (e.g. the prayer card's "Method" link).
+const SECTION_IDS = new Set(['notifications', 'assistant', 'classes', 'prayer', 'appearance', 'profile', 'security', 'archived', 'account', 'danger'])
+
+function useSectionLink() {
+  useEffect(() => {
+    let frame = 0
+    let landedTimer = 0
+    const jump = () => {
+      const id = window.location.hash.match(/^#\/?settings\/([a-z-]+)/)?.[1]
+      if (!id || !SECTION_IDS.has(id)) return
+      cancelAnimationFrame(frame)
+      // The shell scrolls to the top on a route change, after this page's effects: wait a frame.
+      frame = requestAnimationFrame(() => {
+        frame = requestAnimationFrame(() => {
+          // Back to the plain route, so tapping Settings again scrolls to the top.
+          window.history.replaceState(null, '', '#/settings')
+          const section = document.getElementById(id)
+          if (!section) return
+          const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+          section.scrollIntoView({ block: 'start', behavior: still ? 'auto' : 'smooth' })
+          section.classList.add('set-landed')
+          clearTimeout(landedTimer)
+          landedTimer = setTimeout(() => section.classList.remove('set-landed'), 1800)
+        })
+      })
+    }
+    jump()
+    window.addEventListener('hashchange', jump)
+    return () => {
+      cancelAnimationFrame(frame)
+      clearTimeout(landedTimer)
+      window.removeEventListener('hashchange', jump)
+    }
+  }, [])
+}
 
 export default function SettingsPage({ user, onUserChange, onSignOut }) {
   const settings = useData('settings')
@@ -25,6 +63,7 @@ export default function SettingsPage({ user, onUserChange, onSignOut }) {
   const [showArchived, setShowArchived] = useState(false)
   const archived = useMemo(() => tasks.filter((task) => task.archived).sort((a, b) => String(b.date || '').localeCompare(String(a.date || ''))), [tasks])
 
+  useSectionLink()
   useEffect(() => { setNameDraft(settings.displayName || '') }, [settings.displayName])
 
   function saveName() {
@@ -51,34 +90,63 @@ export default function SettingsPage({ user, onUserChange, onSignOut }) {
         <h1>Settings</h1>
       </header>
 
-      <section className="settings-group">
-        <h2>Profile</h2>
+      <NotificationSettings settings={settings} />
+
+      <section className="settings-group" id="assistant">
+        <h2>Assistant</h2>
         <div className="card settings-card">
-          <div className="profile-row">
-            <Avatar name={nameDraft || user.username} size={52} />
-            <div>
-              <strong>{nameDraft || user.username}</strong>
-              <small>@{user.username}</small>
-            </div>
-          </div>
-          <Field label="Display name" hint="Used in greetings and by the assistant.">
-            {(id) => (
-              <input
-                id={id}
-                className="input"
-                value={nameDraft}
-                onChange={(event) => setNameDraft(event.target.value)}
-                onBlur={saveName}
-                onKeyDown={(event) => event.key === 'Enter' && event.currentTarget.blur()}
-                placeholder={user.username}
-                maxLength={40}
-              />
-            )}
-          </Field>
+          <Switch
+            label="Ask before making changes"
+            description="The assistant shows what it understood and waits for your Yes"
+            checked={settings.assistantConfirm !== 'off'}
+            onChange={(checked) => updateSettings({ assistantConfirm: checked ? 'all' : 'off' })}
+          />
         </div>
       </section>
 
-      <section className="settings-group">
+      <section className="settings-group" id="classes">
+        <div className="settings-group-header">
+          <h2>Classes</h2>
+          <Button variant="secondary" size="sm" icon="plus" onClick={() => setClassSheet({})}>Add class</Button>
+        </div>
+        <div className="card settings-card settings-list">
+          {classes.length === 0 ? <p className="muted">Add your timetable and it shows up on Today and the calendar.</p> : classes.map((item) => (
+            <button key={item.id} type="button" className="settings-row" onClick={() => setClassSheet(item)}>
+              <span className="settings-row-icon"><Icon name="graduation" size={18} /></span>
+              <span className="settings-row-text">
+                <strong>{item.name}</strong>
+                <small>{classSchedule(item).map((slot) => `${slot.day}${slot.time ? ` ${slot.time.split('-')[0].trim()}` : ''}`).join(' · ')}{item.endDate ? ` · until ${formatDateShort(item.endDate)}` : ''}</small>
+              </span>
+              <Icon name="chevronRight" size={18} />
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="settings-group" id="prayer">
+        <h2>Prayer times</h2>
+        <div className="card settings-card">
+          <Switch label="Show prayer times on Today" checked={settings.showPrayerTimes !== false} onChange={(checked) => updateSettings({ showPrayerTimes: checked })} />
+          {settings.showPrayerTimes !== false && (
+            <>
+              <Field label="Calculation method" hint="Automatic uses the standard authority for your location.">
+                {(id) => (
+                  <select id={id} className="input" value={settings.prayerMethod || 'auto'} onChange={(event) => updateSettings({ prayerMethod: event.target.value })}>
+                    {PRAYER_METHODS.map((method) => <option key={method.id} value={method.id}>{method.label}</option>)}
+                  </select>
+                )}
+              </Field>
+              <div className="field">
+                <span className="field-label">Asr time</span>
+                <Segmented options={[{ id: 0, label: 'Standard' }, { id: 1, label: 'Hanafi' }]} value={Number(settings.prayerSchool || 0)} onChange={(prayerSchool) => updateSettings({ prayerSchool })} label="Asr calculation" />
+                <p className="field-hint">Standard: Shafi‘i, Maliki, Hanbali. Hanafi Asr is later in the afternoon.</p>
+              </div>
+            </>
+          )}
+        </div>
+      </section>
+
+      <section className="settings-group" id="appearance">
         <h2>Appearance</h2>
         <div className="card settings-card">
           <div className="field">
@@ -107,51 +175,54 @@ export default function SettingsPage({ user, onUserChange, onSignOut }) {
         </div>
       </section>
 
-      <NotificationSettings settings={settings} />
-
-      <section className="settings-group">
-        <h2>Prayer times</h2>
+      <section className="settings-group" id="profile">
+        <h2>Profile</h2>
         <div className="card settings-card">
-          <Switch label="Show prayer times on Today" checked={settings.showPrayerTimes !== false} onChange={(checked) => updateSettings({ showPrayerTimes: checked })} />
-          {settings.showPrayerTimes !== false && (
-            <>
-              <Field label="Calculation method" hint="Automatic uses the standard authority for your location.">
-                {(id) => (
-                  <select id={id} className="input" value={settings.prayerMethod || 'auto'} onChange={(event) => updateSettings({ prayerMethod: event.target.value })}>
-                    {PRAYER_METHODS.map((method) => <option key={method.id} value={method.id}>{method.label}</option>)}
-                  </select>
-                )}
-              </Field>
-              <div className="field">
-                <span className="field-label">Asr time</span>
-                <Segmented options={[{ id: 0, label: 'Standard' }, { id: 1, label: 'Hanafi' }]} value={Number(settings.prayerSchool || 0)} onChange={(prayerSchool) => updateSettings({ prayerSchool })} label="Asr calculation" />
-                <p className="field-hint">Standard: Shafi‘i, Maliki, Hanbali. Hanafi Asr is later in the afternoon.</p>
-              </div>
-            </>
-          )}
+          <div className="profile-row">
+            <Avatar name={nameDraft || user.username} size={52} />
+            <div>
+              <strong>{nameDraft || user.username}</strong>
+              <small>@{user.username}</small>
+            </div>
+          </div>
+          <Field label="Display name" hint="Used in greetings and by the assistant.">
+            {(id) => (
+              <input
+                id={id}
+                className="input"
+                value={nameDraft}
+                onChange={(event) => setNameDraft(event.target.value)}
+                onBlur={saveName}
+                onKeyDown={(event) => event.key === 'Enter' && event.currentTarget.blur()}
+                placeholder={user.username}
+                maxLength={40}
+              />
+            )}
+          </Field>
         </div>
       </section>
 
-      <section className="settings-group">
-        <div className="settings-group-header">
-          <h2>Classes</h2>
-          <Button variant="secondary" size="sm" icon="plus" onClick={() => setClassSheet({})}>Add class</Button>
-        </div>
+      <section className="settings-group" id="security">
+        <h2>Security</h2>
         <div className="card settings-card settings-list">
-          {classes.length === 0 ? <p className="muted">Add your timetable and it shows up on Today and the calendar.</p> : classes.map((item) => (
-            <button key={item.id} type="button" className="settings-row" onClick={() => setClassSheet(item)}>
-              <span className="settings-row-icon"><Icon name="graduation" size={18} /></span>
-              <span className="settings-row-text">
-                <strong>{item.name}</strong>
-                <small>{classSchedule(item).map((slot) => `${slot.day}${slot.time ? ` ${slot.time.split('-')[0].trim()}` : ''}`).join(' · ')}{item.endDate ? ` · until ${formatDateShort(item.endDate)}` : ''}</small>
-              </span>
-              <Icon name="chevronRight" size={18} />
-            </button>
-          ))}
+          <button type="button" className="settings-row" onClick={() => setSecuritySheet('password')}>
+            <span className="settings-row-icon"><Icon name="lock" size={18} /></span>
+            <span className="settings-row-text"><strong>Change password</strong><small>Signs out your other devices</small></span>
+            <Icon name="chevronRight" size={18} />
+          </button>
+          <button type="button" className="settings-row" onClick={() => setSecuritySheet('recovery')}>
+            <span className="settings-row-icon"><Icon name="undo" size={18} /></span>
+            <span className="settings-row-text">
+              <strong>Recovery question</strong>
+              <small>{user.hasRecovery ? 'Set — used to reset a forgotten password' : 'Not set — you can’t reset a forgotten password'}</small>
+            </span>
+            {!user.hasRecovery && <span className="badge badge-warning">Set up</span>}
+            <Icon name="chevronRight" size={18} />
+          </button>
         </div>
       </section>
 
-      <section className="settings-group">
+      <section className="settings-group" id="archived">
         <h2>Archived tasks</h2>
         <div className="card settings-card settings-list">
           {archived.length === 0 ? <p className="muted">Archived tasks can be restored from here.</p> : (
@@ -176,27 +247,7 @@ export default function SettingsPage({ user, onUserChange, onSignOut }) {
         </div>
       </section>
 
-      <section className="settings-group">
-        <h2>Security</h2>
-        <div className="card settings-card settings-list">
-          <button type="button" className="settings-row" onClick={() => setSecuritySheet('password')}>
-            <span className="settings-row-icon"><Icon name="lock" size={18} /></span>
-            <span className="settings-row-text"><strong>Change password</strong><small>Signs out your other devices</small></span>
-            <Icon name="chevronRight" size={18} />
-          </button>
-          <button type="button" className="settings-row" onClick={() => setSecuritySheet('recovery')}>
-            <span className="settings-row-icon"><Icon name="undo" size={18} /></span>
-            <span className="settings-row-text">
-              <strong>Recovery question</strong>
-              <small>{user.hasRecovery ? 'Set — used to reset a forgotten password' : 'Not set — you can’t reset a forgotten password'}</small>
-            </span>
-            {!user.hasRecovery && <span className="badge badge-warning">Set up</span>}
-            <Icon name="chevronRight" size={18} />
-          </button>
-        </div>
-      </section>
-
-      <section className="settings-group">
+      <section className="settings-group" id="account">
         <h2>Account</h2>
         <div className="card settings-card settings-list">
           <div className="settings-row is-static">
@@ -214,12 +265,168 @@ export default function SettingsPage({ user, onUserChange, onSignOut }) {
         </div>
       </section>
 
+      <DangerZone username={user.username} />
+
       <p className="settings-footnote">Daybook · Your data syncs across your devices.</p>
 
       <ClassSheet item={classSheet} onClose={() => setClassSheet(null)} />
       <PasswordSheet open={securitySheet === 'password'} onClose={() => setSecuritySheet(null)} onUserChange={onUserChange} />
       <RecoverySheet open={securitySheet === 'recovery'} onClose={() => setSecuritySheet(null)} onUserChange={onUserChange} />
     </div>
+  )
+}
+
+// ---- danger zone: clear all data -------------------------------------------------------------
+// Two confirmations, then the password. The server deletes everything except the account; this
+// device then drops its copies and reloads the (now empty) data without signing out.
+
+const STEP_GAP_MS = 240 // lets one dialog slide away before the next appears (Sheet exit is 180 ms)
+const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+const WIPE_MESSAGE = (
+  <>
+    This deletes your tasks, calendar, people &amp; catch-ups, classes, journal, notes, gym plan, routines &amp; workouts, food log, body weights, assistant chat &amp; memories, and settings, on all your devices.
+    <span className="set-confirm-keep">Your account and login stay, and so does this device’s notification permission.</span>
+  </>
+)
+
+function DangerZone({ username }) {
+  const [sheetOpen, setSheetOpen] = useState(false)
+
+  async function start() {
+    const first = await confirmAction({ title: 'Clear all your data?', message: WIPE_MESSAGE, confirmLabel: 'Continue' })
+    if (first !== true) return
+    await pause(STEP_GAP_MS)
+    const second = await confirmAction({ title: 'Are you absolutely sure?', message: 'This can’t be undone.', confirmLabel: 'Yes, clear everything' })
+    if (second !== true) return
+    await pause(STEP_GAP_MS)
+    setSheetOpen(true)
+  }
+
+  return (
+    <section className="settings-group set-danger" id="danger">
+      <h2>Danger zone</h2>
+      <div className="card settings-card settings-list">
+        <button type="button" className="settings-row is-danger" onClick={start}>
+          <span className="settings-row-icon"><Icon name="trash" size={18} /></span>
+          <span className="settings-row-text">
+            <strong>Clear all data</strong>
+            <small>Everything except your account</small>
+          </span>
+        </button>
+      </div>
+      <p className="set-footnote">Deletes what you’ve added to Daybook on all your devices. You stay logged in.</p>
+      <WipeSheet open={sheetOpen} onClose={() => setSheetOpen(false)} username={username} />
+    </section>
+  )
+}
+
+// Module-level, so it finishes even if Settings is left while the request is in flight.
+async function clearAllData(password) {
+  // Send edits still waiting to be saved (and the active workout) first, so none of them can
+  // reach the server after the wipe and bring data back.
+  flushActive()
+  await flushAll().catch(() => {})
+  await authRequest('wipe', { password })
+  // The workout in progress lives on this device too; drop it before the store forgets it.
+  const active = getActiveWorkout()
+  const closedWorkoutId = active?.id
+  if (active) discardActive()
+  resetStore()
+  clearUserCaches({ keepSession: true })
+  refresh()
+    .then(() => {
+      // Reminders need the time zone, and this device stays registered for them.
+      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
+      if (timeZone && getState().data.settings.timeZone !== timeZone) updateSettings({ timeZone })
+      // discardActive's save was dropped with the store, and the wipe removed the settings row. Mark
+      // the workout closed again, so another device still showing it can't push it back.
+      if (typeof closedWorkoutId === 'string' && closedWorkoutId) updateGym({ active: null, closedId: closedWorkoutId })
+    })
+    .catch(() => {}) // offline: the next refresh loads the empty account
+}
+
+function WipeSheet({ open, onClose, username }) {
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('') // wrong password: shown on the field
+  const [problem, setProblem] = useState('') // anything else (rate limit, offline, server)
+  const [busy, setBusy] = useState(false)
+  const [shaking, setShaking] = useState(false)
+  const fieldRef = useRef(null)
+
+  useEffect(() => {
+    if (!open) return
+    setPassword('')
+    setError('')
+    setProblem('')
+    setShaking(false)
+  }, [open])
+
+  async function submit(event) {
+    event.preventDefault()
+    if (!password || busy) return
+    setBusy(true)
+    setError('')
+    setProblem('')
+    try {
+      await clearAllData(password)
+      setPassword('')
+      onClose()
+      toast('All data cleared', { tone: 'success' })
+    } catch (err) {
+      if (err.payload?.code === 'wrong_password') {
+        setError('Wrong password.')
+        setShaking(true)
+        const input = fieldRef.current?.querySelector('input')
+        input?.focus({ preventScroll: true })
+        input?.select()
+      } else {
+        setProblem(err.message || 'Something went wrong. Please try again.')
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Sheet
+      open={open}
+      onClose={busy ? () => {} : onClose}
+      title="Confirm with your password"
+      size="sm"
+      footer={(
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={busy}>Cancel</Button>
+          <Button variant="danger" type="submit" form="wipe-form" className="btn-grow" loading={busy} disabled={!password || busy}>Delete all data</Button>
+        </>
+      )}
+    >
+      <form id="wipe-form" className="form-stack" onSubmit={submit} noValidate>
+        <div className="set-wipe-note">
+          <span className="set-wipe-icon" aria-hidden="true"><Icon name="trash" size={18} /></span>
+          <p>Everything you’ve added to Daybook is deleted for good. Your account stays and you stay logged in.</p>
+        </div>
+        <div ref={fieldRef} className={`set-wipe-field ${shaking ? 'is-shaking' : ''}`} onAnimationEnd={() => setShaking(false)}>
+          <Field label="Password" error={error}>
+            {(id) => (
+              <PasswordInput
+                id={id}
+                value={password}
+                onChange={(event) => { setPassword(event.target.value); setError(''); setProblem('') }}
+                autoComplete="current-password"
+                aria-invalid={error ? true : undefined}
+                readOnly={busy}
+                data-autofocus
+              />
+            )}
+          </Field>
+        </div>
+        {/* Lets password managers (iOS Keychain) offer this account's password. After the password
+            field, so the sheet still focuses the password first. */}
+        <input type="text" name="username" autoComplete="username" value={username || ''} readOnly hidden />
+        {problem && <div className="alert alert-error" role="alert"><Icon name="alert" size={18} /><span>{problem}</span></div>}
+      </form>
+    </Sheet>
   )
 }
 
@@ -284,7 +491,7 @@ function NotificationSettings({ settings }) {
   if (Number.isFinite(taskLead) && !leadOptions.some((option) => option.value === taskLead)) leadOptions.push({ value: taskLead, label: leadLabel(taskLead) })
 
   return (
-    <section className="settings-group">
+    <section className="settings-group" id="notifications">
       <h2>Notifications</h2>
       <div className="card settings-card settings-list">
         <div className="settings-row is-static">

@@ -2,6 +2,9 @@ const TOKEN_KEY = 'daybook.session.token'
 const USER_KEY = 'daybook.session.user'
 // Everything the app caches for the signed-in user. Device preferences live under daybook.prefs.
 const USER_CACHE_PREFIXES = ['daybook.data.', 'daybook.synced.', 'daybook.chat', 'daybook.backup.']
+// Gym and food keep drafts and state under their own prefixes. A sign-out leaves them: the active
+// workout there is tied to its account and resumes when that account signs in again.
+const FEATURE_PREFIXES = ['daybook.gym.', 'daybook.food.']
 
 export const SESSION_EXPIRED_EVENT = 'daybook:session-expired'
 
@@ -99,8 +102,9 @@ export async function apiRequest(url, { method = 'GET', body, headers, signal } 
   }
 
   if (!response.ok) {
-    // Only if the session that made this request is still the current one.
-    if (response.status === 401 && token && getToken() === token && !(url === '/api/auth' && method === 'GET')) {
+    // Only if the session that made this request is still the current one. A wrong password
+    // (e.g. "Clear all data") is a 401 too, but the session is fine.
+    if (response.status === 401 && token && getToken() === token && !(url === '/api/auth' && method === 'GET') && payload.code !== 'wrong_password') {
       window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT))
     }
     throw new ApiError(payload.error || 'Something went wrong. Please try again.', response.status, payload)
@@ -133,22 +137,36 @@ export async function fetchSession() {
   }
 }
 
-// Removes the session and everything cached for this user so the next person on the device
-// starts clean.
-export function clearSession() {
-  setToken('')
+// Removes everything this device caches for the signed-in user. By default (sign-out) the session
+// goes too, so the next person on the device starts clean. keepSession (after "Clear all data")
+// keeps the session and also drops gym and food state and this tab's unsaved drafts.
+export function clearUserCaches({ keepSession = false } = {}) {
+  if (!keepSession) setToken('')
+  const prefixes = keepSession ? [...USER_CACHE_PREFIXES, ...FEATURE_PREFIXES] : USER_CACHE_PREFIXES
   try {
-    localStorage.removeItem(USER_KEY)
+    if (!keepSession) localStorage.removeItem(USER_KEY)
     for (const key of Object.keys(localStorage)) {
-      if (USER_CACHE_PREFIXES.some((prefix) => key.startsWith(prefix))) localStorage.removeItem(key)
+      if (prefixes.some((prefix) => key.startsWith(prefix))) localStorage.removeItem(key)
     }
-    // Per-day marker for the catch-up check; the next account must run its own.
+    // Per-day marker for the catch-up check; the next account (or the emptied one) runs its own.
     localStorage.removeItem('daybook.prefs.remindersCheckedOn')
-    // The next account on this device must register it for push itself.
+    // Registers this device for push again on the next launch.
     localStorage.removeItem('daybook.prefs.pushSync')
   } catch {
     // ignore
   }
+  if (!keepSession) return
+  try {
+    for (const key of Object.keys(sessionStorage)) {
+      if (key.startsWith('daybook.')) sessionStorage.removeItem(key)
+    }
+  } catch {
+    // ignore
+  }
+}
+
+export function clearSession() {
+  clearUserCaches()
 }
 
 export function readPref(name, fallback) {

@@ -54,6 +54,7 @@ create table if not exists public.contact_logs (
   user_id uuid not null references public.users(id) on delete cascade,
   friend_id text not null,
   date text not null,
+  note text,
   created_at timestamptz not null default now()
 );
 
@@ -134,6 +135,32 @@ create table if not exists public.body_weights (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.food_entries (
+  id text primary key,
+  user_id uuid not null references public.users(id) on delete cascade,
+  date text not null,
+  time text,
+  meal text,
+  name text,
+  brand text,
+  amount double precision,
+  unit text,
+  grams double precision,
+  calories double precision,
+  protein_g double precision,
+  carbs_g double precision,
+  fat_g double precision,
+  fiber_g double precision,
+  sugar_g double precision,
+  sodium_mg double precision,
+  extra jsonb not null default '{}'::jsonb,
+  note text,
+  source text not null default 'manual',
+  favorite_id text,
+  ai jsonb,
+  created_at timestamptz not null default now()
+);
+
 alter table public.users add column if not exists failed_attempts integer not null default 0;
 alter table public.users add column if not exists locked_until timestamptz;
 alter table public.users add column if not exists token_version integer not null default 0;
@@ -157,6 +184,7 @@ alter table public.friends add column if not exists facts text;
 alter table public.classes add column if not exists time text;
 alter table public.classes add column if not exists room text;
 alter table public.classes add column if not exists day_details jsonb not null default '{}'::jsonb;
+alter table public.contact_logs add column if not exists note text;
 
 create index if not exists idx_tasks_user_id on public.tasks(user_id);
 create index if not exists idx_events_user_id on public.events(user_id);
@@ -172,6 +200,8 @@ create index if not exists idx_gym_sessions_user_id on public.gym_sessions(user_
 create index if not exists idx_gym_sessions_user_date on public.gym_sessions(user_id, date);
 create index if not exists idx_body_weights_user_id on public.body_weights(user_id);
 create index if not exists idx_body_weights_user_date on public.body_weights(user_id, date);
+create index if not exists idx_food_entries_user_id on public.food_entries(user_id);
+create index if not exists idx_food_entries_user_date on public.food_entries(user_id, date);
 
 -- Saves a settings change in one locked step, so a phone saving its active workout and the assistant
 -- changing the schedule at the same moment can't undo each other. Same rules as api/data.js: each
@@ -232,3 +262,4 @@ grant execute on function public.patch_settings(uuid, jsonb) to service_role;
 -- Push notifications (devices, sent-reminder log, per-task reminder, every-minute scheduler):
 -- see supabase/migrations/2026-09-24-notifications.sql.
 -- Gym tables above also need Row Level Security: see supabase/migrations/2026-09-26-gym.sql.
+-- The food table above also needs Row Level Security: see supabase/migrations/2026-09-27-food.sql.

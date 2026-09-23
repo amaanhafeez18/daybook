@@ -11,6 +11,14 @@ const LOCK_MINUTES = 15
 const DUMMY_HASH = '$2a$10$AaopJ0CtwTR277bCjvRU.e2P00I/cDSvK633BmiMUA.yRO0SsgWMm'
 // Every account created before recovery answers were personal was told to answer "me".
 const LEGACY_SHARED_ANSWER = 'me'
+// "Clear all data" empties these for the user. users (the account and its sign-in) and
+// push_subscriptions (devices that turned notifications on) are kept.
+const WIPE_TABLES = [
+  'tasks', 'events', 'friends', 'contact_logs', 'classes', 'journal_entries', 'voice_notes',
+  'gym_sessions', 'body_weights', 'food_entries', 'assistant_memories', 'assistant_conversations',
+  'notification_log', 'settings',
+]
+const WIPE_LIMIT = 5 // attempts per user per hour
 
 function isConfigError(error) {
   return /Missing SUPABASE_URL|Missing JWT_SECRET|SUPABASE_SERVICE_ROLE_KEY|Environment Variables/.test(error?.message || '')
@@ -80,6 +88,31 @@ async function clearFailures(supabase, user) {
 
 function tooMany(res, minutes) {
   return sendJson(res, 429, { error: `Too many attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.` })
+}
+
+// A table from a migration the owner hasn't run yet: nothing to delete there.
+function isMissingTable(error) {
+  if (!error) return false
+  if (error.code === 'PGRST205' || error.code === '42P01') return true
+  return /Could not find the table|relation .* does not exist/i.test(String(error.message || ''))
+}
+
+// Deletes every row the user owns in WIPE_TABLES, all tables at once. Each delete is filtered by
+// user_id only. Returns { cleared, failed } table names (missing tables are in neither).
+async function wipeUserData(supabase, userId) {
+  const results = await Promise.all(WIPE_TABLES.map(async (table) => {
+    try {
+      const { error } = await supabase.from(table).delete().eq('user_id', userId)
+      if (!error) return { table, status: 'cleared' }
+      if (isMissingTable(error)) return { table, status: 'missing' }
+      console.error(`Clear all data: ${table} failed:`, error.message)
+    } catch (error) {
+      console.error(`Clear all data: ${table} failed:`, error.message)
+    }
+    return { table, status: 'failed' }
+  }))
+  const pick = (status) => results.filter((result) => result.status === status).map((result) => result.table)
+  return { cleared: pick('cleared'), failed: pick('failed') }
 }
 
 async function findUserByUsername(supabase, username) {
@@ -292,6 +325,37 @@ export default async function handler(req, res) {
       const updated = { ...user, ...patch }
       // A new token keeps this device signed in after other devices are signed out.
       return sendJson(res, 200, { ok: true, token: signToken(updated), user: publicUser(updated) })
+    }
+
+    // Settings → Danger zone → "Clear all data". Deletes everything the user has added and keeps
+    // the account, its sign-in and push registrations. The session (token) is left unchanged.
+    if (action === 'wipe') {
+      const decoded = verifyRequestToken(req)
+      if (!decoded) return sendJson(res, 401, { error: 'Your session has expired. Please log in again.' })
+      const user = await verifyTokenVersion(supabase, decoded)
+      if (!user?.id) return sendJson(res, 401, { error: 'Your session has expired. Please log in again.' })
+      const minutes = lockedMinutes(user)
+      if (minutes) return tooMany(res, minutes)
+
+      const password = String(body.password || '').trim()
+      if (!password) return sendJson(res, 400, { error: 'Enter your password.' })
+      if (!(await underLimit(supabase, `wipe:${user.id}`, WIPE_LIMIT, 3600))) return tooMany(res, 60)
+
+      // Always a full bcrypt compare, so a missing hash takes as long as a wrong password.
+      const passwordMatches = await bcrypt.compare(password, user.password_hash || DUMMY_HASH)
+      if (!user.password_hash || !passwordMatches) {
+        await recordFailure(supabase, user)
+        // `code` tells the app this 401 is a wrong password, not an expired session.
+        return sendJson(res, 401, { error: 'Wrong password.', code: 'wrong_password' })
+      }
+      await clearFailures(supabase, user)
+
+      const { cleared, failed } = await wipeUserData(supabase, user.id)
+      if (failed.length) {
+        // Safe to retry: deleting again only removes what is left.
+        return sendJson(res, 500, { error: 'Some of your data couldn’t be cleared. Please try again.', cleared, failed })
+      }
+      return sendJson(res, 200, { ok: true, cleared })
     }
 
     return sendJson(res, 404, { error: 'Unknown auth action.' })

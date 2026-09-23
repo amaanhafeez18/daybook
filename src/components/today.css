@@ -1,0 +1,250 @@
+/* =========================================================================================
+   Today page and app shell additions (top bar avatar, extras, badges, compact sync badge).
+   Imported from App.jsx, TodayPage.jsx, GymWidget.jsx and TaskRow.jsx, so it ships in the main
+   bundle AHEAD of App.css / glass.css / apple.css: any rule that meets one of theirs uses a
+   heavier selector instead of relying on order.
+   ========================================================================================= */
+
+/* ---- shell: navigation ------------------------------------------------------------------- */
+
+.nav .nav-item { position: relative; }
+
+/* Journal, Gym and Food live in the top bar on phones; the sidebar lists them from 900px. */
+@media (max-width: 899px) {
+  .nav-list > li.nav-extra { display: none; }
+}
+
+/* Overdue count on the Tasks tab. */
+.td-nav-badge {
+  display: inline-grid; place-items: center; flex-shrink: 0;
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px;
+  background: var(--danger); color: #fff;
+  font-size: 11px; font-weight: 700; line-height: 1; letter-spacing: 0; font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+@media (max-width: 899px) {
+  .nav .nav-item > .td-nav-badge { position: absolute; top: 5px; left: calc(50% + 4px); }
+}
+@media (min-width: 900px) {
+  .nav .nav-item > .td-nav-badge {
+    margin-left: auto; min-width: 22px; height: 22px; padding: 0 7px;
+    background: var(--danger-soft); color: var(--danger); font-size: 13px; font-weight: 600;
+  }
+}
+
+/* Evening journal nudge. */
+.td-dot { display: block; flex-shrink: 0; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); pointer-events: none; }
+.topbar-actions .icon-btn > .td-dot { position: absolute; top: 5px; right: 5px; box-shadow: 0 0 0 2px var(--bg); }
+.nav .nav-item > .td-dot { margin-left: auto; margin-right: 7px; }
+
+/* ---- shell: top bar ---------------------------------------------------------------------- */
+
+/* Settings: the user's initials in a glass ring (the ring and size come from .topbar-brand). */
+.topbar .td-avatar-btn {
+  position: relative; flex-shrink: 0; text-decoration: none;
+  transition: transform 0.35s var(--spring, ease), box-shadow 0.2s;
+}
+.topbar .td-avatar-btn:active { transform: scale(0.92); transition-duration: 0.1s; }
+.topbar .td-avatar-btn.is-active { box-shadow: var(--glass-highlight, 0 0 0 transparent), 0 0 0 2px var(--accent); }
+.topbar .td-avatar-btn:focus-visible { border-radius: 50%; }
+
+/* 44 px touch targets around the 40 px glass buttons. */
+.topbar .td-avatar-btn::after, .topbar-actions .icon-btn::after { content: ''; position: absolute; inset: -2px; border-radius: 50%; }
+
+/* Sync badge: cloud + "Offline", or a spinner alone while saving; a circle once the title shows. */
+.topbar .sync-badge.td-sync {
+  position: relative; flex-shrink: 0; height: 28px; padding: 0 10px 0 8px; gap: 5px;
+  font-size: 13px; font-weight: 600; line-height: 1; letter-spacing: -0.01em;
+}
+.topbar .sync-badge.td-sync.is-syncing,
+.topbar.is-scrolled .sync-badge.td-sync { width: 28px; padding: 0; justify-content: center; }
+.topbar.is-scrolled .td-sync-text { display: none; }
+.topbar .sync-badge.td-sync::after { content: ''; position: absolute; inset: -8px -6px; }
+.topbar .sync-badge.td-sync:active { opacity: 0.7; }
+
+/* ---- Today: header ----------------------------------------------------------------------- */
+
+.page-header.td-header { gap: 2px; margin-bottom: 16px; }
+.td-page .td-greeting { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 639px) {
+  .td-page .td-greeting { font-size: 28px; line-height: 1.2; }
+}
+
+/* ---- Today card -------------------------------------------------------------------------- */
+
+.td-count { font-size: 15px; color: var(--text-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.td-today-body { display: flex; flex-direction: column; }
+.td-section, .td-sublist, .td-row-link { position: relative; }
+/* iOS inset hairlines between the card's rows (aligned with the task text). */
+.td-section + .td-section::before, .td-row + .td-sublist::before, .td-toggle + .td-sublist::before, .td-sublist + .td-row-link::before {
+  content: ''; position: absolute; top: 0; left: 36px; right: 0; height: 1px;
+  background: var(--separator, var(--border)); transform: scaleY(0.5); transform-origin: top; pointer-events: none;
+}
+
+.td-row { display: flex; align-items: center; gap: 8px; }
+.td-toggle {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; min-height: 48px;
+  text-align: left; color: var(--text); font-size: 17px; letter-spacing: -0.02em;
+  transition: opacity 0.15s;
+}
+.td-toggle:active { opacity: 0.55; }
+.td-row-icon {
+  flex-shrink: 0; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--surface-2); color: var(--text-2);
+}
+.td-row-icon.is-accent { background: var(--accent); color: var(--on-accent); }
+.td-row-icon.is-success, .td-toggle.is-done .td-row-icon { background: var(--success-soft); color: var(--success); }
+.td-row-icon.is-quiet { background: var(--accent-soft); color: var(--accent); }
+.td-toggle.is-danger .td-row-icon { background: none; color: var(--danger); }
+.td-toggle.is-danger .td-row-label { color: var(--danger); font-weight: 600; }
+.td-toggle.is-done { color: var(--text-2); }
+.td-row-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.td-chevron { flex-shrink: 0; color: var(--text-3); transition: transform 0.25s var(--ease, ease); }
+[aria-expanded='true'] > .td-chevron { transform: rotate(180deg); }
+.td-row-action {
+  flex-shrink: 0; min-height: 44px; padding: 0 2px 0 8px;
+  color: var(--accent); font-size: 15px; font-weight: 600; white-space: nowrap;
+  transition: opacity 0.15s;
+}
+.td-row-action:active { opacity: 0.55; }
+@media (hover: hover) { .td-row-action:hover { opacity: 0.75; } }
+.td-row-link { display: flex; align-items: center; min-height: 44px; padding-left: 36px; font-size: 15px; font-weight: 600; }
+.td-sublist { padding-bottom: 2px; }
+
+.td-empty { display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 2px 0; color: var(--text-2); font-size: 15px; line-height: 1.3; }
+
+/* Inline "+ Add to today" row, the card's last line. */
+.td-add { display: flex; align-items: center; gap: 12px; min-height: 50px; }
+.td-add .td-add-input {
+  flex: 1; min-width: 0; height: 44px; padding: 0; border: 0; outline: none; background: none;
+  color: var(--text); font-size: 17px; letter-spacing: -0.02em;
+}
+.td-add .td-add-input:focus-visible { outline: none; }
+.td-add .td-add-input::placeholder { color: var(--text-3); }
+.td-add:focus-within .td-add-input::placeholder { color: var(--text-2); }
+.btn.td-add-btn { flex-shrink: 0; }
+
+/* Overdue rows' one-tap "Today" (TaskRow's trailing slot). */
+.task-trailing { flex-shrink: 0; align-self: center; display: flex; }
+.td-chip-today {
+  position: relative; display: inline-flex; align-items: center; height: 30px; padding: 0 12px;
+  border-radius: 999px; background: var(--accent-soft); color: var(--accent);
+  font-size: 14px; font-weight: 600; white-space: nowrap;
+  transition: transform 0.35s var(--spring, ease), opacity 0.15s;
+}
+.td-chip-today::after { content: ''; position: absolute; inset: -7px -4px; }
+.td-chip-today:active { transform: scale(0.92); transition-duration: 0.1s; }
+
+/* ---- Tomorrow ---------------------------------------------------------------------------- */
+
+.link-btn.td-link-add {
+  display: inline-flex; align-items: center; gap: 2px; min-height: 44px; margin: -6px -2px -6px 0; padding: 0 2px;
+}
+.td-quiet { padding: 4px 0 2px; }
+.compact-list.td-tomorrow li.td-more-row { padding: 0; }
+.td-more { display: flex; align-items: center; min-height: 40px; padding-left: 26px; font-size: 15px; font-weight: 600; }
+
+/* ---- Food card placeholder while its chunk loads ------------------------------------------ */
+
+.card.td-food-skel { display: flex; flex-direction: column; gap: 14px; }
+.skeleton.td-skel-title { width: 96px; height: 16px; margin-top: 6px; }
+.skeleton.td-skel-pill { height: 46px; border-radius: 999px; }
+
+/* ---- Weather: multi-day row ------------------------------------------------------------------- */
+
+.td-forecast {
+  container-type: inline-size;
+  display: flex; justify-content: space-between; gap: 4px;
+  margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);
+}
+.td-forecast li {
+  flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 5px;
+  font-size: 13px; color: var(--text-2); font-variant-numeric: tabular-nums;
+}
+.td-forecast .icon { color: var(--text-2); }
+.td-fc-day { font-weight: 600; }
+.td-fc-rain { min-height: 14px; margin-top: -3px; font-size: 11px; font-weight: 600; line-height: 14px; color: var(--info); }
+.td-fc-temps { display: flex; align-items: baseline; gap: 4px; white-space: nowrap; }
+.td-fc-temps strong { color: var(--text); font-size: 14px; font-weight: 600; }
+.td-fc-temps span { color: var(--text-3); }
+/* Five days where six won't fit comfortably (phones up to ~400px, the narrow desktop side column). */
+@container (max-width: 330px) {
+  .td-forecast li:nth-child(n + 6) { display: none; }
+}
+
+/* ---- Prayer times: one line, tap to expand ---------------------------------------------------- */
+
+.card.td-prayer { padding: 2px 16px; }
+.card.td-prayer.is-open { padding-bottom: 6px; }
+.td-prayer-line {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px;
+  text-align: left; color: var(--text); font-size: 17px; letter-spacing: -0.02em;
+}
+.td-prayer-toggle { container: td-prayer / inline-size; transition: opacity 0.15s; }
+.td-prayer-toggle:active { opacity: 0.55; }
+.td-prayer-toggle:focus-visible { outline-offset: -2px; border-radius: 12px; }
+.td-prayer-icon {
+  flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--accent-soft); color: var(--accent);
+}
+.td-prayer-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.td-prayer-text strong { font-weight: 600; }
+.td-prayer-caption, .td-prayer-in { color: var(--text-2); }
+/* Narrow cards (phones up to ~393pt wide, a narrow side column): drop "Next" so the countdown fits. */
+@container td-prayer (max-width: 330px) {
+  .td-prayer-caption { display: none; }
+}
+.skeleton.td-prayer-skel { flex: 1; max-width: 60%; }
+.td-prayer-more { position: relative; padding: 4px 0 2px; animation: rise 0.2s var(--ease, ease); }
+.td-prayer-more .prayer-list li { padding: 8px 4px; font-size: 15px; font-variant-numeric: tabular-nums; }
+.td-prayer-method {
+  position: relative; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  min-height: 44px; margin-top: 2px; padding: 0 2px 0 4px; font-size: 15px; font-weight: 600;
+}
+.td-prayer-more::before, .td-prayer-method::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+  background: var(--separator, var(--border)); transform: scaleY(0.5); transform-origin: top; pointer-events: none;
+}
+
+/* ---- Gym card: main area + "Start" pill ----------------------------------------------------------- */
+
+.card.gymw-card.td-gymw { padding: 0; gap: 0; }
+.td-gymw > .gymw-main {
+  flex: 1; min-width: 0; align-self: stretch; display: flex; align-items: center; gap: 11px;
+  min-height: 76px; padding: 14px 10px 14px 14px; border-radius: inherit; text-align: left; color: inherit;
+}
+.td-gymw.has-start > .gymw-main { padding-right: 10px; }
+.td-gymw > .gymw-main:focus-visible { outline-offset: -3px; border-radius: inherit; }
+.td-gymw:has(> .gymw-main:active) { transform: scale(0.98); transition-duration: 0.12s; }
+@media (hover: hover) {
+  .td-gymw > .gymw-main:hover .gymw-chevron { color: var(--text-2); transform: translateX(2px); }
+}
+.td-gymw.has-start .gymw-chevron { display: none; }
+@container (max-width: 400px) {
+  .td-gymw.has-start .gymw-goal { display: none; }
+}
+
+.td-gymw-start {
+  position: relative; flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px;
+  height: 36px; margin-right: 14px; padding: 0 16px 0 13px; border-radius: 999px;
+  background-color: var(--accent); color: var(--on-accent);
+  background-image: linear-gradient(to bottom, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 6px 14px -8px var(--accent);
+  font-size: 15px; font-weight: 600; letter-spacing: -0.01em; white-space: nowrap;
+  transition: transform 0.35s var(--spring, ease), opacity 0.2s;
+}
+.td-gymw.has-color .td-gymw-start {
+  background-color: var(--gymw-color); color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 6px 14px -8px var(--gymw-color);
+}
+.td-gymw-start .icon path { fill: currentColor; }
+.td-gymw-start .spinner { width: 14px; height: 14px; }
+.td-gymw-start::after { content: ''; position: absolute; inset: -5px -4px; }
+.td-gymw-start:active:not(:disabled) { transform: scale(0.94); transition-duration: 0.1s; }
+.td-gymw-start:disabled { opacity: 0.75; cursor: progress; }
+
+@media (prefers-reduced-motion: reduce) {
+  .td-gymw:has(> .gymw-main:active) { transform: none; }
+  .td-chevron { transition: none; }
+}

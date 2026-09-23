@@ -39,7 +39,9 @@ class MemoryStorage {
 const storage = new MemoryStorage()
 globalThis.localStorage = storage
 
-const server = { data: {}, requests: [], down: false }
+// missingColumns: { [key]: [field] } — columns the fake database doesn't have yet (a migration not
+// run): saves leave them out and reply with `dropped`, like api/data.js.
+const server = { data: {}, requests: [], down: false, missingColumns: {} }
 
 function applyPatch({ key, upsert, delete: remove, set }) {
   if (key === 'settings') {
@@ -53,12 +55,20 @@ function applyPatch({ key, upsert, delete: remove, set }) {
   }
   const removed = new Set(remove || [])
   const list = (server.data[key] || []).filter((row) => !removed.has(row.id))
-  for (const row of upsert || []) {
+  const missing = server.missingColumns[key] || []
+  const dropped = new Set()
+  for (const sent of upsert || []) {
+    const row = { ...sent }
+    for (const field of missing) {
+      if (field in row) dropped.add(field)
+      delete row[field]
+    }
     const index = list.findIndex((item) => item.id === row.id)
-    if (index >= 0) list[index] = row
+    if (index >= 0) list[index] = { ...list[index], ...row } // like an upsert: unsent columns keep their value
     else list.unshift(row)
   }
   server.data[key] = list
+  return dropped.size ? { ok: true, dropped: [...dropped] } : { ok: true }
 }
 
 globalThis.fetch = async (url, { method = 'GET', body } = {}) => {
@@ -67,7 +77,7 @@ globalThis.fetch = async (url, { method = 'GET', body } = {}) => {
   server.requests.push({ url, method, body: parsed })
   let payload = {}
   if (method === 'GET') payload = structuredClone(server.data)
-  else if (method === 'PATCH') applyPatch(parsed)
+  else if (method === 'PATCH') payload = applyPatch(parsed) || { ok: true }
   return { ok: true, status: 200, text: async () => JSON.stringify(payload) }
 }
 
@@ -128,6 +138,7 @@ beforeEach(() => {
   storage.failing.clear()
   server.down = false
   server.requests = []
+  server.missingColumns = {}
   server.data = {
     tasks: [{ id: 't1', title: 'Task one' }],
     gymSessions: [session('s1', '2026-09-20')],
@@ -293,6 +304,162 @@ describe('gym session fingerprints', () => {
     assert.equal(shown.find((row) => row.id === 's1').note, 'Offline note')
     assert.equal(server.data.gymSessions.find((row) => row.id === 's1').note, 'Offline note')
     assert.deepEqual(deletesSent(), [])
+  })
+})
+
+describe('food entry fingerprints', () => {
+  const food = (id, date, calories) => ({
+    id, date, time: '12:30', meal: 'lunch', name: `Food ${id}`, brand: null, amount: 1, unit: 'serving', grams: 150,
+    calories, proteinG: 10, carbsG: 20, fatG: 5, fiberG: null, sugarG: null, sodiumMg: null, extra: {}, note: null,
+    source: 'manual', favoriteId: null, ai: null, createdAt: `${date}T12:30:00.000Z`,
+  })
+
+  test('the record of foodEntries is stored as { id, h }; relaunches send nothing and edits send only what changed', async () => {
+    server.data.foodEntries = [food('f2', '2026-09-21', 300), food('f1', '2026-09-20', 450)]
+    store.hydrateFromCache()
+    await store.refresh()
+    const record = stored(RECORD + 'foodEntries')
+    assert.deepEqual(record.map((entry) => Object.keys(entry).sort()), [['h', 'id'], ['h', 'id']])
+    assert.deepEqual(ids(stored(CACHE + 'foodEntries')), ['f1', 'f2'])
+
+    server.requests = []
+    await relaunch()
+    assert.equal(store.hasUnsavedChanges(), false)
+    assert.deepEqual(patches(), [])
+
+    store.updateData('foodEntries', (list) => [food('f3', '2026-09-22', 120), ...list.map((row) => (row.id === 'f1' ? { ...row, calories: 500 } : row))])
+    await store.flushAll()
+    assert.equal(patches().length, 1)
+    assert.deepEqual(patches()[0].body.upsert.map((row) => row.id).sort(), ['f1', 'f3'])
+    assert.deepEqual(patches()[0].body.delete, [])
+    assert.equal(server.data.foodEntries.find((row) => row.id === 'f1').calories, 500)
+
+    server.requests = []
+    await relaunch()
+    assert.equal(store.hasUnsavedChanges(), false)
+    assert.deepEqual(patches(), [])
+    assert.deepEqual(ids(store.getState().data.foodEntries), ['f1', 'f2', 'f3'])
+  })
+
+  test('an account without food data loads an empty list', async () => {
+    store.hydrateFromCache()
+    assert.deepEqual(store.getState().data.foodEntries, [])
+    await store.refresh()
+    assert.deepEqual(store.getState().data.foodEntries, [])
+    assert.deepEqual(stored(RECORD + 'foodEntries'), [])
+  })
+})
+
+describe('fields the database has no column for yet', () => {
+  const HELD = RECORD + 'heldFields'
+  const log = (id, date, extra = {}) => ({ id, friendId: 'f1', date, createdAt: `${date}T12:00:00.000Z`, ...extra })
+  const shownNote = (id) => store.getState().data.contactLogs.find((row) => row.id === id)?.note
+  const serverRow = (id) => server.data.contactLogs.find((row) => row.id === id)
+
+  beforeEach(() => {
+    server.missingColumns = { contactLogs: ['note'] }
+    server.data.contactLogs = [log('c1', '2026-09-20')]
+  })
+
+  test('a catch-up note stays on this device across refreshes and relaunches, and nothing is re-sent meanwhile', async () => {
+    store.hydrateFromCache()
+    await store.refresh()
+    assert.deepEqual(store.getState().droppedFields, {})
+
+    store.updateData('contactLogs', (list) => [log('c2', '2026-09-22', { note: 'trip plans' }), ...list.map((row) => (row.id === 'c1' ? { ...row, note: 'new job' } : row))])
+    await store.flushAll()
+    assert.equal('note' in serverRow('c1'), false, 'the database has no column for it')
+    assert.deepEqual(store.getState().droppedFields, { contactLogs: ['note'] })
+    assert.deepEqual(stored(HELD), { contactLogs: { c1: { note: 'new job' }, c2: { note: 'trip plans' } } })
+
+    // Before, the refresh replaced the rows with the server's copy and both notes vanished.
+    await store.refresh()
+    assert.equal(shownNote('c1'), 'new job')
+    assert.equal(shownNote('c2'), 'trip plans')
+
+    server.requests = []
+    await relaunch()
+    await store.refresh()
+    await settle()
+    assert.equal(shownNote('c1'), 'new job')
+    assert.equal(shownNote('c2'), 'trip plans')
+    assert.equal(store.hasUnsavedChanges(), false)
+    assert.deepEqual(patches(), [], 'no pointless re-saves while the column is missing')
+
+    // A second note the same day builds on the kept one.
+    store.updateData('contactLogs', (list) => list.map((row) => (row.id === 'c1' ? { ...row, note: `${row.note}\nkids` } : row)))
+    await store.flushAll()
+    await store.refresh()
+    assert.equal(shownNote('c1'), 'new job\nkids')
+
+    // Clearing a note or removing the catch-up lets go of it.
+    store.updateData('contactLogs', (list) => list.filter((row) => row.id !== 'c2').map((row) => (row.id === 'c1' ? { ...row, note: '' } : row)))
+    await store.flushAll()
+    assert.equal(storage.getItem(HELD), null)
+    await store.refresh()
+    assert.equal(shownNote('c1'), undefined)
+    assert.deepEqual(ids(store.getState().data.contactLogs), ['c1'])
+  })
+
+  test('once the column exists, kept notes are saved and then let go', async () => {
+    store.hydrateFromCache()
+    await store.refresh()
+    store.updateData('contactLogs', (list) => list.map((row) => (row.id === 'c1' ? { ...row, note: 'new job' } : row)))
+    await store.flushAll()
+    assert.ok(stored(HELD).contactLogs.c1)
+
+    // The migration runs: the column exists, empty on every row.
+    server.missingColumns = {}
+    server.data.contactLogs = server.data.contactLogs.map((row) => ({ ...row, note: null }))
+    server.requests = []
+    await relaunch()
+    await store.refresh()
+    await settle()
+    assert.equal(serverRow('c1').note, 'new job')
+    assert.equal(shownNote('c1'), 'new job')
+    assert.equal(storage.getItem(HELD), null)
+    assert.deepEqual(patches().map((request) => request.body.upsert.map((row) => row.id)), [['c1']])
+    assert.deepEqual(deletesSent(), [])
+
+    server.requests = []
+    await store.refresh()
+    await settle()
+    assert.deepEqual(patches(), [])
+    assert.equal(store.hasUnsavedChanges(), false)
+  })
+
+  test('a note saved elsewhere after the column exists wins over the kept one; a row deleted elsewhere is let go', async () => {
+    server.data.contactLogs = [log('c1', '2026-09-20'), log('c3', '2026-09-21')]
+    store.hydrateFromCache()
+    await store.refresh()
+    store.updateData('contactLogs', (list) => list.map((row) => ({ ...row, note: `note ${row.id}` })))
+    await store.flushAll()
+    assert.deepEqual(Object.keys(stored(HELD).contactLogs).sort(), ['c1', 'c3'])
+
+    server.missingColumns = {}
+    server.data.contactLogs = [{ ...serverRow('c1'), note: 'written on the iPad' }]
+    await store.refresh()
+    await settle()
+    assert.equal(shownNote('c1'), 'written on the iPad')
+    assert.equal(serverRow('c1').note, 'written on the iPad')
+    assert.deepEqual(ids(store.getState().data.contactLogs), ['c1'])
+    assert.equal(storage.getItem(HELD), null)
+  })
+
+  test('other lists and settings are unaffected; the kept values are cleared with the rest of the cache', async () => {
+    store.hydrateFromCache()
+    await store.refresh()
+    store.updateData('tasks', (list) => [...list, { id: 't2', title: 'Task two' }])
+    store.updateSettings({ displayName: 'Changed' })
+    store.updateData('contactLogs', (list) => list.map((row) => ({ ...row, note: 'kept' })))
+    await store.flushAll()
+    assert.deepEqual(Object.keys(stored(HELD)), ['contactLogs'])
+    assert.deepEqual(ids(server.data.tasks), ['t1', 't2'])
+    assert.equal(server.data.settings.displayName, 'Changed')
+    assert.ok(HELD.startsWith('daybook.synced.'), 'sign-out and "Clear all data" remove daybook.synced.*')
+
+    store.resetStore()
+    assert.deepEqual(store.getState().droppedFields, {})
   })
 })
 

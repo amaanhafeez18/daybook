@@ -3,8 +3,10 @@ import { Checkbox } from './ui/primitives.jsx'
 import { toast } from './ui/feedback.jsx'
 import { isReminderMarker, setTaskDone } from '../lib/planner.js'
 import { formatTime, relativeDay, todayISO } from '../lib/dates.js'
+import './today.css'
 
-export default function TaskRow({ task, onOpen, showDate = true }) {
+// trailing: an optional accessory after the text (e.g. a "Today" chip); tapping it doesn't open the task.
+export default function TaskRow({ task, onOpen, showDate = true, trailing = null }) {
   const today = todayISO()
   const overdue = !task.done && task.date && task.date < today
   const details = isReminderMarker(task.details) ? '' : task.details
@@ -43,6 +45,7 @@ export default function TaskRow({ task, onOpen, showDate = true }) {
           </span>
         ) : null}
       </button>
+      {trailing && <span className="task-trailing">{trailing}</span>}
       {task.priority === 'low' && <span className="task-low" aria-label="Low priority" title="Low priority" />}
     </li>
   )

@@ -7,12 +7,15 @@ import { TEMPLATES, buildTemplate } from '../../lib/gym/library.js'
 import { resolveRange } from '../../lib/gym/schedule.js'
 import { applyTemplate, getGym, newGymId, routineColor, updateGym, useGym } from '../../lib/gym/state.js'
 import { navigate } from '../../lib/router.js'
+import SplitWizard from './SplitWizard.jsx'
 import './gym.css'
+import './wizard.css'
 
-// First run: pick a split (it creates editable routines plus a schedule starting today) or build
-// your own. Shown on the Today tab until a routine or schedule exists.
+// First run: build your own split with the wizard, or pick a ready-made one (it creates
+// editable routines plus a schedule starting today). Shown on the Today tab until a routine or
+// schedule exists.
 
-const TEMPLATE_ICONS = { 'ppl-r': 'repeat', ppl2: 'layers', 'upper-lower': 'shuffle', bro: 'target', 'full-body': 'zap', custom: 'pencil' }
+const TEMPLATE_ICONS = { 'ppl-r': 'repeat', ppl2: 'layers', 'upper-lower': 'shuffle', bro: 'target', 'full-body': 'zap' }
 
 function previewIds() {
   let n = 0
@@ -30,9 +33,10 @@ export default function Onboarding({ today }) {
   const { unit, firstWeekday } = gym.prefs
   const [selected, setSelected] = useState(null)
   const [anchor, setAnchor] = useState(0)
+  const [wizardOpen, setWizardOpen] = useState(false)
 
-  const templates = useMemo(() => TEMPLATES.map((template) => {
-    if (template.id === 'custom') return { ...template, built: null }
+  // "Custom" is the split wizard card (and the start-from-scratch link) instead.
+  const templates = useMemo(() => TEMPLATES.filter((template) => template.id !== 'custom').map((template) => {
     const built = buildTemplate(template.id, today, previewIds())
     const version = built.schedule.versions[0]
     return { ...template, built, version, rotation: version?.mode === 'rotation' }
@@ -54,10 +58,6 @@ export default function Onboarding({ today }) {
   }
 
   function choose(template) {
-    if (template.id === 'custom') {
-      navigate('gym/routine/new')
-      return
-    }
     const result = buildTemplate(template.id, today, newGymId)
     const version = result.schedule.versions[0]
     if (version && template.rotation) version.anchorIndex = Math.min(Math.max(0, anchor), version.cycle.length - 1)
@@ -82,7 +82,7 @@ export default function Onboarding({ today }) {
       <section className="gym-onb-hero">
         <span className="gym-onb-mark" aria-hidden="true"><Icon name="dumbbell" size={30} strokeWidth={2} /></span>
         <h2>Plan your training</h2>
-        <p>Pick a split to start with. It creates routines you can edit and a schedule that knows what’s next, even when life gets in the way.</p>
+        <p>Build your own split in a few taps, or start from a ready-made one. You get routines you can edit and a schedule that knows what’s next, even when life gets in the way.</p>
       </section>
 
       <div className="card gym-onb-unit">
@@ -96,6 +96,17 @@ export default function Onboarding({ today }) {
         />
       </div>
 
+      <button type="button" className="wiz-onb-card" onClick={() => setWizardOpen(true)}>
+        <span className="wiz-onb-icon" aria-hidden="true"><Icon name="wand" size={24} strokeWidth={2} /></span>
+        <span className="wiz-onb-text">
+          <strong>Build my own split</strong>
+          <small>Type it or tap the days together. We suggest exercises for each day, and you choose how it repeats.</small>
+          <span className="wiz-onb-try" aria-hidden="true">“push pull shoulders legs rest rest”</span>
+        </span>
+        <Icon name="chevronRight" size={20} className="wiz-onb-chevron" />
+      </button>
+
+      <h3 className="wiz-onb-heading">Or start from a ready-made split</h3>
       <ul className="gym-onb-tpl-list">
         {templates.map((template) => {
           const open = selected === template.id
@@ -145,7 +156,7 @@ export default function Onboarding({ today }) {
                     </p>
                   )}
                   <button type="button" className="btn btn-primary btn-block" onClick={() => choose(template)}>
-                    {template.id === 'custom' ? 'Create my first routine' : `Use ${template.name}`}
+                    Use {template.name}
                   </button>
                 </div>
               )}
@@ -153,7 +164,12 @@ export default function Onboarding({ today }) {
           )
         })}
       </ul>
+      <button type="button" className="link-btn wiz-onb-scratch" onClick={() => navigate('gym/routine/new')}>
+        <Icon name="pencil" size={17} />
+        Start from scratch with one routine
+      </button>
       <p className="gym-onb-foot">You can change units, rest times and more in Gym settings (the gear above).</p>
+      <SplitWizard open={wizardOpen} onClose={() => setWizardOpen(false)} today={today} />
     </div>
   )
 }

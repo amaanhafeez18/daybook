@@ -1,35 +1,77 @@
-import { Fragment, memo, useCallback, useEffect, useRef, useState } from 'react'
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import Icon from '../components/ui/Icon.jsx'
 import Sheet from '../components/ui/Sheet.jsx'
 import { AutoTextarea, IconButton } from '../components/ui/primitives.jsx'
 import { confirmAction, toast } from '../components/ui/feedback.jsx'
 import { SESSION_EXPIRED_EVENT, apiRequest, getToken, readJson, readPref, writeJson, writePref } from '../lib/api.js'
-import { refresh } from '../lib/store.js'
-import { nowTimeHHMM, todayISO } from '../lib/dates.js'
+import { refresh, useData } from '../lib/store.js'
+import { nowTimeHHMM, toISO, todayISO } from '../lib/dates.js'
+import { MAX_ATTACHMENT_BYTES, attachmentAccept, attachmentKind, readAttachment, totalBytes } from '../lib/media.js'
+import { formatSeconds, useRecorder } from '../lib/recorder.js'
+import { pushSupport } from '../lib/notifications.js'
+import { useGym, useGymSessions, useToday } from '../lib/gym/state.js'
+import { resolveDay } from '../lib/gym/schedule.js'
+import '../components/assistant.css'
 
 const CHAT_CACHE = 'daybook.chat'
-const MAX_RECORDING_SECONDS = 120
-const RECORDING_TYPES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus']
-const canRecord = typeof window !== 'undefined' && typeof window.MediaRecorder !== 'undefined' && !!navigator.mediaDevices?.getUserMedia
-
-const SUGGESTIONS = [
-  { icon: 'sun', text: 'What’s on my plate today?' },
-  { icon: 'calendar', text: 'Help me plan the rest of my week' },
-  { icon: 'people', text: 'Who should I catch up with?' },
-  { icon: 'moon', text: 'What are today’s prayer times?' },
+const MAX_ATTACHMENTS = 6
+const PROPOSAL_TTL_MS = 30 * 60 * 1000
+// A confirmed run takes seconds; one still "executing" after this was cut off (timeout, crash).
+const EXECUTING_STALE_MS = 3 * 60 * 1000
+// After Stop or a dropped connection during Yes / No, how long to wait before each look at the server.
+const CHECK_DELAYS_MS = [1200, 2500, 5000]
+// Vercel refuses request bodies over 4.5 MB; this leaves room for the JSON around the files.
+const MAX_REQUEST_BYTES = 4_200_000
+// Voice notes are asked for at 32 kbps; budget for twice that (some browsers ignore it), as base64.
+const VOICE_BYTES_PER_SECOND = 11_000
+const MAX_VOICE_SECONDS = 120
+const MIN_VOICE_SECONDS = 5
+// Fallback for a server that doesn't send done.actions yet: read-only tools never become chips.
+const LOOKUP_TOOLS = new Set(['search', 'read_journal', 'get_weather', 'get_prayer_times', 'gym_get_schedule', 'gym_list_sessions', 'gym_exercise_records', 'food_day', 'food_week', 'ask_choice'])
+const STATUS_LABELS = {
+  done: 'Done ✓',
+  partial: 'Partly done',
+  failed: 'Didn’t work',
+  cancelled: 'Cancelled',
+  superseded: 'Replaced',
+  expired: 'Expired',
+  interrupted: 'Interrupted — check the result',
+  checking: 'Checking…',
+  stale: 'Not confirmed',
+}
+// Statuses after Yes was carried out: each row shows how its action went.
+const RESULT_STATUSES = new Set(['done', 'partial', 'failed', 'interrupted'])
+const DEEP_LINKS = [
+  { test: /^gym_/, href: '#/gym', label: 'Open Gym', icon: 'dumbbell' },
+  { test: /^(food_|weight_)/, href: '#/food', label: 'Open Food', icon: 'utensils' },
+  { test: /^(create|update|delete)_tasks?$/, href: '#/tasks', label: 'Open Tasks', icon: 'tasks' },
 ]
+const FALLBACK_SUGGESTIONS = [
+  { icon: 'calendar', text: 'Help me plan the rest of my week' },
+  { icon: 'sparkles', text: 'What can you do?' },
+  { icon: 'journal', text: 'Help me write today’s journal' },
+]
+const TIMETABLE_PROMPT = 'Add the classes from this timetable'
 
 let messageId = 0
 const nextId = () => `m${Date.now()}-${++messageId}`
+const nowIso = () => new Date().toISOString()
 
 export default function AssistantPage({ displayName }) {
-  const [messages, setMessages] = useState(() => (readJson(CHAT_CACHE, []) || []).map((message) => ({ ...message, id: nextId() })))
+  const [messages, setMessages] = useState(() => {
+    const cached = readJson(CHAT_CACHE, [])
+    return (Array.isArray(cached) ? cached : []).filter((message) => message && typeof message === 'object').map((message) => ({ ...message, id: nextId() }))
+  })
   const [memories, setMemories] = useState([])
   const [memoryEnabled, setMemoryEnabled] = useState(true)
   const [memoryOpen, setMemoryOpen] = useState(false)
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
+  const [confirmingId, setConfirmingId] = useState(null) // the proposal this device is carrying out
   const [speak, setSpeak] = useState(() => readPref('speakReplies', false))
+  const [attachments, setAttachmentState] = useState([])
+  const [attachError, setAttachError] = useState('')
   // Screen readers hear the finished reply once, not every streamed token.
   const [announcement, setAnnouncement] = useState('')
   const endRef = useRef(null)
@@ -37,9 +79,21 @@ export default function AssistantPage({ displayName }) {
   const busyRef = useRef(false)
   const followRef = useRef(true) // keep the newest message in view unless the user scrolled up
   const jumpRef = useRef(true) // next scroll is instant (first render, loaded history)
+  const mountedRef = useRef(false)
+  const fileInputRef = useRef(null)
+  const attachmentsRef = useRef([]) // mirror of `attachments`, read by async file processing
+  const timetableRef = useRef(false) // the file picker was opened from the timetable hint
+  const pushRef = useRef(null) // push on this device: true / false / null (unknown)
+
+  const setAttachments = useCallback((next) => {
+    const value = typeof next === 'function' ? next(attachmentsRef.current) : next
+    attachmentsRef.current = value
+    setAttachmentState(value)
+  }, [])
 
   // Server history (source of truth) and memories.
   useEffect(() => {
+    mountedRef.current = true
     apiRequest('/api/assistant')
       .then((response) => {
         const history = (response.messages || []).map((message) => ({ ...message, id: nextId() }))
@@ -52,9 +106,19 @@ export default function AssistantPage({ displayName }) {
       })
       .catch(() => {})
     return () => {
+      mountedRef.current = false
       abortRef.current?.abort()
       window.speechSynthesis?.cancel()
     }
+  }, [])
+
+  // Whether this device gets push reminders, so the assistant can mention it. Best effort, once.
+  useEffect(() => {
+    let cancelled = false
+    devicePushStatus().then((value) => {
+      if (!cancelled) pushRef.current = value
+    })
+    return () => { cancelled = true }
   }, [])
 
   useEffect(() => {
@@ -75,18 +139,75 @@ export default function AssistantPage({ displayName }) {
     return () => cancelAnimationFrame(frame)
   }, [messages, busy])
 
-  // Cache the finished conversation so it shows instantly next time.
+  // Cache the finished conversation so it shows instantly next time (no photos: names only).
   useEffect(() => {
     if (busy) return
     const finished = messages.filter((message) => !message.error && !message.streaming && !message.pending)
-    writeJson(CHAT_CACHE, finished.map(({ role, content, voice, actions }) => ({ role, content, ...(voice ? { voice } : {}), ...(actions?.length ? { actions } : {}) })).slice(-40))
+    writeJson(CHAT_CACHE, finished.map(cacheMessage).slice(-40))
   }, [messages, busy])
+
+  // Attachment problems fade after a while.
+  useEffect(() => {
+    if (!attachError) return undefined
+    const timer = setTimeout(() => setAttachError(''), 7000)
+    return () => clearTimeout(timer)
+  }, [attachError])
 
   function patchMessage(id, patch) {
     setMessages((current) => current.map((message) => (message.id === id ? { ...message, ...(typeof patch === 'function' ? patch(message) : patch) } : message)))
   }
 
-  async function send(payload, shownText) {
+  // `results` (per action, from the server) replace the card's; `from` applies the change only while
+  // the card still has that status (a late answer must not undo a newer one).
+  function setProposalStatus(proposalId, status, { results, from } = {}) {
+    const cleaned = results === undefined ? undefined : cleanResults(results)
+    setMessages((current) => current.map((message) => {
+      const proposal = message.proposal
+      if (!proposal || proposal.id !== proposalId || !status) return message
+      if (from && proposal.status !== from) return message
+      if (proposal.status === status && !cleaned) return message
+      return {
+        ...message,
+        proposal: {
+          ...proposal,
+          status,
+          ...(cleaned ? { results: cleaned } : {}),
+          ...(status === 'executing' && proposal.status !== 'executing' ? { executingAt: nowIso() } : {}),
+        },
+      }
+    }))
+  }
+
+  // Stop or a dropped connection during Yes / No: the server may have carried on regardless, so read
+  // what it recorded instead of guessing, then load any changes it made.
+  async function checkProposal(proposalId) {
+    setProposalStatus(proposalId, 'checking')
+    let found = null
+    let known = false // the server answered
+    for (const delay of CHECK_DELAYS_MS) {
+      await new Promise((resolve) => setTimeout(resolve, delay))
+      if (!mountedRef.current) return
+      try {
+        const response = await apiRequest('/api/assistant')
+        found = (Array.isArray(response?.messages) ? response.messages : []).map((message) => message?.proposal).find((proposal) => proposal?.id === proposalId) || null
+        known = true
+      } catch {
+        break
+      }
+      if (found?.status !== 'executing') break
+    }
+    if (!mountedRef.current) return
+    // Not in the server's history: nothing can carry it out any more (shows as "Not confirmed").
+    const status = typeof found?.status === 'string' && found.status ? found.status : known ? 'pending' : 'interrupted'
+    setProposalStatus(proposalId, status, { results: Array.isArray(found?.results) ? found.results : undefined, from: 'checking' })
+    // Sending the same Yes / No again can't help once it was answered.
+    if (known && status !== 'pending') {
+      setMessages((current) => current.map((message) => (message.retry?.payload?.confirm?.proposalId === proposalId ? { ...message, retry: undefined } : message)))
+    }
+    if (!['pending', 'cancelled', 'superseded', 'expired'].includes(status)) refresh().catch(() => {})
+  }
+
+  async function send(payload, shownText, { restore = [], restoreText = '' } = {}) {
     if (busyRef.current) return
     busyRef.current = true
     window.speechSynthesis?.cancel()
@@ -95,21 +216,30 @@ export default function AssistantPage({ displayName }) {
     const replyId = nextId()
     const hasAudio = !!payload.audio
     const isVoice = hasAudio || !!payload.spoken
+    const confirm = payload.confirm || null
+    const shownAttachments = Array.isArray(payload.attachments)
+      ? payload.attachments.map(({ kind, name, dataUrl }) => ({ kind, name, ...(kind === 'image' && dataUrl ? { thumb: dataUrl } : {}) }))
+      : []
     setBusy(true)
+    setConfirmingId(confirm?.proposalId || null)
     setAnnouncement('')
     followRef.current = true
     setMessages((current) => [
       ...current.filter((message) => !message.error),
-      { id: userId, role: 'user', content: shownText, voice: isVoice, pending: hasAudio },
-      { id: replyId, role: 'assistant', content: '', streaming: true, status: hasAudio ? 'Listening…' : 'Thinking…', actions: [] },
+      { id: userId, role: 'user', content: shownText, voice: isVoice, pending: hasAudio, createdAt: nowIso(), ...(shownAttachments.length ? { attachments: shownAttachments } : {}) },
+      { id: replyId, role: 'assistant', content: '', streaming: true, status: hasAudio ? 'Listening…' : 'Thinking…', actions: [], createdAt: nowIso() },
     ])
+    // Tapped Yes / No: show the answer on the card straight away.
+    if (confirm) setProposalStatus(confirm.proposalId, confirm.decision === 'yes' ? 'executing' : 'cancelled')
 
     const controller = new AbortController()
     abortRef.current = controller
     let acted = false // something was saved, so the request must not simply be sent again
     let transcript = ''
+    let proposal = null
+    const settleConfirm = (status, results) => { if (confirm) setProposalStatus(confirm.proposalId, status, { results }) }
     try {
-      const done = await streamAssistant({ ...payload, context: clientContext() }, controller.signal, (event) => {
+      const done = await streamAssistant({ ...payload, context: clientContext(pushRef.current) }, controller.signal, (event) => {
         if (event.type === 'status') patchMessage(replyId, { status: event.text })
         else if (event.type === 'transcript') {
           transcript = event.text
@@ -117,35 +247,96 @@ export default function AssistantPage({ displayName }) {
         } else if (event.type === 'delta') patchMessage(replyId, (message) => ({ content: message.content + event.text, status: '' }))
         else if (event.type === 'action') {
           if (event.ok) acted = true
-          patchMessage(replyId, (message) => ({ actions: [...message.actions, { tool: event.tool, ok: event.ok, message: event.message }] }))
+          patchMessage(replyId, (message) => ({ actions: [...message.actions, { tool: event.tool, ok: !!event.ok, message: event.message }] }))
+        } else if (event.type === 'staged') {
+          // A failed or internal step carries a note for the model (a validation error, "ask the user…"), not for the owner.
+          if (event.ok === false || event.internal) return
+          patchMessage(replyId, (message) => ({ staged: [...(message.staged || []), { tool: event.tool, ok: true, label: event.label }] }))
+        } else if (event.type === 'proposal' && event.proposal?.id) {
+          proposal = event.proposal
+          patchMessage(replyId, { proposal: event.proposal })
+        } else if (event.type === 'choices') {
+          const choices = cleanChoices(event.choices)
+          if (choices.length) patchMessage(replyId, { choices })
         }
       })
+      if (done.proposal?.id) proposal = done.proposal
+      const choices = cleanChoices(done.choices)
+      const reply = typeof done.reply === 'string' && done.reply ? done.reply : proposal?.summary || ''
       patchMessage(userId, { pending: false, ...(done.transcript ? { content: done.transcript } : {}) })
-      patchMessage(replyId, { content: done.reply, streaming: false, status: '', actions: (done.results || []).filter((result) => !['search', 'read_journal', 'get_weather', 'get_prayer_times'].includes(result.tool) || !result.ok) })
+      patchMessage(replyId, (message) => ({
+        content: reply || message.content,
+        streaming: false,
+        status: '',
+        staged: undefined,
+        actions: doneActions(done, message.actions),
+        ...(proposal ? { proposal } : {}),
+        ...(choices.length ? { choices } : {}),
+      }))
+      const updates = [done.proposalUpdate].flat().filter((update) => update?.id && update.status)
+      // The Yes just carried out: per-action results, from the update or (older server) the reply's actions.
+      const confirmResults = confirm && Array.isArray(done.actions) && done.actions.length ? done.actions : undefined
+      for (const update of updates) {
+        const results = Array.isArray(update.results) ? update.results
+          : update.id === confirm?.proposalId && ['done', 'partial', 'failed'].includes(update.status) ? confirmResults : undefined
+        setProposalStatus(update.id, update.status, { results })
+      }
+      if (confirm && !updates.some((update) => update.id === confirm.proposalId)) {
+        // No word on the card (an older server, or another request got there first): don't guess.
+        if (acted) settleConfirm(outcomeOf(done.actions), confirmResults)
+        else checkProposal(confirm.proposalId)
+      }
+      // Being carried out by another request (a double tap, another device): follow it to the end.
+      for (const update of updates) if (update.status === 'executing') checkProposal(update.id)
       if (done.memories) setMemories(done.memories)
-      if (done.dataChanged) refresh().catch(() => {})
-      if (speak) speakText(done.reply)
-      else setAnnouncement(plainText(done.reply || ''))
+      if (done.dataChanged || acted) refresh().catch(() => {})
+      // With quick replies on screen the question is theirs to answer, not "go ahead?".
+      const asking = proposal?.status === 'pending' && !choices.length
+      const spoken = asking && !endsWithQuestion(reply) ? `${plainText(reply)} Shall I go ahead?` : reply
+      if (speak) speakText(spoken)
+      else setAnnouncement(plainText(spoken || ''))
     } catch (error) {
       if (error.name === 'AbortError') {
         // Stopped by the user: keep whatever arrived so far.
-        patchMessage(replyId, (message) => ({ streaming: false, status: '', content: message.content || 'Stopped.' }))
+        patchMessage(replyId, (message) => ({ streaming: false, status: '', staged: undefined, content: message.content || 'Stopped.' }))
         patchMessage(userId, { pending: false })
+        // The server doesn't stop with us: a Yes / No may still have gone through.
+        if (confirm) checkProposal(confirm.proposalId)
+        else if (acted) refresh().catch(() => {})
         setAnnouncement('Stopped.')
-        if (acted) refresh().catch(() => {})
         return
       }
       if (acted) {
         // Keep the reply and its action chips, load what was saved, and offer no retry
         // (it would repeat those actions).
-        patchMessage(replyId, () => ({ streaming: false, status: '' }))
+        patchMessage(replyId, () => ({ streaming: false, status: '', staged: undefined }))
         patchMessage(userId, { pending: false })
-        refresh().catch(() => {})
+        if (confirm) checkProposal(confirm.proposalId)
+        else refresh().catch(() => {})
         setMessages((current) => current.concat({ id: nextId(), role: 'assistant', error: `${error.message} Some changes were already made.` }))
         return
       }
-      // Once a voice message is transcribed, a retry sends the text instead of the audio again.
-      const retry = transcript ? { payload: { message: transcript, spoken: true }, shownText: transcript, userId } : { payload, shownText, userId }
+      if (error.status === 413) {
+        // The same request would be refused again: no retry. Hand the files (and text) back so one can go.
+        if (restore.length) {
+          setAttachments((current) => [...restore, ...current.filter((item) => !restore.some((back) => back.id === item.id))].slice(0, MAX_ATTACHMENTS))
+        }
+        if (restoreText) setText((current) => (current.trim() ? current : restoreText))
+        setMessages((current) => current
+          .filter((message) => message.id !== replyId && message.id !== userId)
+          .concat({ id: nextId(), role: 'assistant', error: error.message }))
+        return
+      }
+      // Never sent (offline): still waiting for an answer. Otherwise ask the server what happened.
+      if (confirm) {
+        if (error.notSent) settleConfirm('pending')
+        else checkProposal(confirm.proposalId)
+      }
+      // Once a voice message is transcribed, a retry sends the text instead of the audio again
+      // (with the same attachments).
+      const retry = transcript
+        ? { payload: { message: transcript, spoken: true, ...(payload.attachments ? { attachments: payload.attachments } : {}) }, shownText: transcript, userId }
+        : { payload, shownText, userId }
       setMessages((current) => current
         .filter((message) => message.id !== replyId && !(message.id === userId && hasAudio && message.pending))
         .concat({ id: nextId(), role: 'assistant', error: error.message, retry }))
@@ -153,15 +344,114 @@ export default function AssistantPage({ displayName }) {
       abortRef.current = null
       busyRef.current = false
       setBusy(false)
+      setConfirmingId(null)
     }
   }
 
   function submitText(event, preset) {
     event?.preventDefault()
+    if (busyRef.current) return
+    const fromComposer = preset == null
     const message = (preset ?? text).trim()
-    if (!message || busy) return
-    setText('')
-    send({ message }, message)
+    const pending = fromComposer ? attachmentsRef.current : []
+    if (pending.some((item) => item.status === 'loading')) {
+      setAttachError('Still preparing your attachment — one moment.')
+      return
+    }
+    const ready = pending.filter((item) => item.status === 'ready')
+    if (!message && !ready.length) return
+    // Typing one of the quick replies on screen ("yes") answers the question, like tapping it,
+    // rather than confirming a plan shown alongside it.
+    const choice = !ready.length && message ? matchChoice(messages[messages.length - 1], message) : ''
+    if (fromComposer) {
+      setText('')
+      setAttachments([])
+    }
+    setAttachError('')
+    send(
+      { ...(message ? { message } : {}), ...(choice ? { choice } : {}), ...(ready.length ? { attachments: ready.map(attachmentPayload) } : {}) },
+      message,
+      { restore: ready, restoreText: fromComposer ? message : '' },
+    )
+  }
+
+  // A finished voice recording, sent together with any photos or files waiting in the composer.
+  async function sendAudio(audio, mimeType) {
+    if (busyRef.current) throw new Error('Wait for the reply to finish, then send your voice message.')
+    const ready = attachmentsRef.current.filter((item) => item.status === 'ready')
+    const payload = { audio, mimeType, ...(ready.length ? { attachments: ready.map(attachmentPayload) } : {}) }
+    // Too big for one request: it would be refused every time, so keep the files here and say so.
+    if (requestBytes(payload) > MAX_REQUEST_BYTES) {
+      setAttachError(ready.length
+        ? 'That voice note plus the attachments is too big for one message. Remove an attachment and record again, or type your message instead.'
+        : 'That voice note is too long to send. Try a shorter one.')
+      return
+    }
+    if (ready.length) setAttachments((current) => current.filter((item) => item.status !== 'ready'))
+    setAttachError('')
+    send(payload, 'Voice message', { restore: ready })
+  }
+
+  function openFilePicker(fromTimetable = false) {
+    timetableRef.current = fromTimetable === true
+    setAttachError('')
+    if (attachmentsRef.current.length >= MAX_ATTACHMENTS) {
+      setAttachError(`You can attach up to ${MAX_ATTACHMENTS} files to one message.`)
+      return
+    }
+    fileInputRef.current?.click()
+  }
+
+  function onFilesChosen(event) {
+    const input = event.target
+    const files = Array.from(input.files || [])
+    input.value = '' // so choosing the same file again still fires a change
+    input.blur()
+    const fromTimetable = timetableRef.current
+    timetableRef.current = false
+    addFiles(files, fromTimetable)
+  }
+
+  // Picked or pasted files: checked, then prepared one by one behind a spinner tile.
+  async function addFiles(files, fromTimetable = false) {
+    if (!files.length) return
+    setAttachError('')
+
+    const supported = files.filter((file) => attachmentKind(file))
+    if (supported.length < files.length) setAttachError('Only photos, PDFs and text files can be attached.')
+    const room = MAX_ATTACHMENTS - attachmentsRef.current.length
+    if (supported.length > room) setAttachError(`You can attach up to ${MAX_ATTACHMENTS} files to one message.`)
+    const accepted = supported.slice(0, Math.max(0, room))
+    if (!accepted.length) return
+    if (fromTimetable) setText((current) => (current.trim() ? current : TIMETABLE_PROMPT))
+
+    const placeholders = accepted.map((file) => ({ id: nextId(), status: 'loading', kind: attachmentKind(file), name: file.name || 'file' }))
+    setAttachments((current) => [...current, ...placeholders])
+    // One at a time: decoding several large photos at once can run an iPhone out of memory.
+    for (const [index, file] of accepted.entries()) {
+      const { id } = placeholders[index]
+      try {
+        const item = await readAttachment(file)
+        if (!mountedRef.current) return
+        if (!attachmentsRef.current.some((attachment) => attachment.id === id)) continue // removed meanwhile
+        const others = attachmentsRef.current.filter((attachment) => attachment.status === 'ready')
+        if (totalBytes([...others, item]) > MAX_ATTACHMENT_BYTES) {
+          setAttachments((current) => current.filter((attachment) => attachment.id !== id))
+          setAttachError(`That’s too much for one message — attachments can add up to ${formatBytes(MAX_ATTACHMENT_BYTES)}.`)
+          continue
+        }
+        setAttachments((current) => current.map((attachment) => (attachment.id === id ? { ...item, id, status: 'ready' } : attachment)))
+      } catch (error) {
+        if (!mountedRef.current) return
+        setAttachments((current) => current.filter((attachment) => attachment.id !== id))
+        setAttachError(error?.message || 'Couldn’t read that file.')
+      }
+    }
+  }
+
+  function removeAttachment(id) {
+    setAttachError('')
+    setAttachments((current) => current.filter((item) => item.id !== id))
   }
 
   function retry(message) {
@@ -175,10 +465,22 @@ export default function AssistantPage({ displayName }) {
     send(message.retry.payload, message.retry.shownText)
   }
 
+  function decide(proposalId, decision) {
+    if (busyRef.current || !proposalId) return
+    send({ confirm: { proposalId, decision } }, decision === 'yes' ? 'Yes' : 'No')
+  }
+
+  function choose(choice) {
+    if (busyRef.current || !choice) return
+    send({ message: choice, choice }, choice)
+  }
+
   // Stable across renders, so unchanged messages don't re-render while a reply streams.
-  const retryRef = useRef(retry)
-  retryRef.current = retry
-  const onRetry = useCallback((message) => retryRef.current(message), [])
+  const actionsRef = useRef(null)
+  actionsRef.current = { retry, decide, choose }
+  const onRetry = useCallback((message) => actionsRef.current.retry(message), [])
+  const onDecide = useCallback((proposalId, decision) => actionsRef.current.decide(proposalId, decision), [])
+  const onChoose = useCallback((choice) => actionsRef.current.choose(choice), [])
 
   async function newChat() {
     if (messages.length && !(await confirmAction({ title: 'Start a new chat?', message: 'This clears the conversation. What I remember about you is kept.', confirmLabel: 'New chat', tone: 'default' }))) return
@@ -201,19 +503,20 @@ export default function AssistantPage({ displayName }) {
   }
 
   const empty = messages.length === 0
+  const lastIndex = messages.length - 1
 
   return (
     <div className="assistant">
       <header className="assistant-header">
         <div>
           <h1>Assistant</h1>
-          <p className="page-subtitle">Knows your tasks, calendar, people and notes</p>
+          <p className="page-subtitle">Knows your tasks, calendar, people, gym and food</p>
         </div>
         <div className="assistant-tools">
           <IconButton icon={speak ? 'volume' : 'volumeOff'} label={speak ? 'Stop reading replies aloud' : 'Read replies aloud'} active={speak} onClick={toggleSpeak} />
           <button type="button" className="icon-btn has-badge" onClick={() => setMemoryOpen(true)} aria-label={`What I remember (${memories.length})`} title="What I remember">
             <Icon name="bookmark" size={20} />
-            {memories.length > 0 && <span className="badge-count">{memories.length}</span>}
+            {memories.length > 0 && <span className="badge-count asst-badge" aria-hidden="true">{memories.length}</span>}
           </button>
           <IconButton icon="message" label="New chat" onClick={newChat} disabled={busy} />
         </div>
@@ -222,30 +525,55 @@ export default function AssistantPage({ displayName }) {
       <p className="sr-only" aria-live="polite" aria-atomic="true">{announcement}</p>
       <div className="chat">
         {empty ? (
-          <div className="chat-welcome">
-            <span className="assistant-avatar assistant-avatar-lg" aria-hidden="true"><Icon name="sparkles" size={30} /></span>
-            <h2>Hi {displayName.split(' ')[0]}, how can I help?</h2>
-            <p>Ask about your day, tell me what’s going on, or say things like “move the dentist to Friday at 3” or “Ali started a new job — we had coffee today.”</p>
-            <div className="suggestions">
-              {SUGGESTIONS.map((suggestion) => (
-                <button key={suggestion.text} type="button" className="suggestion" onClick={() => submitText(null, suggestion.text)} disabled={busy}>
-                  <Icon name={suggestion.icon} size={18} />
-                  <span>{suggestion.text}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : messages.map((message) => <Message key={message.id} message={message} onRetry={onRetry} />)}
+          <Welcome displayName={displayName} busy={busy} onAsk={(prompt) => submitText(null, prompt)} onTimetable={() => openFilePicker(true)} />
+        ) : messages.map((message, index) => {
+          const isLast = index === lastIndex
+          // Only a card this device is running spins; any other "executing" one was cut off.
+          const status = message.proposal?.status
+          const liveCard = status === 'pending' || (status === 'executing' && !!confirmingId && message.proposal.id === confirmingId)
+          return (
+            <Message
+              key={message.id}
+              message={message}
+              isLast={isLast}
+              busy={busy && (isLast || liveCard)}
+              onRetry={onRetry}
+              onDecide={onDecide}
+              onChoose={onChoose}
+            />
+          )
+        })}
         <div ref={endRef} className="chat-end" />
       </div>
+
+      {/* Outside .shell, so a focused picker never counts as "typing" (which hides the tab bar). */}
+      {createPortal(
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept={attachmentAccept}
+          className="asst-file-input"
+          onChange={onFilesChosen}
+          tabIndex={-1}
+          aria-hidden="true"
+        />,
+        document.body,
+      )}
 
       <div className="composer-dock">
         <Composer
           text={text}
           setText={setText}
           busy={busy}
+          attachments={attachments}
+          notice={attachError}
           onSubmit={submitText}
-          onAudio={(audio, mimeType) => send({ audio, mimeType }, 'Voice message')}
+          onAttach={() => openFilePicker(false)}
+          onRemoveAttachment={removeAttachment}
+          onPasteFiles={(files) => addFiles(files)}
+          onAudio={sendAudio}
+          onNotice={setAttachError}
           onStop={() => abortRef.current?.abort()}
         />
       </div>
@@ -255,7 +583,74 @@ export default function AssistantPage({ displayName }) {
   )
 }
 
-const Message = memo(function Message({ message, onRetry }) {
+// ---- welcome and starter prompts ---------------------------------------------------------------
+
+function Welcome({ displayName, busy, onAsk, onTimetable }) {
+  const suggestions = useSuggestions()
+  const firstName = String(displayName || '').trim().split(/\s+/)[0]
+  return (
+    <div className="chat-welcome">
+      <span className="assistant-avatar assistant-avatar-lg" aria-hidden="true"><Icon name="sparkles" size={30} /></span>
+      <h2>{firstName ? `Hi ${firstName}, how can I help?` : 'How can I help?'}</h2>
+      <p>Ask about your day, send a photo or PDF, or say things like “move the dentist to Friday at 3” or “Ali started a new job — we had coffee today.”</p>
+      <div className="suggestions">
+        {suggestions.map((suggestion) => (
+          <button key={suggestion.text} type="button" className="suggestion" onClick={() => onAsk(suggestion.text)} disabled={busy}>
+            <Icon name={suggestion.icon} size={18} />
+            <span>{suggestion.text}</span>
+          </button>
+        ))}
+      </div>
+      <button type="button" className="asst-hint" onClick={onTimetable}>
+        <Icon name="camera" size={18} />
+        <span>Snap a photo of your class timetable</span>
+      </button>
+    </div>
+  )
+}
+
+function useSuggestions() {
+  const tasks = useData('tasks')
+  const friends = useData('friends')
+  const settings = useData('settings')
+  const foodEntries = useData('foodEntries')
+  const gym = useGym()
+  const sessions = useGymSessions()
+  const today = useToday()
+  const hour = new Date().getHours()
+  return useMemo(() => {
+    let gymDay = false
+    try {
+      const day = resolveDay(gym, sessions, today, today)
+      gymDay = day.status === 'today' && day.shown?.kind === 'routine'
+    } catch {
+      // no plan / unreadable plan: no workout prompt
+    }
+    return buildSuggestions({ tasks, friends, settings, foodEntries, gymDay, today, hour })
+  }, [tasks, friends, settings, foodEntries, gym, sessions, today, hour])
+}
+
+// Up to four prompts, most useful first, from what's in the app right now.
+export function buildSuggestions({ tasks, friends, settings, foodEntries, gymDay = false, today, hour = 12 }) {
+  const list = []
+  const overdue = (Array.isArray(tasks) ? tasks : [])
+    .filter((task) => task && !task.archived && !task.done && typeof task.date === 'string' && task.date && task.date < today).length
+  if (overdue > 0) list.push({ icon: 'alert', text: overdue === 1 ? 'Reschedule my overdue task' : `Reschedule my ${overdue} overdue tasks` })
+  list.push(hour >= 17 ? { icon: 'sunrise', text: 'Plan tomorrow' } : { icon: 'sun', text: 'What’s on my plate today?' })
+  if (gymDay) list.push({ icon: 'dumbbell', text: 'What’s today’s workout?' })
+  const calorieGoal = Number(settings?.food?.goals?.calories)
+  if ((Number.isFinite(calorieGoal) && calorieGoal > 0) || (Array.isArray(foodEntries) && foodEntries.length > 0)) {
+    list.push({ icon: 'utensils', text: 'How many calories do I have left?' })
+  }
+  if (Array.isArray(friends) && friends.length > 0) list.push({ icon: 'people', text: 'Who should I catch up with?' })
+  if (settings?.showPrayerTimes !== false) list.push({ icon: 'moon', text: 'What are today’s prayer times?' })
+  for (const fallback of FALLBACK_SUGGESTIONS) list.push(fallback)
+  return list.slice(0, 4)
+}
+
+// ---- messages ----------------------------------------------------------------------------------
+
+const Message = memo(function Message({ message, isLast, busy, onRetry, onDecide, onChoose }) {
   if (message.error) {
     return (
       <div className="msg msg-assistant msg-error" role="alert">
@@ -269,39 +664,210 @@ const Message = memo(function Message({ message, onRetry }) {
   }
 
   if (message.role === 'user') {
+    const attachments = Array.isArray(message.attachments) ? message.attachments.filter((item) => item && typeof item === 'object') : []
+    const showBubble = message.pending || !!message.content || !attachments.length
     return (
       <div className={`msg msg-user ${message.pending ? 'is-pending' : ''}`}>
-        <div className="msg-bubble">
-          {message.voice && <Icon name="mic" size={15} />}
-          {message.pending ? <span className="typing" aria-label="Transcribing"><i /><i /><i /></span> : message.content}
+        <div className="asst-user-stack">
+          {attachments.length > 0 && <SentAttachments items={attachments} />}
+          {showBubble && (
+            <div className="msg-bubble">
+              {message.voice && <Icon name="mic" size={15} />}
+              {message.pending ? <span className="typing" aria-label="Transcribing"><i /><i /><i /></span> : message.content}
+            </div>
+          )}
         </div>
       </div>
     )
   }
 
+  const proposal = message.proposal && typeof message.proposal === 'object' ? message.proposal : null
+  const text = message.content || proposal?.summary || ''
+  const staged = message.streaming && !proposal && Array.isArray(message.staged) ? message.staged.filter((item) => item && item.ok !== false && !item.internal) : []
+  const actions = (Array.isArray(message.actions) ? message.actions : []).filter((action) => action && (action.message || action.ok === false))
+  const links = message.streaming ? [] : deepLinks(actions)
+  const choices = isLast && !message.streaming && Array.isArray(message.choices) ? message.choices : []
+
   return (
     <div className="msg msg-assistant">
       <span className="assistant-avatar" aria-hidden="true"><Icon name="sparkles" size={16} /></span>
-      <div className="msg-body">
-        {message.content ? <RichText text={message.content} /> : null}
-        {message.streaming && !message.content && (
+      <div className={`msg-body ${proposal ? 'has-card' : ''}`}>
+        {text ? <RichText text={text} /> : null}
+        {message.streaming && !text && (
           <p className="msg-status"><span className="typing" aria-hidden="true"><i /><i /><i /></span>{message.status}</p>
         )}
-        {message.streaming && message.content && message.status && <p className="msg-status">{message.status}</p>}
-        {message.actions?.length > 0 && (
-          <ul className="action-chips">
-            {message.actions.map((action, index) => (
-              <li key={index} className={action.ok ? 'is-ok' : 'is-failed'}>
-                <Icon name={action.ok ? 'check' : 'alert'} size={14} />
-                {action.message}
+        {message.streaming && text && message.status && <p className="msg-status">{message.status}</p>}
+        {staged.length > 0 && (
+          <ul className="action-chips asst-staged" aria-label="Getting ready">
+            {staged.map((item, index) => (
+              <li key={index} className="is-staged">
+                <Icon name="clock" size={14} />
+                {inline(String(item.label || 'Preparing a change'))}
               </li>
             ))}
           </ul>
+        )}
+        {proposal && (
+          <ProposalCard
+            proposal={proposal}
+            createdAt={message.createdAt}
+            isLast={isLast}
+            busy={busy || !!message.streaming}
+            question={choices.length > 0}
+            onDecide={(decision) => onDecide(proposal.id, decision)}
+          />
+        )}
+        {actions.length > 0 && (
+          <ul className="action-chips">
+            {actions.map((action, index) => (
+              <li key={index} className={action.ok ? 'is-ok' : 'is-failed'}>
+                <Icon name={action.ok ? 'check' : 'alert'} size={14} />
+                {action.message || 'That didn’t work.'}
+              </li>
+            ))}
+          </ul>
+        )}
+        {links.length > 0 && (
+          <div className="asst-links">
+            {links.map((link) => (
+              <a key={link.href} className="asst-link" href={link.href}>
+                <Icon name={link.icon} size={15} />
+                {link.label}
+                <Icon name="chevronRight" size={14} />
+              </a>
+            ))}
+          </div>
+        )}
+        {choices.length > 0 && (
+          <div className="asst-choices" role="group" aria-label="Quick replies">
+            {choices.map((choice) => (
+              <button key={choice} type="button" className="asst-choice" onClick={() => onChoose(choice)} disabled={busy}>{choice}</button>
+            ))}
+          </div>
         )}
       </div>
     </div>
   )
 })
+
+// "I'll do:" with the server's labels, then Yes / No. Buttons work only on the newest message, and
+// not while a question with quick replies waits under it (the answer comes first).
+export function ProposalCard({ proposal, createdAt, isLast, busy, question = false, onDecide, now = Date.now() }) {
+  const actions = (Array.isArray(proposal.actions) ? proposal.actions : [])
+    .map((action, index) => ({ action, index }))
+    .filter(({ action }) => action && (action.label || action.detail))
+  let status = typeof proposal.status === 'string' && proposal.status ? proposal.status : 'pending'
+  if (status === 'pending' && proposalExpired(proposal, createdAt, now)) status = 'expired'
+  if (status === 'pending' && !isLast && !busy) status = 'stale' // answered some other way
+  // Nothing here is running it (reloaded, or the run was cut off): don't spin forever.
+  if (status === 'executing' && (!busy || executingStale(proposal, now))) status = 'interrupted'
+  const outcomes = RESULT_STATUSES.has(status) ? rowOutcomes(proposal, status) : []
+  // Saved as "done" by an older server although some actions failed: say what really happened.
+  if (status === 'done' && outcomes.includes('failed')) status = outcomes.includes('ok') ? 'partial' : 'failed'
+  const open = status === 'pending' || status === 'executing'
+  const waiting = status === 'pending' && question
+  const canDecide = status === 'pending' && isLast && !busy && !question
+  const tone = status === 'done' ? 'is-done' : open ? 'is-open' : 'is-closed'
+
+  return (
+    <section className={`asst-proposal ${tone} is-${status}`} aria-label="Proposed changes">
+      <p className="asst-proposal-head">
+        {status === 'checking' && <span className="spinner" aria-hidden="true" />}
+        {open ? 'I’ll do:' : STATUS_LABELS[status] || 'Not confirmed'}
+      </p>
+      {actions.length > 0 && (
+        <ul className="asst-proposal-list">
+          {actions.map(({ action, index }) => {
+            const outcome = outcomes[index] || ''
+            return (
+              <li key={index} className={outcome ? `is-${outcome}` : undefined}>
+                <span className={`asst-proposal-mark ${outcome ? `is-${outcome}` : ''}`} aria-hidden="true">
+                  {outcome === 'ok' && <Icon name="check" size={12} strokeWidth={3} />}
+                  {outcome === 'failed' && <span className="asst-proposal-bang">!</span>}
+                </span>
+                <span className="asst-proposal-text">
+                  {action.label && <span>{inline(String(action.label))}</span>}
+                  {action.detail && <small>{inline(String(action.detail))}</small>}
+                  {outcome && <span className="sr-only">{outcome === 'ok' ? ' (done)' : ' (didn’t work)'}</span>}
+                </span>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      {waiting ? (
+        <p className="asst-proposal-note">Answer the question below first, then I’ll update this.</p>
+      ) : open && (
+        <div className="asst-proposal-actions">
+          <button type="button" className="btn btn-primary btn-grow" disabled={!canDecide} aria-busy={status === 'executing' || undefined} onClick={() => onDecide('yes')}>
+            {status === 'executing' ? <span className="spinner" aria-hidden="true" /> : <Icon name="check" size={18} strokeWidth={2.4} />}
+            {status === 'executing' ? 'Working…' : 'Yes, do it'}
+          </button>
+          <button type="button" className="btn btn-secondary asst-proposal-no" disabled={!canDecide} onClick={() => onDecide('no')}>No</button>
+        </div>
+      )}
+    </section>
+  )
+}
+
+// "executing" for longer than any real run takes. Uses the server's (or this device's) start stamp.
+export function executingStale(proposal, now = Date.now()) {
+  const stamp = Date.parse(proposal?.executingAt || '')
+  return Number.isFinite(stamp) && now - stamp > EXECUTING_STALE_MS
+}
+
+// How each action went, by position in proposal.actions: 'ok', 'failed' or '' (not known).
+// Results are matched by position, or by label when the server sends labels that don't line up.
+export function rowOutcomes(proposal, status = proposal?.status) {
+  const actions = Array.isArray(proposal?.actions) ? proposal.actions : []
+  const results = Array.isArray(proposal?.results) ? proposal.results.filter((result) => result && typeof result === 'object') : []
+  const used = new Set()
+  return actions.map((action, index) => {
+    let match = -1
+    const atIndex = results[index]
+    if (atIndex && !used.has(index) && (!atIndex.label || !action?.label || atIndex.label === action.label)) match = index
+    else if (action?.label) match = results.findIndex((result, position) => !used.has(position) && result.label === action.label)
+    if (match >= 0) {
+      used.add(match)
+      return results[match].ok === false ? 'failed' : 'ok'
+    }
+    // No result for this row: the overall status is all there is to go on.
+    return status === 'done' ? 'ok' : status === 'failed' ? 'failed' : ''
+  })
+}
+
+// Server stamps win; otherwise the message time. Expired after 30 min or once the local day changes.
+export function proposalExpired(proposal, createdAt, now = Date.now()) {
+  if (typeof proposal?.localDate === 'string' && proposal.localDate && proposal.localDate !== toISO(new Date(now))) return true
+  const stamp = Date.parse(proposal?.createdAt || createdAt || '')
+  if (!Number.isFinite(stamp)) return false
+  return now - stamp > PROPOSAL_TTL_MS || toISO(new Date(stamp)) !== toISO(new Date(now))
+}
+
+function SentAttachments({ items }) {
+  const images = items.filter((item) => item.kind === 'image' && item.thumb)
+  const files = items.filter((item) => !(item.kind === 'image' && item.thumb))
+  const columns = images.length <= 1 ? 1 : images.length === 2 || images.length === 4 ? 2 : 3
+  return (
+    <>
+      {images.length > 0 && (
+        <div className={`asst-sent-images cols-${columns}`}>
+          {images.map((item, index) => <img key={index} src={item.thumb} alt={item.name || 'Photo'} decoding="async" />)}
+        </div>
+      )}
+      {files.length > 0 && (
+        <ul className="asst-sent-files">
+          {files.map((item, index) => (
+            <li key={index} className={`is-${item.kind}`}>
+              <Icon name={kindIcon(item.kind)} size={17} />
+              <span>{item.name || kindName(item.kind)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  )
+}
 
 const LIST_ITEM = /^\s*([-*•]|\d+[.)])\s+/
 
@@ -339,170 +905,75 @@ function inline(text) {
   })
 }
 
-function Composer({ text, setText, busy, onSubmit, onAudio, onStop }) {
-  const [recording, setRecording] = useState(false)
-  const [seconds, setSeconds] = useState(0)
-  const [levels, setLevels] = useState(() => Array(28).fill(0.08))
-  const [micError, setMicError] = useState('')
-  const recorderRef = useRef(null)
-  const discardRef = useRef(false)
-  const cleanupRef = useRef(null)
-  const mountedRef = useRef(false)
-  const startingRef = useRef(false)
-  // The recording finishes later; send it with the latest handler, not the one from when it started.
-  const onAudioRef = useRef(onAudio)
-  onAudioRef.current = onAudio
+// ---- composer ----------------------------------------------------------------------------------
 
-  useEffect(() => {
-    mountedRef.current = true // set here too, for StrictMode's unmount/remount
-    return () => {
-      mountedRef.current = false
-      discardRef.current = true
-      if (recorderRef.current?.state === 'recording') recorderRef.current.stop()
-      cleanupRef.current?.()
-    }
-  }, [])
+function Composer({ text, setText, busy, attachments, notice, onSubmit, onAttach, onRemoveAttachment, onPasteFiles, onAudio, onNotice, onStop }) {
+  // Attachments and the voice note travel in one request: the recording stops before it would overflow.
+  const voiceSeconds = useMemo(() => voiceBudgetSeconds(attachments), [attachments])
+  const [voiceLimit, setVoiceLimit] = useState(MAX_VOICE_SECONDS) // fixed when a recording starts
+  const recorder = useRecorder({ onAudio, maxSeconds: voiceLimit })
+  const hasText = text.trim().length > 0
+  const loading = attachments.some((item) => item.status === 'loading')
+  const readyCount = attachments.filter((item) => item.status === 'ready').length
+  const hasAttachments = attachments.length > 0
+  const error = recorder.error || notice
+  const strip = hasAttachments && <AttachmentStrip items={attachments} onRemove={onRemoveAttachment} />
+  const capped = voiceLimit < MAX_VOICE_SECONDS
 
-  async function start() {
-    if (startingRef.current || recorderRef.current?.state === 'recording') return
-    startingRef.current = true
-    try {
-      await startRecording()
-    } finally {
-      startingRef.current = false
-    }
-  }
-
-  async function startRecording() {
-    setMicError('')
-    window.speechSynthesis?.cancel()
-    let stream
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } })
-    } catch {
-      setMicError('Microphone access is blocked. Allow it in your browser settings to talk to Daybook.')
+  function startRecording() {
+    if (voiceSeconds < MIN_VOICE_SECONDS) {
+      onNotice?.('These attachments leave no room for a voice note. Type your message, or remove an attachment first.')
       return
     }
-    // Left the page while the permission prompt was open: release the microphone.
-    if (!mountedRef.current) {
-      stream.getTracks().forEach((track) => track.stop())
-      return
-    }
-
-    let raf = 0
-    let audioContext = null
-    let timer = null
-    const cleanup = () => {
-      cancelAnimationFrame(raf)
-      clearInterval(timer)
-      stream.getTracks().forEach((track) => track.stop())
-      audioContext?.close().catch(() => {})
-    }
-    cleanupRef.current = cleanup
-
-    // Live level meter.
-    try {
-      audioContext = new (window.AudioContext || window.webkitAudioContext)()
-      audioContext.resume?.().catch(() => {}) // iOS starts audio contexts suspended
-      const analyser = audioContext.createAnalyser()
-      analyser.fftSize = 512
-      audioContext.createMediaStreamSource(stream).connect(analyser)
-      const samples = new Uint8Array(analyser.fftSize)
-      let lastPush = 0
-      const tick = (time) => {
-        analyser.getByteTimeDomainData(samples)
-        let sum = 0
-        for (const sample of samples) sum += ((sample - 128) / 128) ** 2
-        const level = Math.min(1, Math.sqrt(sum / samples.length) * 4)
-        if (time - lastPush > 70) {
-          lastPush = time
-          setLevels((current) => [...current.slice(1), Math.max(0.08, level)])
-        }
-        raf = requestAnimationFrame(tick)
-      }
-      raf = requestAnimationFrame(tick)
-    } catch {
-      // meter is decorative
-    }
-
-    const chunks = []
-    let recorder
-    try {
-      const mimeType = RECORDING_TYPES.find((type) => MediaRecorder.isTypeSupported(type))
-      recorder = new MediaRecorder(stream, mimeType ? { mimeType, audioBitsPerSecond: 32000 } : undefined)
-      recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data) }
-      recorder.onstop = async () => {
-        cleanup()
-        setRecording(false)
-        setLevels(Array(28).fill(0.08))
-        if (discardRef.current) return
-        const blob = new Blob(chunks, { type: recorder.mimeType || mimeType || 'audio/webm' })
-        if (blob.size < 2000) {
-          setMicError('That was too short — hold on a moment longer before sending.')
-          return
-        }
-        try {
-          onAudioRef.current(await blobToBase64(blob), blob.type)
-        } catch (error) {
-          setMicError(error.message)
-        }
-      }
-      discardRef.current = false
-      recorderRef.current = recorder
-      recorder.start()
-    } catch {
-      cleanup()
-      setLevels(Array(28).fill(0.08))
-      setMicError('Recording isn’t supported in this browser.')
-      return
-    }
-
-    setSeconds(0)
-    setRecording(true)
-    let elapsed = 0
-    timer = setInterval(() => {
-      elapsed += 1
-      setSeconds(elapsed)
-      if (elapsed >= MAX_RECORDING_SECONDS && recorder.state === 'recording') recorder.stop()
-    }, 1000)
+    setVoiceLimit(voiceSeconds)
+    recorder.start()
   }
 
-  function stop(discard) {
-    discardRef.current = discard
-    if (recorderRef.current?.state === 'recording') recorderRef.current.stop()
-  }
-
-  if (recording) {
+  if (recorder.recording) {
     return (
-      <div className="composer is-recording">
-        <button type="button" className="icon-btn" onClick={() => stop(true)} aria-label="Cancel recording"><Icon name="close" /></button>
-        <div className="recorder" aria-label={`Recording, ${formatSeconds(seconds)}`}>
+      <div className={`composer is-recording asst-composer ${hasAttachments ? 'has-attachments' : ''}`}>
+        {strip}
+        <button type="button" className="icon-btn" onClick={() => recorder.stop(true)} aria-label="Cancel recording"><Icon name="close" /></button>
+        <div className="recorder" aria-label={`Recording, ${formatSeconds(recorder.seconds)}${capped ? ` of ${formatSeconds(voiceLimit)}` : ''}`}>
           <span className="rec-dot" aria-hidden="true" />
-          <span className="rec-time">{formatSeconds(seconds)}</span>
+          <span className="rec-time">{formatSeconds(recorder.seconds)}{capped && <span className="asst-rec-limit"> / {formatSeconds(voiceLimit)}</span>}</span>
           <span className="waveform" aria-hidden="true">
-            {levels.map((level, index) => <i key={index} style={{ transform: `scaleY(${level})` }} />)}
+            {recorder.levels.map((level, index) => <i key={index} style={{ transform: `scaleY(${level})` }} />)}
           </span>
         </div>
-        <button type="button" className="send-btn" onClick={() => stop(false)} aria-label="Send voice message"><Icon name="send" size={20} strokeWidth={2.2} /></button>
+        <button type="button" className="send-btn" onClick={() => recorder.stop(false)} aria-label={readyCount ? 'Send voice message with attachments' : 'Send voice message'}>
+          <Icon name="send" size={20} strokeWidth={2.2} />
+        </button>
       </div>
     )
   }
 
   return (
     <>
-      {micError && <p className="composer-error" role="alert">{micError}</p>}
-      <form className="composer" onSubmit={onSubmit}>
+      {error && <p className="composer-error" role="alert">{error}</p>}
+      <form className={`composer asst-composer ${hasAttachments ? 'has-attachments' : ''}`} onSubmit={onSubmit}>
+        {strip}
+        <button type="button" className="asst-attach-btn" onClick={onAttach} aria-label="Attach a photo or file" title="Attach a photo or file">
+          <Icon name="paperclip" size={21} />
+        </button>
         <AutoTextarea
           className="composer-input"
           value={text}
           onChange={(event) => setText(event.target.value)}
+          onPaste={(event) => {
+            // A pasted screenshot becomes an attachment; anything with text pastes as text.
+            const files = Array.from(event.clipboardData?.files || [])
+            if (!files.length || !onPasteFiles || event.clipboardData.getData('text/plain')) return
+            event.preventDefault()
+            onPasteFiles(files)
+          }}
           onKeyDown={(event) => {
             if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && window.matchMedia('(pointer: fine)').matches) {
               event.preventDefault()
               onSubmit(event)
             }
           }}
-          placeholder="Message Daybook…"
+          placeholder={hasAttachments ? 'Add a message…' : 'Message Daybook…'}
           aria-label="Message"
           minRows={1}
           maxRows={6}
@@ -510,15 +981,55 @@ function Composer({ text, setText, busy, onSubmit, onAudio, onStop }) {
         />
         {busy ? (
           <button type="button" className="send-btn is-stop" onClick={onStop} aria-label="Stop"><span className="stop-square" /></button>
-        ) : text.trim() ? (
-          <button type="submit" className="send-btn" aria-label="Send"><Icon name="send" size={20} strokeWidth={2.2} /></button>
-        ) : canRecord ? (
-          <button type="button" className="send-btn is-mic" onClick={start} aria-label="Record a voice message"><Icon name="mic" size={20} /></button>
+        ) : hasText || hasAttachments ? (
+          <>
+            {!hasText && recorder.supported && (
+              <button type="button" className="asst-mic-mini" onClick={startRecording} disabled={loading} aria-label="Record a voice message to send with the attachments">
+                <Icon name="mic" size={21} />
+              </button>
+            )}
+            <button type="submit" className="send-btn" aria-label={loading ? 'Preparing attachments' : 'Send'} disabled={loading}>
+              {loading ? <span className="spinner" aria-hidden="true" /> : <Icon name="send" size={20} strokeWidth={2.2} />}
+            </button>
+          </>
+        ) : recorder.supported ? (
+          <button type="button" className="send-btn is-mic" onClick={startRecording} aria-label="Record a voice message"><Icon name="mic" size={20} /></button>
         ) : (
           <button type="submit" className="send-btn" aria-label="Send" disabled><Icon name="send" size={20} strokeWidth={2.2} /></button>
         )}
       </form>
     </>
+  )
+}
+
+function AttachmentStrip({ items, onRemove }) {
+  return (
+    <ul className="asst-strip" aria-label="Attachments">
+      {items.map((item) => {
+        const loading = item.status === 'loading'
+        const photo = item.kind === 'image'
+        return (
+          <li key={item.id} className={`asst-tile ${photo ? 'is-photo' : 'is-file'} ${loading ? 'is-loading' : ''}`}>
+            {photo ? (
+              loading ? <span className="asst-tile-wait" role="status" aria-label={`Preparing ${item.name}`}><span className="spinner" /></span> : <img src={item.dataUrl} alt={item.name} />
+            ) : (
+              <span className="asst-tile-file">
+                <span className={`asst-tile-icon is-${item.kind}`} aria-hidden="true">
+                  {loading ? <span className="spinner" /> : <Icon name={kindIcon(item.kind)} size={18} />}
+                </span>
+                <span className="asst-tile-text">
+                  <strong>{item.name}</strong>
+                  <small>{loading ? 'Preparing…' : `${kindName(item.kind)} · ${formatBytes(item.bytes)}`}</small>
+                </span>
+              </span>
+            )}
+            <button type="button" className="asst-tile-remove" onClick={() => onRemove(item.id)} aria-label={`Remove ${item.name}`}>
+              <Icon name="close" size={12} strokeWidth={3} />
+            </button>
+          </li>
+        )
+      })}
+    </ul>
   )
 }
 
@@ -557,6 +1068,155 @@ function MemorySheet({ open, onClose, memories, setMemories, enabled }) {
   )
 }
 
+// ---- helpers -----------------------------------------------------------------------------------
+
+// What goes to the server for one prepared attachment.
+function attachmentPayload({ kind, name, dataUrl, text }) {
+  return kind === 'text' ? { kind, name, text } : { kind, name, dataUrl }
+}
+
+// The shape kept in localStorage: no photos or file contents, and no in-flight states.
+function cacheMessage({ role, content, voice, actions, proposal, choices, attachments, createdAt }) {
+  return {
+    role,
+    content: typeof content === 'string' ? content : '',
+    ...(createdAt ? { createdAt } : {}),
+    ...(voice ? { voice } : {}),
+    ...(actions?.length ? { actions: actions.slice(0, 10).map(({ tool, ok, message }) => ({ tool, ok, message })) } : {}),
+    ...(proposal?.id ? {
+      proposal: {
+        id: proposal.id,
+        // In-flight states can't be resumed from the cache; the server's history corrects it on load.
+        status: ['executing', 'checking'].includes(proposal.status) ? 'interrupted' : proposal.status || 'pending',
+        ...(proposal.summary ? { summary: String(proposal.summary).slice(0, 600) } : {}),
+        ...(proposal.localDate ? { localDate: proposal.localDate } : {}),
+        ...(proposal.createdAt ? { createdAt: proposal.createdAt } : {}),
+        actions: (Array.isArray(proposal.actions) ? proposal.actions : []).slice(0, 12).map((action) => ({
+          label: String(action?.label || '').slice(0, 300),
+          ...(action?.detail ? { detail: String(action.detail).slice(0, 300) } : {}),
+        })),
+        ...(Array.isArray(proposal.results) ? { results: cleanResults(proposal.results) } : {}),
+      },
+    } : {}),
+    ...(choices?.length ? { choices: choices.slice(0, 6) } : {}),
+    ...(attachments?.length ? { attachments: attachments.slice(0, MAX_ATTACHMENTS).map(({ kind, name }) => ({ kind, name })) } : {}),
+  }
+}
+
+// Action chips for the finished reply: the server's filtered list, or (older server) its results
+// without lookups. Chips need a message unless they report a failure.
+function doneActions(done, streamed) {
+  const list = Array.isArray(done.actions)
+    ? done.actions
+    : Array.isArray(done.results) ? done.results.filter((result) => result && (!LOOKUP_TOOLS.has(result.tool) || !result.ok)) : streamed || []
+  return list
+    .filter((action) => action && typeof action === 'object' && (action.message || action.ok === false))
+    .map(({ tool, ok, message }) => ({ tool, ok: ok !== false, message }))
+}
+
+// Per-action results of a confirmed proposal, bounded: { label?, ok, message? } in action order.
+export function cleanResults(value) {
+  return (Array.isArray(value) ? value : []).filter((result) => result && typeof result === 'object').slice(0, 25).map((result) => ({
+    ...(result.label ? { label: String(result.label).slice(0, 300) } : {}),
+    ok: result.ok !== false,
+    ...(result.message ? { message: String(result.message).slice(0, 300) } : {}),
+  }))
+}
+
+// done / partial / failed from a confirmed run's action results.
+export function outcomeOf(results) {
+  const list = (Array.isArray(results) ? results : []).filter((result) => result && typeof result === 'object')
+  const ok = list.filter((result) => result.ok !== false).length
+  if (ok === list.length) return 'done'
+  return ok ? 'partial' : 'failed'
+}
+
+// The reply already asks something ("Shall I go ahead?"), so read-aloud doesn't ask twice.
+export const endsWithQuestion = (text) => /\?["'”’)\]]*$/.test(plainText(text).trim())
+
+// The quick reply on the newest message that `text` repeats ("yes" for "Yes"), or ''.
+export function matchChoice(message, text) {
+  if (!message || message.role !== 'assistant' || message.streaming || !Array.isArray(message.choices)) return ''
+  const key = choiceKey(text)
+  return key ? message.choices.find((choice) => typeof choice === 'string' && choiceKey(choice) === key) || '' : ''
+}
+const choiceKey = (text) => String(text || '').toLowerCase().replace(/[’‘]/g, '\'').replace(/[\s.!,;:]+$/g, '').replace(/\s+/g, ' ').trim()
+
+const REQUEST_OVERHEAD_BYTES = 2_000 // device context, stream flag, the audio's keys and MIME type
+
+// UTF-8 bytes of `value` as JSON.
+function jsonBytes(value) {
+  try {
+    return new TextEncoder().encode(JSON.stringify(value) || '').length
+  } catch {
+    return 0
+  }
+}
+
+// Size of the request for this payload, in bytes.
+export const requestBytes = (payload) => jsonBytes(payload) + REQUEST_OVERHEAD_BYTES
+
+// Seconds of voice note that still fit in one request next to these attachments.
+export function voiceBudgetSeconds(attachments) {
+  let used = REQUEST_OVERHEAD_BYTES
+  for (const item of Array.isArray(attachments) ? attachments : []) {
+    if (item && item.status !== 'loading') used += jsonBytes(attachmentPayload(item)) + 1
+  }
+  const room = MAX_REQUEST_BYTES - used
+  return Math.max(0, Math.min(MAX_VOICE_SECONDS, Math.floor(room / VOICE_BYTES_PER_SECOND)))
+}
+
+function cleanChoices(value) {
+  const list = Array.isArray(value) ? value : Array.isArray(value?.choices) ? value.choices : []
+  const seen = new Set()
+  const out = []
+  for (const item of list) {
+    const choice = typeof item === 'string' ? item.trim() : ''
+    if (!choice || seen.has(choice.toLowerCase())) continue
+    seen.add(choice.toLowerCase())
+    out.push(choice.slice(0, 80))
+    if (out.length === 6) break
+  }
+  return out
+}
+
+// Small "Open Gym ›" style links after changes that live on another page.
+function deepLinks(actions) {
+  const links = []
+  for (const link of DEEP_LINKS) {
+    if (actions.some((action) => action.ok && typeof action.tool === 'string' && link.test.test(action.tool))) links.push(link)
+  }
+  return links.slice(0, 2)
+}
+
+const kindIcon = (kind) => (kind === 'image' ? 'image' : kind === 'pdf' ? 'fileText' : 'file')
+const kindName = (kind) => (kind === 'image' ? 'Photo' : kind === 'pdf' ? 'PDF' : 'Text')
+
+function formatBytes(bytes) {
+  const value = Number(bytes) || 0
+  if (value < 1000) return `${value} B`
+  if (value < 1_000_000) return `${Math.round(value / 1000)} KB`
+  return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, '')} MB`
+}
+
+// true / false for this device, null when it can't be told (no push support, dev build).
+async function devicePushStatus() {
+  try {
+    const support = pushSupport()
+    if (support === 'denied' || support === 'default') return false
+    if (support !== 'granted') return null
+    // A worker that isn't ready in time means "can't tell", not "off" (currentSubscription() folds the two).
+    const registration = await Promise.race([
+      navigator.serviceWorker.ready,
+      new Promise((resolve) => setTimeout(() => resolve(null), 8000)),
+    ])
+    if (!registration?.pushManager) return null
+    return !!(await registration.pushManager.getSubscription())
+  } catch {
+    return null
+  }
+}
+
 // POST with stream:true and read newline-delimited JSON events as they arrive.
 async function streamAssistant(payload, signal, onEvent) {
   const token = getToken()
@@ -567,7 +1227,8 @@ async function streamAssistant(payload, signal, onEvent) {
     body: JSON.stringify({ ...payload, stream: true }),
   }).catch((error) => {
     if (error.name === 'AbortError') throw error
-    throw new Error('You’re offline — the assistant needs a connection.')
+    // Nothing reached the server, so nothing can have happened there.
+    throw Object.assign(new Error('You’re offline — the assistant needs a connection.'), { notSent: true })
   })
 
   if (!response.ok || !(response.headers.get('content-type') || '').includes('ndjson')) {
@@ -576,7 +1237,11 @@ async function streamAssistant(payload, signal, onEvent) {
     try { data = JSON.parse(raw) } catch { /* not JSON */ }
     // Only when the session that sent this is still the current one.
     if (response.status === 401 && token && getToken() === token) window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT))
-    throw new Error(data.error || `The assistant is unavailable right now (${response.status}).`)
+    // Vercel's own 413 (body over 4.5 MB) has no JSON message.
+    const message = response.status === 413 && !data.error
+      ? 'That’s too much to send in one message. Remove an attachment and try again.'
+      : data.error || `The assistant is unavailable right now (${response.status}).`
+    throw Object.assign(new Error(message), { status: response.status })
   }
 
   const reader = response.body.getReader()
@@ -610,13 +1275,15 @@ async function streamAssistant(payload, signal, onEvent) {
   return done
 }
 
-// Local date/time/zone so "today" is right, plus the last known location for weather and prayer times.
-function clientContext() {
+// Local date/time/zone so "today" is right, the last known location for weather and prayer
+// times, and whether this device gets push reminders.
+function clientContext(pushEnabled) {
   const location = readPref('location', null)
   return {
     localDate: todayISO(),
     localTime: nowTimeHHMM(),
     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    pushEnabled: typeof pushEnabled === 'boolean' ? pushEnabled : null,
     ...(location ? { location: { lat: location.lat, lon: location.lon } } : {}),
   }
 }
@@ -632,23 +1299,10 @@ function unlockSpeech() {
 }
 
 // Reply text without markdown symbols, for speech and screen readers.
-const plainText = (text) => text.replace(/[*`_#>]/g, '').replace(/^\s*[-•]\s+/gm, '')
+const plainText = (text) => String(text || '').replace(/[*`_#>]/g, '').replace(/^\s*[-•]\s+/gm, '')
 
 function speakText(text) {
-  if (!('speechSynthesis' in window)) return
+  if (!('speechSynthesis' in window) || !text) return
   window.speechSynthesis.cancel()
   window.speechSynthesis.speak(new SpeechSynthesisUtterance(plainText(text)))
-}
-
-function formatSeconds(total) {
-  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
-}
-
-function blobToBase64(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result).split(',')[1] || '')
-    reader.onerror = () => reject(new Error('Could not read the recording.'))
-    reader.readAsDataURL(blob)
-  })
 }

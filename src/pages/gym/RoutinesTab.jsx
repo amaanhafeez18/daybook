@@ -15,8 +15,10 @@ import { navigate } from '../../lib/router.js'
 import { useStore } from '../../lib/store.js'
 import { GymEmpty, RoutineChip, RoutineDot, SectionHeader } from './common.jsx'
 import ScheduleEditor from './ScheduleEditor.jsx'
+import SplitWizard from './SplitWizard.jsx'
 import { beginWorkout } from './startWorkout.js'
 import './routines.css'
+import './wizard.css'
 
 // ---- shared with the routine editor ------------------------------------------------------------
 
@@ -118,6 +120,7 @@ export default function RoutinesTab({ today }) {
 
   const [scheduleOpen, setScheduleOpen] = useState(false)
   const [templatesOpen, setTemplatesOpen] = useState(false)
+  const [wizardOpen, setWizardOpen] = useState(false)
   const [reordering, setReordering] = useState(false)
   const [menu, showMenu, hideMenu] = useSheetTarget() // routine
   const [move, showMove, hideMove] = useSheetTarget() // routine
@@ -209,6 +212,7 @@ export default function RoutinesTab({ today }) {
     <>
       <ScheduleEditor open={scheduleOpen} onClose={() => setScheduleOpen(false)} today={today} />
       <TemplateSheet open={templatesOpen} onClose={() => setTemplatesOpen(false)} today={today} />
+      <SplitWizard open={wizardOpen} onClose={() => setWizardOpen(false)} today={today} />
       <ActionSheet
         open={menu.open}
         onClose={hideMenu}
@@ -262,12 +266,13 @@ export default function RoutinesTab({ today }) {
             title="Build your split"
             action={(
               <div className="gym-rt-hero-actions">
-                <Button icon="plus" onClick={() => navigate('gym/routine/new')}>Create routine</Button>
+                <Button icon="wand" onClick={() => setWizardOpen(true)}>Build my split</Button>
+                <Button variant="secondary" icon="plus" onClick={() => navigate('gym/routine/new')}>Create one routine</Button>
                 <Button variant="secondary" icon="layers" onClick={() => setTemplatesOpen(true)}>Use a template</Button>
               </div>
             )}
           >
-            A routine is one training day, like Push, Pull or Legs, with its exercises and target sets. Make your own or start from a proven split.
+            A routine is one training day, like Push, Pull or Legs, with its exercises and target sets. Type your split, like “push pull legs rest”, and the wizard sets it all up.
           </GymEmpty>
         </div>
         {sheets}
@@ -277,7 +282,7 @@ export default function RoutinesTab({ today }) {
 
   return (
     <div className="gym-routines">
-      <SplitCard gym={gym} sessions={sessions} today={today} onEdit={() => setScheduleOpen(true)} />
+      <SplitCard gym={gym} sessions={sessions} today={today} onEdit={() => setScheduleOpen(true)} onWizard={() => setWizardOpen(true)} />
 
       <SectionHeader
         title={routines.length ? `Routines · ${routines.length}` : 'Routines'}
@@ -303,7 +308,16 @@ export default function RoutinesTab({ today }) {
           if (routines.length || reordering) return null
           return (
             <div key="loose" className="card gym-rt-empty">
-              <GymEmpty icon="dumbbell" title="No routines yet" action={<Button variant="secondary" icon="layers" onClick={() => setTemplatesOpen(true)}>Use a template</Button>}>
+              <GymEmpty
+                icon="dumbbell"
+                title="No routines yet"
+                action={(
+                  <div className="wiz-split-actions">
+                    <Button icon="wand" onClick={() => setWizardOpen(true)}>Build my split</Button>
+                    <Button variant="secondary" icon="layers" onClick={() => setTemplatesOpen(true)}>Use a template</Button>
+                  </div>
+                )}
+              >
                 Create one for each training day, like Push or Legs, then pick when each one happens in your schedule.
               </GymEmpty>
             </div>
@@ -431,7 +445,7 @@ function SlotChip({ slot, gym }) {
   return <RoutineChip routine={routineById(gym, slot.routineId)} />
 }
 
-function SplitCard({ gym, sessions, today, onEdit }) {
+function SplitCard({ gym, sessions, today, onEdit, onWizard }) {
   const { schedule, prefs } = gym
   const version = schedule.versions.length ? schedule.versions[schedule.versions.length - 1] : null
   const marker = useMemo(() => (version ? splitMarker(version, gym, sessions, today) : null), [version, gym, sessions, today])
@@ -448,9 +462,12 @@ function SplitCard({ gym, sessions, today, onEdit }) {
         <p className="gym-split-sub">
           {gym.routines.length
             ? 'Choose which routine falls on each day: a rotation that repeats in order, or a fixed weekly plan.'
-            : 'Create a routine first, then choose which days it falls on.'}
+            : 'Type your split, like “push pull legs rest”, and the wizard creates the routines and the schedule.'}
         </p>
-        {gym.routines.length > 0 && <Button icon="calendar" onClick={onEdit} className="gym-split-cta">Set up schedule</Button>}
+        <div className="wiz-split-actions">
+          {gym.routines.length > 0 && <Button icon="calendar" onClick={onEdit} className="gym-split-cta">Set up schedule</Button>}
+          <Button variant={gym.routines.length ? 'secondary' : 'primary'} icon="wand" onClick={onWizard}>Split wizard</Button>
+        </div>
       </section>
     )
   }
@@ -524,6 +541,11 @@ function SplitCard({ gym, sessions, today, onEdit }) {
           )}
         </div>
       )}
+
+      <button type="button" className="wiz-split-link" onClick={onWizard}>
+        <Icon name="wand" size={18} />
+        New split with the wizard
+      </button>
     </section>
   )
 }

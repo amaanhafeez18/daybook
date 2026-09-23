@@ -268,9 +268,10 @@ function restFor(exercise) {
   return own(DEFAULT_REST, exercise?.category) ?? 120
 }
 
-function routineSet(tracking, { repsMin = 8, repsMax = 12, durationSec = 60 } = {}) {
+// timed: a plan spec that gives seconds, which also sets a time target on distance + time cardio.
+function routineSet(tracking, { repsMin = 8, repsMax = 12, durationSec = 60, timed = false } = {}) {
   const set = { type: 'normal', weightKg: null, repsMin: null, repsMax: null, durationSec: null, distanceM: null, rpe: null }
-  if (DURATION_TYPES.has(tracking)) set.durationSec = durationSec
+  if (DURATION_TYPES.has(tracking) || (timed && tracking === 'distance_duration')) set.durationSec = durationSec
   else if (!DISTANCE_TYPES.has(tracking)) Object.assign(set, { repsMin, repsMax })
   return set
 }
@@ -318,6 +319,10 @@ const ROUTINE_PLANS = {
   upper: { name: 'Upper', color: 'indigo', exercises: ['bench-press 3x6-8', 'barbell-row 3x6-8', 'seated-dumbbell-press 3x8-10', 'lat-pulldown 3x8-10', 'dumbbell-curl 2x10-12', 'triceps-pushdown 2x10-12'] },
   lower: { name: 'Lower', color: 'teal', exercises: ['back-squat 3x6-8', 'romanian-deadlift 3x8-10', 'bulgarian-split-squat 3x8-10', 'leg-extension 3x12-15', 'standing-calf-raise 3x10-15'] },
   fullBody: { name: 'Full Body', color: 'orange', exercises: ['back-squat 3x5-8', 'bench-press 3x5-8', 'barbell-row 3x6-10', 'overhead-press 2x8-10', 'plank 3x60s'] },
+  // Only used by custom split days (not by the onboarding templates).
+  core: { name: 'Core', color: 'teal', exercises: ['hanging-leg-raise 3x10-15', 'cable-crunch 3x12-15', 'ab-wheel-rollout 3x8-12', 'pallof-press 3x10-12', 'plank 3x60s'] },
+  glutes: { name: 'Glutes', color: 'pink', exercises: ['hip-thrust 4x8-10', 'romanian-deadlift 3x8-10', 'bulgarian-split-squat 3x8-10', 'cable-kickback 3x12-15', 'hip-abduction 3x12-15'] },
+  cardio: { name: 'Cardio', color: 'orange', exercises: ['treadmill 1x1200s', 'rowing-machine 1x600s', 'stair-climber 1x600s'] },
 }
 
 // Rotation: `cycle` of plan keys (null = rest). Weekly: `weekly` indexed by weekday, 0 = Sunday.
@@ -332,7 +337,7 @@ const TEMPLATE_PLANS = {
 function planExercise(spec, makeId) {
   const [, id, sets, first, second, seconds] = spec.match(/^(\S+) (\d+)x(\d+)(?:-(\d+))?(s)?$/)
   const exercise = BY_ID.get(id)
-  if (seconds) return routineExercise(exercise, makeId, Number(sets), { durationSec: Number(first) })
+  if (seconds) return routineExercise(exercise, makeId, Number(sets), { durationSec: Number(first), timed: true })
   return routineExercise(exercise, makeId, Number(sets), { repsMin: Number(first), repsMax: Number(second ?? first) })
 }
 
@@ -375,4 +380,363 @@ export function buildTemplate(templateId, today, makeId = defaultId) {
     weekly: rotation ? [] : template.weekly.map(slotFor),
   }
   return { routines, schedule: { ...base, versions: [version] } }
+}
+
+// ---- custom splits: day types, suggested exercises per day, free-text parsing -----------------
+
+const MAX_SPLIT_DAYS = 31
+const MAX_DAY_EXERCISES = 8
+const MAX_DAY_NAME = 40
+const MAX_SPLIT_TEXT = 600
+
+// The split wizard's palette. Colours are ROUTINE_COLORS ids; Rest has none.
+export const DAY_TYPES = [
+  { id: 'push', name: 'Push', color: 'red', hint: 'Chest, shoulders, triceps' },
+  { id: 'pull', name: 'Pull', color: 'blue', hint: 'Back, biceps, rear delts' },
+  { id: 'legs', name: 'Legs', color: 'green', hint: 'Quads, hamstrings, calves' },
+  { id: 'upper', name: 'Upper', color: 'indigo', hint: 'Chest, back, shoulders, arms' },
+  { id: 'lower', name: 'Lower', color: 'teal', hint: 'Quads, hamstrings, glutes' },
+  { id: 'chest', name: 'Chest', color: 'red', hint: 'Presses and flyes' },
+  { id: 'back', name: 'Back', color: 'blue', hint: 'Rows, pulldowns, deadlifts' },
+  { id: 'shoulders', name: 'Shoulders', color: 'amber', hint: 'Presses, raises, rear delts' },
+  { id: 'arms', name: 'Arms', color: 'pink', hint: 'Biceps and triceps' },
+  { id: 'fullBody', name: 'Full Body', color: 'orange', hint: 'Squat, press, row' },
+  { id: 'core', name: 'Core', color: 'teal', hint: 'Abs and obliques' },
+  { id: 'glutes', name: 'Glutes', color: 'pink', hint: 'Hip thrusts, hinges, lunges' },
+  { id: 'cardio', name: 'Cardio', color: 'orange', hint: 'Run, row, climb' },
+  { id: 'rest', name: 'Rest', color: null, hint: 'Recover', rest: true },
+]
+const DAY_TYPE_BY_ID = new Map(DAY_TYPES.map((type) => [type.id, type]))
+
+// Words for a training day → [day type, label when it isn't the type's name, accessory]. An
+// accessory is a muscle usually trained alongside a main day, so "back biceps" is one day.
+const DAY_WORDS = {
+  push: ['push'], pushing: ['push'],
+  pull: ['pull'], pulling: ['pull'],
+  legs: ['legs'], leg: ['legs'], quads: ['legs', 'Quads'], quad: ['legs', 'Quads'],
+  hamstrings: ['legs', 'Hamstrings'], hamstring: ['legs', 'Hamstrings'], hams: ['legs', 'Hamstrings'],
+  calves: ['legs', 'Calves', true], calf: ['legs', 'Calves', true],
+  upper: ['upper'], lower: ['lower'],
+  chest: ['chest'], pecs: ['chest'], pec: ['chest'],
+  back: ['back'], lats: ['back'], traps: ['back', 'Traps', true],
+  shoulders: ['shoulders'], shoulder: ['shoulders'], delts: ['shoulders'], delt: ['shoulders'],
+  arms: ['arms'], arm: ['arms'], guns: ['arms'],
+  biceps: ['arms', 'Biceps', true], bicep: ['arms', 'Biceps', true], bis: ['arms', 'Biceps', true], bi: ['arms', 'Biceps', true],
+  triceps: ['arms', 'Triceps', true], tricep: ['arms', 'Triceps', true], tris: ['arms', 'Triceps', true], tri: ['arms', 'Triceps', true],
+  forearms: ['arms', 'Forearms', true], forearm: ['arms', 'Forearms', true],
+  fullbody: ['fullBody'], full: ['fullBody'], fb: ['fullBody'], fbw: ['fullBody'],
+  core: ['core'], abs: ['core', 'Abs', true], ab: ['core', 'Abs', true], abdominals: ['core', 'Abs', true], obliques: ['core', 'Abs', true],
+  glutes: ['glutes'], glute: ['glutes'], booty: ['glutes'], bum: ['glutes'], butt: ['glutes'],
+  cardio: ['cardio'], conditioning: ['cardio', 'Conditioning'], hiit: ['cardio', 'HIIT'], run: ['cardio', 'Run'], running: ['cardio', 'Running'],
+  jog: ['cardio', 'Jog'], jogging: ['cardio', 'Jogging'], bike: ['cardio', 'Bike'], cycling: ['cardio', 'Cycling'], spin: ['cardio', 'Spin'],
+  swim: ['cardio', 'Swim'], swimming: ['cardio', 'Swimming'], walk: ['cardio', 'Walk'], walking: ['cardio', 'Walking'],
+  rest: ['rest'], resting: ['rest'], off: ['rest'], recovery: ['rest'], recover: ['rest'], break: ['rest'], none: ['rest'], nothing: ['rest'],
+}
+const FUZZY_WORDS = Object.keys(DAY_WORDS).filter((word) => word.length >= 5)
+
+const SPLIT_ABBREVIATIONS = {
+  ppl: ['push', 'pull', 'legs'],
+  pplr: ['push', 'pull', 'legs', 'rest'],
+  ul: ['upper', 'lower'],
+  ulr: ['upper', 'lower', 'rest'],
+  bro: ['chest', 'back', 'shoulders', 'legs', 'arms'],
+}
+
+const FILLER_WORDS = new Set([
+  'day', 'days', 'workout', 'workouts', 'session', 'sessions', 'training', 'train', 'focus', 'focused', 'split', 'routine',
+  'routines', 'program', 'the', 'my', 'of', 'only', 'time', 'week', 'weekly', 'every', 'each', 'cycle', 'rotation', 'repeat',
+  'is', 'on', 'for', 'body', 'mon', 'monday', 'tue', 'tues', 'tuesday', 'wed', 'weds', 'wednesday', 'thu', 'thur', 'thurs',
+  'thursday', 'fri', 'friday', 'sat', 'saturday', 'sun', 'sunday',
+])
+// Words that describe the day that follows them: "heavy legs", "active recovery".
+const DAY_MODIFIERS = new Set([
+  'heavy', 'light', 'power', 'strength', 'hypertrophy', 'volume', 'pump', 'easy', 'hard', 'intense', 'deload', 'home', 'gym',
+  'active', 'max', 'speed', 'explosive', 'long', 'short', 'big', 'accessory',
+])
+const JOIN_WORDS = new Set(['&', 'with', 'plus', 'n'])
+
+// Extra exercises for a second focus in a day's name ("legs & abs", "back & biceps").
+const ACCESSORY_PLANS = {
+  abs: ['hanging-leg-raise 3x10-15', 'cable-crunch 3x12-15'],
+  core: ['hanging-leg-raise 3x10-15', 'cable-crunch 3x12-15'],
+  biceps: ['dumbbell-curl 3x10-12', 'hammer-curl 3x10-12'],
+  triceps: ['triceps-pushdown 3x10-12', 'overhead-cable-extension 3x10-12'],
+  arms: ['dumbbell-curl 3x10-12', 'triceps-pushdown 3x10-12'],
+  forearms: ['wrist-curl 3x12-15', 'reverse-curl 3x10-12'],
+  calves: ['standing-calf-raise 4x10-15', 'seated-calf-raise 3x12-15'],
+  traps: ['dumbbell-shrug 3x10-12'],
+  shoulders: ['lateral-raise 3x12-15', 'rear-delt-fly 3x12-15'],
+  chest: ['incline-dumbbell-press 3x8-10', 'cable-crossover 3x12-15'],
+  back: ['lat-pulldown 3x8-10', 'seated-cable-row 3x10-12'],
+  legs: ['leg-press 3x10-12', 'lying-leg-curl 3x10-12'],
+  glutes: ['hip-thrust 3x8-10', 'cable-kickback 3x12-15'],
+  cardio: ['stationary-bike 1x900s'],
+}
+
+// Optimal string alignment distance <= 1 (one insert, delete, substitution or swap).
+function withinOneEdit(a, b) {
+  if (Math.abs(a.length - b.length) > 1) return false
+  const prev2 = []
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j)
+  for (let i = 1; i <= a.length; i++) {
+    const row = [i]
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1
+      row[j] = Math.min(prev[j] + 1, row[j - 1] + 1, prev[j - 1] + cost)
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) row[j] = Math.min(row[j], prev2[j - 2] + 1)
+    }
+    prev2.splice(0, prev2.length, ...prev)
+    prev = row
+  }
+  return prev[b.length] <= 1
+}
+
+// { type, label, accessory } for a word that names a training day (typos of longer words and a
+// glued "day" allowed: "sholders", "legday"), else null.
+function dayWord(word) {
+  let entry = own(DAY_WORDS, word)
+  if (!entry && word.length > 3 && word.endsWith('s')) entry = own(DAY_WORDS, word.slice(0, -1))
+  if (!entry && word.length > 4 && word.endsWith('day')) entry = own(DAY_WORDS, word.slice(0, -3))
+  if (!entry && word.length >= 5) {
+    const key = FUZZY_WORDS.find((candidate) => withinOneEdit(word, candidate))
+    if (key) entry = DAY_WORDS[key]
+  }
+  if (!entry) return null
+  const [type, label, accessory] = entry
+  return { type, label: label || DAY_TYPE_BY_ID.get(type).name, accessory: accessory === true }
+}
+
+const typeWord = (type) => ({ type, label: DAY_TYPE_BY_ID.get(type).name, accessory: false })
+const titleWord = (word) => (word ? word.charAt(0).toUpperCase() + word.slice(1) : '')
+
+// Lower-case text → segments (split on commas, slashes, arrows, "then" …) of words.
+function splitSegments(text) {
+  const clean = String(text ?? '')
+    .slice(0, MAX_SPLIT_TEXT)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '') // accents
+    .replace(/['’`]/g, '')
+    .replace(/\bw\//g, ' with ')
+    .replace(/[×✕✖]/g, 'x')
+    .replace(/\*\s*(\d)/g, 'x$1')
+    .replace(/->|=>|→|⟶|➜|➔|»|>/g, ',')
+    .replace(/\b(?:and then|then|followed by|after that)\b/g, ',')
+    .replace(/[,;/\\|+.·•–—:\n\r\t]/g, ',')
+    .replace(/[-_]/g, ' ')
+    .replace(/&/g, ' & ')
+    .replace(/\b(?:full|total|whole)\s*body\b/g, ' fullbody ')
+    .replace(/\b(upper|lower)\s*body\b/g, ' $1 ')
+    .replace(/\b([a-z]{2,})x(\d{1,2})\b/g, '$1 x$2') // "pplx2"
+    .replace(/\b(\d{1,2})x([a-z]{2,})\b/g, '$1x $2') // "2xppl"
+    .replace(/\bx\s+(\d{1,2})\b/g, ' x$1 ')
+    .replace(/\b(\d{1,2})\s+x\b/g, ' $1x ')
+    .replace(/[^a-z0-9&,\s]/g, ' ')
+    .replace(/\b([a-z]{2,})(\d{1,2})\b/g, '$1 #$2') // "push1": '#1' is always a label, never a count
+  return clean.split(',').map((segment) => segment.split(/\s+/).filter(Boolean)).filter((words) => words.length)
+}
+
+function repeatToken(word) {
+  let match = /^x(\d{1,2})$/.exec(word)
+  if (match) return { n: Number(match[1]), prefix: false }
+  match = /^(\d{1,2})x$/.exec(word)
+  if (match) return { n: Number(match[1]), prefix: true }
+  if (word === 'twice') return { n: 2, prefix: false }
+  if (word === 'thrice') return { n: 3, prefix: false }
+  return null
+}
+
+const clampCount = (n) => Math.min(10, Math.max(1, Math.trunc(n) || 1))
+const accessoryKey = (info) => (own(ACCESSORY_PLANS, info.label.toLowerCase()) ? info.label.toLowerCase() : info.type)
+
+function newGroup(info, mods, count) {
+  return { type: info ? info.type : null, label: info ? info.label : '', custom: info ? null : [], mods, suffix: [], joins: [], extras: [], count }
+}
+
+const isNumberWord = (word) => /^\d{1,2}$/.test(word)
+// "day 1 push", "week 2: upper lower": a number right after these words numbers the list.
+const INDEX_WORDS = new Set(['day', 'week'])
+
+// One segment's words → day groups (repeats already applied, `count` expanded later).
+// state.labels: a number has been read as a label ("push 1") somewhere in the text, so later
+// numbers after a day are labels too ("push 1 pull 1 push 2 pull 2"), not counts.
+function parseSegment(words, state = { labels: false }) {
+  const groups = []
+  let blockStart = 0 // groups from here repeat on the next "x2"
+  let blockRepeat = 1 // a leading "2x" repeats the block after it
+  let mods = []
+  let join = null // 'join' after & / with / plus, 'and' after "and"
+  let count = 1 // "2 rest" → two rest days
+  let attachable = false // the previous word belonged to the last group
+  let lastUnknown = false
+  const current = () => (groups.length > blockStart ? groups[groups.length - 1] : null)
+  const closeBlock = (n) => {
+    const block = groups.slice(blockStart)
+    for (let i = 1; i < n && groups.length < MAX_SPLIT_DAYS * 2; i++) groups.push(...block)
+    blockStart = groups.length
+    blockRepeat = 1
+  }
+  const reset = (canAttach, unknown) => {
+    mods = []
+    join = null
+    count = 1
+    attachable = canAttach
+    lastUnknown = unknown
+  }
+
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i]
+    const repeat = repeatToken(word)
+    if (repeat) {
+      if (current()) closeBlock(clampCount(repeat.n))
+      else blockRepeat = clampCount(repeat.n)
+      reset(false, false)
+      continue
+    }
+    const numbered = /^#\d{1,2}$/.test(word) ? word.slice(1) : isNumberWord(word) ? word : null
+    if (numbered !== null) {
+      if (INDEX_WORDS.has(words[i - 1])) continue // "day 1 push", "day2 pull": an index, not a label or count
+      const label = current() && attachable
+      const next = words[i + 1]
+      // A bare number before a day repeats it ("2 rest"), unless it reads as a label: "push 1 pull",
+      // or any number after a day once one was a label. '#1' (from "push1") is always a label.
+      if (word === numbered && !(label && (numbered === '1' || state.labels)) && next && (dayWord(next) || own(SPLIT_ABBREVIATIONS, next))) {
+        count = clampCount(Number(numbered))
+      } else if (label) {
+        current().suffix.push(numbered) // "push 1"
+        state.labels = true
+      }
+      continue
+    }
+    if (JOIN_WORDS.has(word)) {
+      join = 'join'
+      continue
+    }
+    if (word === 'and') {
+      join = join || 'and'
+      continue
+    }
+    if (FILLER_WORDS.has(word)) {
+      lastUnknown = false
+      continue
+    }
+    if (/^[a-d]$/.test(word)) {
+      if (current() && attachable) current().suffix.push(word.toUpperCase()) // "upper a"; else an article
+      continue
+    }
+    const abbreviation = own(SPLIT_ABBREVIATIONS, word)
+    if (abbreviation) {
+      for (let r = 0; r < count; r++) for (const type of abbreviation) groups.push(newGroup(typeWord(type), mods, 1))
+      reset(false, false)
+      continue
+    }
+    const info = DAY_MODIFIERS.has(word) ? null : dayWord(word)
+    if (!info && DAY_MODIFIERS.has(word)) {
+      mods.push(word)
+      attachable = false
+      continue
+    }
+    const last = current()
+    if (info) {
+      const attach = last && last.type !== 'rest' && info.type !== 'rest' && !mods.length && count === 1
+        && (join === 'join' || (info.accessory && (join === 'and' || attachable)))
+      if (attach) {
+        last.joins.push(info.label)
+        last.extras.push(accessoryKey(info))
+      } else {
+        groups.push(newGroup(info, mods, count))
+      }
+      reset(true, false)
+      continue
+    }
+    // Unknown words: consecutive ones make one custom name ("hot yoga").
+    if (last && join === 'join') {
+      last.joins.push(titleWord(word))
+    } else if (last && lastUnknown && last.custom && !mods.length && count === 1) {
+      last.custom.push(word)
+    } else {
+      const group = newGroup(null, mods, count)
+      group.custom.push(word)
+      groups.push(group)
+    }
+    reset(true, true)
+  }
+  if (mods.length && current()) current().suffix.push(...mods)
+  if (blockRepeat > 1 && current()) closeBlock(blockRepeat)
+  return groups
+}
+
+function groupName(group) {
+  if (group.type === 'rest') return 'Rest'
+  const main = group.custom ? group.custom.map(titleWord).join(' ') : group.label
+  const suffix = group.suffix.map((part) => (/^[a-d]$/i.test(part) ? part.toUpperCase() : titleWord(part)))
+  const name = [...group.mods.map(titleWord), main, ...suffix].join(' ') + group.joins.map((part) => ` & ${part}`).join('')
+  return name.slice(0, MAX_DAY_NAME).trim()
+}
+
+function firstGroup(name) {
+  for (const words of splitSegments(name)) {
+    const groups = parseSegment(words)
+    if (groups.length) return groups[0]
+  }
+  return null
+}
+
+// Free text → day names in order, e.g. 'push pull shoulders legs rest rest', 'PPL x2 + rest',
+// 'upper/lower/rest', 'chest & triceps, back & biceps, legs, off'. Known days get their usual
+// name ('shoulder day' → 'Shoulders', 'day off' → 'Rest'); anything else keeps its words as a
+// custom name. 'x2' repeats what came before it in the same part, '2 rest' repeats one day.
+// A numbered list ('1. push 2. pull', '1) push 2) pull', 'day 1 push, day 2 pull') is read
+// without its numbers; 'push 1 pull 1 push 2 pull 2' keeps them as labels. At most 31 days.
+export function parseSplit(text) {
+  if (typeof text !== 'string' || !text.trim()) return []
+  let segments = splitSegments(text)
+  // Numbers 1, 2, 3 … in order, starting the text: list numbers, dropped before reading the days.
+  const numbers = segments.flat().filter(isNumberWord)
+  if (numbers.length >= 2 && segments[0][0] === '1' && numbers.every((word, i) => Number(word) === i + 1)) {
+    segments = segments.map((words) => words.filter((word) => !isNumberWord(word))).filter((words) => words.length)
+  }
+  const state = { labels: false }
+  const names = []
+  for (const words of segments) {
+    for (const group of parseSegment(words, state)) {
+      const name = groupName(group)
+      if (!name) continue
+      for (let i = 0; i < group.count; i++) {
+        if (names.length >= MAX_SPLIT_DAYS) return names
+        names.push(name)
+      }
+    }
+  }
+  return names
+}
+
+// The DAY_TYPES entry a day's name refers to ('shoulder day' → Shoulders, 'Legs & Abs' → Legs,
+// 'Day off' → Rest), or null for a custom name ('Hot Yoga').
+export function matchDayType(name) {
+  const group = firstGroup(name)
+  return group && group.type ? DAY_TYPE_BY_ID.get(group.type) : null
+}
+
+// Suggested exercises for a day by its name: the matching template day, plus a couple of
+// exercises for a second focus in the name ('Legs & Abs', 'Back & Biceps'), at most 8.
+// Rest days and custom names get [].
+export function dayTemplate(name, makeId = defaultId) {
+  if (typeof makeId !== 'function') makeId = defaultId
+  const group = firstGroup(name)
+  const plan = group && group.type !== 'rest' ? own(ROUTINE_PLANS, group.type) : null
+  if (!plan) return []
+  const specs = [...plan.exercises]
+  const specId = (spec) => spec.split(' ')[0]
+  const ids = new Set(specs.map(specId))
+  for (const key of group.extras) {
+    for (const spec of own(ACCESSORY_PLANS, key) || []) {
+      if (specs.length >= MAX_DAY_EXERCISES) break
+      if (!ids.has(specId(spec))) {
+        ids.add(specId(spec))
+        specs.push(spec)
+      }
+    }
+  }
+  return specs.map((spec) => planExercise(spec, makeId))
 }

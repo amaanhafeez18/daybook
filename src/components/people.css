@@ -1,0 +1,129 @@
+/* People: catch-up notes, the person hero, the catch-up list and the short Add form.
+   Loaded by PeoplePage after App.css → glass.css → apple.css, so these win at equal specificity. */
+
+/* ---- list rows ------------------------------------------------------------------------------ */
+.ppl-talk { width: 44px; height: 44px; flex-shrink: 0; }
+.ppl-talk.is-logged,
+.ppl-talk.is-logged:hover {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--on-accent);
+}
+.ppl-talk.is-logged .icon { animation: check-pop 0.32s var(--spring, ease); }
+.ppl-topic > span { color: var(--text-3); }
+
+/* ---- person hero ---------------------------------------------------------------------------- */
+.ppl-hero { display: flex; align-items: center; gap: 16px; }
+.ppl-last { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.ppl-label { font-size: 12px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.04em; }
+.ppl-last-line {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ppl-last-line .status-dot { display: inline-block; margin-right: 7px; vertical-align: 2px; }
+.ppl-last-line strong { font-weight: 600; }
+.ppl-last-topic { color: var(--text-2); }
+
+.ppl-hero + .ppl-facts { margin-top: -4px; }
+.ppl-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ppl-facts > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: var(--surface-2);
+}
+.ppl-facts strong { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ppl-facts small { font-size: 13px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+
+/* ---- catch-up list -------------------------------------------------------------------------- */
+.ppl-logs { margin: 0 -6px; }
+.ppl-log { position: relative; }
+.ppl-log + .ppl-log::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 6px;
+  right: 6px;
+  height: 1px;
+  background: var(--separator, var(--border));
+  transform: scaleY(0.5);
+  transform-origin: top;
+  pointer-events: none;
+}
+.ppl-log-row { display: flex; align-items: flex-start; gap: 2px; }
+.ppl-log-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 10px 6px;
+  border-radius: 12px;
+  text-align: left;
+  transition: background 0.15s;
+}
+.ppl-log-main:active { background: var(--surface-2); }
+.ppl-log-head { display: flex; align-items: baseline; gap: 10px; font-variant-numeric: tabular-nums; }
+.ppl-log-head strong { font-size: 17px; font-weight: 400; letter-spacing: -0.02em; }
+.ppl-log-head small { margin-left: auto; font-size: 15px; color: var(--text-2); white-space: nowrap; }
+.ppl-log-note { font-size: 15px; line-height: 1.35; color: var(--text-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+.ppl-log-note.is-clamped { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ppl-log.is-open .ppl-log-note { color: var(--text); }
+.ppl-log-add { display: inline-flex; align-items: center; gap: 5px; font-size: 15px; color: var(--accent); }
+.ppl-log-remove { width: 44px; height: 44px; flex-shrink: 0; color: var(--text-3); }
+.ppl-log-actions { padding: 0 6px 8px; }
+.ppl-log-actions .link-btn { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; font-size: 15px; font-weight: 500; }
+.ppl-log-editor { display: flex; flex-direction: column; gap: 8px; padding: 2px 6px 12px; }
+.ppl-log-editor-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.ppl-show-all {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  margin-top: 2px;
+  border-radius: 12px;
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 500;
+}
+.ppl-show-all:active { background: var(--surface-2); }
+
+/* ---- Add form: "More details" disclosure ------------------------------------------------------ */
+.ppl-more {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px;
+  margin: -8px 0 -6px;
+  padding: 0 4px;
+  border-radius: 10px;
+  color: var(--accent);
+  font-size: 17px;
+  letter-spacing: -0.02em;
+}
+.ppl-more:active { opacity: 0.6; }
+
+/* ---- catch-up sheet ----------------------------------------------------------------------------- */
+.ppl-catch-up .textarea { min-height: 76px; }
+
+/* Bigger small buttons on touch screens. */
+@media (pointer: coarse) {
+  .ppl-earlier, .ppl-log-editor-actions .btn-sm { min-height: 44px; padding: 0 16px; }
+}
+
+@media (hover: hover) {
+  .ppl-log-main:hover, .ppl-show-all:hover { background: var(--surface-2); }
+  .ppl-log-remove:hover { color: var(--danger); }
+}

@@ -1,14 +1,18 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import Icon from './ui/Icon.jsx'
+import { toast } from './ui/feedback.jsx'
 import { WEEKDAY_SHORT, diffDays, formatDateShort, formatDuration as formatMinutes, relativeDay, weekdayIndex } from '../lib/dates.js'
 import { addDays, nextWorkout, resolveDay, weekStart } from '../lib/gym/schedule.js'
 import { hasPlan, routineColor, slotLabel, useActiveWorkout, useGym, useGymSessions } from '../lib/gym/state.js'
 import { navigate } from '../lib/router.js'
+import { getState } from '../lib/store.js'
 import { QuietBoundary, prefetchGym, startedMs, useClock, workoutClock, workoutColor, workoutName, workoutWhen } from './WorkoutPill.jsx'
 import './gym-widget.css'
+import './today.css'
 
 // Today-page card for the gym: today's planned workout, rest day, a finished or running workout,
-// or a nudge to set up a plan. The whole card is one button into the Gym page.
+// or a nudge to set up a plan. The card's main area opens the Gym page; on a workout day with
+// nothing running, a trailing "Start" pill starts today's routine in one tap.
 
 // stats.js carries the exercise library, so it loads as its own chunk (asked for as soon as this
 // module runs, alongside the first render) instead of growing the first bundle.
@@ -27,6 +31,24 @@ function loadStats() {
   return statsRequest
 }
 if (typeof window !== 'undefined') loadStats()
+
+// startWorkout.js (exercise library + rest timer) loads on demand too: requested as soon as the
+// card offers "Start", so the tap can call beginWorkout synchronously. beginWorkout unlocks audio
+// for the rest-timer beep, which iOS only allows inside the tap itself.
+let startModule = null
+let startRequest = null
+
+function loadStart() {
+  if (!startRequest) {
+    startRequest = import('../pages/gym/startWorkout.js')
+      .then((module) => (startModule = module))
+      .catch(() => {
+        startRequest = null
+        return null
+      })
+  }
+  return startRequest
+}
 
 // pending only while the first load is in flight; after a failed load the card shows what it can.
 function useStats() {
@@ -191,7 +213,32 @@ function Widget({ today, loaded }) {
     [active, day, gym, sessions, stats, pending, today, planned],
   )
 
+  // "Start" shows on a planned workout day whose routine has exercises, while nothing is running.
+  const startRoutine = !active && day.status === 'today' && day.routine?.exercises?.length ? day.routine : null
+  const canStart = loaded && !!startRoutine
+  const [starting, setStarting] = useState(false)
+  useEffect(() => {
+    if (canStart) loadStart()
+  }, [canStart])
+
   if (!loaded) return <WidgetSkeleton />
+
+  function start() {
+    if (starting || !startRoutine) return
+    const args = { gym, sessions, bodyWeights: getState().data.bodyWeights, routine: startRoutine, date: today, today }
+    const run = (module) => module.beginWorkout(args).catch(() => toast('Couldn’t start the workout.', { tone: 'error' }))
+    if (startModule) {
+      run(startModule)
+      return
+    }
+    // Not loaded yet (slow network): start once it arrives; the workout screen unlocks audio on its first tap.
+    setStarting(true)
+    loadStart().then((module) => {
+      setStarting(false)
+      if (module) run(module)
+      else toast('Couldn’t start the workout. Check your connection and try again.', { tone: 'error' })
+    })
+  }
 
   const view = doneView || describe({ day, next, active, gym, sessions, stats, pending, now, today, planned })
   const label = [
@@ -201,42 +248,54 @@ function Widget({ today, loaded }) {
   ].filter(Boolean).join('. ')
 
   return (
-    <button
-      type="button"
-      className={`card gymw-card${view.color ? ' has-color' : ''}${view.live ? ' is-live' : ''}`}
+    <div
+      className={`card gymw-card td-gymw${view.color ? ' has-color' : ''}${view.live ? ' is-live' : ''}${startRoutine ? ' has-start' : ''}`}
       style={view.color ? { '--gymw-color': view.color } : undefined}
-      onPointerDown={prefetchGym}
-      onClick={() => navigate(view.target)}
-      aria-label={label}
     >
-      <span className={`gymw-tile is-${view.tone}${view.live ? ' is-live' : ''}`} aria-hidden="true">
-        <Icon name="dumbbell" size={24} strokeWidth={2} />
-        {view.done && (
-          <span className="gymw-tile-badge">
-            <Icon name="check" size={11} strokeWidth={3.4} />
+      <button type="button" className="gymw-main" onPointerDown={prefetchGym} onClick={() => navigate(view.target)} aria-label={label}>
+        <span className={`gymw-tile is-${view.tone}${view.live ? ' is-live' : ''}`} aria-hidden="true">
+          <Icon name="dumbbell" size={24} strokeWidth={2} />
+          {view.done && (
+            <span className="gymw-tile-badge">
+              <Icon name="check" size={11} strokeWidth={3.4} />
+            </span>
+          )}
+        </span>
+        <span className="gymw-text" aria-hidden="true">
+          <span className="gymw-title">
+            <span className="gymw-title-text">{view.title}</span>
+            {view.deload && <span className="gymw-badge">Deload</span>}
           </span>
-        )}
-      </span>
-      <span className="gymw-text" aria-hidden="true">
-        <span className="gymw-title">
-          <span className="gymw-title-text">{view.title}</span>
-          {view.deload && <span className="gymw-badge">Deload</span>}
+          <span className="gymw-sub">
+            {view.parts ? view.parts.map((part, index) => (
+              <Fragment key={index}>
+                {index > 0 && <span className="gymw-sep"> · </span>}
+                <span className={part.accent ? 'gymw-accent' : part.pr ? 'gymw-pr' : undefined}>
+                  {part.pr && <Icon name="trophy" size={13} strokeWidth={2.2} />}
+                  {part.text}
+                </span>
+              </Fragment>
+            )) : <span className="skeleton gymw-skel gymw-skel-sub" />}
+          </span>
         </span>
-        <span className="gymw-sub">
-          {view.parts ? view.parts.map((part, index) => (
-            <Fragment key={index}>
-              {index > 0 && <span className="gymw-sep"> · </span>}
-              <span className={part.accent ? 'gymw-accent' : part.pr ? 'gymw-pr' : undefined}>
-                {part.pr && <Icon name="trophy" size={13} strokeWidth={2.2} />}
-                {part.text}
-              </span>
-            </Fragment>
-          )) : <span className="skeleton gymw-skel gymw-skel-sub" />}
-        </span>
-      </span>
-      {planned && <GoalRing count={week} goal={weeklyGoal} />}
-      <Icon name="chevronRight" size={18} strokeWidth={2.2} className="gymw-chevron" />
-    </button>
+        {planned && <GoalRing count={week} goal={weeklyGoal} />}
+        <Icon name="chevronRight" size={18} strokeWidth={2.2} className="gymw-chevron" />
+      </button>
+      {startRoutine && (
+        <button
+          type="button"
+          className="td-gymw-start"
+          onPointerDown={prefetchGym}
+          onClick={start}
+          disabled={starting}
+          aria-busy={starting || undefined}
+          aria-label={`Start ${text(startRoutine.name) || 'workout'}`}
+        >
+          {starting ? <span className="spinner" aria-hidden="true" /> : <Icon name="play" size={14} strokeWidth={2.4} />}
+          Start
+        </button>
+      )}
+    </div>
   )
 }
 

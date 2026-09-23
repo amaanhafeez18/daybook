@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import { readPref, writePref } from './api.js'
-import { todayISO } from './dates.js'
+import { WEEKDAY_SHORT, todayISO, weekdayIndex } from './dates.js'
 
 const WEATHER_TTL_MS = 30 * 60 * 1000
+// Bumped when the request asks for more fields: an older cached payload still shows straight away,
+// but counts as stale so the new fields are fetched (v2: 7 days + daily weather codes).
+const WEATHER_CACHE_VERSION = 2
 const LOCATION_TTL_MS = 6 * 60 * 60 * 1000
 
 // Re-renders every `intervalMs` so countdowns and "now" markers stay current.
@@ -80,19 +83,20 @@ export function useWeather(coords) {
   useEffect(() => {
     if (!coords) return undefined
     const cached = readPref('weather', null)
-    if (cached && sameSpot(cached.coords, coords) && Date.now() - cached.savedAt < WEATHER_TTL_MS) {
+    if (cached && sameSpot(cached.coords, coords)) {
       setWeather(cached.data)
-      return undefined
+      if (cached.v === WEATHER_CACHE_VERSION && Date.now() - cached.savedAt < WEATHER_TTL_MS) return undefined
     }
     const controller = new AbortController()
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}`
       + '&current=temperature_2m,apparent_temperature,weather_code,relative_humidity_2m,wind_speed_10m,is_day'
-      + '&hourly=temperature_2m,weather_code,precipitation_probability,is_day&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max'
-      + '&forecast_days=2&timezone=auto'
+      + '&hourly=temperature_2m,weather_code,precipitation_probability,is_day'
+      + '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max'
+      + '&forecast_days=7&timezone=auto'
     fetch(url, { signal: controller.signal })
       .then((response) => (response.ok ? response.json() : Promise.reject(new Error('Weather unavailable'))))
       .then((data) => {
-        writePref('weather', { coords, data, savedAt: Date.now() })
+        writePref('weather', { v: WEATHER_CACHE_VERSION, coords, data, savedAt: Date.now() })
         setWeather(data)
         setError('')
       })
@@ -138,6 +142,36 @@ export function upcomingHours(weather, count = 5) {
       temp: Math.round(weather.hourly.temperature_2m[index]),
       rain: weather.hourly.precipitation_probability?.[index] ?? null,
       icon: describeWeather(weather.hourly.weather_code[index], isDay).icon,
+    })
+  }
+  return result
+}
+
+// The next `count` days after `today` from the daily forecast:
+// [{ date, label: 'Thu', icon, condition, high, low, rainChance }]. Empty for a payload cached
+// before daily weather codes were requested (the card then just leaves the row out).
+export function dailyForecast(weather, count = 6, today = todayISO()) {
+  const daily = weather?.daily
+  const dates = Array.isArray(daily?.time) ? daily.time : []
+  const codes = Array.isArray(daily?.weather_code) ? daily.weather_code : null
+  if (!codes) return []
+  const round = (value) => (typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : null)
+  const result = []
+  for (let index = 0; index < dates.length && result.length < count; index += 1) {
+    const date = dates[index]
+    if (typeof date !== 'string' || date <= today) continue
+    const high = round(daily.temperature_2m_max?.[index])
+    const low = round(daily.temperature_2m_min?.[index])
+    if (high === null && low === null) continue
+    const condition = describeWeather(codes[index], 1)
+    result.push({
+      date,
+      label: WEEKDAY_SHORT[weekdayIndex(date)],
+      icon: condition.icon,
+      condition: condition.label,
+      high,
+      low,
+      rainChance: round(daily.precipitation_probability_max?.[index]),
     })
   }
   return result

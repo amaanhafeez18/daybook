@@ -7,18 +7,19 @@ import { apiRequest, readJson, writeJson } from './api.js'
 //   * Edits apply immediately and are saved as small diffs (only what changed), queued per list,
 //     retried when the connection comes back, and merged with server changes made elsewhere.
 
-export const LIST_KEYS = ['tasks', 'events', 'friends', 'contactLogs', 'classes', 'journalEntries', 'voiceNotes', 'gymSessions', 'bodyWeights']
+export const LIST_KEYS = ['tasks', 'events', 'friends', 'contactLogs', 'classes', 'journalEntries', 'voiceNotes', 'gymSessions', 'bodyWeights', 'foodEntries']
 const ALL_KEYS = [...LIST_KEYS, 'settings']
 const CACHE_PREFIX = 'daybook.data.'
 const SYNCED_PREFIX = 'daybook.synced.'
 // Lists whose record of the server copy is stored as { id, h } fingerprints (h: a hash of the
-// row's JSON) instead of a second full copy: workouts are large and iOS gives a site ~5 MB.
-const FINGERPRINTED = new Set(['gymSessions'])
+// row's JSON) instead of a second full copy: workouts are large, food entries are many (several a
+// day, every day), and iOS gives a site ~5 MB.
+const FINGERPRINTED = new Set(['gymSessions', 'foodEntries'])
 const SAVE_DELAY_MS = 350
 const RETRY_DELAYS_MS = [3000, 10000, 30000, 60000]
 
 function emptyData() {
-  return { tasks: [], events: [], friends: [], contactLogs: [], classes: [], journalEntries: [], voiceNotes: [], gymSessions: [], bodyWeights: [], settings: {} }
+  return { tasks: [], events: [], friends: [], contactLogs: [], classes: [], journalEntries: [], voiceNotes: [], gymSessions: [], bodyWeights: [], foodEntries: [], settings: {} }
 }
 
 function isValid(key, value) {
@@ -33,6 +34,9 @@ let state = {
   lastSyncedAt: null,
   pendingSaves: 0,
   saveError: '',
+  // { [key]: [field] }: fields a save this session couldn't store because the database doesn't have
+  // the column yet (a migration not yet run). Their values are kept on this device (see "held").
+  droppedFields: {},
   offline: typeof navigator !== 'undefined' ? navigator.onLine === false : false,
 }
 const listeners = new Set()
@@ -202,6 +206,111 @@ function storeCache(key, value, withRecord = false) {
   if (uncached.delete(key) || withRecord) storeRecord(key)
 }
 
+// ---- held fields -------------------------------------------------------------------------
+// A save succeeds without a field the database has no column for yet (a migration not yet run; the
+// reply lists it in `dropped`), e.g. a catch-up's note. Without help the next refresh would replace
+// the row with the server's copy and the value would vanish. So this device keeps those values per
+// row, lays them over the server's rows on each refresh while the column is missing, and once the
+// column exists puts any the server doesn't have back into the shown row, which saves them.
+// { [key]: { [id]: { [field]: value } } }, stored under the record prefix so sign-out clears it.
+
+const HELD_KEY = `${SYNCED_PREFIX}heldFields`
+const HELD_MAX_CHARS = 20000 // a value this large (as JSON) isn't kept
+let held = {}
+
+const hasValue = (value) => value !== undefined && value !== null && value !== ''
+
+function loadHeld() {
+  held = {}
+  const stored = readJson(HELD_KEY)
+  if (!isPlainObject(stored)) return
+  for (const key of LIST_KEYS) {
+    const rows = Object.entries(isPlainObject(stored[key]) ? stored[key] : {}).filter(([, fields]) => isPlainObject(fields) && Object.keys(fields).length)
+    if (rows.length) held[key] = Object.fromEntries(rows)
+  }
+}
+
+function storeHeld() {
+  held = Object.fromEntries(Object.entries(held).filter(([, rows]) => Object.keys(rows).length))
+  if (Object.keys(held).length && writeJson(HELD_KEY, held)) return
+  try {
+    // Nothing held, or the write failed (storage full): don't leave an older copy behind.
+    localStorage.removeItem(HELD_KEY)
+  } catch {
+    // storage unavailable
+  }
+}
+
+// After a confirmed save: keep the values of the fields the server left out, and let go of held
+// fields it has now stored (sent, and not left out) or whose row was deleted.
+function noteSaved(key, upsert, remove, dropped) {
+  const fields = Array.isArray(dropped) ? dropped.filter((field) => typeof field === 'string' && field) : []
+  const rows = { ...(held[key] || {}) }
+  let changed = false
+  for (const id of remove) {
+    if (rows[id]) {
+      delete rows[id]
+      changed = true
+    }
+  }
+  for (const row of upsert) {
+    if (!isPlainObject(row) || row.id == null) continue
+    const current = rows[row.id] || {}
+    const next = {}
+    for (const [field, value] of Object.entries(current)) if (!(field in row)) next[field] = value
+    for (const field of fields) {
+      if (field in row && hasValue(row[field]) && JSON.stringify(row[field]).length <= HELD_MAX_CHARS) next[field] = row[field]
+    }
+    if (sameValue(current, next)) continue
+    if (Object.keys(next).length) rows[row.id] = next
+    else delete rows[row.id]
+    changed = true
+  }
+  if (changed) {
+    held = { ...held, [key]: rows }
+    storeHeld()
+  }
+  const known = state.droppedFields[key] || []
+  const added = fields.filter((field) => !known.includes(field))
+  if (added.length) setState({ droppedFields: { ...state.droppedFields, [key]: [...known, ...added] } })
+}
+
+// The server's rows for `key` with held fields laid over them where the column is still missing (the
+// row has no such key). `refill`: id → held fields the server has the column for but no value, to put
+// back into the shown row. A held field the server has a value for is let go (the server's wins), and
+// so is a row the server no longer has.
+function withHeld(key, rows) {
+  const refill = new Map()
+  const holds = held[key]
+  if (!holds || !Object.keys(holds).length) return { rows, refill }
+  const next = {}
+  const out = rows.map((row) => {
+    const fields = isPlainObject(row) ? holds[row.id] : null
+    if (!fields) return row
+    const overlay = {}
+    const missing = {}
+    for (const [field, value] of Object.entries(fields)) {
+      if (!(field in row)) overlay[field] = value
+      else if (!hasValue(row[field])) missing[field] = value
+    }
+    // Kept until a save confirms the server has them.
+    if (Object.keys(overlay).length || Object.keys(missing).length) next[row.id] = { ...overlay, ...missing }
+    if (Object.keys(missing).length) refill.set(row.id, missing)
+    return Object.keys(overlay).length ? { ...row, ...overlay } : row
+  })
+  if (!sameValue(holds, next)) {
+    held = { ...held, [key]: next }
+    storeHeld()
+  }
+  return { rows: out, refill }
+}
+
+function refillRow(row, fields) {
+  if (!fields || !isPlainObject(row)) return row
+  const empty = Object.entries(fields).filter(([field]) => !hasValue(row[field]))
+  return empty.length ? { ...row, ...Object.fromEntries(empty) } : row
+}
+
 // ---- loading -----------------------------------------------------------------------------
 
 // Show whatever this device already has, instantly.
@@ -223,6 +332,7 @@ export function hydrateFromCache() {
     // matches the server.
     synced[key] = hasCache && isValid(key, confirmed) ? confirmed : data[key]
   }
+  loadHeld()
   setState({ data, loaded: found, hydrated: !uncached.has('settings') })
   for (const key of ALL_KEYS) if (hasLocalChanges(key)) scheduleSave(key, 0)
 }
@@ -242,14 +352,19 @@ export function refresh() {
       if (startedIn !== generation) return
       const data = { ...state.data }
       for (const key of ALL_KEYS) {
-        const server = isValid(key, result[key]) ? result[key] : emptyData()[key]
+        let server = isValid(key, result[key]) ? result[key] : emptyData()[key]
         if (key === 'settings') {
           // Settings are small: keep local values only for fields changed on this device.
           const local = settingsChanges(base.settings || {}, state.data.settings)
           data.settings = Object.keys(local).length ? mergeSettings(server, local) : server
         } else {
+          const kept = withHeld(key, server)
+          server = kept.rows
           const local = diffList(base[key] || [], state.data[key])
-          data[key] = local.upsert.length || local.remove.length ? applyDiff(server, local) : server
+          const merged = local.upsert.length || local.remove.length ? applyDiff(server, local) : server
+          // Held values go back only into rows not edited here (an edit is saved as it is).
+          const edited = new Set(local.upsert.map((item) => item.id))
+          data[key] = kept.refill.size ? merged.map((row) => (edited.has(row?.id) ? row : refillRow(row, kept.refill.get(row?.id)))) : merged
         }
         synced[key] = server
       }
@@ -317,11 +432,12 @@ async function flush(key) {
   setState({ pendingSaves: state.pendingSaves + 1 })
   inFlight[key] = (async () => {
     try {
-      await apiRequest('/api/data', request)
+      const reply = await apiRequest('/api/data', request)
       if (startedIn !== generation) return
       // A refresh may have replaced synced[key] meanwhile: apply this save on top of it instead.
       if (key === 'settings') synced.settings = synced.settings === base ? target : mergeSettings(synced.settings || {}, set)
       else synced[key] = synced[key] === base ? target : applyDiff(synced[key] || [], { upsert, remove })
+      if (key !== 'settings') noteSaved(key, upsert, remove, reply?.dropped)
       // The cache is current or missing; if missing (an earlier write failed), it goes first.
       if (uncached.has(key)) storeCache(key, state.data[key])
       else storeRecord(key)
@@ -378,8 +494,9 @@ export function resetStore() {
   retryAttempt = 0
   refreshPromise = null
   synced = {}
+  held = {}
   for (const key of ALL_KEYS) uncached.add(key)
-  setState({ data: emptyData(), loaded: false, hydrated: false, syncing: false, lastSyncedAt: null, pendingSaves: 0, saveError: '', offline: false })
+  setState({ data: emptyData(), loaded: false, hydrated: false, syncing: false, lastSyncedAt: null, pendingSaves: 0, saveError: '', droppedFields: {}, offline: false })
 }
 
 export function newId() {
