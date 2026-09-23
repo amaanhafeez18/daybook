@@ -96,7 +96,10 @@ function readClientContext(raw = {}) {
   const localDate = isIsoDate(raw.localDate) ? raw.localDate : now.toISOString().slice(0, 10)
   const localTime = typeof raw.localTime === 'string' && /^\d{2}:\d{2}$/.test(raw.localTime) ? raw.localTime : now.toISOString().slice(11, 16)
   const weekday = DAY_NAMES[new Date(`${localDate}T12:00:00Z`).getUTCDay()]
-  return { localDate, localTime, weekday, timeZone: typeof raw.timeZone === 'string' ? raw.timeZone.slice(0, 64) : 'UTC' }
+  const lat = Number(raw.location?.lat)
+  const lon = Number(raw.location?.lon)
+  const location = Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180 ? { lat, lon } : null
+  return { localDate, localTime, weekday, timeZone: typeof raw.timeZone === 'string' ? raw.timeZone.slice(0, 64) : 'UTC', location }
 }
 
 function responseText(response) {
@@ -131,7 +134,19 @@ const TOOL_LABELS = {
   forget: 'Forgetting that',
   search: 'Searching your history',
   update_settings: 'Updating settings',
+  update_class: 'Updating a class',
+  delete_friend: 'Removing someone from People',
+  read_journal: 'Reading your journal',
+  delete_journal_entry: 'Deleting a journal entry',
+  delete_note: 'Deleting a note',
+  get_weather: 'Checking the weather',
+  get_prayer_times: 'Checking prayer times',
 }
+
+// Read-only tools: no action chip and no data refresh.
+const LOOKUP_TOOLS = ['search', 'read_journal', 'get_weather', 'get_prayer_times']
+
+const PRAYER_METHOD_IDS = ['auto', '1', '2', '3', '4', '5', '7', '8', '9', '10', '11', '12', '13', '15', '16', '17', '20']
 
 function tool(name, description, properties, required = []) {
   return {
@@ -234,11 +249,42 @@ const tools = [
     type: { type: 'string', enum: ['journal', 'notes', 'completed_tasks', 'archived_tasks', 'past_events'] },
     query: { type: 'string', description: 'Optional text to filter by.' },
   }, ['type']),
-  tool('update_settings', 'Change Daybook display settings. appearance: system (follow the device), light, or dark.', {
+  tool('update_settings', 'Change any Daybook setting. appearance: system (follow the device), light or dark. theme is the accent colour. prayerMethod: "auto" (standard authority for the location) or an Aladhan method id: 1 Karachi, 2 ISNA, 3 Muslim World League, 4 Umm al-Qura, 5 Egypt, 7 Tehran, 8 Gulf, 9 Kuwait, 10 Qatar, 11 Singapore, 12 France, 13 Turkey, 15 Moonsighting Committee, 16 Dubai, 17 Malaysia, 20 Indonesia. prayerSchool: 0 standard Asr (Shafi\'i/Maliki/Hanbali), 1 Hanafi Asr.', {
     appearance: { type: 'string', enum: ['system', 'light', 'dark'] },
     theme: { type: 'string', enum: ['sunset', 'forest', 'midnight'] },
-    darkMode: { type: 'boolean' },
     displayName: { type: 'string' },
+    showPrayerTimes: { type: 'boolean', description: 'Show the prayer times card on Today.' },
+    prayerMethod: { type: 'string', enum: PRAYER_METHOD_IDS },
+    prayerSchool: { type: 'integer', enum: [0, 1] },
+    darkMode: { type: 'boolean', description: 'Deprecated; prefer appearance.' },
+  }),
+  tool('update_class', 'Edit a class by id: rename, change its weekly schedule (replaces all days), or its end date.', {
+    classId: { type: 'string' },
+    name: { type: 'string' },
+    endDate: DATE,
+    schedules: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          day: { type: 'string', enum: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] },
+          time: { type: 'string', description: 'e.g. "9:00 AM - 10:30 AM"' },
+          room: { type: 'string' },
+        },
+        required: ['day'],
+        additionalProperties: false,
+      },
+    },
+  }, ['classId']),
+  tool('delete_friend', 'Remove a person and their catch-up history from People. Only when the user clearly asks to remove them.', { friendId: { type: 'string' } }, ['friendId']),
+  tool('read_journal', 'Read the full journal entry for a date (the snapshot only shows the start of recent entries).', { date: DATE }, ['date']),
+  tool('delete_journal_entry', 'Delete the journal entry for a date. Only when the user clearly asks.', { date: DATE }, ['date']),
+  tool('delete_note', 'Delete a note by id (ids come from the snapshot or search).', { noteId: { type: 'string' } }, ['noteId']),
+  tool('get_weather', 'Current weather and the forecast for the user\'s location (up to 7 days).', {
+    days: { type: 'integer', minimum: 1, maximum: 7, description: 'Days of forecast including today (default 2).' },
+  }),
+  tool('get_prayer_times', 'Islamic prayer times for the user\'s location, using their calculation method and Asr setting.', {
+    date: { type: 'string', description: 'YYYY-MM-DD; defaults to today.' },
   }),
 ]
 
@@ -276,8 +322,14 @@ function buildSnapshot(data, ctx, username) {
     .sort((a, b) => (a.date || '9999').localeCompare(b.date || '9999') || (a.time || '99').localeCompare(b.time || '99'))
     .slice(0, 150)
 
+  const upcomingDays = Array.from({ length: 15 }, (_, index) => {
+    const date = addDays(today, index)
+    return `${DAY_NAMES[new Date(`${date}T12:00:00Z`).getUTCDay()]} ${date}`
+  })
+
   return compact({
     user: compact({ username, displayName: data.settings.displayName }),
+    upcomingDays,
     memories: (data.memories || []).map((memory) => ({ id: memory.id, fact: memory.content })),
     openTasks: openTasks.map((task) => compact({
       id: task.id,
@@ -316,14 +368,34 @@ function buildSnapshot(data, ctx, username) {
         facts: truncate(friend.facts || friend.note, FACTS_PREVIEW_CHARS),
         lastTalked: last,
         daysSinceTalked: last ? daysBetween(last, today) : undefined,
+        catchUpDue: (() => {
+          const interval = friend.reminder_days ?? (friend.relationship === 'close_friend' ? 10 : friend.relationship === 'acquaintance' ? null : 30)
+          return interval ? (!last || daysBetween(last, today) >= interval) || undefined : undefined
+        })(),
+        birthdayInDays: (() => {
+          if (!isIsoDate(friend.birthday)) return undefined
+          let next = `${today.slice(0, 4)}${friend.birthday.slice(4)}`
+          if (!isIsoDate(next)) return undefined
+          if (next < today) next = `${Number(today.slice(0, 4)) + 1}${friend.birthday.slice(4)}`
+          const days = daysBetween(today, next)
+          return days <= 30 ? days : undefined
+        })(),
       })
     }),
     journal: data.journal_entries
       .sort((a, b) => b.date.localeCompare(a.date))
       .slice(0, 5)
       .map((entry) => compact({ date: entry.date, title: entry.title, mood: entry.mood, text: truncate(entry.body, JOURNAL_PREVIEW_CHARS) })),
-    notes: data.voice_notes.slice(0, 10).map((note) => compact({ date: localDateOf(note.created_at, ctx.timeZone), text: truncate(note.text, 300) })),
-    settings: compact({ theme: data.settings.theme, darkMode: data.settings.darkMode }),
+    notes: data.voice_notes.slice(0, 10).map((note) => compact({ id: note.id, date: localDateOf(note.created_at, ctx.timeZone), text: truncate(note.text, 300) })),
+    settings: {
+      appearance: data.settings.appearance || (data.settings.darkMode ? 'dark' : 'system'),
+      accent: data.settings.theme || 'sunset',
+      displayName: data.settings.displayName || '',
+      showPrayerTimes: data.settings.showPrayerTimes !== false,
+      prayerMethod: data.settings.prayerMethod || 'auto',
+      prayerSchool: Number(data.settings.prayerSchool || 0) === 1 ? 'Hanafi' : 'Standard',
+    },
+    locationKnown: Boolean(ctx.location),
   })
 }
 
@@ -332,11 +404,17 @@ function buildInstructions(snapshot, ctx, { voice }) {
 
 Current local time: ${ctx.weekday} ${ctx.localDate} ${ctx.localTime} (${ctx.timeZone}).
 
+What you can do (with tools): add, edit, reschedule, complete, reopen and archive tasks; add, move and remove calendar events; add, update and remove people and log catch-ups; add, edit and remove classes; read, write, append to and delete journal entries; save and delete notes; remember and forget facts; search older history; change any setting (light/dark/system appearance, accent colour, display name, prayer times card, prayer calculation method, Hanafi/standard Asr); and look up live weather and prayer times for the user's location. You cannot change the password, recovery question or log out — point the user to Settings → Security for those.
+
 How to act:
 - Chat naturally. Answer questions from the snapshot directly; don't call tools just to read data you already have.
 - When the user asks for a change, do it with tools, using exact ids from the snapshot. Several tools can be used in one turn. Never say something was done unless the tool returned ok.
 - When the user tells you news about a person (e.g. "Ali got a new job"), update that person with update_friend (status or addFact), and log_contact if they say they talked or met. Only add facts that are new information about the person — "we talked today" is a contact log, not a fact. If the person isn't in People and seems important, ask whether to add them.
 - When the user shares a durable fact about themselves or their life (preferences, family, routines, goals, health, work, school), save it with remember — briefly mention you'll remember it. Don't save one-off chatter. If a memory becomes wrong, forget it and remember the corrected version.
+- Use upcomingDays in the snapshot to map weekday names to dates.
+- For weather or prayer times, call get_weather / get_prayer_times. If the location is unknown, ask the user to tap "Use my location" on the Today screen.
+- Deleting a person, a journal entry or a note is permanent: do it only when the user clearly asked; if unsure, confirm first. Prefer archiving tasks over anything destructive.
+- Before replacing a long journal entry, read it with read_journal.
 - Resolve relative dates from the current local date: "tomorrow", "next Friday", "end of the week" = this Sunday, "next week" = the following Monday–Sunday. Leave date/time empty when not given.
 - If something essential is missing or ambiguous (e.g. two people with the same name), ask one short question instead of guessing.
 - Never show ids to the user. Say dates naturally ("Friday, Sep 18", "tomorrow") and times in 12-hour format ("2:35 PM").
@@ -677,7 +755,7 @@ async function executeTool(supabase, userId, name, args, data, ctx) {
     const matches = (text) => !query || String(text || '').toLowerCase().includes(query)
     let items = []
     if (args.type === 'journal') items = data.journal_entries.filter((entry) => matches(`${entry.title} ${entry.body}`)).map((entry) => compact({ date: entry.date, title: entry.title, mood: entry.mood, text: truncate(entry.body, 1500) }))
-    if (args.type === 'notes') items = data.voice_notes.filter((note) => matches(note.text)).map((note) => ({ date: localDateOf(note.created_at, ctx.timeZone), text: truncate(note.text, 1000) }))
+    if (args.type === 'notes') items = data.voice_notes.filter((note) => matches(note.text)).map((note) => ({ id: note.id, date: localDateOf(note.created_at, ctx.timeZone), text: truncate(note.text, 1000) }))
     if (args.type === 'completed_tasks') items = data.tasks.filter((task) => task.done && !task.archived && matches(task.text)).map((task) => compact({ id: task.id, text: task.text, date: task.date }))
     if (args.type === 'archived_tasks') items = data.tasks.filter((task) => task.archived && matches(task.text)).map((task) => compact({ id: task.id, text: task.text, date: task.date }))
     if (args.type === 'past_events') items = data.events.filter((event) => event.date < addDays(ctx.localDate, -7) && matches(event.title)).map((event) => compact({ id: event.id, title: event.title, date: event.date, time: event.time }))
@@ -686,6 +764,10 @@ async function executeTool(supabase, userId, name, args, data, ctx) {
 
   if (name === 'update_settings') {
     const changes = compact(args)
+    if (changes.prayerMethod !== undefined && !PRAYER_METHOD_IDS.includes(String(changes.prayerMethod))) return { ok: false, message: 'Unknown prayer calculation method.' }
+    if (changes.prayerMethod !== undefined) changes.prayerMethod = String(changes.prayerMethod)
+    if (changes.prayerSchool !== undefined) changes.prayerSchool = Number(changes.prayerSchool) === 1 ? 1 : 0
+    if (changes.displayName !== undefined) changes.displayName = String(changes.displayName).trim().slice(0, 40)
     if (changes.darkMode !== undefined) {
       changes.appearance = changes.appearance || (changes.darkMode ? 'dark' : 'light')
       delete changes.darkMode
@@ -699,7 +781,135 @@ async function executeTool(supabase, userId, name, args, data, ctx) {
     return { ok: true, message: 'Updated your settings.' }
   }
 
+  if (name === 'update_class') {
+    const item = findOwned(data.classes, args.classId, 'class')
+    const patch = {}
+    if (args.name !== undefined) patch.name = String(args.name).trim()
+    if (args.endDate !== undefined) {
+      if (args.endDate && !isIsoDate(args.endDate)) return { ok: false, message: 'Dates must be YYYY-MM-DD.' }
+      patch.end_date = args.endDate || null
+    }
+    if (Array.isArray(args.schedules)) {
+      if (!args.schedules.length) return { ok: false, message: 'A class needs at least one day.' }
+      patch.days = args.schedules.map((entry) => compact(entry))
+      patch.day_details = {}
+      patch.time = null
+      patch.room = null
+    }
+    const { error } = await supabase.from('classes').update(patch).eq('id', item.id).eq('user_id', userId)
+    if (error) throw error
+    Object.assign(item, patch)
+    return { ok: true, message: `Updated class "${item.name}".` }
+  }
+
+  if (name === 'delete_friend') {
+    const friend = findOwned(data.friends, args.friendId, 'person')
+    await supabase.from('contact_logs').delete().eq('friend_id', friend.id).eq('user_id', userId)
+    const { error } = await supabase.from('friends').delete().eq('id', friend.id).eq('user_id', userId)
+    if (error) throw error
+    data.friends = data.friends.filter((item) => item.id !== friend.id)
+    data.contact_logs = data.contact_logs.filter((log) => log.friend_id !== friend.id)
+    return { ok: true, message: `Removed ${friend.name} from People.` }
+  }
+
+  if (name === 'read_journal') {
+    const entry = data.journal_entries.find((item) => item.date === args.date)
+    if (!entry) return { ok: true, found: false, message: `No journal entry for ${args.date}.` }
+    return { ok: true, found: true, entry: compact({ date: entry.date, title: entry.title, mood: entry.mood, text: truncate(entry.body, 12000) }) }
+  }
+
+  if (name === 'delete_journal_entry') {
+    const entry = data.journal_entries.find((item) => item.date === args.date)
+    if (!entry) return { ok: false, message: `No journal entry for ${args.date}.` }
+    const { error } = await supabase.from('journal_entries').delete().eq('id', entry.id).eq('user_id', userId)
+    if (error) throw error
+    data.journal_entries = data.journal_entries.filter((item) => item.id !== entry.id)
+    return { ok: true, message: `Deleted your journal entry for ${args.date}.` }
+  }
+
+  if (name === 'delete_note') {
+    const note = findOwned(data.voice_notes, args.noteId, 'note')
+    const { error } = await supabase.from('voice_notes').delete().eq('id', note.id).eq('user_id', userId)
+    if (error) throw error
+    data.voice_notes = data.voice_notes.filter((item) => item.id !== note.id)
+    return { ok: true, message: 'Deleted the note.' }
+  }
+
+  if (name === 'get_weather') {
+    if (!ctx.location) return { ok: false, message: 'Location unknown. Ask the user to tap "Use my location" on the Today screen.' }
+    const days = Math.min(7, Math.max(1, Number(args.days) || 2))
+    return { ok: true, ...(await fetchWeather(ctx.location, days)) }
+  }
+
+  if (name === 'get_prayer_times') {
+    if (!ctx.location) return { ok: false, message: 'Location unknown. Ask the user to tap "Use my location" on the Today screen.' }
+    const date = isIsoDate(args.date) ? args.date : ctx.localDate
+    return { ok: true, ...(await fetchPrayerTimes(ctx.location, date, data.settings)) }
+  }
+
   throw new Error(`Unknown tool: ${name}`)
+}
+
+function describeWeatherCode(code) {
+  if (code === 0) return 'clear'
+  if (code === 1 || code === 2) return 'partly cloudy'
+  if (code === 3) return 'overcast'
+  if (code === 45 || code === 48) return 'fog'
+  if ([51, 53, 55, 56, 57].includes(code)) return 'drizzle'
+  if ([61, 63, 65, 66, 67].includes(code)) return 'rain'
+  if ([80, 81, 82].includes(code)) return 'showers'
+  if ([71, 73, 75, 77, 85, 86].includes(code)) return 'snow'
+  if ([95, 96, 99].includes(code)) return 'thunderstorms'
+  return 'cloudy'
+}
+
+async function fetchWeather({ lat, lon }, days) {
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}`
+    + '&current=temperature_2m,apparent_temperature,weather_code,relative_humidity_2m,wind_speed_10m'
+    + '&hourly=temperature_2m,weather_code,precipitation_probability'
+    + '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset'
+    + `&forecast_days=${days}&timezone=auto`
+  const response = await fetch(url)
+  if (!response.ok) throw new Error('The weather service is unavailable right now.')
+  const weather = await response.json()
+  const now = weather.current || {}
+  const currentHour = String(now.time || '').slice(0, 13)
+  const startIndex = Math.max(0, (weather.hourly?.time || []).findIndex((time) => time.slice(0, 13) >= currentHour))
+  const next12Hours = []
+  for (let index = startIndex; index < startIndex + 12 && index < (weather.hourly?.time?.length || 0); index += 3) {
+    next12Hours.push({ time: weather.hourly.time[index].slice(11, 16), tempC: Math.round(weather.hourly.temperature_2m[index]), condition: describeWeatherCode(weather.hourly.weather_code[index]), rainChance: weather.hourly.precipitation_probability?.[index] })
+  }
+  return {
+    units: 'Celsius, km/h',
+    current: { tempC: Math.round(now.temperature_2m), feelsLikeC: Math.round(now.apparent_temperature), condition: describeWeatherCode(now.weather_code), humidity: now.relative_humidity_2m, windKmh: Math.round(now.wind_speed_10m) },
+    next12Hours,
+    daily: (weather.daily?.time || []).map((date, index) => ({
+      date,
+      condition: describeWeatherCode(weather.daily.weather_code[index]),
+      highC: Math.round(weather.daily.temperature_2m_max[index]),
+      lowC: Math.round(weather.daily.temperature_2m_min[index]),
+      rainChance: weather.daily.precipitation_probability_max?.[index],
+      sunrise: String(weather.daily.sunrise?.[index] || '').slice(11, 16),
+      sunset: String(weather.daily.sunset?.[index] || '').slice(11, 16),
+    })),
+  }
+}
+
+async function fetchPrayerTimes({ lat, lon }, date, settings) {
+  const [year, month, day] = date.split('-')
+  const method = settings.prayerMethod && settings.prayerMethod !== 'auto' ? `&method=${encodeURIComponent(settings.prayerMethod)}` : ''
+  const school = Number(settings.prayerSchool || 0) === 1 ? 1 : 0
+  const response = await fetch(`https://api.aladhan.com/v1/timings/${day}-${month}-${year}?latitude=${lat}&longitude=${lon}${method}&school=${school}`)
+  if (!response.ok) throw new Error('The prayer times service is unavailable right now.')
+  const payload = await response.json()
+  const timings = payload?.data?.timings || {}
+  const pick = (name) => String(timings[name] || '').split(' ')[0]
+  return {
+    date,
+    method: payload?.data?.meta?.method?.name || 'Automatic',
+    asr: school === 1 ? 'Hanafi' : 'Standard',
+    times24h: { Fajr: pick('Fajr'), Sunrise: pick('Sunrise'), Dhuhr: pick('Dhuhr'), Asr: pick('Asr'), Maghrib: pick('Maghrib'), Isha: pick('Isha') },
+  }
 }
 
 export default async function handler(req, res) {
@@ -834,7 +1044,7 @@ export default async function handler(req, res) {
         }
         debug.push({ step: 'tool', name: call.name, ok: result.ok, message: result.message || null })
         results.push({ tool: call.name, ...result })
-        if (call.name !== 'search') emit({ type: 'action', tool: call.name, ok: result.ok, message: result.message || '' })
+        if (!LOOKUP_TOOLS.includes(call.name) || !result.ok) emit({ type: 'action', tool: call.name, ok: result.ok, message: result.message || 'That didn’t work.' })
         input.push({ type: 'function_call_output', call_id: call.call_id, output: JSON.stringify(result) })
       }
       emit({ type: 'status', text: 'Thinking…' })
@@ -850,7 +1060,7 @@ export default async function handler(req, res) {
     const nextHistory = [
       ...history,
       { role: 'user', content: text, createdAt: nowIso(), ...(isVoice ? { voice: true } : {}) },
-      { role: 'assistant', content: reply, createdAt: nowIso(), ...(results.length ? { actions: results.filter((result) => result.tool !== 'search').map(({ tool: toolName, ok, message }) => ({ tool: toolName, ok, message })) } : {}) },
+      { role: 'assistant', content: reply, createdAt: nowIso(), ...(results.length ? { actions: results.filter((result) => !LOOKUP_TOOLS.includes(result.tool)).map(({ tool: toolName, ok, message }) => ({ tool: toolName, ok, message })) } : {}) },
     ].slice(-MAX_STORED_MESSAGES)
     const saved = await supabase.from('assistant_conversations').upsert({
       id: record?.id || newId(),
@@ -865,7 +1075,7 @@ export default async function handler(req, res) {
       reply,
       transcript: isVoice ? text : undefined,
       results: results.map(({ tool: toolName, ok, message }) => ({ tool: toolName, ok, message })),
-      dataChanged: results.some((result) => result.ok && !['search', 'remember', 'forget'].includes(result.tool)),
+      dataChanged: results.some((result) => result.ok && !LOOKUP_TOOLS.includes(result.tool) && !['remember', 'forget'].includes(result.tool)),
       memories: results.some((result) => result.memoryChanged) ? data.memories : undefined,
       debug,
     }
