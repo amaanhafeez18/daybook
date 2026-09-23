@@ -13,6 +13,7 @@ import { applyTheme } from './lib/theme.js'
 import { toISO } from './lib/dates.js'
 import { useNow } from './lib/environment.js'
 import './components/today.css'
+import './components/shell.css'
 
 // Only Today ships in the first bundle; other pages load on first visit (then stay cached).
 const TasksPage = lazy(() => import('./pages/TasksPage.jsx'))
@@ -52,6 +53,24 @@ function scrollIfCurrent(event, id) {
   event.preventDefault()
   const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
   window.scrollTo({ top: 0, behavior: still ? 'auto' : 'smooth' })
+}
+
+// The live workout (#/gym/workout, and its summary) is 'focus mode': html.is-focus hides the top bar
+// and tab bar on phones (shell.css, workout.css); its minimise chevron leads back out.
+const FOCUS_HASH = /^#\/?gym\/workout(?:[/?]|$)/
+const FOCUS_CLASS = 'is-focus'
+
+function useFocusMode() {
+  useEffect(() => {
+    const root = document.documentElement
+    const update = () => root.classList.toggle(FOCUS_CLASS, FOCUS_HASH.test(window.location.hash))
+    update()
+    window.addEventListener('hashchange', update)
+    return () => {
+      window.removeEventListener('hashchange', update)
+      root.classList.remove(FOCUS_CLASS)
+    }
+  }, [])
 }
 
 // The first path segment picks the page; pages with sub-views (#/gym/workout, #/food/day/<date>)
@@ -162,6 +181,7 @@ function Shell({ user, onUserChange, onSignOut }) {
   }, [user.id])
 
   useEffect(() => { applyTheme(settings) }, [settings])
+  useFocusMode()
 
   useEffect(() => {
     const onHash = () => {
@@ -359,6 +379,8 @@ class ErrorBoundary extends React.Component {
 
   componentDidCatch(error) {
     console.error('Page crashed:', error)
+    // Bring the top bar and tab bar back, so a crashed workout screen isn't a dead end.
+    document.documentElement.classList.remove(FOCUS_CLASS)
   }
 
   render() {

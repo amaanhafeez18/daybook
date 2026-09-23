@@ -775,6 +775,18 @@ html.gym-has-float .toaster { bottom: calc(var(--nav-h) + var(--safe-bottom) + 9
   .shell:has(input:focus, textarea:focus) .gym-wo-rest-chip { display: inline-flex; }
 }
 
+/* ---- focus mode (html.is-focus on #/gym/workout, phones and tablets) ------------------------
+   No top bar or tab bar (shell.css): the header sits just under the top safe area, the rest timer
+   and the summary's Done button just above the bottom one, and toasts clear the rest timer. */
+
+@media (max-width: 899px) {
+  html.is-focus .gym-wo-bar { top: calc(var(--safe-top) + 4px); }
+  html.is-focus .gym-ex { scroll-margin-top: calc(var(--safe-top) + 84px); }
+  html.is-focus .gym-rest-bar, html.is-focus .gym-rest-over { bottom: calc(var(--safe-bottom) + 12px); }
+  html.is-focus.gym-has-float .toaster { bottom: calc(var(--safe-bottom) + 84px); }
+  html.is-focus .gym-summary-done { bottom: calc(var(--safe-bottom) + 12px); }
+}
+
 /* ---- desktop: no bottom tab bar; the content column starts after the 252px sidebar ---------- */
 
 @media (min-width: 900px) {

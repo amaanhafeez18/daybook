@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import Sheet from './ui/Sheet.jsx'
 import { AutoTextarea, Button, Field, Segmented } from './ui/primitives.jsx'
 import { toast } from './ui/feedback.jsx'
-import { archiveTask, createTask, isReminderMarker, restoreTask, setTaskDone, updateTask } from '../lib/planner.js'
-import { addDaysISO, todayISO } from '../lib/dates.js'
+import { archiveTask, createTask, deleteTaskForever, isReminderMarker, restoreTask, setTaskDone, updateTask } from '../lib/planner.js'
+import { addDaysISO, dueSentence, todayISO } from '../lib/dates.js'
 import { LEAD_OPTIONS, leadLabel, notificationPrefs } from '../lib/notifications.js'
 import { useData } from '../lib/store.js'
 
@@ -28,11 +28,14 @@ function effectiveReminder(value, timed) {
 }
 
 // Create a task (task = null) or edit an existing one.
-export default function TaskSheet({ open, onClose, task: taskProp = null, defaults = {} }) {
+// completeFirst: opened to tick it off (e.g. from its reminder), so Complete is the main button.
+// onSaved(task): after Save / Add task.
+export default function TaskSheet({ open, onClose, task: taskProp = null, defaults = {}, completeFirst = false, onSaved }) {
   // Keep the last task while the sheet animates closed, so it doesn't switch to the "New task" layout.
-  const shownTask = useRef(taskProp)
-  if (open) shownTask.current = taskProp
-  const task = shownTask.current
+  const shown = useRef({ task: taskProp, completeFirst })
+  if (open) shown.current = { task: taskProp, completeFirst }
+  const task = shown.current.task
+  const readyToComplete = Boolean(shown.current.completeFirst && task && !task.done)
   const [form, setForm] = useState(EMPTY)
   const [error, setError] = useState('')
   const prefs = notificationPrefs(useData('settings'))
@@ -66,11 +69,12 @@ export default function TaskSheet({ open, onClose, task: taskProp = null, defaul
     if (task) {
       // Keep the internal reminder marker if the user didn't add notes of their own.
       if (isReminderMarker(task.details) && !fields.details) fields.details = task.details
-      updateTask(task.id, fields)
-      toast('Task updated')
+      onSaved?.(updateTask(task.id, fields))
     } else {
-      createTask(fields)
-      toast(fields.date ? `Added for ${quickDates.find((item) => item.id === fields.date)?.label.toLowerCase() || fields.date}` : 'Task added')
+      const created = createTask(fields)
+      // A dated task may land out of sight (another day, group or page): say where it went.
+      if (created.date) toast(`Added for ${dueSentence(created.date, created.time, today)}`, { action: { label: 'Undo', onClick: () => deleteTaskForever(created.id) } })
+      onSaved?.(created)
     }
     onClose()
   }
@@ -87,12 +91,21 @@ export default function TaskSheet({ open, onClose, task: taskProp = null, defaul
     toast(task.done ? 'Marked as not done' : 'Completed', { action: { label: 'Undo', onClick: () => setTaskDone(task.id, task.done) } })
   }
 
+  // Only a new task starts in the title field: opening one to read or tick it off shouldn't
+  // bring up the keyboard.
   return (
     <Sheet
       open={open}
       onClose={onClose}
       title={task ? 'Edit task' : 'New task'}
-      footer={(
+      initialFocus={!task}
+      footer={readyToComplete ? (
+        <>
+          <Button variant="ghost" icon="archive" onClick={archive}>Archive</Button>
+          <Button type="submit" form="task-form" variant="secondary">Save</Button>
+          <Button icon="check" className="btn-grow" onClick={toggleDone}>Complete</Button>
+        </>
+      ) : (
         <>
           {task && <Button variant="ghost" icon="archive" onClick={archive}>Archive</Button>}
           {task && <Button variant="secondary" icon={task.done ? 'undo' : 'check'} onClick={toggleDone}>{task.done ? 'Reopen' : 'Complete'}</Button>}

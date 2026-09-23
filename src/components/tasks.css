@@ -1,0 +1,223 @@
+/* =========================================================================================
+   Tasks: swipe actions on task rows (TaskRow, prefix tr-) and the Tasks page (prefix tk-):
+   the quick-add docked at the bottom, overdue "Today" chips and the archived list.
+   This file can load before or after App.css / glass.css / apple.css (it ships with the lazily
+   loaded pages), so rules that meet theirs use a heavier selector rather than relying on order.
+   ========================================================================================= */
+
+:root {
+  /* White text on these passes 4.5:1 in both appearances. */
+  --tr-done: #248A3D;
+  --tr-reopen: #6C6C70;
+  --tr-later: #C93400;
+  --tr-archive: #5E5CE6;
+  --tr-ease: var(--ios-sheet, cubic-bezier(0.32, 0.72, 0, 1));
+}
+
+/* ---- swipe actions ------------------------------------------------------------------------------
+   The row's own children slide by --tr-x (px, set by TaskRow while swiping). Action pills grow
+   from the edge into exactly the space uncovered, so they never sit under the text. Swipe state
+   lives in data attributes: data-swiping, data-dragging, data-armed, data-full. */
+
+.task-row.tr-row { position: relative; touch-action: pan-y; }
+.task-row.tr-row[data-swiping], .task-row.tr-row.is-open { overflow: hidden; }
+.task-row.tr-row[data-swiping] > :not(.tr-lead):not(.tr-trail),
+.task-row.tr-row.is-open > :not(.tr-lead):not(.tr-trail) {
+  translate: var(--tr-x, 0px) 0;
+  transition: translate 0.34s var(--tr-ease);
+}
+
+.tr-lead, .tr-trail {
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  display: flex;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+  transition: width 0.34s var(--tr-ease), opacity 0.15s;
+}
+.task-row.tr-row[data-swiping] .tr-lead,
+.task-row.tr-row[data-swiping] .tr-trail,
+.task-row.tr-row.is-open .tr-trail { visibility: visible; }
+.task-row.tr-row.is-open .tr-trail { pointer-events: auto; }
+.task-row.tr-row[data-dragging] > :not(.tr-lead):not(.tr-trail) { transition: none; }
+/* A mouse drag shouldn't select the row's text on the way. */
+.task-row.tr-row[data-dragging] { -webkit-user-select: none; user-select: none; }
+.task-row.tr-row[data-dragging] > .tr-lead,
+.task-row.tr-row[data-dragging] > .tr-trail { transition: opacity 0.15s; }
+
+/* Right swipe: complete (or reopen). Brightens once a release would commit. */
+.tr-lead {
+  left: 6px;
+  width: max(0px, calc(var(--tr-x, 0px) - 12px));
+  align-items: center;
+  justify-content: flex-end;
+  border-radius: 14px;
+  background: var(--tr-done);
+  color: #fff;
+  opacity: 0.55;
+}
+.tr-lead.is-reopen { background: var(--tr-reopen); }
+.tr-lead .icon { flex-shrink: 0; margin-right: 14px; transform: scale(0.7); transition: transform 0.35s var(--spring, ease); }
+.task-row.tr-row[data-armed] .tr-lead { opacity: 1; }
+.task-row.tr-row[data-armed] .tr-lead .icon { transform: scale(1.08); }
+
+/* Left swipe: Tomorrow + Archive; swiping on past 60% archives, and Archive fills the space.
+   (No padding on .tr-lead / .tr-trail: at width 0 they must take no room at all.) */
+.tr-trail {
+  right: 6px;
+  width: max(0px, calc(-1 * var(--tr-x, 0px) - 12px));
+  gap: 6px;
+}
+.tr-act {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border-radius: 14px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  transition: flex-grow 0.25s var(--tr-ease), opacity 0.2s, filter 0.15s;
+}
+.tr-act .icon { flex-shrink: 0; }
+.tr-act:active { filter: brightness(0.88); }
+.tr-act:focus-visible { outline: 2px solid var(--text); outline-offset: -4px; }
+.tr-act-later { background: var(--tr-later); }
+.tr-act-archive { background: var(--tr-archive); }
+.task-row.tr-row[data-full] .tr-act-later { flex-grow: 0; opacity: 0; margin-right: -6px; }
+
+/* Finished rows fade their content only, so the action colours stay full strength. */
+.task-row.tr-row.is-done { opacity: 1; }
+.task-row.tr-row.is-done > :not(.tr-lead):not(.tr-trail) { opacity: 0.55; }
+
+@media (prefers-reduced-motion: reduce) {
+  .task-row.tr-row[data-swiping] > :not(.tr-lead):not(.tr-trail),
+  .task-row.tr-row.is-open > :not(.tr-lead):not(.tr-trail),
+  .tr-lead, .tr-trail, .tr-act, .tr-lead .icon { transition: none; }
+}
+
+/* ---- overdue rows: one-tap "Today" -------------------------------------------------------------- */
+
+.tk-chip-today {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: transform 0.35s var(--spring, ease), opacity 0.15s;
+}
+.tk-chip-today::after { content: ''; position: absolute; inset: -7px -4px; }
+.tk-chip-today:active { transform: scale(0.92); transition-duration: 0.1s; }
+
+/* ---- quick-add dock ----------------------------------------------------------------------------
+   Sticks to the bottom above the tab bar (and the workout pill), in thumb reach; while typing the
+   tab bar hides and it drops onto the keyboard, like the assistant composer. The chips row is
+   after the form in the DOM (tab order) but shows above it, so the field never jumps. */
+
+/* A short list still fills the screen, so the dock rests at the bottom (like the assistant). */
+.shell .page:has(.tk-dock) { display: flex; flex-direction: column; min-height: calc(100dvh - var(--topbar-h, 56px) - var(--safe-top, 0px)); }
+.tasks-page:has(> .tk-dock) { flex: 1 0 auto; display: flex; flex-direction: column; }
+.tk-body { flex: 1 0 auto; }
+
+.tk-dock {
+  position: sticky;
+  bottom: calc(var(--nav-h) + var(--safe-bottom) + 10px + var(--gymw-pill-space, 0px));
+  z-index: 20;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 8px;
+  padding-bottom: 10px;
+  pointer-events: none; /* the see-through edges don't block the list */
+}
+.tk-dock > * { pointer-events: auto; }
+.quick-add.tk-quick { margin: 0; padding: 5px 6px 5px 5px; gap: 6px; }
+.tk-quick .quick-add-input { min-height: 40px; }
+.tk-quick .btn { flex-shrink: 0; }
+
+.tk-quick-more {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  color: var(--accent);
+  transition: transform 0.35s var(--spring, ease), background 0.2s;
+}
+.tk-quick-more:active { transform: scale(0.9); background: var(--surface-2); transition-duration: 0.1s; }
+@media (hover: hover) { .tk-quick-more:hover { background: var(--surface-2); } }
+
+.tk-dock-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 6px;
+  animation: tk-chips-in 0.22s var(--tr-ease) both;
+}
+@keyframes tk-chips-in { from { opacity: 0; transform: translateY(6px); } }
+.chip.tk-parsed { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; }
+.chip.tk-parsed > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-parsed .tk-parsed-x { flex-shrink: 0; opacity: 0.8; }
+
+/* The page ends where the dock rests, and toasts sit above it rather than over it. */
+@media (max-width: 899px) {
+  .shell .page:has(.tk-dock) { padding-bottom: calc(var(--nav-h) + var(--safe-bottom) + 10px + var(--gymw-pill-space, 0px)); }
+  html:not(.has-sheet):has(.tk-dock) .toaster.toaster { bottom: calc(var(--nav-h) + var(--safe-bottom) + 92px + var(--gymw-pill-space, 0px)); }
+}
+@media (max-width: 899px) and (pointer: coarse) {
+  .shell:has(input:focus, textarea:focus) .tk-dock { bottom: 0; padding-bottom: calc(8px + var(--safe-bottom)); }
+  .shell:has(input:focus, textarea:focus) .page:has(.tk-dock) { padding-bottom: 0; }
+}
+@media (min-width: 900px) {
+  .tk-dock { bottom: 0; padding-bottom: calc(20px + var(--gymw-pill-space, 0px)); }
+  .shell .page:has(.tk-dock) { padding-bottom: 0; min-height: 100dvh; }
+  html:not(.has-sheet):has(.tk-dock) .toaster.toaster { bottom: calc(96px + var(--gymw-pill-space, 0px)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tk-dock-chips { animation: none; }
+}
+
+/* ---- archived tasks (bottom of the Completed view) ------------------------------------------------ */
+
+.tk-archived { margin-top: 8px; }
+.tk-archived-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 6px;
+  border-radius: 12px;
+  color: var(--text-2);
+  font-size: 15px;
+  font-weight: 600;
+  text-align: left;
+}
+.tk-archived-toggle > span { flex: 1; min-width: 0; }
+.tk-archived-toggle:active { background: var(--surface-2); }
+.tk-archived-toggle .tk-chevron { color: var(--text-3); transition: transform 0.25s var(--tr-ease); }
+.tk-archived-toggle[aria-expanded='true'] .tk-chevron { transform: rotate(180deg); }
+.card-list.tk-archived-list { --sep-inset: 16px; margin-top: 6px; animation: tk-chips-in 0.22s var(--tr-ease) both; }
+.tk-arch-row { display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 8px 10px 8px 16px; }
+.tk-arch-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.tk-arch-title { font-size: 15px; overflow-wrap: anywhere; }
+.tk-arch-text small { color: var(--text-2); font-size: 13px; }
+.tk-arch-row .btn { flex-shrink: 0; }
+.icon-btn.tk-arch-delete { flex-shrink: 0; width: 40px; height: 40px; color: var(--text-2); }
+.tk-arch-more { display: flex; justify-content: center; padding: 6px 0; }

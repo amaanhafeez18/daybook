@@ -2,13 +2,14 @@ import { Component, Suspense, lazy, useEffect, useId, useMemo, useRef, useState 
 import Icon from '../components/ui/Icon.jsx'
 import { Avatar, Button, Card, Skeleton } from '../components/ui/primitives.jsx'
 import { toast } from '../components/ui/feedback.jsx'
+import ClassSheet from '../components/ClassSheet.jsx'
 import GymWidget from '../components/GymWidget.jsx'
 import TaskRow from '../components/TaskRow.jsx'
 import TaskSheet from '../components/TaskSheet.jsx'
 import { readPref, writePref } from '../lib/api.js'
 import { useData } from '../lib/store.js'
-import { classesOn, compareTasks, createTask, friendStatus, lastContactMap, logContact, updateTask } from '../lib/planner.js'
-import { addDaysISO, compareTimes, formatDateLong, formatTime, greeting, todayISO } from '../lib/dates.js'
+import { classesOn, compareTasks, createTask, deleteTaskForever, friendStatus, lastContactMap, logContact, updateTask } from '../lib/planner.js'
+import { addDaysISO, compareTimes, dueSentence, formatDateLong, formatDue, formatTime, greeting, parseQuickAdd, todayISO } from '../lib/dates.js'
 import { dailyForecast, describeWeather, prayerSchedule, upcomingHours, useLocation, useNow, usePrayerTimes, useWeather } from '../lib/environment.js'
 import { useActiveWorkout } from '../lib/gym/state.js'
 import '../components/today.css'
@@ -35,9 +36,15 @@ export default function TodayPage({ displayName, loaded }) {
   const workout = useActiveWorkout()
   // null = closed; { task } edits a task; { defaults } adds one.
   const [sheet, setSheet] = useState(null)
+  const [classSheet, setClassSheet] = useState(null)
 
   const active = useMemo(() => tasks.filter((task) => !task.archived), [tasks])
   const openTask = (task) => setSheet({ task })
+  // Class rows carry the class id; the sheet edits the whole class.
+  const openClass = (id) => {
+    const record = classes.find((item) => item.id === id)
+    if (record) setClassSheet(record)
+  }
 
   return (
     <div className="today td-page">
@@ -49,8 +56,8 @@ export default function TodayPage({ displayName, loaded }) {
       <div className="today-grid">
         <div className="today-main">
           {workout && <GymWidget today={today} loaded={loaded} />}
-          <TodayCard tasks={active} classes={classes} today={today} loaded={loaded} onOpen={openTask} />
-          <TomorrowCard tasks={active} classes={classes} tomorrow={tomorrow} loaded={loaded} onOpen={openTask} onAdd={() => setSheet({ defaults: { date: tomorrow } })} />
+          <TodayCard tasks={active} classes={classes} today={today} loaded={loaded} onOpen={openTask} onOpenClass={openClass} />
+          <TomorrowCard tasks={active} classes={classes} tomorrow={tomorrow} loaded={loaded} onOpen={openTask} onOpenClass={openClass} onAdd={() => setSheet({ defaults: { date: tomorrow } })} />
           {!workout && <GymWidget today={today} loaded={loaded} />}
           <CardBoundary>
             <Suspense fallback={<FoodSkeleton />}>
@@ -67,13 +74,14 @@ export default function TodayPage({ displayName, loaded }) {
       </div>
 
       <TaskSheet open={!!sheet} task={sheet?.task || null} defaults={sheet?.defaults || { date: today }} onClose={() => setSheet(null)} />
+      <ClassSheet item={classSheet} onClose={() => setClassSheet(null)} />
     </div>
   )
 }
 
 // ---- Today -------------------------------------------------------------------------------------
 
-function TodayCard({ tasks, classes, today, loaded, onOpen }) {
+function TodayCard({ tasks, classes, today, loaded, onOpen, onOpenClass }) {
   const [showOverdue, setShowOverdue] = useState(false)
   const [showDone, setShowDone] = useState(false)
 
@@ -162,7 +170,7 @@ function TodayCard({ tasks, classes, today, loaded, onOpen }) {
             <ul className="task-list td-section">
               {timeline.map((entry) => entry.kind === 'task'
                 ? <TaskRow key={entry.key} task={entry.task} onOpen={onOpen} showDate={false} />
-                : <ClassRow key={entry.key} item={entry.item} />)}
+                : <ClassRow key={entry.key} item={entry.item} onOpen={onOpenClass} />)}
             </ul>
           )}
 
@@ -225,16 +233,27 @@ function useRecentlyDone(open, done) {
   return recent
 }
 
+// Adds to today, unless a day or time is typed at the start or end ("Call mom tomorrow 5pm", the
+// same parser as the Tasks page): that shows as a chip, and tapping the chip keeps the words in
+// the title instead.
 function AddRow({ today }) {
   const [text, setText] = useState('')
+  const [ignored, setIgnored] = useState('') // the parse the user dismissed, by its words
   const input = useRef(null)
+  const parsed = useMemo(() => parseQuickAdd(text, new Date()), [text])
+  const parseKey = parsed.matched.map((span) => span.text.toLowerCase()).join('|')
+  const understood = parsed.matched.length > 0 && parseKey !== ignored ? parsed : null
+  const understoodLabel = understood ? formatDue(understood.date, understood.time, today) : ''
 
   function submit(event) {
     event.preventDefault()
     const value = text.trim()
     if (!value) return
-    createTask({ text: value, date: today })
+    const task = createTask(understood ? { text: understood.title, date: understood.date, time: understood.time } : { text: value, date: today })
     setText('')
+    setIgnored('')
+    // Another day leaves this card: say where it went.
+    if (task.date !== today) toast(`Added for ${dueSentence(task.date, task.time, today)}`, { action: { label: 'Undo', onClick: () => deleteTaskForever(task.id) } })
     // The key reads "Done", so on phones the keyboard goes away; on desktop keep typing.
     if (window.matchMedia?.('(pointer: coarse)').matches) input.current?.blur()
   }
@@ -249,32 +268,48 @@ function AddRow({ today }) {
         onChange={(event) => setText(event.target.value)}
         placeholder="Add to today"
         aria-label="Add a task for today"
+        aria-describedby={understood ? 'td-add-parsed' : undefined}
         enterKeyHint="done"
         autoComplete="off"
       />
       {text.trim() && <button type="submit" className="btn btn-primary btn-sm td-add-btn">Add</button>}
+      {understood && (
+        <div className="td-add-parsed" id="td-add-parsed" aria-live="polite">
+          <button
+            type="button"
+            className="chip chip-sm is-active tk-parsed"
+            onClick={() => setIgnored(parseKey)}
+            aria-label={`Due ${understoodLabel.replace(' · ', ' at ')}. Tap to keep those words in the title instead.`}
+          >
+            <Icon name="calendar" size={14} strokeWidth={2.1} />
+            <span>{understoodLabel}</span>
+            <Icon name="close" size={13} strokeWidth={2.4} className="tk-parsed-x" />
+          </button>
+        </div>
+      )}
     </form>
   )
 }
 
-function ClassRow({ item }) {
+// Tapping a class opens it for editing (room, times), like every other row.
+function ClassRow({ item, onOpen }) {
   return (
     <li className="task-row class-row">
       <span className="class-dot" aria-hidden="true"><Icon name="graduation" size={15} /></span>
-      <div className="task-body is-static">
+      <button type="button" className="task-body" onClick={() => onOpen?.(item.id)}>
         <span className="task-title">{item.name}</span>
         <span className="task-meta">
           {item.time && <span className="meta-chip"><Icon name="clock" size={13} />{item.time}</span>}
           {item.room && <span className="meta-chip"><Icon name="pin" size={13} />{item.room}</span>}
         </span>
-      </div>
+      </button>
     </li>
   )
 }
 
 // ---- Tomorrow ----------------------------------------------------------------------------------
 
-function TomorrowCard({ tasks, classes, tomorrow, loaded, onOpen, onAdd }) {
+function TomorrowCard({ tasks, classes, tomorrow, loaded, onOpen, onOpenClass, onAdd }) {
   const upcoming = useMemo(() => tasks.filter((task) => !task.done && task.date === tomorrow).sort(compareTasks), [tasks, tomorrow])
   const tomorrowClasses = useMemo(() => classesOn(tomorrow), [classes, tomorrow]) // eslint-disable-line react-hooks/exhaustive-deps
   const addButton = (
@@ -291,7 +326,11 @@ function TomorrowCard({ tasks, classes, tomorrow, loaded, onOpen, onAdd }) {
       ) : (
         <ul className="compact-list td-tomorrow">
           {tomorrowClasses.map((item, index) => (
-            <li key={`c-${item.id}-${index}`}><Icon name="graduation" size={16} /><span className="compact-link">{item.name}</span>{item.time && <time>{item.time}</time>}</li>
+            <li key={`c-${item.id}-${index}`}>
+              <Icon name="graduation" size={16} />
+              <button type="button" className="compact-link" onClick={() => onOpenClass(item.id)}>{item.name}</button>
+              {item.time && <time>{item.time}</time>}
+            </li>
           ))}
           {upcoming.slice(0, TOMORROW_SHOWN).map((task) => (
             <li key={task.id}>

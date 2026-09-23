@@ -1,22 +1,23 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Icon from '../components/ui/Icon.jsx'
 import Sheet from '../components/ui/Sheet.jsx'
 import { Avatar, Button, Field, PasswordInput, Segmented, Switch } from '../components/ui/primitives.jsx'
 import { confirmAction, toast } from '../components/ui/feedback.jsx'
 import { RECOVERY_QUESTIONS } from '../components/AuthScreen.jsx'
+import ClassSheet from '../components/ClassSheet.jsx'
 import { authRequest, clearUserCaches, writePref } from '../lib/api.js'
 import { navigate } from '../lib/router.js'
 import { flushAll, getState, refresh, resetStore, updateSettings, useData, useStore } from '../lib/store.js'
 import { discardActive, flushActive, getActiveWorkout, updateGym } from '../lib/gym/state.js'
-import { classSchedule, deleteClass, deleteTaskForever, restoreTask, saveClass } from '../lib/planner.js'
+import { classSchedule } from '../lib/planner.js'
 import { ACCENTS, APPEARANCES, resolveAppearance } from '../lib/theme.js'
 import { PRAYER_METHODS } from '../lib/environment.js'
-import { formatDateShort, formatTime, timeToMinutes } from '../lib/dates.js'
+import { formatDateShort } from '../lib/dates.js'
 import { LEAD_OPTIONS, currentSubscription, disableNotifications, enableNotifications, leadLabel, notificationPrefs, pushSupport, sendTestNotification, syncSubscription } from '../lib/notifications.js'
 import '../components/settings.css'
 
 // #/settings/<id> opens Settings scrolled to that section (e.g. the prayer card's "Method" link).
-const SECTION_IDS = new Set(['notifications', 'assistant', 'classes', 'prayer', 'appearance', 'profile', 'security', 'archived', 'account', 'danger'])
+const SECTION_IDS = new Set(['notifications', 'assistant', 'classes', 'prayer', 'appearance', 'profile', 'security', 'account', 'danger'])
 
 function useSectionLink() {
   useEffect(() => {
@@ -54,25 +55,17 @@ function useSectionLink() {
 export default function SettingsPage({ user, onUserChange, onSignOut }) {
   const settings = useData('settings')
   const classes = useData('classes')
-  const tasks = useData('tasks')
   const lastSyncedAt = useStore((state) => state.lastSyncedAt)
   const syncing = useStore((state) => state.syncing)
   const [nameDraft, setNameDraft] = useState(settings.displayName || '')
   const [classSheet, setClassSheet] = useState(null)
   const [securitySheet, setSecuritySheet] = useState(null) // 'password' | 'recovery'
-  const [showArchived, setShowArchived] = useState(false)
-  const archived = useMemo(() => tasks.filter((task) => task.archived).sort((a, b) => String(b.date || '').localeCompare(String(a.date || ''))), [tasks])
 
   useSectionLink()
   useEffect(() => { setNameDraft(settings.displayName || '') }, [settings.displayName])
 
   function saveName() {
     if ((settings.displayName || '') !== nameDraft.trim()) updateSettings({ displayName: nameDraft.trim() })
-  }
-
-  async function removeForever(task) {
-    const ok = await confirmAction({ title: 'Delete permanently?', message: `“${task.text}” will be gone for good.`, confirmLabel: 'Delete' })
-    if (ok) deleteTaskForever(task.id)
   }
 
   async function signOut() {
@@ -219,31 +212,6 @@ export default function SettingsPage({ user, onUserChange, onSignOut }) {
             {!user.hasRecovery && <span className="badge badge-warning">Set up</span>}
             <Icon name="chevronRight" size={18} />
           </button>
-        </div>
-      </section>
-
-      <section className="settings-group" id="archived">
-        <h2>Archived tasks</h2>
-        <div className="card settings-card settings-list">
-          {archived.length === 0 ? <p className="muted">Archived tasks can be restored from here.</p> : (
-            <>
-              <button type="button" className="settings-row" onClick={() => setShowArchived((value) => !value)} aria-expanded={showArchived}>
-                <span className="settings-row-icon"><Icon name="archive" size={18} /></span>
-                <span className="settings-row-text"><strong>{archived.length} archived task{archived.length === 1 ? '' : 's'}</strong></span>
-                <Icon name={showArchived ? 'chevronDown' : 'chevronRight'} size={18} />
-              </button>
-              {showArchived && archived.map((task) => (
-                <div key={task.id} className="settings-row is-static">
-                  <span className="settings-row-text">
-                    <strong>{task.text}</strong>
-                    {task.date && <small>{formatDateShort(task.date)}</small>}
-                  </span>
-                  <Button variant="secondary" size="sm" onClick={() => { restoreTask(task.id); toast('Task restored') }}>Restore</Button>
-                  <button type="button" className="icon-btn icon-btn-sm" onClick={() => removeForever(task)} aria-label={`Delete ${task.text} permanently`}><Icon name="trash" size={16} /></button>
-                </div>
-              ))}
-            </>
-          )}
         </div>
       </section>
 
@@ -579,121 +547,6 @@ function NotificationSettings({ settings }) {
         )}
       </div>
     </section>
-  )
-}
-
-// ---- classes -----------------------------------------------------------------------------
-
-const DAY_ORDER = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-
-function toHHMM(minutes) {
-  if (minutes === null || minutes === undefined) return ''
-  return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`
-}
-
-// `raw` keeps the original text (e.g. "2 PM - 3 PM" from the assistant), which the time pickers
-// may not be able to show; it is saved unchanged unless that day's times are edited.
-function splitRange(text) {
-  const raw = String(text || '').trim()
-  const [start, end] = raw.split(/\s*[-–]\s*/)
-  return { start: toHHMM(timeToMinutes(start)), end: toHHMM(timeToMinutes(end)), raw }
-}
-
-const rangeText = (start, end) => (start ? `${formatTime(start)}${end ? ` - ${formatTime(end)}` : ''}` : '')
-
-function ClassSheet({ item, onClose }) {
-  const open = !!item
-  const editing = item?.id ? item : null
-  const [name, setName] = useState('')
-  const [endDate, setEndDate] = useState('')
-  const [slots, setSlots] = useState({}) // day -> { start, end, room }
-  const [error, setError] = useState('')
-
-  useEffect(() => {
-    if (!open) return
-    setError('')
-    setName(editing?.name || '')
-    setEndDate(editing?.endDate || '')
-    const next = {}
-    for (const slot of editing ? classSchedule(editing) : []) next[slot.day] = { ...splitRange(slot.time), room: slot.room || '' }
-    setSlots(next)
-  }, [open, editing?.id]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const toggleDay = (day) => setSlots((current) => {
-    const next = { ...current }
-    if (next[day]) delete next[day]
-    else next[day] = { ...(Object.values(current)[0] || { start: '', end: '', room: '' }) }
-    return next
-  })
-  const setSlot = (day, field, value) => setSlots((current) => ({ ...current, [day]: { ...current[day], [field]: value, ...(field === 'start' || field === 'end' ? { raw: null } : {}) } }))
-
-  function submit(event) {
-    event.preventDefault()
-    const days = DAY_ORDER.filter((day) => slots[day])
-    if (!name.trim()) return setError('Give the class a name.')
-    if (!days.length) return setError('Pick at least one day.')
-    const dayDetails = Object.fromEntries(days.map((day) => {
-      const { start, end, room, raw } = slots[day]
-      const time = raw != null ? raw : rangeText(start, end)
-      return [day, { time, room: room.trim() }]
-    }))
-    saveClass({
-      ...(editing || {}), name: name.trim(), days, dayDetails, endDate,
-      // Clear legacy per-class time/room (null serializes; undefined is dropped). Only when present,
-      // so databases without these columns still save.
-      time: editing?.time ? null : undefined,
-      room: editing?.room ? null : undefined,
-    })
-    toast(editing ? 'Class updated' : 'Class added')
-    onClose()
-  }
-
-  function remove() {
-    const undo = deleteClass(editing.id)
-    onClose()
-    toast(`Removed ${editing.name}`, { action: { label: 'Undo', onClick: undo } })
-  }
-
-  return (
-    <Sheet
-      open={open}
-      onClose={onClose}
-      title={editing ? 'Edit class' : 'Add a class'}
-      footer={(
-        <>
-          {editing && <Button variant="ghost" icon="trash" onClick={remove}>Remove</Button>}
-          <Button type="submit" form="class-form" className="btn-grow">{editing ? 'Save' : 'Add class'}</Button>
-        </>
-      )}
-    >
-      <form id="class-form" className="form-stack" onSubmit={submit}>
-        <Field label="Class" error={error}>
-          {(id) => <input id={id} className="input input-lg" value={name} onChange={(event) => { setName(event.target.value); setError('') }} placeholder="e.g. Biology" autoComplete="off" data-autofocus />}
-        </Field>
-        <div className="field">
-          <span className="field-label">Days</span>
-          <div className="chip-row">
-            {DAY_ORDER.map((day) => (
-              <button key={day} type="button" className={`chip ${slots[day] ? 'is-active' : ''}`} aria-pressed={!!slots[day]} onClick={() => toggleDay(day)}>{day}</button>
-            ))}
-          </div>
-        </div>
-        {DAY_ORDER.filter((day) => slots[day]).map((day) => (
-          <fieldset key={day} className="slot">
-            <legend>{day}</legend>
-            <div className="field-row field-row-3">
-              <label className="mini-field"><span>Starts</span><input className="input" type="time" value={slots[day].start} onChange={(event) => setSlot(day, 'start', event.target.value)} /></label>
-              <label className="mini-field"><span>Ends</span><input className="input" type="time" value={slots[day].end} onChange={(event) => setSlot(day, 'end', event.target.value)} /></label>
-              <label className="mini-field"><span>Room</span><input className="input" value={slots[day].room} onChange={(event) => setSlot(day, 'room', event.target.value)} placeholder="Optional" /></label>
-            </div>
-            {slots[day].raw && slots[day].raw !== rangeText(slots[day].start, slots[day].end) && <p className="field-hint">Currently: {slots[day].raw}</p>}
-          </fieldset>
-        ))}
-        <Field label="Last day of classes" hint="Optional — classes stop showing after this date.">
-          {(id) => <input id={id} className="input" type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} />}
-        </Field>
-      </form>
-    </Sheet>
   )
 }
 

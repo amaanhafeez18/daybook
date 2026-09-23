@@ -116,8 +116,6 @@
 }
 
 .gym-rt-empty .empty-state { padding: 28px 12px; }
-.gym-rt-foot { display: flex; justify-content: center; margin-top: 20px; }
-.gym-rt-template-link { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px; }
 
 /* ---- your split ---------------------------------------------------------------------------- */
 

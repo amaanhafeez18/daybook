@@ -346,6 +346,13 @@ export function reminderPreview(task, prefs, timeZone, nowMs = Date.now()) {
 
 // ---- what is due ----------------------------------------------------------------------------
 
+// Tapping a task's reminder opens that task (TasksPage reads #/tasks/<id>); anything without an id
+// opens the list.
+function taskUrl(task) {
+  const id = task?.id == null ? '' : String(task.id)
+  return id ? `/#/tasks/${encodeURIComponent(id)}` : '/#/tasks'
+}
+
 // Every notification that should fire around `now` for one user, oldest first.
 // contactLogs: [{ friend_id, date }], or null when unavailable (falls back to "Talk to…" tasks).
 // gymSessions: gym session rows with at least { date } from the last few days, or null when
@@ -374,7 +381,7 @@ export function dueNotifications({ settings, tasks, friends, contactLogs = null,
     } else {
       body = plan.dayBefore ? 'Due tomorrow' : 'Due today'
     }
-    candidates.push({ key: plan.key, fireAt: plan.fireAt, title: taskTitle(task), body, url: '/#/tasks', tag: `task-${task.id}`, ...(plan.late ? { batch: LATE_ALLDAY_BATCH } : {}) })
+    candidates.push({ key: plan.key, fireAt: plan.fireAt, title: taskTitle(task), body, url: taskUrl(task), tag: `task-${task.id}`, ...(plan.late ? { batch: LATE_ALLDAY_BATCH } : {}) })
   }
 
   // Morning summary
