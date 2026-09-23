@@ -1,0 +1,211 @@
+/* =========================================================================================
+   Gym card on the Today page and the floating workout pill. This file ships in the main bundle
+   ahead of App.css / glass.css / apple.css, so any rule that meets one of theirs uses a heavier
+   selector instead of relying on order.
+   While the pill shows, html.has-workout-pill is set and --gymw-pill-space is the room it needs
+   above the tab bar; other floating UI can add var(--gymw-pill-space, 0px) to its bottom offset.
+   ========================================================================================= */
+
+:root {
+  --gymw-pill-space: 0px;
+  --gymw-gold: #8A5C00;
+  --gymw-deload: #0060DF;
+  --gymw-deload-soft: rgba(0, 96, 223, 0.11);
+}
+:root[data-appearance='dark'] {
+  --gymw-gold: #FFD60A;
+  --gymw-deload: #64A8FF;
+  --gymw-deload-soft: rgba(100, 168, 255, 0.16);
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-appearance='system'] {
+    --gymw-gold: #FFD60A;
+    --gymw-deload: #64A8FF;
+    --gymw-deload-soft: rgba(100, 168, 255, 0.16);
+  }
+}
+html.has-workout-pill { --gymw-pill-space: 64px; }
+
+/* ---- Today card --------------------------------------------------------------------------- */
+
+.card.gymw-card {
+  container-type: inline-size;
+  display: flex; align-items: center; gap: 11px; width: 100%; min-height: 76px;
+  padding: 14px 10px 14px 14px; text-align: left; color: var(--text);
+  transition: transform 0.35s var(--spring, ease), box-shadow 0.2s;
+}
+button.card.gymw-card:active { transform: scale(0.98); transition-duration: 0.12s; }
+button.card.gymw-card:focus-visible { outline-offset: 3px; }
+@media (hover: hover) {
+  button.card.gymw-card:hover .gymw-chevron { color: var(--text-2); transform: translateX(2px); }
+}
+
+.gymw-tile {
+  position: relative; flex-shrink: 0; display: grid; place-items: center;
+  width: 46px; height: 46px; border-radius: 14px;
+}
+.gymw-tile.is-routine {
+  background-color: var(--accent); color: var(--on-accent);
+  background-image: linear-gradient(to bottom, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 6px 14px -8px var(--accent);
+}
+.gymw-card.has-color .gymw-tile.is-routine {
+  background-color: var(--gymw-color); color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 6px 14px -8px var(--gymw-color);
+}
+.gymw-tile.is-neutral { background: var(--surface-2); color: var(--text-2); }
+.gymw-tile.is-setup { background: var(--accent-soft); color: var(--accent); }
+
+/* In progress: a slow breathing ring around the tile. */
+.gymw-tile.is-live::after {
+  content: ''; position: absolute; inset: -4px; border-radius: 18px;
+  border: 2px solid var(--gymw-color, var(--accent));
+  animation: gymw-breathe 2s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes gymw-breathe {
+  0%, 100% { opacity: 0.2; transform: scale(0.96); }
+  50% { opacity: 0.85; transform: scale(1.02); }
+}
+
+.gymw-tile-badge {
+  position: absolute; right: -5px; bottom: -5px; display: grid; place-items: center;
+  width: 20px; height: 20px; border-radius: 50%; background: var(--success); color: #fff;
+  box-shadow: 0 0 0 2.5px var(--card-bg, var(--surface));
+}
+
+.gymw-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.gymw-title {
+  display: flex; align-items: center; gap: 8px; min-width: 0;
+  font-size: 17px; font-weight: 600; line-height: 1.25; letter-spacing: -0.02em;
+}
+.gymw-title-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gymw-badge {
+  flex-shrink: 0; padding: 2px 8px; border-radius: 999px;
+  background: var(--gymw-deload-soft); color: var(--gymw-deload);
+  font-size: 12px; font-weight: 600; line-height: 1.35; letter-spacing: 0;
+}
+.gymw-sub {
+  display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 15px; line-height: 1.3; color: var(--text-2); font-variant-numeric: tabular-nums;
+}
+.gymw-accent { color: var(--accent); font-weight: 600; }
+.gymw-pr { color: var(--gymw-gold); font-weight: 600; }
+.gymw-pr .icon { display: inline-block; margin-right: 3px; vertical-align: -2px; }
+
+.gymw-goal { flex-shrink: 0; display: flex; align-items: center; gap: 8px; margin-left: 1px; }
+.gymw-goal-caption { display: none; font-size: 13px; color: var(--text-2); white-space: nowrap; }
+@container (min-width: 440px) { .gymw-goal-caption { display: inline; } }
+.gymw-goal-ring { position: relative; display: grid; place-items: center; width: 38px; height: 38px; }
+.gymw-goal-ring svg { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+.gymw-goal-track, .gymw-goal-bar { fill: none; stroke-width: 4; }
+.gymw-goal-track { stroke: var(--surface-3); }
+.gymw-goal-bar { stroke: var(--accent); stroke-linecap: round; transition: stroke-dashoffset 0.6s var(--ease, ease); }
+.gymw-goal.is-met .gymw-goal-bar { stroke: var(--success); }
+.gymw-goal-count {
+  position: relative; color: var(--text);
+  font-size: 12px; font-weight: 700; letter-spacing: -0.03em; font-variant-numeric: tabular-nums;
+}
+.gymw-goal-count.is-long { font-size: 10px; }
+
+.gymw-chevron { flex-shrink: 0; margin-left: -5px; color: var(--text-3); transition: transform 0.2s, color 0.2s; }
+
+.skeleton.gymw-skel { display: block; height: 12px; border-radius: 6px; }
+.skeleton.gymw-skel-title { width: 52%; height: 16px; margin: 2px 0 4px; }
+.skeleton.gymw-skel-sub { width: 72%; max-width: 220px; margin-top: 3px; }
+
+/* ---- floating workout pill ------------------------------------------------------------------ */
+
+.gymw-pill {
+  position: fixed; z-index: 45; left: 50%; bottom: calc(var(--nav-h) + var(--safe-bottom) + 18px);
+  display: flex; align-items: center; gap: 10px;
+  width: max-content; max-width: min(420px, calc(100% - 24px)); height: 48px;
+  padding: 0 12px 0 16px; overflow: hidden;
+  border-radius: 999px; color: var(--text); text-align: left;
+  font-size: 15px; line-height: 1.2; font-variant-numeric: tabular-nums;
+  background: var(--glass-bg-strong, var(--surface));
+  -webkit-backdrop-filter: var(--glass-blur, blur(24px) saturate(190%));
+  backdrop-filter: var(--glass-blur, blur(24px) saturate(190%));
+  border: 1px solid var(--glass-border, var(--border));
+  box-shadow: var(--glass-highlight, 0 0 0 transparent), var(--glass-shadow, var(--shadow-lg));
+  transform: translateX(-50%);
+  animation: gymw-pill-in 0.42s var(--ios-sheet, ease);
+  transition: opacity 0.2s, transform 0.35s var(--spring, ease), visibility 0s;
+}
+.gymw-pill:active { transform: translateX(-50%) scale(0.96); transition-duration: 0.1s; }
+@keyframes gymw-pill-in { from { opacity: 0; transform: translate(-50%, 16px) scale(0.94); } }
+
+/* Out of the way under sheets. */
+html.has-sheet .gymw-pill {
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transform: translate(-50%, 16px) scale(0.94);
+  transition: opacity 0.18s, transform 0.25s ease, visibility 0s linear 0.25s;
+}
+
+/* Never over a session being edited (WorkoutPill also stops rendering it then). */
+html.gym-editing .gymw-pill { display: none; }
+
+.gymw-pill-dot { position: relative; flex-shrink: 0; width: 10px; height: 10px; border-radius: 50%; background: var(--gymw-color, var(--accent)); }
+.gymw-pill-dot::after {
+  content: ''; position: absolute; inset: 0; border-radius: 50%; background: inherit;
+  animation: gymw-ping 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+@keyframes gymw-ping {
+  0% { transform: scale(1); opacity: 0.6; }
+  70%, 100% { transform: scale(2.6); opacity: 0; }
+}
+
+.gymw-pill-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; letter-spacing: -0.02em; }
+.gymw-pill-time { flex-shrink: 0; color: var(--text-2); font-weight: 500; white-space: nowrap; }
+/* Small phones: while resting, the rest countdown and the name matter more than the elapsed time. */
+@media (max-width: 359px) { .gymw-pill.is-resting .gymw-pill-time, .gymw-pill.is-rest-over .gymw-pill-time { display: none; } }
+.gymw-pill-rest {
+  flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 10px;
+  border-radius: 999px; background: var(--accent-soft); color: var(--accent);
+  font-size: 14px; font-weight: 600; white-space: nowrap;
+}
+.gymw-pill.is-rest-over .gymw-pill-rest { background: var(--success-soft); color: var(--success); animation: gymw-pop 0.4s var(--spring, ease); }
+@keyframes gymw-pop { from { transform: scale(0.85); } }
+.gymw-pill-chevron { flex-shrink: 0; margin-left: -2px; color: var(--text-3); }
+.gymw-pill-progress {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 3px;
+  background: var(--accent); transform-origin: left center; transition: transform 1s linear;
+  pointer-events: none;
+}
+
+/* ---- making room while the pill shows --------------------------------------------------------- */
+
+@media (max-width: 899px) {
+  html.has-workout-pill .page { padding-bottom: calc(var(--nav-h) + var(--safe-bottom) + 24px + var(--gymw-pill-space)); }
+  html.has-workout-pill .page.page-assistant { padding-bottom: calc(var(--nav-h) + var(--safe-bottom) + 10px + var(--gymw-pill-space)); }
+  html.has-workout-pill .composer-dock { bottom: calc(var(--nav-h) + var(--safe-bottom) + 10px + var(--gymw-pill-space)); }
+  html.has-workout-pill .chat-end { scroll-margin-bottom: calc(var(--nav-h) + var(--safe-bottom) + 90px + var(--gymw-pill-space)); }
+  html.has-workout-pill:not(.has-sheet) .toaster { bottom: calc(var(--nav-h) + var(--safe-bottom) + 20px + var(--gymw-pill-space)); }
+}
+
+/* While typing the tab bar hides (App.css) and so does the pill; the composer drops to the keyboard. */
+@media (pointer: coarse) {
+  .shell:has(input:focus, textarea:focus, select:focus) .gymw-pill { display: none; }
+}
+@media (max-width: 899px) and (pointer: coarse) {
+  html.has-workout-pill .shell:has(input:focus, textarea:focus) .composer-dock { bottom: 0; }
+  html.has-workout-pill .shell:has(input:focus, textarea:focus) .page-assistant { padding-bottom: 0; }
+}
+
+/* Desktop: no tab bar; centred in the content column to the right of the 252px sidebar. */
+@media (min-width: 900px) {
+  .gymw-pill { left: calc(50% + 126px); bottom: 24px; max-width: min(420px, calc(100% - 300px)); }
+  html.has-workout-pill .page { padding-bottom: calc(64px + var(--gymw-pill-space)); }
+  html.has-workout-pill .page.page-assistant { padding-bottom: 0; }
+  html.has-workout-pill .composer-dock { padding-bottom: calc(20px + var(--gymw-pill-space)); }
+  html.has-workout-pill .chat-end { scroll-margin-bottom: calc(96px + var(--gymw-pill-space)); }
+  html.has-workout-pill:not(.has-sheet) .toaster { bottom: calc(24px + var(--gymw-pill-space)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gymw-pill, .gymw-pill.is-rest-over .gymw-pill-rest { animation: none; }
+  .gymw-pill-dot::after { animation: none; opacity: 0; }
+  .gymw-tile.is-live::after { animation: none; opacity: 0.6; }
+  .gymw-pill-progress, .gymw-goal-bar { transition: none; }
+  button.card.gymw-card:active { transform: none; }
+}

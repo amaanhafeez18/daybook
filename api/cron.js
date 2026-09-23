@@ -6,6 +6,11 @@ import { dueNotifications, pushConfigured, sendToUser } from './_reminders.js'
 //   ?dryRun=1          report what would be sent, send nothing
 //   ?all=1&at=<ISO>    (dry run only) evaluate every user at a given moment
 
+// gym_sessions doesn't exist until supabase/migrations/2026-09-26-gym.sql has run.
+function missingTable(error) {
+  return error.code === 'PGRST205' || error.code === '42P01' || /Could not find the table/i.test(error.message || '')
+}
+
 function sendJson(res, statusCode, payload) {
   res.statusCode = statusCode
   res.setHeader('Content-Type', 'application/json')
@@ -35,20 +40,27 @@ export default async function handler(req, res) {
       userIds = [...new Set((data || []).map((row) => row.user_id))]
     }
 
+    // Gym sessions from two days before today in UTC cover every user's local today.
+    const gymFrom = new Date(now - 2 * 86400000).toISOString().slice(0, 10)
+
     const report = []
     await Promise.all(userIds.map(async (userId) => {
       // One user's bad data or a failed query must not stop everyone else's reminders.
       try {
-        const [settings, tasks, friends, classes, logs] = await Promise.all([
+        const [settings, tasks, friends, classes, logs, gym] = await Promise.all([
           supabase.from('settings').select('value').eq('user_id', userId).order('created_at', { ascending: false }).limit(1),
           supabase.from('tasks').select('*').eq('user_id', userId).eq('done', false).eq('archived', false).limit(1000),
           // '*' so databases without relationship / reminder_days still work.
           supabase.from('friends').select('*').eq('user_id', userId).limit(1000),
           supabase.from('classes').select('*').eq('user_id', userId).limit(200),
           supabase.from('contact_logs').select('friend_id, date').eq('user_id', userId).order('date', { ascending: false }).limit(1000),
+          supabase.from('gym_sessions').select('id, date, routine_id').eq('user_id', userId).gte('date', gymFrom).order('date', { ascending: false }).limit(50),
         ])
         for (const result of [settings, tasks, friends, classes]) if (result.error) throw result.error
         if (logs.error) console.error('Contact logs failed:', userId, logs.error.message)
+        // No table yet means no sessions; any other failure skips gym reminders this run (null).
+        const gymMissing = gym.error && missingTable(gym.error)
+        if (gym.error && !gymMissing) console.error('Gym sessions failed:', userId, gym.error.message)
 
         const due = dueNotifications({
           settings: settings.data?.[0]?.value || {},
@@ -56,6 +68,7 @@ export default async function handler(req, res) {
           friends: friends.data || [],
           contactLogs: logs.error ? null : (logs.data || []),
           classes: classes.data || [],
+          gymSessions: gym.error ? (gymMissing ? [] : null) : (gym.data || []),
         }, now)
 
         for (const item of due) {

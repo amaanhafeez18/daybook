@@ -49,11 +49,15 @@ export function readJson(key, fallback = null) {
   }
 }
 
+// True when the value was stored. A failed write (storage full, private mode) leaves any older
+// value under the key in place, so callers that must not keep a stale copy remove it themselves.
 export function writeJson(key, value) {
   try {
     localStorage.setItem(key, JSON.stringify(value))
+    return true
   } catch {
     // quota or private mode: caching is best-effort
+    return false
   }
 }
 

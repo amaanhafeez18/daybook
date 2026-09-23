@@ -10,6 +10,8 @@ export const DEFAULT_NOTIFICATIONS = {
   overdue: true,
   overdueTime: '18:00',
   people: true,
+  gym: false, // workout reminder on gym days (a routine planned, not rest/skipped/shifted/done)
+  gymTime: '17:00', // local time of the workout reminder
   quietHours: false,
   quietStart: '22:00',
   quietEnd: '07:00',

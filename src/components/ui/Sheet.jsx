@@ -4,8 +4,9 @@ import Icon from './Icon.jsx'
 
 const EXIT_MS = 180
 let openSheets = 0
-// Open sheets in stacking order; only the topmost one traps Tab.
+// Open sheets in stacking order; only the topmost one handles Escape and traps Tab.
 const sheetStack = []
+const handledEscapes = new WeakSet()
 
 // Bottom sheet on phones, centred dialog on wider screens. Closes on Escape or backdrop tap,
 // moves focus inside while open and returns it afterwards, and locks page scroll.
@@ -14,6 +15,10 @@ export default function Sheet({ open, onClose, title, description, children, foo
   const [closing, setClosing] = useState(false)
   const panelRef = useRef(null)
   const returnFocusRef = useRef(null)
+  // The key handler is added once per opening; the ref gives it the latest onClose (which may
+  // depend on state, e.g. "unsaved changes?").
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
   const titleId = useId()
   const descId = useId()
 
@@ -47,11 +52,15 @@ export default function Sheet({ open, onClose, title, description, children, foo
     }, 40)
 
     const onKeyDown = (event) => {
-      if (event.key === 'Escape') {
+      // Every open sheet listens on document, so only the topmost one acts. A handled Escape is
+      // remembered, so a sheet below skips it even if the top one has already left the stack.
+      if (sheetStack[sheetStack.length - 1] !== panelRef) return
+      if (event.key === 'Escape' && !handledEscapes.has(event)) {
+        handledEscapes.add(event)
         event.stopPropagation()
-        onClose?.()
+        onCloseRef.current?.()
       }
-      if (event.key === 'Tab' && sheetStack[sheetStack.length - 1] === panelRef) trapFocus(event, panelRef.current)
+      if (event.key === 'Tab') trapFocus(event, panelRef.current)
     }
     document.addEventListener('keydown', onKeyDown)
     return () => {

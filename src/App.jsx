@@ -3,6 +3,7 @@ import AuthScreen from './components/AuthScreen.jsx'
 import Icon, { BrandMark } from './components/ui/Icon.jsx'
 import { ConfirmHost, Toaster, toast } from './components/ui/feedback.jsx'
 import TodayPage from './pages/TodayPage.jsx'
+import WorkoutPill from './components/WorkoutPill.jsx'
 import { SESSION_EXPIRED_EVENT, clearSession, fetchSession, getCachedUser, getToken, readJson, readPref, tokenUserId, writePref } from './lib/api.js'
 import { getState, hydrateFromCache, refresh, resetStore, retryUnsaved, updateSettings, useStore } from './lib/store.js'
 import { ensureFriendReminders } from './lib/planner.js'
@@ -15,6 +16,7 @@ const CalendarPage = lazy(() => import('./pages/CalendarPage.jsx'))
 const PeoplePage = lazy(() => import('./pages/PeoplePage.jsx'))
 const AssistantPage = lazy(() => import('./pages/AssistantPage.jsx'))
 const JournalPage = lazy(() => import('./pages/JournalPage.jsx'))
+const GymPage = lazy(() => import('./pages/GymPage.jsx'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage.jsx'))
 
 const NAV = [
@@ -26,11 +28,14 @@ const NAV = [
 ]
 const SECONDARY = [
   { id: 'journal', label: 'Journal', icon: 'journal' },
+  { id: 'gym', label: 'Gym', icon: 'dumbbell' },
   { id: 'settings', label: 'Settings', icon: 'settings' },
 ]
 const ROUTES = [...NAV, ...SECONDARY].map((item) => item.id)
 const LEGACY_ROUTES = { summary: 'today', ai: 'assistant', friends: 'people' }
 
+// The first path segment picks the page; pages with sub-views (#/gym/workout, #/gym/session/<id>)
+// read the rest of the hash themselves.
 function routeFromHash() {
   const raw = window.location.hash.replace(/^#\/?/, '').split(/[/?]/)[0]
   const route = LEGACY_ROUTES[raw] || raw
@@ -226,10 +231,12 @@ function Shell({ user, onUserChange, onSignOut }) {
               {route === 'people' && <PeoplePage loaded={loaded} />}
               {route === 'assistant' && <AssistantPage displayName={displayName} />}
               {route === 'journal' && <JournalPage />}
+              {route === 'gym' && <GymPage />}
               {route === 'settings' && <SettingsPage user={user} onUserChange={onUserChange} onSignOut={onSignOut} />}
             </Suspense>
           </ErrorBoundary>
         </main>
+        <WorkoutPill />
       </div>
     </div>
   )

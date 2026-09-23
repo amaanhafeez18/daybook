@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import Icon from '../components/ui/Icon.jsx'
 import { Avatar, Button, Card, EmptyState, Skeleton } from '../components/ui/primitives.jsx'
 import { toast } from '../components/ui/feedback.jsx'
+import GymWidget from '../components/GymWidget.jsx'
 import TaskRow from '../components/TaskRow.jsx'
 import TaskSheet from '../components/TaskSheet.jsx'
 import { useData } from '../lib/store.js'
@@ -95,6 +96,8 @@ export default function TodayPage({ displayName, loaded }) {
 
       <div className="today-grid">
         <div className="today-main">
+          <GymWidget today={today} loaded={loaded} />
+
           <Card title="Today" icon="sun" action={<button type="button" className="link-btn" onClick={() => setEditing({})}>New task</button>}>
             {!loaded ? <Skeleton lines={3} /> : timeline.length === 0 ? (
               <EmptyState icon="sun" title="A clear day">
