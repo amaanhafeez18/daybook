@@ -39,6 +39,8 @@ export default defineConfig({
         navigateFallback: 'index.html',
         navigateFallbackDenylist: [/^\/api\//],
         cleanupOutdatedCaches: true,
+        // Push notifications (public/push-sw.js).
+        importScripts: ['push-sw.js'],
         runtimeCaching: [
           {
             urlPattern: ({ url }) => url.origin === 'https://fonts.googleapis.com' || url.origin === 'https://fonts.gstatic.com',

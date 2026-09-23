@@ -9,7 +9,7 @@ const data = () => getState().data
 // A dated task shows on the calendar through a linked event (event.taskId); calendar events
 // created directly also get a linked task. These helpers keep the pair in step.
 
-export function createTask({ text, details = '', date = '', time = '', priority = 'medium' }) {
+export function createTask({ text, details = '', date = '', time = '', priority = 'medium', reminderMinutes = null }) {
   const task = {
     id: newId(),
     text: text.trim(),
@@ -21,6 +21,7 @@ export function createTask({ text, details = '', date = '', time = '', priority 
     archived: false,
     calendarEventId: date ? newId() : null,
     createdAt: nowIso(),
+    ...(Number.isInteger(reminderMinutes) ? { reminderMinutes } : {}),
   }
   updateData('tasks', (list) => [task, ...list])
   syncTaskEvent(task)

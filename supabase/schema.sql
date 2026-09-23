@@ -146,3 +146,5 @@ create index if not exists idx_assistant_memories_user_id on public.assistant_me
 
 -- Login throttling helpers and Row Level Security: see supabase/migrations/2026-09-23-auth-hardening.sql
 -- and supabase/migrations/2026-09-23-enable-rls.sql (both are required for a secure setup).
+-- Push notifications (devices, sent-reminder log, per-task reminder, every-minute scheduler):
+-- see supabase/migrations/2026-09-24-notifications.sql.
