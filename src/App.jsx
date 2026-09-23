@@ -1,377 +1,252 @@
-import React, { useEffect, useState } from 'react'
-import TabBar from './components/TabBar.jsx'
-import TasksTab from './components/TasksTab.jsx'
-import CalendarTab from './components/CalendarTab.jsx'
-import FriendsTab from './components/FriendsTab.jsx'
-import AITab from './components/AITab.jsx'
-import JournalTab from './components/JournalTab.jsx'
-import DailySummaryTab from './components/DailySummaryTab.jsx'
-import SettingsTab from './components/SettingsTab.jsx'
-import { authRequest, clearSession, load, readCachedData, validateSession } from './lib/storage.js'
-import { applyTheme, SETTINGS_CHANGED_EVENT } from './lib/theme.js'
+import React, { Suspense, lazy, useCallback, useEffect, useState } from 'react'
+import AuthScreen from './components/AuthScreen.jsx'
+import Icon, { BrandMark } from './components/ui/Icon.jsx'
+import { ConfirmHost, Toaster, toast } from './components/ui/feedback.jsx'
+import TodayPage from './pages/TodayPage.jsx'
+import { SESSION_EXPIRED_EVENT, clearSession, fetchSession, getCachedUser, getToken, readJson, readPref, writePref } from './lib/api.js'
+import { hydrateFromCache, refresh, resetStore, retryUnsaved, useStore } from './lib/store.js'
+import { ensureFriendReminders } from './lib/planner.js'
+import { applyTheme } from './lib/theme.js'
 
-const TABS = [
-  { id: 'summary', label: 'Summary' },
-  { id: 'tasks', label: 'Tasks' },
-  { id: 'calendar', label: 'Calendar' },
-  { id: 'ai', label: 'AI' },
+// Only Today ships in the first bundle; other pages load on first visit (then stay cached).
+const TasksPage = lazy(() => import('./pages/TasksPage.jsx'))
+const CalendarPage = lazy(() => import('./pages/CalendarPage.jsx'))
+const PeoplePage = lazy(() => import('./pages/PeoplePage.jsx'))
+const AssistantPage = lazy(() => import('./pages/AssistantPage.jsx'))
+const JournalPage = lazy(() => import('./pages/JournalPage.jsx'))
+const SettingsPage = lazy(() => import('./pages/SettingsPage.jsx'))
+
+const NAV = [
+  { id: 'today', label: 'Today', icon: 'home' },
+  { id: 'tasks', label: 'Tasks', icon: 'tasks' },
+  { id: 'calendar', label: 'Calendar', icon: 'calendar' },
+  { id: 'people', label: 'People', icon: 'people' },
+  { id: 'assistant', label: 'Assistant', icon: 'sparkles' },
 ]
-
-const MORE_TABS = [
-  { id: 'friends', label: 'Friends' },
-  { id: 'journal', label: 'Journal' },
-  { id: 'settings', label: 'Settings' },
+const SECONDARY = [
+  { id: 'journal', label: 'Journal', icon: 'journal' },
+  { id: 'settings', label: 'Settings', icon: 'settings' },
 ]
+const ROUTES = [...NAV, ...SECONDARY].map((item) => item.id)
+const LEGACY_ROUTES = { summary: 'today', ai: 'assistant', friends: 'people' }
 
-const ALL_TAB_IDS = [...TABS, ...MORE_TABS].map((item) => item.id)
-const LAST_TAB_KEY = 'daybook.lastTab'
-
-function readLastTab() {
-  try {
-    const saved = localStorage.getItem(LAST_TAB_KEY)
-    return ALL_TAB_IDS.includes(saved) ? saved : 'summary'
-  } catch {
-    return 'summary'
-  }
-}
-
-const initialForm = {
-  username: '',
-  password: '',
-  recoveryAnswer: '',
-  newPassword: '',
+function routeFromHash() {
+  const raw = window.location.hash.replace(/^#\/?/, '').split(/[/?]/)[0]
+  const route = LEGACY_ROUTES[raw] || raw
+  return ROUTES.includes(route) ? route : null
 }
 
 export default function App() {
-  const [tab, setTab] = useState(readLastTab)
-  const [user, setUser] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [mode, setMode] = useState('login')
-  const [form, setForm] = useState(initialForm)
-  const [error, setError] = useState('')
-  const [question, setQuestion] = useState('')
-  const [resetUsername, setResetUsername] = useState('')
-  const [dataVersion, setDataVersion] = useState(0)
-  const [moreOpen, setMoreOpen] = useState(false)
-  const [displayName, setDisplayName] = useState('')
-  const [saveError, setSaveError] = useState('')
+  const [user, setUser] = useState(() => (getToken() ? getCachedUser() : null))
+  // Only block on the network when there's a token but no cached user to show.
+  const [checking, setChecking] = useState(() => !!getToken() && !getCachedUser())
 
-  useEffect(() => {
-    // Apply the cached theme immediately so the app doesn't flash the default look.
-    applyTheme(readCachedData('settings', {}))
-
-    async function bootstrap() {
-      const sessionUser = await validateSession()
-      setUser(sessionUser)
-      setLoading(false)
-    }
-
-    bootstrap()
+  const signOut = useCallback((message) => {
+    clearSession()
+    resetStore()
+    applyTheme({})
+    setUser(null)
+    if (message) toast(message)
   }, [])
 
   useEffect(() => {
-    if (!user) return
-    let active = true
-    load('settings', {}).then((settings) => {
-      if (!active) return
-      applyTheme(settings)
-      setDisplayName(settings.displayName || '')
-    })
+    applyTheme(readJson('daybook.data.settings', {}) || {})
+    if (!getToken()) return
+    fetchSession()
+      .then((current) => {
+        if (current) setUser(current)
+        else signOut('Your session expired. Please log in again.')
+      })
+      .catch(() => {}) // offline: keep working from the cache
+      .finally(() => setChecking(false))
+  }, [signOut])
 
-    function onSettingsChanged(event) {
-      applyTheme(event.detail)
-      setDisplayName(event.detail?.displayName || '')
-    }
-    function onSaveError(event) {
-      setSaveError(event.detail?.message || 'Your last change could not be saved.')
-    }
-    function onSaveOk() {
-      setSaveError('')
-    }
-    function onSessionExpired() {
-      signOut()
-      setError('Your session expired. Please log in again.')
-    }
+  useEffect(() => {
+    const onExpired = () => signOut('Your session expired. Please log in again.')
+    window.addEventListener(SESSION_EXPIRED_EVENT, onExpired)
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired)
+  }, [signOut])
 
-    window.addEventListener(SETTINGS_CHANGED_EVENT, onSettingsChanged)
-    window.addEventListener('daybook:save-error', onSaveError)
-    window.addEventListener('daybook:save-ok', onSaveOk)
-    window.addEventListener('daybook:session-expired', onSessionExpired)
-    return () => {
-      active = false
-      window.removeEventListener(SETTINGS_CHANGED_EVENT, onSettingsChanged)
-      window.removeEventListener('daybook:save-error', onSaveError)
-      window.removeEventListener('daybook:save-ok', onSaveOk)
-      window.removeEventListener('daybook:session-expired', onSessionExpired)
-    }
-  }, [user])
-
-  function updateForm(field, value) {
-    setForm((prev) => ({ ...prev, [field]: value }))
-    setError('')
-  }
-
-  async function submitAuth(e) {
-    e.preventDefault()
-    setError('')
-
-    try {
-      if (mode === 'signup') {
-        const response = await authRequest('signup', {
-          username: form.username,
-          password: form.password,
-          recoveryAnswer: form.recoveryAnswer,
-        })
-        setUser(response.user)
-        setMode('login')
-        setForm(initialForm)
-        return
-      }
-
-      if (mode === 'login') {
-        const response = await authRequest('login', {
-          username: form.username,
-          password: form.password,
-        })
-        setUser(response.user)
-        setForm(initialForm)
-        return
-      }
-
-      if (mode === 'forgot') {
-        const response = await authRequest('forgot', {
-          username: form.username,
-        })
-        setQuestion(response.question)
-        setResetUsername(form.username)
-        setMode('reset')
-        setForm({ ...initialForm, username: form.username })
-        return
-      }
-
-      if (mode === 'reset') {
-        const answer = (form.recoveryAnswer || '').trim().toLowerCase()
-        if (!answer || !form.newPassword) {
-          setError('Please enter the answer and a new password.')
-          return
-        }
-
-        const response = await authRequest('reset', {
-          username: resetUsername || form.username,
-          answer,
-          newPassword: form.newPassword,
-        })
-
-        setUser(response.user)
-        setForm(initialForm)
-        setQuestion('')
-        setResetUsername('')
-        setMode('login')
-      }
-    } catch (err) {
-      setError(err.message)
-    }
-  }
-
-  function signOut() {
-    clearSession()
-    applyTheme({})
-    setUser(null)
-    setDisplayName('')
-    setSaveError('')
-    setMode('login')
-    setForm(initialForm)
-    setQuestion('')
-    setResetUsername('')
-  }
-
-  function changeTab(nextTab) {
-    setTab(nextTab)
-    setMoreOpen(false)
-    try { localStorage.setItem(LAST_TAB_KEY, nextTab) } catch { /* ignore */ }
-  }
-
-  if (loading) {
-    return <div className="app auth-loading">Loading Daybook…</div>
-  }
-
-  if (!user) {
-    return (
-      <div className="auth-shell">
-        <div className="auth-card">
-          <div className="auth-brand">
-            <span className="app-mark" aria-hidden="true" />
-            <h1>Daybook</h1>
-          </div>
-
-          <h2>
-            {mode === 'login' && 'Welcome back'}
-            {mode === 'signup' && 'Create account'}
-            {mode === 'forgot' && 'Reset password'}
-            {mode === 'reset' && 'Set a new password'}
-          </h2>
-
-          <form className="auth-form" onSubmit={submitAuth}>
-            {mode !== 'reset' && (
-              <input
-                type="text"
-                placeholder="Username"
-                autoComplete="username"
-                autoCapitalize="none"
-                value={form.username}
-                onChange={(e) => updateForm('username', e.target.value)}
-              />
-            )}
-
-            {(mode === 'login' || mode === 'signup') && (
-              <input
-                type="password"
-                placeholder="Password"
-                autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
-                value={form.password}
-                onChange={(e) => updateForm('password', e.target.value)}
-              />
-            )}
-
-            {mode === 'signup' && (
-              <>
-                <div className="help-text">Security question: What is that you are worried about?</div>
-                <input
-                  type="text"
-                  placeholder="Type 'me' as your answer"
-                  value={form.recoveryAnswer}
-                  onChange={(e) => updateForm('recoveryAnswer', e.target.value)}
-                />
-              </>
-            )}
-
-            {mode === 'forgot' && (
-              <div className="help-text">Enter your username and we’ll check your reset question.</div>
-            )}
-
-            {mode === 'reset' && (
-              <>
-                <div className="help-text">{question}</div>
-                <input
-                  type="text"
-                  placeholder="Answer (type 'me')"
-                  value={form.recoveryAnswer}
-                  onChange={(e) => updateForm('recoveryAnswer', e.target.value)}
-                />
-                <input
-                  type="password"
-                  placeholder="New password"
-                  autoComplete="new-password"
-                  value={form.newPassword}
-                  onChange={(e) => updateForm('newPassword', e.target.value)}
-                />
-              </>
-            )}
-
-            {error && <div className="auth-error">{error}</div>}
-
-            <button type="submit" className="btn-accent auth-submit">
-              {mode === 'login' && 'Log in'}
-              {mode === 'signup' && 'Create account'}
-              {mode === 'forgot' && 'Continue'}
-              {mode === 'reset' && 'Save new password'}
-            </button>
-          </form>
-
-          <div className="auth-links">
-            {mode !== 'login' && (
-              <button type="button" className="link-btn" onClick={() => { setMode('login'); setError(''); setForm(initialForm); }}>
-                Back to login
-              </button>
-            )}
-            {mode === 'login' && (
-              <button type="button" className="link-btn" onClick={() => { setMode('signup'); setError(''); setForm(initialForm); }}>
-                Create account
-              </button>
-            )}
-            {mode === 'login' && (
-              <button type="button" className="link-btn" onClick={() => { setMode('forgot'); setError(''); setForm({ ...initialForm, username: form.username }); }}>
-                Forgot password?
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-    )
-  }
+  if (checking) return <Splash />
 
   return (
-    <ErrorBoundary>
-      <div className="app">
-      <header className="app-header">
-        <span className="app-mark" aria-hidden="true" />
-        <div className="app-header-user">
-          <h1>Daybook</h1>
-          <span className="user-pill">{displayName.trim() || user.username}</span>
-        </div>
-        <button className="link-btn header-signout" onClick={signOut}>Log out</button>
-      </header>
+    <>
+      {user
+        ? <Shell user={user} onUserChange={setUser} onSignOut={signOut} />
+        : <AuthScreen onAuthenticated={setUser} />}
+      <Toaster />
+      <ConfirmHost />
+    </>
+  )
+}
 
-      {saveError && (
-        <div className="save-error-banner" role="alert">
-          <span>Couldn’t save your last change: {saveError}</span>
-          <button type="button" className="row-delete" aria-label="Dismiss" onClick={() => setSaveError('')}>×</button>
-        </div>
-      )}
+function Splash() {
+  return (
+    <div className="splash" role="status" aria-label="Loading Daybook">
+      <BrandMark size={56} />
+    </div>
+  )
+}
 
-      <main className="app-main">
-        {tab === 'tasks' && <TasksTab key={`tasks-${dataVersion}`} />}
-        {tab === 'calendar' && <CalendarTab key={`calendar-${dataVersion}`} />}
-        {tab === 'friends' && <FriendsTab key={`friends-${dataVersion}`} />}
-        {tab === 'summary' && <DailySummaryTab key={`summary-${dataVersion}`} />}
-        {tab === 'settings' && <SettingsTab key={`settings-${dataVersion}`} user={user} onLogout={signOut} />}
-        {tab === 'journal' && <JournalTab key={`journal-${dataVersion}`} />}
-        {tab === 'ai' && <AITab onDataChanged={() => setDataVersion((value) => value + 1)} />}
-      </main>
+function Shell({ user, onUserChange, onSignOut }) {
+  const [route, setRoute] = useState(() => routeFromHash() || readPref('lastRoute', 'today'))
+  const settings = useStore((state) => state.data.settings)
+  const loaded = useStore((state) => state.loaded)
+  const syncing = useStore((state) => state.syncing)
+  const offline = useStore((state) => state.offline)
+  const pendingSaves = useStore((state) => state.pendingSaves)
+  const saveError = useStore((state) => state.saveError)
 
-      {moreOpen && <div className="more-menu-backdrop" onClick={() => setMoreOpen(false)} />}
-      <TabBar tabs={TABS} active={tab} onChange={changeTab}>
-        <div className="more-menu-wrap">
-          <button className={`tab-btn more-menu-toggle ${MORE_TABS.some((item) => item.id === tab) ? 'is-active' : ''}`} onClick={() => setMoreOpen((value) => !value)} aria-expanded={moreOpen} aria-haspopup="menu">
-            <span className="hamburger-icon" aria-hidden="true"><i /><i /><i /></span>
-            <span>{MORE_TABS.find((item) => item.id === tab)?.label || 'More'}</span>
-          </button>
-          {moreOpen && (
-            <div className="more-menu" role="menu">
-              {MORE_TABS.map((item) => (
-                <button key={item.id} role="menuitem" className={tab === item.id ? 'is-active' : ''} onClick={() => changeTab(item.id)}>{item.label}</button>
-              ))}
-            </div>
-          )}
+  // Data: cache first, then the server; refresh again whenever the app returns to the foreground.
+  useEffect(() => {
+    hydrateFromCache()
+    refresh().then(ensureFriendReminders).catch(() => ensureFriendReminders())
+    let last = Date.now()
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return
+      retryUnsaved()
+      if (Date.now() - last > 30000) {
+        last = Date.now()
+        refresh().then(ensureFriendReminders).catch(() => {})
+      }
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [user.id])
+
+  useEffect(() => { applyTheme(settings) }, [settings])
+
+  useEffect(() => {
+    const onHash = () => {
+      const next = routeFromHash()
+      if (next) setRoute(next)
+    }
+    window.addEventListener('hashchange', onHash)
+    if (!routeFromHash()) window.history.replaceState(null, '', `#/${route}`)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    writePref('lastRoute', route)
+    window.scrollTo({ top: 0 })
+    document.title = `${[...NAV, ...SECONDARY].find((item) => item.id === route)?.label || 'Daybook'} · Daybook`
+  }, [route])
+
+  useEffect(() => {
+    if (saveError) toast(`Couldn’t sync: ${saveError}`, { tone: 'error', action: { label: 'Retry', onClick: retryUnsaved } })
+  }, [saveError])
+
+  const displayName = settings?.displayName?.trim() || user.username
+  const syncState = offline ? 'offline' : pendingSaves > 0 || syncing ? 'syncing' : 'synced'
+
+  return (
+    <div className="shell">
+      <a className="skip-link" href="#main">Skip to content</a>
+      <nav className="nav" aria-label="Main">
+        <div className="nav-brand">
+          <BrandMark size={30} />
+          <span>Daybook</span>
         </div>
-      </TabBar>
+        <ul className="nav-list">
+          {NAV.map((item) => (
+            <li key={item.id}>
+              <a href={`#/${item.id}`} className={`nav-item ${route === item.id ? 'is-active' : ''}`} aria-current={route === item.id ? 'page' : undefined}>
+                <span className="nav-icon"><Icon name={item.icon} size={22} /></span>
+                <span className="nav-label">{item.label}</span>
+              </a>
+            </li>
+          ))}
+        </ul>
+        <ul className="nav-list nav-secondary">
+          {SECONDARY.map((item) => (
+            <li key={item.id}>
+              <a href={`#/${item.id}`} className={`nav-item ${route === item.id ? 'is-active' : ''}`} aria-current={route === item.id ? 'page' : undefined}>
+                <span className="nav-icon"><Icon name={item.icon} size={22} /></span>
+                <span className="nav-label">{item.label}</span>
+              </a>
+            </li>
+          ))}
+        </ul>
+      </nav>
+
+      <div className="shell-main">
+        <header className="topbar">
+          <div className="topbar-brand">
+            <BrandMark size={28} />
+          </div>
+          <SyncBadge state={syncState} />
+          <div className="topbar-actions">
+            {SECONDARY.map((item) => (
+              <a key={item.id} href={`#/${item.id}`} className={`icon-btn ${route === item.id ? 'is-active' : ''}`} aria-label={item.label} title={item.label} aria-current={route === item.id ? 'page' : undefined}>
+                <Icon name={item.icon} size={21} />
+              </a>
+            ))}
+          </div>
+        </header>
+
+        <main id="main" className={`page page-${route}`} tabIndex={-1}>
+          <ErrorBoundary key={route}>
+            <Suspense fallback={<PageFallback />}>
+              {route === 'today' && <TodayPage displayName={displayName} loaded={loaded} />}
+              {route === 'tasks' && <TasksPage loaded={loaded} />}
+              {route === 'calendar' && <CalendarPage />}
+              {route === 'people' && <PeoplePage loaded={loaded} />}
+              {route === 'assistant' && <AssistantPage displayName={displayName} />}
+              {route === 'journal' && <JournalPage />}
+              {route === 'settings' && <SettingsPage user={user} onUserChange={onUserChange} onSignOut={onSignOut} />}
+            </Suspense>
+          </ErrorBoundary>
+        </main>
       </div>
-    </ErrorBoundary>
+    </div>
+  )
+}
+
+function SyncBadge({ state }) {
+  if (state === 'synced') return <span className="sync-badge is-hidden" aria-hidden="true" />
+  return (
+    <span className={`sync-badge is-${state}`} role="status">
+      <Icon name={state === 'offline' ? 'cloudOff' : 'refresh'} size={14} />
+      {state === 'offline' ? 'Offline · saved on this device' : 'Syncing…'}
+    </span>
+  )
+}
+
+function PageFallback() {
+  return (
+    <div className="page-fallback" aria-hidden="true">
+      <span className="skeleton skeleton-title" />
+      <span className="skeleton" />
+      <span className="skeleton" style={{ width: '70%' }} />
+    </div>
   )
 }
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props)
-    this.state = { hasError: false }
+    this.state = { error: null }
   }
 
-  static getDerivedStateFromError() {
-    return { hasError: true }
+  static getDerivedStateFromError(error) {
+    return { error }
+  }
+
+  componentDidCatch(error) {
+    console.error('Page crashed:', error)
   }
 
   render() {
-    if (this.state.hasError) {
-      return (
-        <div className="app auth-loading">
-          <div>
-            <h2>Daybook needs a refresh</h2>
-            <p className="empty-note">Something interrupted this view. Your saved data is still safe.</p>
-            <button className="btn-accent" onClick={() => window.location.reload()}>Reload app</button>
-          </div>
-        </div>
-      )
-    }
-    return this.props.children
+    if (!this.state.error) return this.props.children
+    // A new deployment can make an old lazily-loaded page file disappear; a reload fixes it.
+    const chunkError = /Loading chunk|dynamically imported module|Importing a module script failed/i.test(String(this.state.error?.message))
+    return (
+      <div className="empty-state page-error">
+        <span className="empty-icon"><Icon name="alert" size={24} /></span>
+        <h3>{chunkError ? 'Daybook was updated' : 'Something went wrong on this page'}</h3>
+        <p>{chunkError ? 'Reload to get the latest version.' : 'Your data is safe. Reloading usually fixes this.'}</p>
+        <button type="button" className="btn btn-primary" onClick={() => window.location.reload()}>Reload</button>
+      </div>
+    )
   }
 }

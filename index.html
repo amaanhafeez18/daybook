@@ -1,23 +1,38 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-appearance="system" data-accent="sunset">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Daybook</title>
+    <meta name="description" content="Tasks, calendar, people, journal and an AI assistant in one place." />
+    <meta name="color-scheme" content="light dark" />
 
-    <!-- iOS PWA support -->
+    <!-- Apply the saved theme before first paint (no light flash in dark mode). -->
+    <script>
+      try {
+        var s = JSON.parse(localStorage.getItem('daybook.data.settings') || '{}') || {}
+        var a = ['system', 'light', 'dark'].indexOf(s.appearance) >= 0 ? s.appearance : (s.darkMode ? 'dark' : 'system')
+        document.documentElement.dataset.appearance = a
+        if (['sunset', 'forest', 'midnight'].indexOf(s.theme) >= 0) document.documentElement.dataset.accent = s.theme
+      } catch (e) {}
+    </script>
+
+    <!-- PWA / iOS -->
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Daybook" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <meta name="theme-color" content="#22303C" />
+    <meta name="theme-color" content="#F6F4EF" />
 
+    <!-- Inter, loaded without blocking the first render (system font until it arrives). -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&display=swap" media="print" onload="this.media='all'" />
   </head>
   <body>
     <div id="root"></div>
+    <noscript>Daybook needs JavaScript to run.</noscript>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

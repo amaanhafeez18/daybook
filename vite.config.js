@@ -11,9 +11,9 @@ export default defineConfig({
       manifest: {
         name: 'Daybook',
         short_name: 'Daybook',
-        description: 'Tasks, calendar, friends, and voice notes in one place.',
-        theme_color: '#22303C',
-        background_color: '#F4EFE6',
+        description: 'Tasks, calendar, people, journal and an AI assistant in one place.',
+        theme_color: '#F6F4EF',
+        background_color: '#F6F4EF',
         display: 'standalone',
         orientation: 'portrait',
         start_url: '/',
