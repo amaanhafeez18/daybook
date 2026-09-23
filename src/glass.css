@@ -1,0 +1,265 @@
+/* =========================================================================================
+   Liquid Glass layer (iOS 26–inspired), loaded after App.css.
+   Translucent, blurred "glass" for navigation and controls, a floating capsule tab bar,
+   capsule buttons, larger radii, large titles, and a soft colour field behind everything
+   so the glass has something to refract. Content cards stay mostly opaque for legibility.
+   ========================================================================================= */
+
+:root {
+  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', system-ui, 'Segoe UI', Roboto, sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', system-ui, sans-serif;
+
+  --bg: #F2F2F7;
+  --surface-2: rgba(118, 118, 128, 0.1);
+  --surface-3: rgba(118, 118, 128, 0.18);
+  --border: rgba(60, 60, 67, 0.12);
+  --border-strong: rgba(60, 60, 67, 0.22);
+
+  --glass-bg: rgba(255, 255, 255, 0.56);
+  --glass-bg-strong: rgba(255, 255, 255, 0.8);
+  --glass-border: rgba(255, 255, 255, 0.7);
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.9), inset 0 -1px 1px rgba(255, 255, 255, 0.35);
+  --glass-shadow: 0 10px 34px rgba(30, 36, 56, 0.14), 0 1px 3px rgba(30, 36, 56, 0.08);
+  --glass-blur: blur(24px) saturate(190%);
+  --card-bg: rgba(255, 255, 255, 0.74);
+  --lens: rgba(255, 255, 255, 0.75);
+  --mesh-1: rgba(255, 176, 120, 0.35);
+  --mesh-2: rgba(160, 170, 255, 0.35);
+  --mesh-3: rgba(120, 214, 190, 0.28);
+
+  --r-md: 16px;
+  --r-lg: 24px;
+  --r-xl: 32px;
+  --nav-h: 66px;
+}
+
+:root[data-accent='forest'] { --mesh-1: rgba(120, 214, 160, 0.35); --mesh-3: rgba(255, 214, 140, 0.25); }
+:root[data-accent='midnight'] { --mesh-1: rgba(140, 150, 255, 0.4); --mesh-2: rgba(210, 150, 255, 0.3); }
+
+:root[data-appearance='dark'] {
+  --bg: #07080C;
+  --surface: #16181F;
+  --surface-2: rgba(120, 120, 128, 0.2);
+  --surface-3: rgba(120, 120, 128, 0.3);
+  --border: rgba(255, 255, 255, 0.09);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --glass-bg: rgba(40, 43, 54, 0.5);
+  --glass-bg-strong: rgba(34, 37, 47, 0.8);
+  --glass-border: rgba(255, 255, 255, 0.14);
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.16), inset 0 -1px 1px rgba(255, 255, 255, 0.04);
+  --glass-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);
+  --card-bg: rgba(26, 28, 36, 0.74);
+  --lens: rgba(255, 255, 255, 0.14);
+  --mesh-1: rgba(255, 140, 80, 0.16);
+  --mesh-2: rgba(110, 120, 255, 0.2);
+  --mesh-3: rgba(60, 200, 170, 0.12);
+}
+:root[data-appearance='dark'][data-accent='midnight'] { --mesh-1: rgba(110, 120, 255, 0.22); --mesh-2: rgba(190, 110, 255, 0.16); }
+:root[data-appearance='dark'][data-accent='forest'] { --mesh-1: rgba(70, 200, 140, 0.16); }
+
+@media (prefers-color-scheme: dark) {
+  :root[data-appearance='system'] {
+    --bg: #07080C;
+    --surface: #16181F;
+    --surface-2: rgba(120, 120, 128, 0.2);
+    --surface-3: rgba(120, 120, 128, 0.3);
+    --border: rgba(255, 255, 255, 0.09);
+    --border-strong: rgba(255, 255, 255, 0.16);
+    --glass-bg: rgba(40, 43, 54, 0.5);
+    --glass-bg-strong: rgba(34, 37, 47, 0.8);
+    --glass-border: rgba(255, 255, 255, 0.14);
+    --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.16), inset 0 -1px 1px rgba(255, 255, 255, 0.04);
+    --glass-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);
+    --card-bg: rgba(26, 28, 36, 0.74);
+    --lens: rgba(255, 255, 255, 0.14);
+    --mesh-1: rgba(255, 140, 80, 0.16);
+    --mesh-2: rgba(110, 120, 255, 0.2);
+    --mesh-3: rgba(60, 200, 170, 0.12);
+  }
+  :root[data-appearance='system'][data-accent='midnight'] { --mesh-1: rgba(110, 120, 255, 0.22); --mesh-2: rgba(190, 110, 255, 0.16); }
+  :root[data-appearance='system'][data-accent='forest'] { --mesh-1: rgba(70, 200, 140, 0.16); }
+}
+
+/* Colour field behind the glass (a fixed layer: iOS ignores background-attachment: fixed). */
+body { background: var(--bg); letter-spacing: -0.01em; }
+body::before {
+  content: '';
+  position: fixed;
+  inset: -10%;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(45% 35% at 12% 8%, var(--mesh-1), transparent 70%),
+    radial-gradient(40% 35% at 92% 22%, var(--mesh-2), transparent 70%),
+    radial-gradient(55% 40% at 50% 105%, var(--mesh-3), transparent 70%);
+  filter: blur(20px);
+}
+#root { isolation: isolate; }
+
+h1 { font-family: var(--font-display); font-size: 34px; font-weight: 700; letter-spacing: -0.025em; }
+
+/* ---- the glass material ---------------------------------------------------------------- */
+.nav, .topbar-actions .icon-btn, .topbar-brand, .assistant-tools .icon-btn, .month-nav .icon-btn,
+.sheet, .toast, .composer, .segmented, .quick-add, .search-field, .stat, .chip,
+.btn-secondary, .sync-badge, .auth-card, .icon-btn-soft {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-highlight), var(--glass-shadow);
+}
+
+/* ---- floating capsule tab bar ----------------------------------------------------------- */
+.nav {
+  left: 50%;
+  right: auto;
+  bottom: calc(var(--safe-bottom) + 10px);
+  transform: translateX(-50%);
+  width: min(460px, calc(100% - 24px));
+  height: var(--nav-h);
+  padding: 6px;
+  border-radius: 999px;
+}
+.nav-item { font-size: 10.5px; gap: 2px; border-radius: 999px; transition: color 0.2s; }
+.nav-icon { width: 100%; max-width: 64px; height: 32px; }
+.nav-item.is-active { color: var(--accent); }
+.nav-item.is-active .nav-icon { background: var(--lens); box-shadow: var(--glass-highlight), 0 2px 10px rgba(0, 0, 0, 0.08); }
+.page { padding-bottom: calc(var(--nav-h) + var(--safe-bottom) + 110px); }
+.fab {
+  bottom: calc(var(--nav-h) + var(--safe-bottom) + 24px);
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 12px 30px rgba(0, 0, 0, 0.22);
+}
+.toaster { bottom: calc(var(--nav-h) + var(--safe-bottom) + 20px); }
+.composer-dock { bottom: calc(var(--nav-h) + var(--safe-bottom) + 10px); background: none; }
+
+/* ---- top bar: floating glass buttons over a soft scroll-edge fade ------------------------ */
+.topbar {
+  background: linear-gradient(to bottom, var(--bg) 25%, transparent);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border-bottom: 0;
+}
+.topbar-brand { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; }
+.topbar-actions { gap: 8px; }
+.topbar-actions .icon-btn, .assistant-tools .icon-btn, .month-nav .icon-btn { border-radius: 50%; color: var(--text); }
+.topbar-actions .icon-btn.is-active, .assistant-tools .icon-btn.is-active { color: var(--accent); background: var(--glass-bg); }
+.topbar-actions .icon-btn:hover, .assistant-tools .icon-btn:hover, .month-nav .icon-btn:hover { background: var(--glass-bg-strong); color: var(--text); }
+
+/* ---- cards: grouped, rounder, lightly translucent ---------------------------------------- */
+.card, .card-list, .agenda-item, .entry-card, .suggestion, .note-card {
+  background: var(--card-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--glass-highlight), 0 4px 18px rgba(30, 36, 56, 0.06);
+}
+.agenda-item, .entry-card, .suggestion { border-radius: 20px; }
+
+/* ---- capsule controls --------------------------------------------------------------------- */
+.btn { border-radius: 999px; min-height: 46px; }
+.btn-sm { border-radius: 999px; min-height: 36px; }
+.btn-primary {
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background-image: linear-gradient(to bottom, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 6px 18px rgba(0, 0, 0, 0.14);
+}
+.btn-secondary { color: var(--text); }
+.btn-secondary:hover:not(:disabled) { background: var(--glass-bg-strong); }
+.btn-ghost:hover:not(:disabled) { background: var(--surface-2); }
+.segmented { border-radius: 999px; padding: 3px; }
+.segmented button { border-radius: 999px; }
+.segmented button.is-active { background: var(--lens); color: var(--text); box-shadow: var(--glass-highlight), 0 2px 8px rgba(0, 0, 0, 0.1); }
+.chip { border-radius: 999px; color: var(--text); }
+.chip.is-active { background: var(--accent); border-color: transparent; color: var(--on-accent); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3); }
+.quick-add, .search-field { border-radius: 999px; }
+.quick-add:focus-within, .search-field:focus-within { border-color: var(--glass-border); box-shadow: var(--glass-highlight), 0 0 0 3px var(--accent-soft), var(--glass-shadow); }
+.stat, .sync-badge { border-radius: 999px; }
+.icon-btn { border-radius: 50%; }
+
+/* ---- inputs: iOS filled style ------------------------------------------------------------- */
+.input { background: var(--surface-2); border: 1px solid transparent; border-radius: 14px; }
+.input:focus { background: var(--card-bg); border-color: var(--accent); }
+.switch { width: 51px; height: 31px; background: var(--surface-3); }
+.switch::after { width: 27px; height: 27px; top: 2px; left: 2px; box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15), 0 1px 1px rgba(0, 0, 0, 0.1); }
+.switch:checked { background: #34C759; }
+.switch:checked::after { transform: translateX(20px); }
+.check { border-width: 1.5px; }
+
+/* ---- sheets float above the screen edges, like iOS 26 --------------------------------------- */
+.sheet {
+  background: var(--glass-bg-strong);
+  -webkit-backdrop-filter: blur(40px) saturate(190%);
+  backdrop-filter: blur(40px) saturate(190%);
+  width: calc(100% - 12px);
+  margin-bottom: calc(6px + var(--safe-bottom));
+  border-radius: 34px;
+}
+.sheet-footer { border-top: 0; padding-bottom: 16px; }
+.sheet-backdrop { background: rgba(0, 0, 0, 0.25); }
+.toast { background: var(--glass-bg-strong); color: var(--text); border-radius: 999px; padding-left: 18px; }
+.toast-action { color: var(--accent) !important; }
+.toast-action:hover { background: var(--surface-2); }
+.toast-close { color: var(--text-2); }
+
+/* ---- assistant ---------------------------------------------------------------------------- */
+.composer { border-radius: 30px; }
+.msg-bubble { border-radius: 22px 22px 8px 22px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25); }
+.assistant-avatar, .assistant-avatar-lg { border-radius: 50%; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35); }
+.send-btn { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3); }
+
+/* ---- calendar & settings ------------------------------------------------------------------ */
+.day-cell { border-radius: 50%; }
+.day-cell.is-selected { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 4px 12px rgba(0, 0, 0, 0.16); }
+.settings-row-icon { border-radius: 9px; background: var(--accent); color: var(--on-accent); }
+.settings-row.is-danger .settings-row-icon { background: var(--danger); color: #fff; }
+
+/* ---- auth --------------------------------------------------------------------------------- */
+.auth { background: transparent; }
+.auth-main { background: none; }
+.auth-card { background: var(--glass-bg-strong); border-radius: 34px; }
+
+/* ---- desktop: the sidebar is a floating glass panel ------------------------------------------ */
+@media (min-width: 900px) {
+  .shell { grid-template-columns: 252px 1fr; }
+  .nav {
+    position: sticky;
+    top: 12px;
+    left: auto;
+    bottom: auto;
+    transform: none;
+    width: auto;
+    height: calc(100dvh - 24px);
+    margin: 12px 0 12px 12px;
+    padding: 20px 12px;
+    border-radius: 28px;
+  }
+  .nav-item { font-size: 15px; border-radius: 14px; }
+  .nav-item.is-active { background: var(--lens); box-shadow: var(--glass-highlight), 0 2px 10px rgba(0, 0, 0, 0.06); }
+  .page { padding-bottom: 64px; }
+  .fab { bottom: 28px; }
+  .toaster { bottom: 24px; }
+  .composer-dock { bottom: 0; }
+  .topbar { background: none; }
+}
+
+/* ---- fallbacks: no blur support, or reduced transparency requested ---------------------------- */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root { --glass-bg: rgba(255, 255, 255, 0.95); --glass-bg-strong: #FFFFFF; }
+  :root[data-appearance='dark'] { --glass-bg: rgba(34, 37, 46, 0.97); --glass-bg-strong: #22252E; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  :root { --glass-bg: rgba(255, 255, 255, 0.96); --glass-bg-strong: #FFFFFF; --card-bg: #FFFFFF; }
+  :root[data-appearance='dark'] { --glass-bg: rgba(34, 37, 46, 0.97); --glass-bg-strong: #22252E; --card-bg: #1A1C24; }
+  body::before { display: none; }
+}
+
+/* ---- keep the glass after taps on touch screens (App.css resets sticky hover) ---------------- */
+@media (hover: none) {
+  .topbar-actions .icon-btn:hover, .assistant-tools .icon-btn:hover, .month-nav .icon-btn:hover { background: var(--glass-bg); color: var(--text); }
+  .topbar-actions .icon-btn.is-active:hover { color: var(--accent); }
+  .icon-btn-soft:hover { background: var(--glass-bg); color: var(--accent); }
+  .btn-secondary:hover:not(:disabled) { background: var(--glass-bg); }
+  .chip:hover { border-color: var(--glass-border); color: var(--text); }
+  .chip.is-active:hover { border-color: transparent; color: var(--on-accent); }
+}
