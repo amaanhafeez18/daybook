@@ -4,6 +4,7 @@ import { registerSW } from 'virtual:pwa-register'
 import App from './App.jsx'
 import { toast } from './components/ui/feedback.jsx'
 import './App.css'
+import './glass.css'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
