@@ -1,5 +1,6 @@
 import { getState, newId, updateData } from './store.js'
 import { readPref, writePref } from './api.js'
+import { dropAttachmentsFor } from './attachments.js'
 import { WEEKDAY_SHORT, compareTimes, diffDays, isISODate, nextBirthday, timeRangeMinutes, todayISO, weekdayIndex } from './dates.js'
 
 const nowIso = () => new Date().toISOString()
@@ -87,9 +88,11 @@ export function setTaskDone(id, done) {
 export const archiveTask = (id) => updateTask(id, { archived: true })
 export const restoreTask = (id) => updateTask(id, { archived: false })
 
+// The server removes the files pinned to the task; they leave the local list here.
 export function deleteTaskForever(id) {
   updateData('tasks', (list) => list.filter((task) => task.id !== id))
   updateData('events', (list) => list.filter((event) => event.taskId !== id))
+  dropAttachmentsFor('task', id)
 }
 
 // onlyIds limits it to the tasks shown (e.g. search results).
@@ -262,13 +265,16 @@ export function updateFriend(id, patch) {
   updateData('friends', (list) => list.map((friend) => (friend.id === id ? { ...friend, ...next } : friend)))
 }
 
-// Removes a person, their history and their open "Talk to …" reminders. Returns an undo function.
+// Removes a person, their history and their open "Talk to …" reminders. Returns an undo function
+// (which brings back the person and their history, not their photos and files: the server deletes
+// those with the person, so pages ask first when there are any).
 export function removeFriend(id) {
   const friend = data().friends.find((item) => item.id === id)
   const logs = data().contactLogs.filter((log) => (log.friendId || log.friend_id) === id)
   const reminders = data().tasks.filter((task) => !task.done && !task.archived && typeof task.details === 'string' && task.details.startsWith(`friend-reminder:${id}:`))
   updateData('friends', (list) => list.filter((item) => item.id !== id))
   if (logs.length) updateData('contactLogs', (list) => list.filter((log) => (log.friendId || log.friend_id) !== id))
+  dropAttachmentsFor('friend', id)
   reminders.forEach((task) => archiveTask(task.id))
   return () => {
     if (friend) updateData('friends', (list) => [...list, friend])
@@ -415,8 +421,11 @@ export function addNote(text) {
   return note
 }
 
+// Returns an undo function. Undo brings back the note, not its photos and files (the server deletes
+// those with the note), so the Notes list asks first when there are any.
 export function deleteNote(id) {
   const note = data().voiceNotes.find((item) => item.id === id)
   updateData('voiceNotes', (list) => list.filter((item) => item.id !== id))
+  dropAttachmentsFor('note', id)
   return () => note && updateData('voiceNotes', (list) => [note, ...list])
 }

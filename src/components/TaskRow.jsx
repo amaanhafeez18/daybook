@@ -3,6 +3,7 @@ import Icon from './ui/Icon.jsx'
 import { Checkbox } from './ui/primitives.jsx'
 import { toast } from './ui/feedback.jsx'
 import { archiveTask, isReminderMarker, restoreTask, setTaskDone, updateTask } from '../lib/planner.js'
+import { useAttachmentCount } from '../lib/attachments.js'
 import { addDaysISO, formatTime, relativeDay, todayISO } from '../lib/dates.js'
 import './today.css'
 import './tasks.css'
@@ -23,6 +24,7 @@ export default function TaskRow({ task, onOpen, showDate = true, trailing = null
   const tomorrow = addDaysISO(today, 1)
   const overdue = !task.done && task.date && task.date < today
   const details = isReminderMarker(task.details) ? '' : task.details
+  const files = useAttachmentCount('task', task.id) // photos and PDFs pinned to the task
   const canTomorrow = !task.done && task.date !== tomorrow
   const openX = (canTomorrow ? 2 : 1) * ACTION_W + (canTomorrow ? ACTION_GAP : 0) + 2 * EDGE
 
@@ -232,7 +234,7 @@ export default function TaskRow({ task, onOpen, showDate = true, trailing = null
       <button type="button" className="task-body" onClick={() => onOpen?.(task)}>
         <span className="task-title">{task.text}</span>
         {details && <span className="task-notes">{details}</span>}
-        {(showDate && task.date) || task.time || task.priority === 'urgent' ? (
+        {(showDate && task.date) || task.time || task.priority === 'urgent' || files > 0 ? (
           <span className="task-meta">
             {showDate && task.date && (
               <span className={`meta-chip ${overdue ? 'is-danger' : task.date === today ? 'is-accent' : ''}`}>
@@ -250,6 +252,12 @@ export default function TaskRow({ task, onOpen, showDate = true, trailing = null
               <span className="meta-chip is-danger">
                 <Icon name="flag" size={13} />
                 Urgent
+              </span>
+            )}
+            {files > 0 && (
+              <span className="meta-chip tr-files" aria-label={`${files} attached ${files === 1 ? 'file' : 'files'}`} title={`${files} attached ${files === 1 ? 'file' : 'files'}`}>
+                <Icon name="paperclip" size={13} />
+                {files > 1 ? files : ''}
               </span>
             )}
           </span>

@@ -121,9 +121,13 @@
    height (the extra height sits in negative margins). */
 .tk-body .group-title-row .link-btn { display: inline-flex; align-items: center; min-height: 44px; margin: -8px 0 -6px; padding: 0 2px; }
 
-/* ---- task sheet: "Archive" at the end of More options ------------------------------------------- */
+/* A paperclip chip on rows with photos or files (the count shows from two up). */
+.task-meta .meta-chip.tr-files { gap: 2px; padding-left: 6px; padding-right: 7px; }
+
+/* ---- task sheet: "Photos & files" and "Archive" at the end of More options ---------------------- */
 
 .btn.ts-archive { align-self: flex-start; }
+.ts-files { gap: 4px; }
 /* The Due chips (36 px) keep their size; their touch targets are 44 px. */
 #task-form .chip { position: relative; }
 #task-form .chip::after { content: ''; position: absolute; inset: -4px 0; }
