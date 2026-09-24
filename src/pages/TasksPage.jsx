@@ -7,7 +7,8 @@ import TaskRow from '../components/TaskRow.jsx'
 import TaskSheet from '../components/TaskSheet.jsx'
 import { useData } from '../lib/store.js'
 import { archiveCompletedTasks, archiveTask, compareTasks, createTask, deleteTaskForever, restoreTask, unarchiveTasks, updateTask } from '../lib/planner.js'
-import { addDaysISO, dueSentence, formatDateShort, formatDue, parseQuickAdd, todayISO } from '../lib/dates.js'
+import { addDaysISO, dueSentence, formatDateShort, formatDue, parseQuickAdd, toISO } from '../lib/dates.js'
+import { useNow } from '../lib/environment.js'
 import '../components/tasks.css'
 
 const VIEWS = [
@@ -37,7 +38,9 @@ export default function TasksPage({ loaded }) {
   const [linkedId, setLinkedId] = useState(linkedTaskId)
   const [allArchived, setAllArchived] = useState(false)
   const [dockKey, setDockKey] = useState(0) // bumping it empties the quick-add
-  const today = todayISO()
+  // Re-rendered every minute, so the groups (Overdue / Today / Tomorrow) move on at midnight
+  // even when nothing else changes, e.g. the app left open overnight.
+  const today = toISO(useNow(60000))
   const tomorrow = addDaysISO(today, 1)
   const weekEnd = addDaysISO(today, 7)
 

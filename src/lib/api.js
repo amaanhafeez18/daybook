@@ -7,6 +7,18 @@ const USER_CACHE_PREFIXES = ['daybook.data.', 'daybook.synced.', 'daybook.chat',
 const FEATURE_PREFIXES = ['daybook.gym.', 'daybook.food.']
 
 export const SESSION_EXPIRED_EVENT = 'daybook:session-expired'
+// A request that never answers (a connection dropped while the app was in the background) would
+// otherwise leave the store's refresh and per-list saves waiting forever; callers that need longer
+// pass their own signal.
+const REQUEST_TIMEOUT_MS = 60000
+
+function defaultSignal() {
+  try {
+    return typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(REQUEST_TIMEOUT_MS) : undefined
+  } catch {
+    return undefined
+  }
+}
 
 export function getToken() {
   try {
@@ -80,7 +92,7 @@ export async function apiRequest(url, { method = 'GET', body, headers, signal } 
   try {
     response = await fetch(url, {
       method,
-      signal,
+      signal: signal ?? defaultSignal(),
       headers: {
         ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -90,6 +102,9 @@ export async function apiRequest(url, { method = 'GET', body, headers, signal } 
     })
   } catch (error) {
     if (error.name === 'AbortError') throw error
+    // A timeout (ours or the caller's) is a slow server, not a missing connection: the store retries
+    // it as a save error instead of switching to "offline".
+    if (error.name === 'TimeoutError') throw new ApiError('The server took too long to answer. Please try again.', 408)
     throw new ApiError('You’re offline. Check your connection and try again.', 0)
   }
 

@@ -370,11 +370,18 @@ function Editor({ param, today }) {
     const index = draft.exercises.findIndex((row) => row.id === rowId)
     const removed = draft.exercises[index]
     if (!removed) return
+    // A superset partner left on its own is unlinked by the removal; remembered so Undo relinks it.
+    const links = new Map(draft.exercises.map((row) => [row.id, row.supersetId ?? null]))
     setRows((rows) => normalizeSupersets(rows.filter((row) => row.id !== rowId)))
     toast(`Removed ${exerciseName(removed)}`, {
       action: {
         label: 'Undo',
-        onClick: () => setRows((rows) => (rows.some((row) => row.id === rowId) ? rows : normalizeSupersets([...rows.slice(0, index), removed, ...rows.slice(index)]))),
+        onClick: () => setRows((rows) => {
+          if (rows.some((row) => row.id === rowId)) return rows
+          const next = [...rows.slice(0, index), removed, ...rows.slice(index)]
+          const relinked = next.map((row) => (row.supersetId == null && links.get(row.id) != null ? { ...row, supersetId: links.get(row.id) } : row))
+          return normalizeSupersets(relinked)
+        }),
       },
     })
   }

@@ -61,7 +61,8 @@ export default function Sheet({ open, onClose, title, description, children, foo
     const focusTimer = setTimeout(() => {
       const panel = panelRef.current
       if (!panel) return
-      const target = initialFocus ? panel.querySelector('[data-autofocus], input:not([type=hidden]), textarea, select') : null
+      // A field marked data-autofocus wins over whichever input comes first in the DOM.
+      const target = initialFocus ? panel.querySelector('[data-autofocus]') || panel.querySelector('input:not([type=hidden]), textarea, select') : null
       ;(target || panel).focus({ preventScroll: true })
     }, 40)
 

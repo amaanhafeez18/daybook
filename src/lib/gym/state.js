@@ -682,7 +682,16 @@ export function saveCustomExercise(exercise) {
       custom: true,
       createdAt: previous?.createdAt || exercise.createdAt || nowIso(),
     }
-    return { exercises: index >= 0 ? replaceAt(gym.exercises, index, saved) : [...gym.exercises, saved] }
+    const patch = { exercises: index >= 0 ? replaceAt(gym.exercises, index, saved) : [...gym.exercises, saved] }
+    // A rename reaches the routines too: their rows carry the name they show (routines list,
+    // editor, day previews), while workouts read the live entry, so both must say the same thing.
+    if (previous && typeof saved.name === 'string' && saved.name !== previous.name) {
+      const routines = gym.routines.map((routine) => (routine.exercises.some((row) => row.exerciseId === saved.id)
+        ? { ...routine, exercises: routine.exercises.map((row) => (row.exerciseId === saved.id ? { ...row, name: saved.name } : row)) }
+        : routine))
+      if (routines.some((routine, i) => routine !== gym.routines[i])) patch.routines = routines
+    }
+    return patch
   })
   return saved
 }

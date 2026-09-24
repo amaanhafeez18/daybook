@@ -8,7 +8,8 @@ import TaskSheet from '../components/TaskSheet.jsx'
 import { readPref, writePref } from '../lib/api.js'
 import { useData } from '../lib/store.js'
 import { classSchedule, deleteEvent, setTaskDone, updateEvent } from '../lib/planner.js'
-import { WEEKDAY_SHORT, addDaysISO, compareTimes, formatDateLong, formatMonthYear, formatTime, isISODate, todayISO, weekdayIndex } from '../lib/dates.js'
+import { WEEKDAY_SHORT, addDaysISO, compareTimes, formatDateLong, formatMonthYear, formatTime, isISODate, toISO, weekdayIndex } from '../lib/dates.js'
+import { useNow } from '../lib/environment.js'
 import '../components/calendar.css'
 
 const WEEKDAY_INITIALS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
@@ -92,7 +93,8 @@ export default function CalendarPage() {
   const tasks = useData('tasks')
   const classes = useData('classes')
   const friends = useData('friends')
-  const today = todayISO()
+  // Ticks every minute, so the "today" ring and the Today/Tomorrow titles move on at midnight.
+  const today = toISO(useNow(60000))
   const stacked = useMediaQuery(STACKED_QUERY)
   const [weekPref, setWeekPref] = useState(() => readPref(VIEW_PREF, 'month') === 'week')
   const view = stacked && weekPref ? 'week' : 'month'
@@ -339,7 +341,8 @@ export default function CalendarPage() {
             <ul className="agenda-list">
               {dayItems.map((item) => (
                 <li key={item.key} className={`agenda-item agenda-${item.kind} ${item.task?.done ? 'is-done' : ''}`}>
-                  <span className="agenda-time">{item.time ? (item.kind === 'class' ? item.time.split('-')[0].trim() : formatTime(item.time)) : 'All day'}</span>
+                  {/* A class shows the start of its range ("2:30 PM - 4:30 PM", "14:30–15:50", "11 am to 1 pm"). */}
+                  <span className="agenda-time">{item.time ? (item.kind === 'class' ? item.time.split(/\s*(?:[-–—]|\bto\b)\s*/i)[0].trim() : formatTime(item.time)) : 'All day'}</span>
                   <span className="agenda-bar" aria-hidden="true" />
                   {item.kind === 'event' ? (
                     <>

@@ -1231,6 +1231,31 @@ for (const spec of CASES) {
   })
 }
 
+describe('update_task combined changes', () => {
+  // The done change and "reminderMinutes: null" were chained with else-if, so "reopen it and go back to
+  // the default reminder" (what the proposal card promises) left the old override in place.
+  test('a done change and a reminder reset in one call both apply', async () => {
+    const { supabase, data } = fixture()
+    row(supabase, 'tasks', 't3').reminder_minutes = 30
+    data.tasks.find((task) => task.id === 't3').reminder_minutes = 30
+    const result = await run(supabase, data, 'update_task', { taskId: 't3', done: false, reminderMinutes: null })
+    assert.equal(result.ok, true, result.message)
+    assert.equal(row(supabase, 'tasks', 't3').done, false)
+    assert.equal(row(supabase, 'tasks', 't3').completed_at, null)
+    assert.equal(row(supabase, 'tasks', 't3').reminder_minutes, null, 'the reminder override is cleared too')
+    assert.equal(data.tasks.find((task) => task.id === 't3').reminder_minutes, null)
+  })
+
+  test('a reminder reset on its own still works', async () => {
+    const { supabase, data } = fixture()
+    row(supabase, 'tasks', 't1').reminder_minutes = 30
+    data.tasks.find((task) => task.id === 't1').reminder_minutes = 30
+    const result = await run(supabase, data, 'update_task', { taskId: 't1', reminderMinutes: null })
+    assert.equal(result.ok, true, result.message)
+    assert.equal(row(supabase, 'tasks', 't1').reminder_minutes, null)
+  })
+})
+
 describe('staging (dry run) every write tool', () => {
   for (const spec of CASES) {
     if (spec.lookup) continue

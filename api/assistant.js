@@ -3688,7 +3688,8 @@ async function executeTool(supabase, userId, name, rawArgs, data, ctx, { refs = 
     }
     if (Number.isInteger(args.reminderMinutes)) patch.reminder_minutes = args.reminderMinutes
     if (patch.done !== undefined && !!patch.done !== !!task.done) patch.completed_at = patch.done ? nowIso() : null
-    else if (args.reminderMinutes === null && Number.isInteger(task.reminder_minutes)) patch.reminder_minutes = null
+    // Independent of the done change above: "reopen it and use the default reminder" resets both.
+    if (args.reminderMinutes === null && Number.isInteger(task.reminder_minutes)) patch.reminder_minutes = null
     // Like the app: a task without a date has no time.
     const nextDate = args.date !== undefined ? args.date : task.date
     if (!nextDate) {
@@ -3808,11 +3809,16 @@ async function executeTool(supabase, userId, name, rawArgs, data, ctx, { refs = 
     if (!event.title) return { ok: false, message: 'An event needs a title.' }
     if (!isIsoDate(event.date)) return { ok: false, message: 'An event needs a date (YYYY-MM-DD).' }
     if (event.time && !isTime(event.time)) return { ok: false, message: 'Times must be 24-hour HH:MM.' }
-    const { error } = await supabase.from('events').insert(event)
-    if (error) throw error
+    // The task goes in first: an event without its task would break the task↔event pairing, while a
+    // task without its event is just a dated task.
     const taskRow = { id: event.task_id, user_id: userId, text: event.title, date: event.date, time: event.time, details: typeof args.details === 'string' ? args.details.trim().slice(0, 2000) : '', priority: 'medium', done: false, archived: false, calendar_event_id: event.id, created_at: nowIso() }
     const { error: taskError } = await supabase.from('tasks').insert(taskRow)
     if (taskError) throw taskError
+    const { error } = await supabase.from('events').insert(event)
+    if (error) {
+      await supabase.from('tasks').delete().eq('id', taskRow.id).eq('user_id', userId)
+      throw error
+    }
     data.events.push(event)
     data.tasks.unshift(taskRow)
     const reminder = reminderFields(taskRow, data, ctx)
@@ -3937,7 +3943,7 @@ async function executeTool(supabase, userId, name, rawArgs, data, ctx, { refs = 
     if (args.reminderDays !== undefined && args.reminderDays !== null) {
       const days = Number(args.reminderDays)
       if (!Number.isInteger(days) || days < 0 || days > 365) return { ok: false, message: 'reminderDays is a whole number of days, 0 to 365.' }
-      patch.reminder_days = days || null
+      patch.reminder_days = days // 0 = no nudges (catchUpInterval treats 0 as off), unlike null = the relationship default
       said.push(days ? `catch-up nudge every ${days} days` : 'catch-up nudges off')
     }
     if (!Object.keys(patch).length) return { ok: false, message: 'Nothing to change.' }
@@ -3997,7 +4003,8 @@ async function executeTool(supabase, userId, name, rawArgs, data, ctx, { refs = 
     let completed = false
     if (open.length) {
       const ids = open.map((task) => task.id)
-      const { error: doneError } = await supabase.from('tasks').update({ done: true }).eq('user_id', userId).in('id', ids)
+      let { error: doneError } = await supabase.from('tasks').update({ done: true, completed_at: nowIso() }).eq('user_id', userId).in('id', ids)
+      if (doneError && isMissingColumn(doneError, 'completed_at')) ({ error: doneError } = await supabase.from('tasks').update({ done: true }).eq('user_id', userId).in('id', ids))
       if (!doneError) {
         await supabase.from('events').delete().eq('user_id', userId).in('task_id', ids)
         open.forEach((task) => { task.done = true })

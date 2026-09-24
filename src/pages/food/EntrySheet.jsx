@@ -7,7 +7,7 @@ import { toast } from '../../components/ui/feedback.jsx'
 import { isISODate, todayISO } from '../../lib/dates.js'
 import { energyInUnit, energyToKcal, findFavorite, macroCalories } from '../../lib/food/nutrition.js'
 import { addEntries, deleteEntry, deleteFavorite, estimateFood, saveFavorite, updateEntry, useFood } from '../../lib/food/state.js'
-import { dayLabel, energyNumber, entryName, fmtNum, isNum, mealIdFor, portionText, toNum, unitLabel } from './format.js'
+import { dayLabel, energyNumber, energyText, entryName, fmtNum, isNum, kcalFromText, mealIdFor, portionText, toNum, unitLabel } from './format.js'
 
 // Manual add / edit with progressive disclosure (research §6.2): name, calories, meal and a
 // My-foods star first; "More options" (a Disclosure) holds the portion and protein / carbs / fat,
@@ -80,11 +80,10 @@ function blankForm(defaults, meals) {
 
 function formFromEntry(entry, unit, meals) {
   const extra = entry.extra && typeof entry.extra === 'object' ? entry.extra : {}
-  const kcal = toNum(entry.calories)
   return {
     name: text(entry.name),
     brand: text(entry.brand),
-    calories: kcal === null ? '' : String(Math.round(energyInUnit(kcal, unit))),
+    calories: energyText(toNum(entry.calories), unit),
     amount: numText(toNum(entry.amount), 2),
     unit: text(entry.unit),
     grams: numText(toNum(entry.grams)),
@@ -233,7 +232,8 @@ export default function EntrySheet({ open, onClose, entry = null, defaults, toda
       amount: number('amount'),
       unit: form.unit.trim() || null,
       grams: number('grams'),
-      calories: typedCalories === null ? null : Math.round(energyToKcal(typedCalories, unit) * 10) / 10,
+      // An untouched calories field keeps the stored kcal exactly (no kJ rounding drift).
+      calories: kcalFromText(form.calories, unit, editing ? toNum(entry.calories) : null),
       proteinG: number('proteinG'),
       carbsG: number('carbsG'),
       fatG: number('fatG'),

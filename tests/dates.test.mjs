@@ -110,6 +110,9 @@ describe('parseQuickAdd: leaves titles alone', () => {
     'Sun cream',
     'Gym every monday',
     'Meet from 3 to 5pm',
+    'Meet 3-5pm',
+    'Call 5pm-6pm',
+    'Office hours 2:30 – 4 pm',
     'Book table for 8pm',
     'Buy 2 apples',
     'Call 911',
@@ -121,6 +124,12 @@ describe('parseQuickAdd: leaves titles alone', () => {
       assert.deepEqual(parseQuickAdd(text, NOW), { title: text, date: '', time: '', matched: [] })
     })
   }
+
+  test('brackets around the phrase leave no stray bracket in the title', () => {
+    assert.deepEqual(parse('Call mom (tomorrow)'), { title: 'Call mom', date: '2026-09-24', time: '' })
+    assert.deepEqual(parse('Call mom [5pm]'), { title: 'Call mom', date: TODAY, time: '17:00' })
+    assert.deepEqual(parse('(tomorrow) call mom'), { title: 'call mom', date: '2026-09-24', time: '' })
+  })
 
   test('nothing but a date is not parsed (the title would be empty)', () => {
     assert.deepEqual(parse('tomorrow'), { title: 'tomorrow', date: '', time: '' })

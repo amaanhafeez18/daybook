@@ -60,7 +60,8 @@ export default async function handler(req, res) {
         const [settings, tasks, friends, classes, logs, gym] = await Promise.all([
           supabase.from('settings').select('value').eq('user_id', userId).order('created_at', { ascending: false }).limit(1),
           // Open tasks, plus recent done ones for the evening check-in's "3 of 4 done today".
-          supabase.from('tasks').select('*').eq('user_id', userId).eq('archived', false).or(`done.eq.false,date.gte.${gymFrom}`).limit(1000),
+          // Nearest dates first, so a very long list can only drop far-future tasks.
+          supabase.from('tasks').select('*').eq('user_id', userId).eq('archived', false).or(`done.eq.false,date.gte.${gymFrom}`).order('date', { ascending: true, nullsFirst: false }).limit(2000),
           friendsFor(supabase, userId),
           supabase.from('classes').select('*').eq('user_id', userId).limit(200),
           supabase.from('contact_logs').select('friend_id, date').eq('user_id', userId).order('date', { ascending: false }).limit(1000),

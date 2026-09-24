@@ -270,6 +270,14 @@ function reminderFormValue(friend) {
   return Number(days) === usual ? '' : String(Number(days))
 }
 
+// The intervals the catch-up reminder select offers: the usual choices without the relationship's
+// own (that's the first option), plus the current value when it's some other number of days.
+export function reminderOptions(usual, current, choices = REMINDER_CHOICES) {
+  const days = Number(current)
+  const extra = current !== '' && current !== null && current !== undefined && Number.isFinite(days) && days > 0 && days !== usual && !choices.includes(days) ? [days] : []
+  return [...choices.filter((item) => item !== usual), ...extra].sort((a, b) => a - b)
+}
+
 // A custom reminder is saved after the rest: updateFriend/addFriend set the relationship's usual
 // interval whenever the relationship is in the patch, which would undo it in the same call.
 function applyReminder(id, form) {
@@ -311,6 +319,8 @@ function PersonForm({ value, onChange, onBusyChange }) {
   const relationship = RELATIONSHIPS.find((item) => item.id === value.relationship)
   const usual = relationship?.reminderDays ?? null
   const summary = moreSummary(value)
+  // The assistant can set any interval ("every 21 days"): show it rather than a wrong option.
+  const reminderChoices = reminderOptions(usual, value.reminderDays)
   return (
     <>
       <PhotoField
@@ -373,7 +383,7 @@ function PersonForm({ value, onChange, onBusyChange }) {
           {(id) => (
             <select id={id} className="input" value={value.reminderDays} onChange={set('reminderDays')}>
               <option value="">{usual ? `Every ${usual} days (usual for a ${relationship.label.toLowerCase()})` : 'None (usual for an acquaintance)'}</option>
-              {REMINDER_CHOICES.filter((days) => days !== usual).map((days) => <option key={days} value={String(days)}>Every {days} days</option>)}
+              {reminderChoices.map((days) => <option key={days} value={String(days)}>Every {days} days</option>)}
               {usual ? <option value="0">No reminders</option> : null}
             </select>
           )}
