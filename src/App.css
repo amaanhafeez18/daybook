@@ -58,6 +58,44 @@
   --accent-l: #4A56D6; --accent-soft-l: rgba(74, 86, 214, 0.1);
   --accent-d: #929BFF; --accent-soft-d: rgba(146, 155, 255, 0.18);
 }
+/* Light accents keep >= 4.5:1 with white text and on the page, card and -soft backgrounds; dark
+   accents the same with --on-accent text and on the dark card. Ids are listed in lib/theme.js. */
+:root[data-accent='lagoon'] {
+  --accent-l: #08706A; --accent-soft-l: rgba(8, 112, 106, 0.11);
+  --accent-d: #4DD9CC; --accent-soft-d: rgba(77, 217, 204, 0.16);
+}
+:root[data-accent='glacier'] {
+  --accent-l: #145DB3; --accent-soft-l: rgba(20, 93, 179, 0.1);
+  --accent-d: #74B9FF; --accent-soft-d: rgba(116, 185, 255, 0.16);
+}
+:root[data-accent='blossom'] {
+  --accent-l: #B02D5C; --accent-soft-l: rgba(176, 45, 92, 0.1);
+  --accent-d: #FF8DB8; --accent-soft-d: rgba(255, 141, 184, 0.16);
+}
+:root[data-accent='aurora'] {
+  --accent-l: #6D3FD6; --accent-soft-l: rgba(109, 63, 214, 0.1);
+  --accent-d: #B9A1FF; --accent-soft-d: rgba(185, 161, 255, 0.18);
+}
+:root[data-accent='honey'] {
+  --accent-l: #855600; --accent-soft-l: rgba(133, 86, 0, 0.11);
+  --accent-d: #FFC94D; --accent-soft-d: rgba(255, 201, 77, 0.15);
+}
+:root[data-accent='citrus'] {
+  --accent-l: #44700A; --accent-soft-l: rgba(68, 112, 10, 0.11);
+  --accent-d: #B5E356; --accent-soft-d: rgba(181, 227, 86, 0.15);
+}
+:root[data-accent='neon'] {
+  --accent-l: #B0199E; --accent-soft-l: rgba(176, 25, 158, 0.1);
+  --accent-d: #FF5CDB; --accent-soft-d: rgba(255, 92, 219, 0.17);
+}
+:root[data-accent='mocha'] {
+  --accent-l: #7A5842; --accent-soft-l: rgba(122, 88, 66, 0.1);
+  --accent-d: #DDBB9C; --accent-soft-d: rgba(221, 187, 156, 0.15);
+}
+:root[data-accent='graphite'] {
+  --accent-l: #3A3A40; --accent-soft-l: rgba(58, 58, 64, 0.09);
+  --accent-d: #E3E3E8; --accent-soft-d: rgba(227, 227, 232, 0.14);
+}
 
 :root[data-appearance='dark'] {
   --bg: #0E1116;
@@ -266,8 +304,19 @@ select.input { background-image: linear-gradient(45deg, transparent 50%, var(--t
 .alert { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: var(--r-sm); font-size: 14px; }
 .alert-error { background: var(--danger-soft); color: var(--danger); }
 
-.slot { border: 1px solid var(--border); border-radius: var(--r-md); padding: 10px 12px 12px; margin: 0; }
+/* min-width: a fieldset is otherwise as wide as its fields, which pushed Room out of a phone sheet. */
+.slot { min-width: 0; border: 1px solid var(--border); border-radius: var(--r-md); padding: 10px 12px 12px; margin: 0; }
 .slot legend { padding: 0 6px; font-size: 13px; font-weight: 700; color: var(--text-2); }
+.slot .field-row-3 > * { min-width: 0; }
+.slot-time + .slot-time { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.slot-time-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.slot-time-head .link-btn, .slot-add { min-height: 44px; font-size: 15px; }
+.slot-add { margin-top: 4px; }
+/* Phones: Starts and Ends side by side (room for the time), Room below. */
+@media (max-width: 519px) {
+  .slot .field-row-3 { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .slot .field-row-3 > :last-child { grid-column: 1 / -1; }
+}
 .mini-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: var(--text-2); }
 
 /* ---- cards & lists ------------------------------------------------------------------------ */
@@ -376,6 +425,15 @@ select.input { background-image: linear-gradient(45deg, transparent 50%, var(--t
 .toast-action { padding: 6px 10px; border-radius: 8px; color: #FFB78A; font-weight: 700; }
 :root[data-accent='forest'] .toast-action { color: #7FE0AE; }
 :root[data-accent='midnight'] .toast-action { color: #AAB2FF; }
+:root[data-accent='lagoon'] .toast-action { color: #6FE3D8; }
+:root[data-accent='glacier'] .toast-action { color: #8CC6FF; }
+:root[data-accent='blossom'] .toast-action { color: #FF9EC4; }
+:root[data-accent='aurora'] .toast-action { color: #C4B0FF; }
+:root[data-accent='honey'] .toast-action { color: #FFD170; }
+:root[data-accent='citrus'] .toast-action { color: #C2EA6F; }
+:root[data-accent='neon'] .toast-action { color: #FF7BE2; }
+:root[data-accent='mocha'] .toast-action { color: #E8C9AA; }
+:root[data-accent='graphite'] .toast-action { color: #E5E5EA; }
 .toast-action:hover { background: rgba(255, 255, 255, 0.08); }
 .toast-close { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 8px; color: rgba(255, 255, 255, 0.6); }
 
@@ -599,9 +657,7 @@ select.input { background-image: linear-gradient(45deg, transparent 50%, var(--t
 /* ---- settings ---------------------------------------------------------------------------- */
 
 .settings-group { margin-bottom: 26px; }
-.settings-group > h2, .settings-group-header h2 { font-size: 13px; font-weight: 700; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.05em; margin: 0 4px 8px; }
-.settings-group-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-.settings-group-header h2 { margin-bottom: 0; }
+.settings-group > h2 { font-size: 13px; font-weight: 700; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.05em; margin: 0 4px 8px; }
 .settings-card { display: flex; flex-direction: column; gap: 18px; }
 .settings-list { gap: 0; padding: 4px 0; }
 .settings-list > .muted { padding: 12px 16px; }
@@ -614,14 +670,6 @@ button.settings-row:hover { background: var(--surface-2); }
 .settings-row-text small { color: var(--text-2); font-size: 13px; }
 .settings-row.is-danger { color: var(--danger); }
 .settings-row.is-danger .settings-row-icon { background: var(--danger-soft); color: var(--danger); }
-.profile-row { display: flex; align-items: center; gap: 14px; }
-.profile-row div { display: flex; flex-direction: column; }
-.profile-row small { color: var(--text-2); }
-.swatches { display: flex; gap: 10px; flex-wrap: wrap; }
-.swatch { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px 6px 6px; border-radius: 999px; border: 1px solid var(--border); font-size: 14px; font-weight: 600; }
-.swatch.is-active { border-color: var(--swatch); box-shadow: 0 0 0 2px var(--swatch) inset; }
-.swatch-color { width: 28px; height: 28px; border-radius: 50%; background: var(--swatch); display: grid; place-items: center; color: transparent; }
-.swatch.is-active .swatch-color { color: #fff; }
 .settings-footnote { text-align: center; color: var(--text-3); font-size: 13px; }
 
 /* ---- assistant --------------------------------------------------------------------------- */

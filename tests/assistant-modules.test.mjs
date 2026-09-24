@@ -787,7 +787,7 @@ describe('reminderPreview and the late all-day reminder (B5)', () => {
     assert.deepEqual(run(quick, `${TODAY}T14:30:00Z`), [])
     const evening = run(quick, `${TODAY}T18:00:00Z`)
     assert.deepEqual(evening.map((item) => item.key), [`overdue:${TODAY}`])
-    assert.match(evening[0].body, /^5 still open today/)
+    assert.equal(evening[0].body, 'Still open: Item 0, Item 1, Item 2 +2 more · Tomorrow: nothing planned yet')
     // Also within the send window of the 9:00 reminder: a task typed at 9:10 isn't pinged at 9:11.
     const morning = { id: 'q9', text: 'Morning add', date: TODAY, created_at: `${TODAY}T09:10:00Z` }
     assert.deepEqual(run([morning], `${TODAY}T09:11:00Z`), [])
@@ -826,6 +826,49 @@ describe('reminderPreview and the late all-day reminder (B5)', () => {
     const old = task('o', 'Old', '00', { created_at: `${TODAY}T14:50:00Z` })
     const fresh = task('f', 'Fresh', '00', { created_at: `${TODAY}T14:59:30Z` })
     assert.deepEqual(run([old, fresh], `${TODAY}T15:00:00Z`).map((item) => item.key), [`task:o:${TODAY}:allday:day`])
+  })
+
+  test('the morning summary comes every day, a clear one included', () => {
+    const classes = [
+      { id: 'c1', name: 'ECON 1022', days: [{ day: 'Wed', time: '2:30 PM - 4:30 PM' }, { day: 'Wed', time: '4:30 PM - 5:30 PM' }] },
+      { id: 'c2', name: 'CS 3331', days: ['Wed'], day_details: { Wed: { time: '11:30 AM - 1:30 PM' } } },
+      { id: 'c3', name: 'Old course', days: ['Wed'], end_date: '2026-09-01' },
+    ]
+    const summary = (tasks, extra = {}) => dueNotifications({ settings: { timeZone: 'UTC' }, tasks, friends: [], classes: [], ...extra }, at(`${TODAY}T08:00:00Z`)).find((item) => item.tag === 'daily-summary')
+    assert.deepEqual(summary([]), { key: `summary:${TODAY}`, fireAt: at(`${TODAY}T08:00:00Z`), title: 'Your Wednesday', body: 'Nothing planned. A clear day.', url: '/#/today', tag: 'daily-summary' })
+    const tasks = [
+      { id: 'a', text: 'Essay', date: TODAY, time: '' },
+      { id: 'b', text: 'Call mom', date: TODAY, time: '19:00' },
+      { id: 'c', text: 'Rent', date: '2026-09-20' },
+    ]
+    assert.equal(summary(tasks, { classes }).body, '2 tasks: Call mom (7:00 PM), Essay · 1 overdue · 2 classes from 11:30 AM')
+    assert.equal(summary([], { classes: [classes[0]] }).body, 'ECON 1022 at 2:30 PM')
+    assert.equal(summary([], { friends: [{ id: 'f', name: 'Ali', birthday: '2000-09-24' }] }).body, '🎂 Ali’s birthday tomorrow')
+    // Turned off: nothing.
+    assert.equal(dueNotifications({ settings: { timeZone: 'UTC', notifications: { dailySummary: false } }, tasks: [], friends: [], classes: [] }, at(`${TODAY}T08:00:00Z`)).length, 0)
+  })
+
+  test('the evening check-in recaps today and looks at tomorrow, every day', () => {
+    const evening = (tasks, extra = {}) => dueNotifications({ settings: { timeZone: 'UTC' }, tasks, friends: [], classes: [], ...extra }, at(`${TODAY}T18:00:00Z`)).find((item) => item.tag === 'evening-nudge')
+    const quiet = evening([])
+    assert.equal(quiet.title, 'Evening check-in')
+    assert.equal(quiet.body, 'Tomorrow: nothing planned yet')
+    assert.equal(quiet.url, '/#/today')
+    const done = [
+      { id: 'a', text: 'Essay', date: TODAY, done: true },
+      { id: 'b', text: 'Gym', date: TODAY, done: true },
+      { id: 'c', text: 'Dentist', date: '2026-09-24', time: '11:30' },
+      { id: 'd', text: 'Groceries', date: '2026-09-24' },
+    ]
+    const classes = [{ id: 'c1', name: 'ECON 1022', days: [{ day: 'Thu', time: '2:30 PM - 4:30 PM' }] }]
+    assert.deepEqual(evening(done, { classes }), {
+      key: `overdue:${TODAY}`, fireAt: at(`${TODAY}T18:00:00Z`), title: 'Evening check-in',
+      body: 'All 2 done today ✓ · Tomorrow: 2 tasks (first 11:30 AM), ECON 1022 at 2:30 PM', url: '/#/today', tag: 'evening-nudge',
+    })
+    const mixed = evening([...done, { id: 'e', text: 'Read', date: TODAY, time: '21:00' }, { id: 'f', text: 'Old', date: '2026-09-20' }])
+    assert.equal(mixed.title, 'Before the day ends')
+    assert.equal(mixed.body, '2 of 3 done · Still open: Read (9:00 PM) · 1 overdue · Tomorrow: 2 tasks (first 11:30 AM)')
+    assert.equal(mixed.url, '/#/tasks')
   })
 
   test('quiet hours move the reminder and say so', () => {

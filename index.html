@@ -13,7 +13,8 @@
         var s = JSON.parse(localStorage.getItem('daybook.data.settings') || '{}') || {}
         var a = ['system', 'light', 'dark'].indexOf(s.appearance) >= 0 ? s.appearance : (s.darkMode ? 'dark' : 'system')
         document.documentElement.dataset.appearance = a
-        if (['sunset', 'forest', 'midnight'].indexOf(s.theme) >= 0) document.documentElement.dataset.accent = s.theme
+        // Theme ids: keep in sync with ACCENTS in src/lib/theme.js.
+        if (['sunset', 'forest', 'midnight', 'lagoon', 'glacier', 'blossom', 'aurora', 'honey', 'citrus', 'neon', 'mocha', 'graphite'].indexOf(s.theme) >= 0) document.documentElement.dataset.accent = s.theme
         if (a !== 'system') document.addEventListener('DOMContentLoaded', function () {
           document.querySelectorAll('meta[name="theme-color"]').forEach(function (m) { m.removeAttribute('media'); m.setAttribute('content', a === 'dark' ? '#000000' : '#F2F2F7') })
         })
@@ -32,10 +33,16 @@
     <meta name="theme-color" content="#F2F2F7" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
 
-    <!-- Inter, loaded without blocking the first render (system font until it arrives). -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&display=swap" media="print" onload="this.media='all'" />
+    <!-- Inter, only where it's used: Apple devices show their system font (see --font), so iPhones and
+         Macs skip the extra connections. Loaded without blocking the first render. -->
+    <script>
+      if (!/Mac|iPhone|iPad|iPod/.test(navigator.userAgent)) {
+        var inter = document.createElement('link')
+        inter.rel = 'stylesheet'
+        inter.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@400..700&display=swap'
+        document.head.appendChild(inter)
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

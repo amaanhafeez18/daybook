@@ -482,9 +482,9 @@ const tools = [
     type: { type: 'string', enum: ['journal', 'notes', 'completed_tasks', 'archived_tasks', 'past_events'] },
     query: { type: 'string', description: 'Optional text to filter by.' },
   }, ['type']),
-  tool('update_settings', 'Change any Daybook setting (food goals have their own food tools and food display settings food_update_prefs; gym settings gym_update_prefs). appearance: system (follow the device), light or dark. theme is the accent colour. displayName "" clears it. assistantConfirm: "all" = the assistant asks before every change (default), "off" = it acts immediately. prayerMethod: "auto" (standard authority for the location) or an Aladhan method id: 1 Karachi, 2 ISNA, 3 Muslim World League, 4 Umm al-Qura, 5 Egypt, 7 Tehran, 8 Gulf, 9 Kuwait, 10 Qatar, 11 Singapore, 12 France, 13 Turkey, 15 Moonsighting Committee, 16 Dubai, 17 Malaysia, 20 Indonesia. prayerSchool: 0 standard Asr (Shafi\'i/Maliki/Hanbali), 1 Hanafi Asr.', {
+  tool('update_settings', 'Change any Daybook setting (food goals have their own food tools and food display settings food_update_prefs; gym settings gym_update_prefs). appearance: system (follow the device), light or dark. theme is the colour theme (accent colour + background tint): sunset (default, warm orange), forest (green), midnight (indigo), lagoon (teal), glacier (icy blue), blossom (rose pink), aurora (violet with green), honey (gold), citrus (lime), neon (magenta and cyan), mocha (warm brown), graphite (monochrome grey). displayName "" clears it. assistantConfirm: "all" = the assistant asks before every change (default), "off" = it acts immediately. prayerMethod: "auto" (standard authority for the location) or an Aladhan method id: 1 Karachi, 2 ISNA, 3 Muslim World League, 4 Umm al-Qura, 5 Egypt, 7 Tehran, 8 Gulf, 9 Kuwait, 10 Qatar, 11 Singapore, 12 France, 13 Turkey, 15 Moonsighting Committee, 16 Dubai, 17 Malaysia, 20 Indonesia. prayerSchool: 0 standard Asr (Shafi\'i/Maliki/Hanbali), 1 Hanafi Asr.', {
     appearance: { type: 'string', enum: ['system', 'light', 'dark'] },
-    theme: { type: 'string', enum: ['sunset', 'forest', 'midnight'] },
+    theme: { type: 'string', enum: ['sunset', 'forest', 'midnight', 'lagoon', 'glacier', 'blossom', 'aurora', 'honey', 'citrus', 'neon', 'mocha', 'graphite'] },
     displayName: { type: 'string' },
     assistantConfirm: { type: 'string', enum: ['all', 'off'] },
     assistantWeb: { type: 'string', enum: WEB_SETTINGS, description: 'Web searches: "ask" = ask before each (default), "always" = search when useful, "off" = never.' },
@@ -494,7 +494,7 @@ const tools = [
     darkMode: { type: 'boolean', description: 'Deprecated; prefer appearance.' },
     notifications: {
       type: 'object',
-      description: 'Push-notification preferences (partial update). taskLead: minutes before timed tasks (0 at time, -1 off). allDayTime HH:MM or "" for no reminder on tasks without a time; allDayMode "day" or "before". dailySummary/overdue/people/quietHours booleans with dailySummaryTime, overdueTime, quietStart, quietEnd as HH:MM. gym/gymTime: workout reminder on planned workout days.',
+      description: 'Push-notification preferences (partial update). taskLead: minutes before timed tasks (0 at time, -1 off). allDayTime HH:MM or "" for no reminder on tasks without a time; allDayMode "day" or "before". dailySummary/overdue/people/quietHours booleans with dailySummaryTime, overdueTime, quietStart, quietEnd as HH:MM (dailySummary = the morning summary of the day; overdue = the evening check-in: a recap of today and a look at tomorrow; both come every day while on). gym/gymTime: workout reminder on planned workout days.',
       properties: {
         taskLead: { type: 'integer' },
         allDayTime: { type: 'string' },
@@ -743,7 +743,7 @@ const tools = [
 
 async function loadData(supabase, userId) {
   const tables = ['tasks', 'events', 'friends', 'voice_notes', 'classes', 'journal_entries', 'settings']
-  const [results, openTasks, contactLogs, gymSessions, bodyWeights] = await Promise.all([
+  const [results, openTasks, contactLogs, gymSessions, bodyWeights, memories] = await Promise.all([
     Promise.all(tables.map((table) => supabase.from(table).select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(500))),
     // Every open task, however old, so the assistant can see and edit it.
     supabase.from('tasks').select('*').eq('user_id', userId).eq('done', false).eq('archived', false).order('created_at', { ascending: false }).limit(1000),
@@ -753,6 +753,7 @@ async function loadData(supabase, userId) {
     // The gym tables come from a later migration: null here means they don't exist yet.
     optionalRows(supabase.from('gym_sessions').select('*').eq('user_id', userId).order('date', { ascending: false }).order('created_at', { ascending: false }).limit(GYM_SESSION_LIMIT)),
     optionalRows(supabase.from('body_weights').select('*').eq('user_id', userId).order('date', { ascending: false }).order('created_at', { ascending: false }).limit(BODY_WEIGHT_LIMIT)),
+    loadMemories(supabase, userId), // null when the table is missing; never throws
   ])
   const data = {}
   tables.forEach((table, index) => {
@@ -769,7 +770,7 @@ async function loadData(supabase, userId) {
   data.gym_sessions = sortGymSessions((gymSessions || []).map(sessionFromRow).filter(Boolean))
   data.gymSessionsTruncated = (gymSessions || []).length >= GYM_SESSION_LIMIT
   data.body_weights = (bodyWeights || []).map(bodyWeightFromRow).filter(Boolean)
-  data.memories = await loadMemories(supabase, userId)
+  data.memories = memories
   return data
 }
 
@@ -905,7 +906,7 @@ function buildFoodSnapshot(data, ctx) {
 const CONFIRM_RULES = `Confirming changes (the user wants to approve every change first):
 - Every tool that changes something is staged, not done: its result says "Staged: waiting for the user to confirm. NOT done yet." with the label the user will see. The app shows all staged actions as one card with Yes / No buttons and runs them itself when the user says yes.
 - One proposal per request: stage everything the message implies in one turn, in order (e.g. create_friend → log_contact → update_friend), using the $n ref a staged create returns wherever a later step needs its id.
-- Then reply in 1–3 short sentences: what you understood and any assumption ("I assumed Hasan Raza", "reps from your plan: 8", "I'll ping you at 7:45 PM"), ending with a short question like "Shall I go ahead?". Don't repeat the card's list. Never say anything was done, saved or logged.
+- In the same response as the staging calls (write it before them), reply in 1–3 short sentences: what you understood and any assumption ("I assumed Hasan Raza", "reps from your plan: 8", "I'll ping you at 7:45 PM"), ending with a short question like "Shall I go ahead?". Don't repeat the card's list. Never say anything was done, saved or logged.
 - In a turn that stages changes, the only question is whether to go ahead, and the card asks it. Ask anything else first (ask_choice) without staging: staged changes followed by ask_choice are held back, not shown, until the user answers.
 - A staged call that comes back with ok:false was NOT staged: fix the call and stage it again, or ask the user. If it can't work (e.g. that part of the database isn't set up yet), say plainly it wasn't saved and why, and offer another way.
 - If a developer note says an earlier proposal was waiting and the user wrote something else, or that staged changes were held back or declined, none of it was carried out: if they still want it (with their changes), stage the complete corrected set again, using the exact calls the note gives and changing only what the user asked.
@@ -2994,7 +2995,7 @@ function settingsChanges(args) {
   } else if (typeof args.darkMode === 'boolean') changes.appearance = args.darkMode ? 'dark' : 'light'
   if (changes.appearance) changes.darkMode = changes.appearance === 'dark'
   if (given('theme')) {
-    if (!['sunset', 'forest', 'midnight'].includes(args.theme)) return { changes, problem: 'The accent colour is sunset, forest or midnight.' }
+    if (!['sunset', 'forest', 'midnight', 'lagoon', 'glacier', 'blossom', 'aurora', 'honey', 'citrus', 'neon', 'mocha', 'graphite'].includes(args.theme)) return { changes, problem: 'The theme is sunset, forest, midnight, lagoon, glacier, blossom, aurora, honey, citrus, neon, mocha or graphite.' }
     changes.theme = args.theme
   }
   if (given('displayName')) changes.displayName = String(args.displayName).trim().slice(0, 40)
@@ -3115,11 +3116,11 @@ function leadText(minutes) {
   return `${minutes} min`
 }
 
-// What a settings change means, in the app's words: "accent Forest, quiet hours on".
+// What a settings change means, in the app's words: "Forest theme, quiet hours on".
 function settingsText(changes) {
   const parts = []
   if (changes.appearance) parts.push(changes.appearance === 'system' ? 'appearance follows the device' : `${changes.appearance} appearance`)
-  if (changes.theme) parts.push(`accent ${capitalize(changes.theme)}`)
+  if (changes.theme) parts.push(`${capitalize(changes.theme)} theme`)
   if (changes.displayName !== undefined) parts.push(changes.displayName ? `display name “${changes.displayName}”` : 'display name cleared')
   if (changes.showPrayerTimes !== undefined) parts.push(`prayer times card ${changes.showPrayerTimes ? 'on' : 'off'}`)
   if (changes.prayerMethod) parts.push(`prayer method ${PRAYER_METHOD_NAMES[changes.prayerMethod] || changes.prayerMethod}`)
@@ -4744,6 +4745,9 @@ export default async function handler(req, res) {
     const rawText = typeof body.message === 'string' && body.message.trim() ? body.message : typeof body.choice === 'string' ? body.choice : ''
     if (rawText.length > MAX_MESSAGE_CHARS) return fail(413, `Messages can be up to ${MAX_MESSAGE_CHARS} characters.`)
     const attachments = readAttachments(body.attachments, user.id)
+    // Fresh signed URLs for uploaded files, fetched while the rest loads (awaited before the model call).
+    const signing = attachments.length ? signAttachmentUrls(supabase, attachments) : Promise.resolve()
+    signing.catch(() => {}) // awaited below; this only keeps an early reply from leaving it unhandled
     const confirm = isPlainObject(body.confirm) && ['yes', 'no'].includes(body.confirm.decision) ? body.confirm : null
     const pending = findPendingProposal(history)
 
@@ -4922,12 +4926,15 @@ export default async function handler(req, res) {
     const instructions = buildInstructions(buildSnapshot(data, ctx, user.username), { confirmMode })
     // The latest earlier attachment stays visible for follow-ups ("add it to my calendar"), unless this
     // message brings new ones.
-    turnHistory = await foldHistory(turnHistory, { userId: user.id, ctx, debug })
+    // Folding the oldest messages into the summary (a model call every so often) runs alongside this
+    // turn instead of before it: the model sees the recent messages as they are plus the previous
+    // summary (the folded ones are older than its window anyway), and the folded history is saved.
+    const folding = foldHistory(turnHistory, { userId: user.id, ctx, debug }).catch(() => turnHistory)
     const summaryText = summaryOf(turnHistory)?.content
     const modelHistory = chatOnly(turnHistory).slice(-MAX_MODEL_MESSAGES)
     let carried = attachments.length ? -1 : carriedIndex([...modelHistory, { role: 'user' }])
     // Uploaded files are read through fresh signed URLs; a carried one that has since expired is left out.
-    await signAttachmentUrls(supabase, attachments)
+    await signing
     if (carried >= 0) {
       try {
         await signAttachmentUrls(supabase, modelHistory[carried].files)
@@ -5205,6 +5212,7 @@ export default async function handler(req, res) {
     // the save carry it.
     const usageResult = usageWrite ? await usageWrite : null
     if (usageResult?.error) debug.push({ step: 'usage.save_failed', message: usageResult.error.message })
+    turnHistory = await folding
     await saveTurn({
       base: turnHistory,
       patches: turnPatches,

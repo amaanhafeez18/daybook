@@ -50,7 +50,8 @@ export default async function handler(req, res) {
       try {
         const [settings, tasks, friends, classes, logs, gym] = await Promise.all([
           supabase.from('settings').select('value').eq('user_id', userId).order('created_at', { ascending: false }).limit(1),
-          supabase.from('tasks').select('*').eq('user_id', userId).eq('done', false).eq('archived', false).limit(1000),
+          // Open tasks, plus recent done ones for the evening check-in's "3 of 4 done today".
+          supabase.from('tasks').select('*').eq('user_id', userId).eq('archived', false).or(`done.eq.false,date.gte.${gymFrom}`).limit(1000),
           // '*' so databases without relationship / reminder_days still work.
           supabase.from('friends').select('*').eq('user_id', userId).limit(1000),
           supabase.from('classes').select('*').eq('user_id', userId).limit(200),

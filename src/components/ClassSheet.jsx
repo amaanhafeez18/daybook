@@ -23,6 +23,9 @@ function splitRange(text) {
   return { start: toHHMM(timeToMinutes(start)), end: toHHMM(timeToMinutes(end)), raw }
 }
 
+let keyCounter = 0
+const nextKey = () => `slot-${keyCounter += 1}`
+
 const rangeText = (start, end) => (start ? `${formatTime(start)}${end ? ` - ${formatTime(end)}` : ''}` : '')
 
 export default function ClassSheet({ item, onClose }) {
@@ -34,7 +37,8 @@ export default function ClassSheet({ item, onClose }) {
   const editing = shownItem?.id ? shownItem : null
   const [name, setName] = useState('')
   const [endDate, setEndDate] = useState('')
-  const [slots, setSlots] = useState({}) // day -> { start, end, room }
+  // Every meeting of the class: a day can have more than one (e.g. a lecture and a lab on Thursday).
+  const [slots, setSlots] = useState([]) // [{ key, day, start, end, room, raw }]
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -42,33 +46,36 @@ export default function ClassSheet({ item, onClose }) {
     setError('')
     setName(editing?.name || '')
     setEndDate(editing?.endDate || '')
-    const next = {}
-    for (const slot of editing ? classSchedule(editing) : []) next[slot.day] = { ...splitRange(slot.time), room: slot.room || '' }
-    setSlots(next)
+    setSlots((editing ? classSchedule(editing) : []).map((slot) => ({ key: nextKey(), day: slot.day, ...splitRange(slot.time), room: slot.room || '' })))
   }, [open, editing?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const hasDay = (day) => slots.some((slot) => slot.day === day)
+  // A new day copies the times of the first meeting (most classes keep the same hours).
   const toggleDay = (day) => setSlots((current) => {
-    const next = { ...current }
-    if (next[day]) delete next[day]
-    else next[day] = { ...(Object.values(current)[0] || { start: '', end: '', room: '' }) }
-    return next
+    if (current.some((slot) => slot.day === day)) return current.filter((slot) => slot.day !== day)
+    const model = current[0] || { start: '', end: '', room: '', raw: null }
+    return [...current, { key: nextKey(), day, start: model.start, end: model.end, room: model.room, raw: model.raw }]
   })
-  const setSlot = (day, field, value) => setSlots((current) => ({ ...current, [day]: { ...current[day], [field]: value, ...(field === 'start' || field === 'end' ? { raw: null } : {}) } }))
+  const addTime = (day) => setSlots((current) => [...current, { key: nextKey(), day, start: '', end: '', room: current.find((slot) => slot.day === day)?.room || '', raw: null }])
+  const removeTime = (key) => setSlots((current) => current.filter((slot) => slot.key !== key))
+  const setSlot = (key, field, value) => setSlots((current) => current.map((slot) => (slot.key === key
+    ? { ...slot, [field]: value, ...(field === 'start' || field === 'end' ? { raw: null } : {}) }
+    : slot)))
 
   function submit(event) {
     event.preventDefault()
-    const days = DAY_ORDER.filter((day) => slots[day])
     if (!name.trim()) return setError('Give the class a name.')
-    if (!days.length) return setError('Pick at least one day.')
-    const dayDetails = Object.fromEntries(days.map((day) => {
-      const { start, end, room, raw } = slots[day]
+    if (!slots.length) return setError('Pick at least one day.')
+    // Saved as a list of meetings ({ day, time, room }), which allows several on one day.
+    const days = DAY_ORDER.flatMap((day) => slots.filter((slot) => slot.day === day).map(({ start, end, room, raw }) => {
       const time = raw != null ? raw : rangeText(start, end)
-      return [day, { time, room: room.trim() }]
+      return { day, ...(time ? { time } : {}), ...(room.trim() ? { room: room.trim() } : {}) }
     }))
     saveClass({
-      ...(editing || {}), name: name.trim(), days, dayDetails, endDate,
-      // Clear legacy per-class time/room (null serializes; undefined is dropped). Only when present,
-      // so databases without these columns still save.
+      ...(editing || {}), name: name.trim(), days, endDate,
+      // The older one-per-day details are replaced by the list; clear them (and legacy per-class
+      // time/room) only when present, so databases without these columns still save.
+      dayDetails: editing?.dayDetails && Object.keys(editing.dayDetails).length ? {} : undefined,
       time: editing?.time ? null : undefined,
       room: editing?.room ? null : undefined,
     })
@@ -104,21 +111,35 @@ export default function ClassSheet({ item, onClose }) {
           <span className="field-label">Days</span>
           <div className="chip-row">
             {DAY_ORDER.map((day) => (
-              <button key={day} type="button" className={`chip ${slots[day] ? 'is-active' : ''}`} aria-pressed={!!slots[day]} onClick={() => toggleDay(day)}>{day}</button>
+              <button key={day} type="button" className={`chip ${hasDay(day) ? 'is-active' : ''}`} aria-pressed={hasDay(day)} onClick={() => toggleDay(day)}>{day}</button>
             ))}
           </div>
         </div>
-        {DAY_ORDER.filter((day) => slots[day]).map((day) => (
-          <fieldset key={day} className="slot">
-            <legend>{day}</legend>
-            <div className="field-row field-row-3">
-              <label className="mini-field"><span>Starts</span><input className="input" type="time" value={slots[day].start} onChange={(event) => setSlot(day, 'start', event.target.value)} /></label>
-              <label className="mini-field"><span>Ends</span><input className="input" type="time" value={slots[day].end} onChange={(event) => setSlot(day, 'end', event.target.value)} /></label>
-              <label className="mini-field"><span>Room</span><input className="input" value={slots[day].room} onChange={(event) => setSlot(day, 'room', event.target.value)} placeholder="Optional" /></label>
-            </div>
-            {slots[day].raw && slots[day].raw !== rangeText(slots[day].start, slots[day].end) && <p className="field-hint">Currently: {slots[day].raw}</p>}
-          </fieldset>
-        ))}
+        {DAY_ORDER.filter(hasDay).map((day) => {
+          const times = slots.filter((slot) => slot.day === day)
+          return (
+            <fieldset key={day} className="slot">
+              <legend>{day}</legend>
+              {times.map((slot, index) => (
+                <div key={slot.key} className="slot-time">
+                  {times.length > 1 && (
+                    <div className="slot-time-head">
+                      <span className="field-hint">Time {index + 1}</span>
+                      <button type="button" className="link-btn" onClick={() => removeTime(slot.key)} aria-label={`Remove ${day} time ${index + 1}`}>Remove</button>
+                    </div>
+                  )}
+                  <div className="field-row field-row-3">
+                    <label className="mini-field"><span>Starts</span><input className="input" type="time" value={slot.start} onChange={(event) => setSlot(slot.key, 'start', event.target.value)} /></label>
+                    <label className="mini-field"><span>Ends</span><input className="input" type="time" value={slot.end} onChange={(event) => setSlot(slot.key, 'end', event.target.value)} /></label>
+                    <label className="mini-field"><span>Room</span><input className="input" value={slot.room} onChange={(event) => setSlot(slot.key, 'room', event.target.value)} placeholder="Optional" /></label>
+                  </div>
+                  {slot.raw && slot.raw !== rangeText(slot.start, slot.end) && <p className="field-hint">Currently: {slot.raw}</p>}
+                </div>
+              ))}
+              <button type="button" className="link-btn slot-add" onClick={() => addTime(day)}>+ Add another time on {day}</button>
+            </fieldset>
+          )
+        })}
         <Field label="Last day of classes" hint="Optional — classes stop showing after this date.">
           {(id) => <input id={id} className="input" type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} />}
         </Field>

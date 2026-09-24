@@ -149,7 +149,8 @@ export async function responsesJson({ model = DEFAULT_MODEL, modelEnv, instructi
     input: [{ role: 'user', content: Array.isArray(content) ? content : [textPart(content)] }],
     store: false,
     // Same prefix per feature and user, so repeat calls hit the prompt cache.
-    prompt_cache_key: userId ? `daybook-${format.name}-${userId}` : `daybook-${format.name}`,
+    // OpenAI allows at most 64 characters: "daybook-" + up to 18 of the name + "-" + a 36-character id.
+    prompt_cache_key: userId ? `daybook-${format.name.slice(0, 18)}-${String(userId).slice(0, 36)}` : `daybook-${format.name.slice(0, 55)}`,
     max_output_tokens: maxOutputTokens || (reasoning ? 6000 : 2000),
     // Merge, don't replace: format and verbosity both live in `text`.
     text: supportsVerbosity(model) ? { verbosity: 'low', format } : { format },

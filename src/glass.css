@@ -17,6 +17,7 @@
 
   --glass-bg: rgba(255, 255, 255, 0.56);
   --glass-bg-strong: rgba(255, 255, 255, 0.8);
+  --glass-bg-flat: rgba(255, 255, 255, 0.64); /* in-page glass without a live blur (see below) */
   --glass-border: rgba(255, 255, 255, 0.7);
   --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.9), inset 0 -1px 1px rgba(255, 255, 255, 0.35);
   --glass-shadow: 0 10px 34px rgba(30, 36, 56, 0.14), 0 1px 3px rgba(30, 36, 56, 0.08);
@@ -35,6 +36,15 @@
 
 :root[data-accent='forest'] { --mesh-1: rgba(120, 214, 160, 0.35); --mesh-3: rgba(255, 214, 140, 0.25); }
 :root[data-accent='midnight'] { --mesh-1: rgba(140, 150, 255, 0.4); --mesh-2: rgba(210, 150, 255, 0.3); }
+:root[data-accent='lagoon'] { --mesh-1: rgba(80, 210, 200, 0.38); --mesh-2: rgba(110, 180, 255, 0.32); --mesh-3: rgba(255, 214, 150, 0.3); }
+:root[data-accent='glacier'] { --mesh-1: rgba(130, 190, 255, 0.4); --mesh-2: rgba(150, 230, 250, 0.36); --mesh-3: rgba(190, 180, 255, 0.28); }
+:root[data-accent='blossom'] { --mesh-1: rgba(255, 150, 190, 0.38); --mesh-2: rgba(210, 170, 255, 0.3); --mesh-3: rgba(255, 200, 160, 0.32); }
+:root[data-accent='aurora'] { --mesh-1: rgba(90, 230, 170, 0.34); --mesh-2: rgba(160, 120, 255, 0.36); --mesh-3: rgba(100, 190, 255, 0.3); }
+:root[data-accent='honey'] { --mesh-1: rgba(255, 205, 90, 0.42); --mesh-2: rgba(255, 160, 90, 0.3); --mesh-3: rgba(255, 190, 170, 0.3); }
+:root[data-accent='citrus'] { --mesh-1: rgba(170, 230, 80, 0.36); --mesh-2: rgba(255, 225, 90, 0.36); --mesh-3: rgba(255, 170, 90, 0.28); }
+:root[data-accent='neon'] { --mesh-1: rgba(255, 80, 210, 0.3); --mesh-2: rgba(60, 220, 255, 0.3); --mesh-3: rgba(140, 90, 255, 0.3); }
+:root[data-accent='mocha'] { --mesh-1: rgba(225, 170, 120, 0.36); --mesh-2: rgba(245, 215, 170, 0.4); --mesh-3: rgba(215, 160, 160, 0.28); }
+:root[data-accent='graphite'] { --mesh-1: rgba(150, 150, 165, 0.3); --mesh-2: rgba(190, 195, 210, 0.36); --mesh-3: rgba(120, 125, 140, 0.22); }
 
 :root[data-appearance='dark'] {
   --bg: #07080C;
@@ -45,6 +55,7 @@
   --border-strong: rgba(255, 255, 255, 0.16);
   --glass-bg: rgba(40, 43, 54, 0.5);
   --glass-bg-strong: rgba(34, 37, 47, 0.8);
+  --glass-bg-flat: rgba(38, 41, 52, 0.6);
   --glass-border: rgba(255, 255, 255, 0.14);
   --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.16), inset 0 -1px 1px rgba(255, 255, 255, 0.04);
   --glass-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);
@@ -56,6 +67,15 @@
 }
 :root[data-appearance='dark'][data-accent='midnight'] { --mesh-1: rgba(110, 120, 255, 0.22); --mesh-2: rgba(190, 110, 255, 0.16); }
 :root[data-appearance='dark'][data-accent='forest'] { --mesh-1: rgba(70, 200, 140, 0.16); }
+:root[data-appearance='dark'][data-accent='lagoon'] { --mesh-1: rgba(40, 200, 190, 0.18); --mesh-2: rgba(60, 140, 255, 0.18); --mesh-3: rgba(255, 190, 110, 0.1); }
+:root[data-appearance='dark'][data-accent='glacier'] { --mesh-1: rgba(80, 150, 255, 0.2); --mesh-2: rgba(90, 210, 240, 0.14); --mesh-3: rgba(150, 130, 255, 0.14); }
+:root[data-appearance='dark'][data-accent='blossom'] { --mesh-1: rgba(255, 90, 150, 0.18); --mesh-2: rgba(180, 110, 255, 0.14); --mesh-3: rgba(255, 150, 110, 0.1); }
+:root[data-appearance='dark'][data-accent='aurora'] { --mesh-1: rgba(50, 230, 160, 0.18); --mesh-2: rgba(150, 90, 255, 0.22); --mesh-3: rgba(60, 170, 255, 0.14); }
+:root[data-appearance='dark'][data-accent='honey'] { --mesh-1: rgba(255, 190, 50, 0.16); --mesh-2: rgba(255, 130, 50, 0.14); --mesh-3: rgba(255, 150, 120, 0.08); }
+:root[data-appearance='dark'][data-accent='citrus'] { --mesh-1: rgba(150, 220, 60, 0.15); --mesh-2: rgba(255, 210, 60, 0.12); --mesh-3: rgba(255, 150, 60, 0.1); }
+:root[data-appearance='dark'][data-accent='neon'] { --mesh-1: rgba(255, 60, 200, 0.22); --mesh-2: rgba(40, 220, 255, 0.18); --mesh-3: rgba(130, 70, 255, 0.2); }
+:root[data-appearance='dark'][data-accent='mocha'] { --mesh-1: rgba(200, 140, 90, 0.14); --mesh-2: rgba(230, 190, 140, 0.1); --mesh-3: rgba(190, 120, 120, 0.1); }
+:root[data-appearance='dark'][data-accent='graphite'] { --mesh-1: rgba(160, 160, 175, 0.12); --mesh-2: rgba(120, 125, 140, 0.14); --mesh-3: rgba(200, 200, 210, 0.06); }
 
 @media (prefers-color-scheme: dark) {
   :root[data-appearance='system'] {
@@ -67,6 +87,7 @@
     --border-strong: rgba(255, 255, 255, 0.16);
     --glass-bg: rgba(40, 43, 54, 0.5);
     --glass-bg-strong: rgba(34, 37, 47, 0.8);
+    --glass-bg-flat: rgba(38, 41, 52, 0.6);
     --glass-border: rgba(255, 255, 255, 0.14);
     --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.16), inset 0 -1px 1px rgba(255, 255, 255, 0.04);
     --glass-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);
@@ -78,6 +99,15 @@
   }
   :root[data-appearance='system'][data-accent='midnight'] { --mesh-1: rgba(110, 120, 255, 0.22); --mesh-2: rgba(190, 110, 255, 0.16); }
   :root[data-appearance='system'][data-accent='forest'] { --mesh-1: rgba(70, 200, 140, 0.16); }
+  :root[data-appearance='system'][data-accent='lagoon'] { --mesh-1: rgba(40, 200, 190, 0.18); --mesh-2: rgba(60, 140, 255, 0.18); --mesh-3: rgba(255, 190, 110, 0.1); }
+  :root[data-appearance='system'][data-accent='glacier'] { --mesh-1: rgba(80, 150, 255, 0.2); --mesh-2: rgba(90, 210, 240, 0.14); --mesh-3: rgba(150, 130, 255, 0.14); }
+  :root[data-appearance='system'][data-accent='blossom'] { --mesh-1: rgba(255, 90, 150, 0.18); --mesh-2: rgba(180, 110, 255, 0.14); --mesh-3: rgba(255, 150, 110, 0.1); }
+  :root[data-appearance='system'][data-accent='aurora'] { --mesh-1: rgba(50, 230, 160, 0.18); --mesh-2: rgba(150, 90, 255, 0.22); --mesh-3: rgba(60, 170, 255, 0.14); }
+  :root[data-appearance='system'][data-accent='honey'] { --mesh-1: rgba(255, 190, 50, 0.16); --mesh-2: rgba(255, 130, 50, 0.14); --mesh-3: rgba(255, 150, 120, 0.08); }
+  :root[data-appearance='system'][data-accent='citrus'] { --mesh-1: rgba(150, 220, 60, 0.15); --mesh-2: rgba(255, 210, 60, 0.12); --mesh-3: rgba(255, 150, 60, 0.1); }
+  :root[data-appearance='system'][data-accent='neon'] { --mesh-1: rgba(255, 60, 200, 0.22); --mesh-2: rgba(40, 220, 255, 0.18); --mesh-3: rgba(130, 70, 255, 0.2); }
+  :root[data-appearance='system'][data-accent='mocha'] { --mesh-1: rgba(200, 140, 90, 0.14); --mesh-2: rgba(230, 190, 140, 0.1); --mesh-3: rgba(190, 120, 120, 0.1); }
+  :root[data-appearance='system'][data-accent='graphite'] { --mesh-1: rgba(160, 160, 175, 0.12); --mesh-2: rgba(120, 125, 140, 0.14); --mesh-3: rgba(200, 200, 210, 0.06); }
 }
 
 /* Colour field behind the glass (a fixed layer: iOS ignores background-attachment: fixed). */
@@ -99,12 +129,19 @@ body::before {
 h1 { font-family: var(--font-display); font-size: 34px; font-weight: 700; letter-spacing: -0.025em; }
 
 /* ---- the glass material ---------------------------------------------------------------- */
-.nav, .topbar-actions .icon-btn, .topbar-brand, .assistant-tools .icon-btn, .month-nav .icon-btn,
-.sheet, .toast, .composer, .segmented, .quick-add, .search-field, .stat, .chip,
-.btn-secondary, .sync-badge, .auth-card, .icon-btn-soft {
+/* A live blur only on layers that float over moving content. Things that scroll with the page get
+   the same look over the (already blurred) background without one: many blurred elements moving
+   at once is what makes scrolling stutter on iPhone. */
+.nav, .topbar-actions .icon-btn, .topbar-brand, .assistant-tools .icon-btn,
+.sheet, .toast, .composer, .sync-badge, .auth-card {
   background: var(--glass-bg);
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-highlight), var(--glass-shadow);
+}
+.month-nav .icon-btn, .segmented, .quick-add, .search-field, .stat, .chip, .btn-secondary, .icon-btn-soft {
+  background: var(--glass-bg-flat);
   border: 1px solid var(--glass-border);
   box-shadow: var(--glass-highlight), var(--glass-shadow);
 }
