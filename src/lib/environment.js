@@ -12,8 +12,15 @@ const LOCATION_TTL_MS = 6 * 60 * 60 * 1000
 export function useNow(intervalMs = 60000) {
   const [now, setNow] = useState(() => new Date())
   useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), intervalMs)
-    return () => clearInterval(timer)
+    const tick = () => setNow(new Date())
+    const timer = setInterval(tick, intervalMs)
+    // Timers pause while the app is in the background: catch up as soon as it's back.
+    const onVisible = () => { if (document.visibilityState === 'visible') tick() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [intervalMs])
   return now
 }

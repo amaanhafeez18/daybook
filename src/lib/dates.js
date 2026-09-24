@@ -63,6 +63,37 @@ export function timeToMinutes(value) {
   return hour * 60 + Number(match[2])
 }
 
+// Start and end (minutes after midnight) of a free-text time or range: "2:30 PM - 4:30 PM",
+// "14:30–15:50", "2:30-3:30 PM", "11 AM to 1 PM". A side without AM/PM borrows the other side's
+// (flipped when that would make the class end before it starts). end is null without a range.
+export function timeRangeMinutes(value) {
+  const parts = String(value || '').trim().split(/\s*(?:[-–—]|\bto\b)\s*/i).filter(Boolean)
+  const read = (text) => {
+    const match = String(text || '').match(/^(\d{1,2})(?::(\d{2}))?\s*([ap])?\.?\s*m?\.?$/i)
+    if (!match || Number(match[1]) > 23 || Number(match[2] || 0) > 59) return null
+    return { hour: Number(match[1]), minute: Number(match[2] || 0), suffix: match[3]?.toLowerCase() || null }
+  }
+  const toMinutes = ({ hour, minute }, suffix) => {
+    let h = hour
+    if (suffix === 'p' && h < 12) h += 12
+    if (suffix === 'a' && h === 12) h = 0
+    return h * 60 + minute
+  }
+  const start = read(parts[0])
+  if (!start) return { start: null, end: null }
+  const end = parts.length > 1 ? read(parts[1]) : null
+  if (!end) return { start: toMinutes(start, start.suffix), end: null }
+  const flip = (suffix) => (suffix === 'a' ? 'p' : 'a')
+  let startSuffix = start.suffix
+  let endSuffix = end.suffix
+  if (!startSuffix && endSuffix && start.hour <= 12) {
+    startSuffix = toMinutes(start, endSuffix) <= toMinutes(end, endSuffix) ? endSuffix : flip(endSuffix)
+  } else if (startSuffix && !endSuffix && end.hour <= 12) {
+    endSuffix = toMinutes(end, startSuffix) >= toMinutes(start, startSuffix) ? startSuffix : flip(startSuffix)
+  }
+  return { start: toMinutes(start, startSuffix), end: toMinutes(end, endSuffix) }
+}
+
 export function compareTimes(a, b) {
   const left = timeToMinutes(a)
   const right = timeToMinutes(b)
