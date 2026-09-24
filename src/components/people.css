@@ -10,28 +10,115 @@
   color: var(--on-accent);
 }
 .ppl-talk.is-logged .icon { animation: check-pop 0.32s var(--spring, ease); }
-.ppl-topic > span { color: var(--text-3); }
+/* The last-talk preview: one muted line with a speech bubble. */
+.ppl-topic .icon { display: inline-block; vertical-align: -2px; margin-right: 5px; color: var(--text-3); }
+
+/* ---- photo: form picker and the tappable hero photo ------------------------------------------ */
+.ppl-photo { display: flex; flex-direction: column; align-items: center; gap: 2px; margin-bottom: -4px; }
+.ppl-photo-pick {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border-radius: 50%;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.15s var(--ease, ease), opacity 0.15s;
+}
+.ppl-photo-pick:active { transform: scale(0.96); opacity: 0.85; }
+.ppl-photo-pick:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.ppl-photo-pick .avatar { box-shadow: 0 0 0 1px var(--border); }
+.ppl-avatar-blank { background: var(--surface-3); color: var(--text-3); }
+.ppl-photo-badge {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: 0 0 0 3px var(--surface), var(--shadow-sm);
+}
+.ppl-photo-badge.is-small { width: 26px; height: 26px; right: -3px; bottom: -3px; }
+.ppl-photo-badge .spinner { width: 14px; height: 14px; }
+.ppl-photo-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px 6px; }
+.ppl-photo-action {
+  min-height: 44px;
+  padding: 0 10px;
+  border-radius: 10px;
+  color: var(--accent);
+  font-size: 17px;
+  letter-spacing: -0.02em;
+}
+.ppl-photo-action:active { opacity: 0.6; }
+.ppl-photo-action:disabled { color: var(--text-2); opacity: 1; }
+.ppl-photo-action.is-danger { color: var(--danger); }
+.ppl-photo-action.is-quiet { color: var(--text-2); }
+.ppl-photo-error { margin: 0; text-align: center; }
+/* The file input is opened by the photo buttons: hidden from sight, not display:none. */
+.ppl-photo-input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); opacity: 0; pointer-events: none; }
+.ppl-hero-photo { position: relative; display: inline-flex; flex-shrink: 0; }
 
 /* ---- person hero ---------------------------------------------------------------------------- */
 .ppl-hero { display: flex; align-items: center; gap: 16px; }
 .ppl-last { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.ppl-label { font-size: 12px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.04em; }
-.ppl-last-line {
-  margin: 0;
-  font-size: 17px;
-  line-height: 1.3;
-  letter-spacing: -0.02em;
-  overflow-wrap: anywhere;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
+.ppl-label { margin: 0; font-size: 12px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.04em; }
+.ppl-last-line { margin: 0; font-size: 17px; line-height: 1.3; letter-spacing: -0.02em; overflow-wrap: anywhere; }
 .ppl-last-line .status-dot { display: inline-block; margin-right: 7px; vertical-align: 2px; }
 .ppl-last-line strong { font-weight: 600; }
-.ppl-last-topic { color: var(--text-2); }
+.ppl-next { font-size: 15px; color: var(--text-2); }
+.ppl-next.is-due { color: var(--danger); }
 
-.ppl-hero + .ppl-facts { margin-top: -4px; }
+/* ---- "Last time": what you talked about --------------------------------------------------- */
+.ppl-lasttime {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px 14px;
+  border-radius: 18px;
+  background: var(--accent-soft);
+}
+.ppl-lasttime.is-blank, .ppl-lasttime.is-empty { background: var(--surface-2); }
+/* Focused from script when the note editor closes (not a tab stop): no ring. */
+.ppl-lasttime:focus { outline: none; }
+.ppl-lasttime-head { display: flex; align-items: center; gap: 8px; min-height: 28px; }
+/* Nudged towards the text colour: the plain accent is just under 4.5:1 on its own tint in a few themes. */
+.ppl-lasttime-head .ppl-label { color: var(--accent); color: color-mix(in srgb, var(--accent), var(--text) 22%); }
+.ppl-lasttime.is-blank .ppl-lasttime-head .ppl-label, .ppl-lasttime.is-empty .ppl-label { color: var(--text-2); }
+.ppl-lasttime-date { font-size: 13px; color: var(--text-2); color: color-mix(in srgb, var(--text-2), var(--text) 30%); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ppl-lasttime-edit { width: 44px; height: 44px; margin: -8px -10px -8px auto; flex-shrink: 0; color: var(--accent); }
+.ppl-lasttime-note {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.4;
+  letter-spacing: -0.015em;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ppl-lasttime-empty { margin: 0; font-size: 15px; line-height: 1.4; color: var(--text-2); }
+.ppl-lasttime-add {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  margin: -6px -4px -10px;
+  padding: 0 4px;
+  border-radius: 10px;
+  color: var(--accent);
+  font-size: 17px;
+  letter-spacing: -0.02em;
+}
+.ppl-lasttime-add:active { opacity: 0.6; }
+.ppl-lasttime .ppl-log-editor { padding: 2px 0 0; }
+.ppl-none-earlier { margin: 0; font-size: 15px; }
+
 .ppl-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .ppl-facts > div {
   min-width: 0;
@@ -86,7 +173,17 @@
 .ppl-log-actions { padding: 0 6px 8px; }
 .ppl-log-actions .link-btn { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; font-size: 15px; font-weight: 500; }
 .ppl-log-editor { display: flex; flex-direction: column; gap: 8px; padding: 2px 6px 12px; }
-.ppl-log-editor-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.ppl-log-editor-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
+.ppl-log-editor-remove {
+  margin-right: auto;
+  min-height: 44px;
+  padding: 0 4px;
+  border-radius: 10px;
+  color: var(--danger);
+  font-size: 15px;
+  white-space: nowrap;
+}
+.ppl-log-editor-remove:active { opacity: 0.6; }
 .ppl-show-all {
   display: block;
   width: 100%;
@@ -126,4 +223,11 @@
 @media (hover: hover) {
   .ppl-log-main:hover, .ppl-show-all:hover { background: var(--surface-2); }
   .ppl-log-remove:hover { color: var(--danger); }
+  .ppl-photo-action:hover, .ppl-lasttime-add:hover, .ppl-log-editor-remove:hover { opacity: 0.75; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ppl-photo-pick { transition: none; }
+  .ppl-photo-pick:active { transform: none; }
+  .ppl-talk.is-logged .icon { animation: none; }
 }

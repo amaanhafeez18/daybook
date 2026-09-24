@@ -14,6 +14,7 @@ import { ACCENTS, APPEARANCES, DEFAULT_ACCENT, resolveAppearance } from '../lib/
 import { PRAYER_METHODS } from '../lib/environment.js'
 import { formatDateShort } from '../lib/dates.js'
 import { LEAD_OPTIONS, currentSubscription, disableNotifications, enableNotifications, leadLabel, notificationPrefs, pushSupport, sendTestNotification, syncSubscription } from '../lib/notifications.js'
+import { openWelcome } from '../components/welcome/rules.js'
 import '../components/settings.css'
 
 // settings.assistantWeb (also set in Food settings): when the assistant and food search may use the web.
@@ -250,6 +251,11 @@ export default function SettingsPage({ user, onUserChange, onSignOut }) {
               <small>{user.hasRecovery ? 'Lets you reset your password' : 'Not set — you can’t reset a forgotten password'}</small>
             </span>
             {!user.hasRecovery && <span className="badge badge-warning">Set up</span>}
+            <Icon name="chevronRight" size={18} />
+          </button>
+          <button type="button" className="settings-row" onClick={openWelcome}>
+            <span className="settings-row-icon"><Icon name="sparkles" size={18} /></span>
+            <span className="settings-row-text"><strong>Welcome tour</strong><small>A quick look at what Daybook can do</small></span>
             <Icon name="chevronRight" size={18} />
           </button>
           <button type="button" className="settings-row is-danger" onClick={signOut}>

@@ -1,4 +1,5 @@
-// Attachments for the assistant and food estimates. Photos are downscaled to JPEG on the device
+// Attachments for the assistant and food estimates, and People photos (imageToAvatarDataUrl).
+// Photos are downscaled to JPEG on the device
 // (which also strips EXIF/GPS). Photos and PDFs upload straight to storage (prepareAttachment →
 // uploadAttachment), so they skip Vercel's 4.5 MB request limit; when storage isn't available they
 // travel inside the request as data URLs (inlineAttachment / readAttachment). Text files always
@@ -123,6 +124,88 @@ async function renderJpeg(file, { maxDim = 1600, quality = 0.8 } = {}) {
   } finally {
     canvas.width = 0 // release iOS canvas memory
     canvas.height = 0
+    URL.revokeObjectURL(url)
+  }
+}
+
+// ---- profile photos (People) ---------------------------------------------------------------------
+// A person's photo is saved inline in their row (friends.photo_url) as a small square JPEG data URL,
+// so it syncs with everything else and shows offline. 192 px is sharp in a 64 px avatar on a 3x
+// screen; a typical photo comes out around 6–12 KB.
+export const AVATAR_PHOTO_SIZE = 192
+export const AVATAR_PHOTO_MAX_BYTES = 15_000
+const AVATAR_TOO_BIG = 'That photo couldn’t be made small enough — try another one.'
+
+// The square to cut from a width × height photo: centred across, and on a tall (portrait) photo a
+// little above centre, where faces usually are.
+export function squareCrop(width, height) {
+  const w = Math.max(0, Math.round(Number(width) || 0))
+  const h = Math.max(0, Math.round(Number(height) || 0))
+  const size = Math.min(w, h)
+  return { x: Math.round((w - size) / 2), y: Math.round((h - size) / (h > w ? 3 : 2)), size }
+}
+
+// True for a photo saved by imageToAvatarDataUrl (as opposed to a web link to a picture).
+export function isInlinePhoto(value) {
+  return typeof value === 'string' && /^data:image\//i.test(value.trim())
+}
+
+// A picked photo (any format the browser can open: iPhone HEIC included on Safari) → a square JPEG
+// data URL for an avatar, at most maxBytes. Orientation comes from the photo's EXIF (drawing an
+// <img> applies it). If the first try is too big it retries at a lower quality, then smaller.
+// Throws a friendly Error.
+export async function imageToAvatarDataUrl(file, { size = AVATAR_PHOTO_SIZE, quality = 0.75, maxBytes = AVATAR_PHOTO_MAX_BYTES } = {}) {
+  if (!isBlob(file) || attachmentKind(file) !== 'image') throw new Error('Choose a photo.')
+  if (!file.size) throw new Error(EMPTY)
+  const q = Number(quality) > 0 ? Math.min(1, Number(quality)) : 0.75
+  const attempts = [[1, q], [1, Math.min(q, 0.6)], [1, Math.min(q, 0.45)], [0.8, Math.min(q, 0.45)], [0.66, Math.min(q, 0.4)]]
+  const url = URL.createObjectURL(file)
+  const canvases = []
+  const square = (side) => {
+    const canvas = document.createElement('canvas')
+    canvases.push(canvas)
+    canvas.width = side
+    canvas.height = side
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error(PROCESS_FAILED)
+    ctx.imageSmoothingEnabled = true
+    ctx.imageSmoothingQuality = 'high'
+    ctx.fillStyle = '#fff' // transparent PNGs become white, not black
+    ctx.fillRect(0, 0, side, side)
+    return ctx
+  }
+  try {
+    const img = await decodeImage(url)
+    const crop = squareCrop(img.naturalWidth, img.naturalHeight)
+    if (!crop.size) throw new Error(UNDECODABLE)
+    const target = Math.max(32, Math.min(Math.round(Number(size) || AVATAR_PHOTO_SIZE), crop.size))
+    // Halve in steps down to at most twice the target: one big jump looks jagged in Safari. No step
+    // is bigger than half the photo or 4096 px across (iOS refuses canvases over 16.7 megapixels).
+    let source = img
+    let { x, y, size: side } = crop
+    while (side > target * 2) {
+      const next = Math.min(Math.round(side / 2), 4096)
+      const ctx = square(next)
+      ctx.drawImage(source, x, y, side, side, 0, 0, next, next)
+      source = ctx.canvas
+      x = 0
+      y = 0
+      side = next
+    }
+    for (const [scale, jpegQuality] of attempts) {
+      const dim = Math.max(32, Math.round(target * scale))
+      const ctx = square(dim)
+      ctx.drawImage(source, x, y, side, side, 0, 0, dim, dim)
+      const out = await canvasToJpeg(ctx.canvas, jpegQuality)
+      const bytes = typeof out === 'string' ? dataUrlBytes(out) : out.size
+      if (bytes && bytes <= maxBytes) return relabel(await readAsDataUrl(out), UPLOAD_TYPES.image)
+    }
+    throw new Error(AVATAR_TOO_BIG)
+  } finally {
+    for (const canvas of canvases) {
+      canvas.width = 0 // release iOS canvas memory
+      canvas.height = 0
+    }
     URL.revokeObjectURL(url)
   }
 }

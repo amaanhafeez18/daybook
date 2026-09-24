@@ -5,6 +5,7 @@ import { Avatar } from './components/ui/primitives.jsx'
 import { ConfirmHost, Toaster, toast } from './components/ui/feedback.jsx'
 import TodayPage from './pages/TodayPage.jsx'
 import WorkoutPill from './components/WorkoutPill.jsx'
+import Welcome from './components/Welcome.jsx'
 import { SESSION_EXPIRED_EVENT, clearSession, fetchSession, getCachedUser, getToken, readJson, readPref, tokenUserId, writePref } from './lib/api.js'
 import { getState, hydrateFromCache, refresh, resetStore, retryUnsaved, updateSettings, useData, useStore } from './lib/store.js'
 import { ensureFriendReminders } from './lib/planner.js'
@@ -16,14 +17,27 @@ import './components/today.css'
 import './components/shell.css'
 
 // Only Today ships in the first bundle; other pages load on first visit (then stay cached).
-const TasksPage = lazy(() => import('./pages/TasksPage.jsx'))
-const CalendarPage = lazy(() => import('./pages/CalendarPage.jsx'))
-const PeoplePage = lazy(() => import('./pages/PeoplePage.jsx'))
-const AssistantPage = lazy(() => import('./pages/AssistantPage.jsx'))
-const JournalPage = lazy(() => import('./pages/JournalPage.jsx'))
-const GymPage = lazy(() => import('./pages/GymPage.jsx'))
-const FoodPage = lazy(() => import('./pages/FoodPage.jsx'))
-const SettingsPage = lazy(() => import('./pages/SettingsPage.jsx'))
+const PAGE_LOADERS = {
+  tasks: () => import('./pages/TasksPage.jsx'),
+  calendar: () => import('./pages/CalendarPage.jsx'),
+  people: () => import('./pages/PeoplePage.jsx'),
+  assistant: () => import('./pages/AssistantPage.jsx'),
+  journal: () => import('./pages/JournalPage.jsx'),
+  gym: () => import('./pages/GymPage.jsx'),
+  food: () => import('./pages/FoodPage.jsx'),
+  settings: () => import('./pages/SettingsPage.jsx'),
+}
+const TasksPage = lazy(PAGE_LOADERS.tasks)
+const CalendarPage = lazy(PAGE_LOADERS.calendar)
+const PeoplePage = lazy(PAGE_LOADERS.people)
+const AssistantPage = lazy(PAGE_LOADERS.assistant)
+const JournalPage = lazy(PAGE_LOADERS.journal)
+const GymPage = lazy(PAGE_LOADERS.gym)
+const FoodPage = lazy(PAGE_LOADERS.food)
+const SettingsPage = lazy(PAGE_LOADERS.settings)
+// Warmed one by one once the first screen is up, so the first visit to a tab doesn't wait for its
+// code (it's precached by the service worker, so this costs no network). Most used first.
+const PREFETCH_ORDER = ['tasks', 'calendar', 'assistant', 'people', 'food', 'gym', 'journal']
 
 // Phones: the five tabs sit in the bottom bar, the daily extras are top-bar icons and Settings is
 // the avatar on the left of the top bar. Desktop: tabs + extras in the sidebar, Settings at its foot.
@@ -151,17 +165,20 @@ function Splash() {
 }
 
 function Shell({ user, onUserChange, onSignOut }) {
+  // The device cache goes in before anything reads the store, so the very first frame already shows
+  // the user's data instead of loading placeholders. (Nothing is subscribed yet at this point.)
+  useState(() => hydrateFromCache())
   const [route, setRoute] = useState(() => routeFromHash() || readPref('lastRoute', 'today'))
-  const settings = useStore((state) => state.data.settings)
+  // Only the few settings the shell uses (not the whole object), and no sync state: saving then
+  // doesn't re-render the open page (SyncStatus and SaveErrors below watch that themselves).
+  const rawName = useStore((state) => state.data.settings?.displayName)
+  const appearance = useStore((state) => state.data.settings?.appearance)
+  const darkMode = useStore((state) => state.data.settings?.darkMode)
+  const accent = useStore((state) => state.data.settings?.theme)
   const loaded = useStore((state) => state.loaded)
-  const syncing = useStore((state) => state.syncing)
-  const offline = useStore((state) => state.offline)
-  const pendingSaves = useStore((state) => state.pendingSaves)
-  const saveError = useStore((state) => state.saveError)
 
-  // Data: cache first, then the server; refresh again whenever the app returns to the foreground.
+  // Data: cache first (above), then the server; refresh again whenever the app returns to the foreground.
   useEffect(() => {
-    hydrateFromCache()
     const saveTimeZone = () => {
       const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
       if (timeZone && getState().data.settings.timeZone !== timeZone) updateSettings({ timeZone })
@@ -180,8 +197,19 @@ function Shell({ user, onUserChange, onSignOut }) {
     return () => document.removeEventListener('visibilitychange', onVisible)
   }, [user.id])
 
-  useEffect(() => { applyTheme(settings) }, [settings])
+  useEffect(() => { applyTheme({ appearance, darkMode, theme: accent }) }, [appearance, darkMode, accent])
   useFocusMode()
+
+  useEffect(() => {
+    let index = 0
+    let timer = setTimeout(function next() {
+      const id = PREFETCH_ORDER[index++]
+      if (!id) return
+      if (id !== route) PAGE_LOADERS[id]().catch(() => {})
+      timer = setTimeout(next, 400)
+    }, 1500)
+    return () => clearTimeout(timer)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const onHash = () => {
@@ -208,12 +236,7 @@ function Shell({ user, onUserChange, onSignOut }) {
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
 
-  useEffect(() => {
-    if (saveError) toast(`Couldn’t sync: ${saveError}`, { tone: 'error', action: { label: 'Retry', onClick: retryUnsaved } })
-  }, [saveError])
-
-  const displayName = settings?.displayName?.trim() || user.username
-  const syncState = offline ? 'offline' : pendingSaves > 0 || syncing ? 'syncing' : 'synced'
+  const displayName = rawName?.trim() || user.username
   const routeLabel = PAGES.find((item) => item.id === route)?.label || 'Daybook'
 
   return (
@@ -251,7 +274,8 @@ function Shell({ user, onUserChange, onSignOut }) {
             <Avatar name={displayName} size={32} />
           </a>
           <span className="topbar-title" aria-hidden={!scrolled}>{routeLabel}</span>
-          <SyncBadge state={syncState} />
+          <SyncStatus />
+          <SaveErrors />
           <div className="topbar-actions">
             {EXTRAS.map((item) => (
               <a
@@ -287,8 +311,25 @@ function Shell({ user, onUserChange, onSignOut }) {
         </main>
         <WorkoutPill />
       </div>
+      <Welcome user={user} />
     </div>
   )
+}
+
+// The sync badge and save errors follow the save state on their own, so a save re-renders only them.
+function SyncStatus() {
+  const syncing = useStore((state) => state.syncing)
+  const offline = useStore((state) => state.offline)
+  const pendingSaves = useStore((state) => state.pendingSaves)
+  return <SyncBadge state={offline ? 'offline' : pendingSaves > 0 || syncing ? 'syncing' : 'synced'} />
+}
+
+function SaveErrors() {
+  const saveError = useStore((state) => state.saveError)
+  useEffect(() => {
+    if (saveError) toast(`Couldn’t sync: ${saveError}`, { tone: 'error', action: { label: 'Retry', onClick: retryUnsaved } })
+  }, [saveError])
+  return null
 }
 
 function NavLink({ item, active }) {

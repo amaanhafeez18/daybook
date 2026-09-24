@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../components/ui/Icon.jsx'
 import Sheet from '../components/ui/Sheet.jsx'
 import { AutoTextarea, Avatar, Button, EmptyState, Field, Segmented, Skeleton } from '../components/ui/primitives.jsx'
@@ -9,10 +9,14 @@ import {
   removeContactLog, removeFriend, updateContactNote, updateFriend,
 } from '../lib/planner.js'
 import { addDaysISO, formatDateShort, isISODate, relativeDay, timeAgo, todayISO } from '../lib/dates.js'
+import { imageToAvatarDataUrl, isInlinePhoto, photoAccept } from '../lib/media.js'
 import '../components/people.css'
 
 const NOTE_INPUT_MAX = 2000
-const LOGS_SHOWN = 12
+const EARLIER_SHOWN = 5
+
+// A web link to a picture (older people, or "Use a link instead"), as opposed to a picked photo.
+const isPhotoLink = (value) => !!(value || '').trim() && !isInlinePhoto(value)
 
 const firstName = (name = '') => name.trim().split(/\s+/)[0] || name
 const capitalize = (text = '') => (text ? text[0].toUpperCase() + text.slice(1) : text)
@@ -29,11 +33,6 @@ function dueLabel(iso, today) {
 // device meanwhile and saves them once the column exists.
 let noteNoticeShown = false
 const selectNotesHeld = (state) => !!state.droppedFields?.contactLogs?.includes('note')
-
-// "his new job" reads as "about his new job"; anything else is shown as written.
-function aboutTopic(topic) {
-  return /^(his|her|their|our|my|your|the|a|an|its|some|how|what|why|when|where|whether)\b/.test(topic) ? `about ${topic}` : topic
-}
 
 export default function PeoplePage({ loaded }) {
   const friends = useData('friends')
@@ -145,15 +144,16 @@ function PersonRow({ friend, status, topic, onOpen, onTalked }) {
   return (
     <li className="person-row">
       <button type="button" className="person-main" onClick={onOpen}>
-        <Avatar name={friend.name} src={friend.photoUrl} size={44} />
+        <Avatar key={friend.photoUrl || 'none'} name={friend.name} src={friend.photoUrl} size={44} />
         <span className="person-text">
           <strong>{friend.name}</strong>
           <small>
             <i className={`status-dot is-${tone}`} aria-hidden="true" />
             {lastLabel} · {relationshipLabel(friend.relationship)}
           </small>
-          {friend.currentStatus ? <small className="person-status">{friend.currentStatus}</small>
-            : topic ? <small className="person-status ppl-topic"><span>Last:</span> {topic}</small> : null}
+          {/* What you talked about last time comes first; what they're up to otherwise. */}
+          {topic ? <small className="person-status ppl-topic"><Icon name="message" size={13} strokeWidth={2} /><span className="sr-only">Last time: </span>{topic}</small>
+            : friend.currentStatus ? <small className="person-status">{friend.currentStatus}</small> : null}
         </span>
       </button>
       <button
@@ -169,9 +169,113 @@ function PersonRow({ friend, status, topic, onOpen, onTalked }) {
   )
 }
 
-// Adding shows only the essentials; `full` (editing) shows every field.
-function PersonForm({ value, onChange, full = false }) {
+// Choosing a photo: on an iPhone the picker offers Photo Library, Take Photo and Choose File (no
+// `capture`, which would allow only the camera). The photo is cropped to a square and shrunk on
+// the device (imageToAvatarDataUrl), then onPhoto(dataUrl) runs. Render `input` once, anywhere.
+function usePhotoPicker(onPhoto, onError) {
+  const inputRef = useRef(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  async function onPick(event) {
+    const file = event.target.files?.[0]
+    event.target.value = '' // so choosing the same photo again still counts
+    if (!file) return
+    setBusy(true)
+    setError('')
+    try {
+      onPhoto(await imageToAvatarDataUrl(file))
+    } catch (problem) {
+      const message = problem?.message || 'Couldn’t use that photo — try another one.'
+      if (onError) onError(message)
+      else setError(message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function open() {
+    if (busy) return
+    setError('')
+    inputRef.current?.click()
+  }
+
+  const input = <input ref={inputRef} type="file" accept={photoAccept} className="ppl-photo-input" tabIndex={-1} aria-hidden="true" onChange={onPick} />
+  return { input, open, busy, error, clearError: () => setError('') }
+}
+
+// The avatar with its "no name yet" silhouette. Keyed by the photo, so a new photo replaces one
+// that failed to load.
+function PersonAvatar({ name, src, size }) {
+  if (!src && !name.trim()) {
+    return <span className="avatar ppl-avatar-blank" style={{ width: size, height: size }} aria-hidden="true"><Icon name="user" size={Math.round(size * 0.44)} strokeWidth={1.6} /></span>
+  }
+  return <Avatar key={src || 'none'} name={name} src={src} size={size} />
+}
+
+// A typed photo link is previewed once typing pauses and it looks like a whole web address, so a
+// half-typed one ("h", "https://exa…") isn't fetched on every keystroke. Picked photos show at once.
+function useLinkPreview(photo) {
+  const link = isPhotoLink(photo)
+  const [settled, setSettled] = useState(photo)
+  useEffect(() => {
+    if (!link) return undefined
+    const timer = setTimeout(() => setSettled(photo), 450)
+    return () => clearTimeout(timer)
+  }, [photo, link])
+  if (!link) return photo
+  return settled === photo && /^https?:\/\/[^\s/]+\/\S/i.test(photo.trim()) ? photo : ''
+}
+
+// Top of the person form: the photo, tap to add or change it, like Contacts.
+function PhotoField({ name, photo, picker, onRemove, onUseLink }) {
+  const label = photo ? 'Change photo' : 'Add photo'
+  const preview = useLinkPreview(photo)
+  const actionRef = useRef(null)
+  function remove(event) {
+    // The Remove button goes away: keep keyboard focus on the photo button next to it.
+    const hadFocus = document.activeElement === event.currentTarget
+    onRemove()
+    if (hadFocus) actionRef.current?.focus()
+  }
+  return (
+    <div className="ppl-photo">
+      <button type="button" className="ppl-photo-pick" onClick={picker.open} aria-label={label} aria-busy={picker.busy || undefined}>
+        <PersonAvatar name={name} src={preview} size={96} />
+        {(!photo || picker.busy) && (
+          <span className={`ppl-photo-badge${picker.busy ? ' is-busy' : ''}`} aria-hidden="true">
+            {picker.busy ? <span className="spinner" /> : <Icon name="camera" size={16} strokeWidth={2.2} />}
+          </span>
+        )}
+      </button>
+      <div className="ppl-photo-actions">
+        <button ref={actionRef} type="button" className="ppl-photo-action" onClick={picker.open} disabled={picker.busy}>{picker.busy ? 'Preparing photo…' : label}</button>
+        {photo && !picker.busy && <button type="button" className="ppl-photo-action is-danger" onClick={remove}>Remove</button>}
+        {!photo && !picker.busy && onUseLink && <button type="button" className="ppl-photo-action is-quiet" onClick={onUseLink}>Use a link</button>}
+      </div>
+      {picker.error && <p className="field-error ppl-photo-error" role="alert">{picker.error}</p>}
+    </div>
+  )
+}
+
+// Adding shows only the essentials; `full` (editing) shows every field. `onChange` is the form's
+// state setter (it also takes an updater function). onBusyChange(true) while a picked photo is
+// still being prepared, so the sheet can hold off saving until it's in the form.
+function PersonForm({ value, onChange, onBusyChange, full = false }) {
   const [more, setMore] = useState(full)
+  // The link field is for people who already have a web link, or who ask for one.
+  const [linkOpen, setLinkOpen] = useState(() => isPhotoLink(value.photoUrl))
+  const setPhoto = (photoUrl) => onChange((current) => ({ ...current, photoUrl }))
+  const picker = usePhotoPicker((dataUrl) => {
+    setPhoto(dataUrl)
+    setLinkOpen(false)
+  })
+  useEffect(() => {
+    if (!picker.busy) return undefined
+    onBusyChange?.(true)
+    return () => onBusyChange?.(false) // also when the form closes mid-way
+  }, [picker.busy]) // eslint-disable-line react-hooks/exhaustive-deps
+  const photo = (value.photoUrl || '').trim()
   const set = (field) => (event) => onChange({ ...value, [field]: event.target.value })
   const relationship = RELATIONSHIPS.find((item) => item.id === value.relationship)
   const birthday = (
@@ -186,6 +290,19 @@ function PersonForm({ value, onChange, full = false }) {
   )
   return (
     <>
+      <PhotoField
+        name={value.name}
+        photo={photo}
+        picker={picker}
+        onRemove={() => {
+          setPhoto('')
+          picker.clearError()
+        }}
+        onUseLink={linkOpen ? null : () => {
+          setMore(true)
+          setLinkOpen(true)
+        }}
+      />
       <Field label="Name">
         {(id) => <input id={id} className="input input-lg" value={value.name} onChange={set('name')} autoComplete="off" autoCapitalize="words" data-autofocus />}
       </Field>
@@ -210,11 +327,29 @@ function PersonForm({ value, onChange, full = false }) {
           <Field label="Things to remember">
             {(id) => <AutoTextarea id={id} value={value.facts} onChange={set('facts')} placeholder="Kids’ names, favourite food, allergies…" minRows={3} />}
           </Field>
-          <Field label="Photo URL" hint="Optional link to a picture.">
-            {(id) => <input id={id} className="input" type="url" inputMode="url" value={value.photoUrl} onChange={set('photoUrl')} autoComplete="off" autoCapitalize="none" spellCheck={false} />}
-          </Field>
         </>
       )}
+      {/* Below the name (the sheet focuses the first field when it opens). */}
+      {more && linkOpen && (
+        <Field label="Photo link" hint="A web address of a picture. Choosing a photo above replaces it.">
+          {(id) => (
+            <input
+              id={id}
+              className="input"
+              type="url"
+              inputMode="url"
+              value={isPhotoLink(value.photoUrl) ? value.photoUrl : ''}
+              onChange={(event) => setPhoto(event.target.value)}
+              placeholder="https://"
+              autoComplete="off"
+              autoCapitalize="none"
+              spellCheck={false}
+              autoFocus={!isPhotoLink(value.photoUrl)}
+            />
+          )}
+        </Field>
+      )}
+      {picker.input}
     </>
   )
 }
@@ -223,20 +358,21 @@ const EMPTY_PERSON = { name: '', relationship: 'friend', birthday: '', organizat
 
 function AddPersonSheet({ open, onClose, onAdded }) {
   const [form, setForm] = useState(EMPTY_PERSON)
+  const [photoBusy, setPhotoBusy] = useState(false)
   useEffect(() => { if (open) setForm(EMPTY_PERSON) }, [open])
 
   function submit(event) {
     event.preventDefault()
-    if (!form.name.trim()) return
+    if (!form.name.trim() || photoBusy) return
     const friend = addFriend(form)
     toast(`Added ${friend.name}`)
     onAdded(friend)
   }
 
   return (
-    <Sheet open={open} onClose={onClose} title="Add a person" footer={<Button type="submit" form="add-person" className="btn-grow" disabled={!form.name.trim()}>Add person</Button>}>
+    <Sheet open={open} onClose={onClose} title="Add a person" footer={<Button type="submit" form="add-person" className="btn-grow" disabled={!form.name.trim() || photoBusy}>Add person</Button>}>
       <form id="add-person" className="form-stack" onSubmit={submit}>
-        <PersonForm value={form} onChange={setForm} />
+        <PersonForm value={form} onChange={setForm} onBusyChange={setPhotoBusy} />
       </form>
     </Sheet>
   )
@@ -249,6 +385,9 @@ function PersonSheet({ friendId, onClose, onCatchUp }) {
   const [shownId, setShownId] = useState(friendId)
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState(EMPTY_PERSON)
+  const [photoBusy, setPhotoBusy] = useState(false)
+  const contentRef = useRef(null)
+  const switched = useRef(false)
   const today = todayISO()
 
   useEffect(() => {
@@ -256,10 +395,25 @@ function PersonSheet({ friendId, onClose, onCatchUp }) {
     setEditing(false)
   }, [friendId])
 
+  // Switching between the person and the edit form removes the focused button (Edit, Save,
+  // Cancel): keep focus in the sheet rather than letting it fall back to the page.
+  useEffect(() => {
+    if (!switched.current) {
+      switched.current = true
+      return
+    }
+    if (!friendId) return // closing: the sheet hands focus back itself
+    const panel = contentRef.current?.closest('[role="dialog"]')
+    if (panel && !panel.contains(document.activeElement)) panel.focus({ preventScroll: true })
+  }, [editing])
+
   const friend = friends.find((item) => item.id === (friendId || shownId)) || null
   const logs = useMemo(() => (friend ? contactLogs.filter((log) => (log.friendId || log.friend_id) === friend.id).sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || '').localeCompare(a.createdAt || '')) : []), [contactLogs, friend])
   const status = friend ? friendStatus(friend, lastContactMap(logs), today) : null
-  const topic = friend ? contactTopic(lastCatchUpMap(logs)[friend.id]?.note) : ''
+  // "Last time" is the latest day's catch-up; if that day somehow has two, the one with a note
+  // (the People list previews the same note).
+  const latest = logs.find((log) => log.date === logs[0].date && (log.note || '').trim()) || logs[0]
+  const earlier = logs.filter((log) => log !== latest)
 
   function startEdit() {
     // Older people store their notes in `note`; show them here so they can be edited.
@@ -269,7 +423,7 @@ function PersonSheet({ friendId, onClose, onCatchUp }) {
 
   function save(event) {
     event.preventDefault()
-    if (!form.name.trim()) return
+    if (!form.name.trim() || photoBusy) return
     const patch = { ...form, name: form.name.trim() }
     // Keep a legacy note in step, so clearing the field doesn't bring it back.
     if (friend.note) patch.note = form.facts
@@ -286,6 +440,9 @@ function PersonSheet({ friendId, onClose, onCatchUp }) {
   }
 
   const tone = status?.due ? 'danger' : status?.soon ? 'warning' : status?.last ? 'success' : 'muted'
+  const nextLine = !status ? '' : !status.interval ? 'No catch-up reminders'
+    : status.due ? 'Time to catch up'
+      : `Next catch-up ${dueLabel(addDaysISO(status.last, status.interval), today).replace(/^Due/, 'due')}`
 
   return (
     <Sheet
@@ -293,42 +450,45 @@ function PersonSheet({ friendId, onClose, onCatchUp }) {
       onClose={onClose}
       title={editing ? 'Edit person' : friend?.name}
       description={editing ? undefined : friend ? `${relationshipLabel(friend.relationship)}${friend.organization ? ` · ${friend.organization}` : ''}` : undefined}
+      // Keyed, so React doesn't turn the tapped Edit button into the Save (submit) button while
+      // the tap is still being handled: the browser would then submit the form and leave editing.
       footer={editing ? (
-        <>
+        <Fragment key="editing">
           <Button variant="secondary" onClick={() => setEditing(false)}>Cancel</Button>
-          <Button type="submit" form="edit-person" className="btn-grow">Save</Button>
-        </>
+          <Button type="submit" form="edit-person" className="btn-grow" disabled={photoBusy}>Save</Button>
+        </Fragment>
       ) : (
-        <>
+        <Fragment key="viewing">
           <Button variant="ghost" icon="trash" onClick={remove}>Remove</Button>
           <Button variant="secondary" icon="pencil" onClick={startEdit}>Edit</Button>
           <Button icon="check" className="btn-grow" onClick={() => onCatchUp(friend.id, 'today')}>Talked today</Button>
-        </>
+        </Fragment>
       )}
       initialFocus={editing}
     >
       {friend && (editing ? (
-        <form id="edit-person" className="form-stack" onSubmit={save}>
-          <PersonForm value={form} onChange={setForm} full />
+        <form ref={contentRef} id="edit-person" className="form-stack" onSubmit={save}>
+          <PersonForm value={form} onChange={setForm} onBusyChange={setPhotoBusy} full />
         </form>
       ) : (
-        <div className="person-detail">
+        <div ref={contentRef} className="person-detail">
           <div className="ppl-hero">
-            <Avatar name={friend.name} src={friend.photoUrl} size={64} />
+            <HeroPhoto friend={friend} />
             <div className="ppl-last">
-              <span className="ppl-label">Last catch-up</span>
               <p className="ppl-last-line">
                 <i className={`status-dot is-${tone}`} aria-hidden="true" />
-                <strong>{status.last ? capitalize(timeAgo(status.last)) : 'None yet'}</strong>
-                {topic && <span className="ppl-last-topic"> · {aboutTopic(topic)}</span>}
+                <strong>{status.last ? `Talked ${timeAgo(status.last)}` : 'No catch-ups yet'}</strong>
               </p>
+              <small className={`ppl-next${status.due ? ' is-due' : ''}`}>{nextLine}</small>
             </div>
           </div>
+
+          <LastTime key={latest?.id || 'none'} log={latest} onCatchUp={(mode) => onCatchUp(friend.id, mode)} />
+
           <div className="ppl-facts">
             <div>
               <span className="ppl-label">Reminder</span>
               <strong>{status.interval ? `Every ${status.interval} days` : 'Off'}</strong>
-              {status.interval && status.last ? <small>{status.due ? 'Due now' : dueLabel(addDaysISO(status.last, status.interval), today)}</small> : null}
             </div>
             <div>
               <span className="ppl-label">Birthday</span>
@@ -350,16 +510,109 @@ function PersonSheet({ friendId, onClose, onCatchUp }) {
             </section>
           )}
 
-          <section className="detail-block">
-            <div className="detail-block-header">
-              <h3>Catch-ups</h3>
-              <Button variant="secondary" size="sm" icon="calendar" className="ppl-earlier" onClick={() => onCatchUp(friend.id, 'earlier')}>Log earlier</Button>
-            </div>
-            {logs.length === 0 ? <p className="muted">No catch-ups logged yet. Tap “Talked today” after you speak.</p> : <CatchUpList key={friend.id} logs={logs} />}
-          </section>
+          {latest && (
+            <section className="detail-block">
+              <div className="detail-block-header">
+                <h3>Earlier catch-ups</h3>
+                <Button variant="secondary" size="sm" icon="calendar" className="ppl-earlier" onClick={() => onCatchUp(friend.id, 'earlier')}>Log earlier</Button>
+              </div>
+              {earlier.length ? <CatchUpList key={friend.id} logs={earlier} /> : <p className="muted ppl-none-earlier">Nothing before {formatDateShort(latest.date)} yet.</p>}
+            </section>
+          )}
         </div>
       ))}
     </Sheet>
+  )
+}
+
+// The person's photo in their sheet: tap it to choose a new one (saved straight away, with Undo).
+function HeroPhoto({ friend }) {
+  const has = !!(friend.photoUrl || '').trim()
+  const picker = usePhotoPicker((photoUrl) => {
+    const previous = friend.photoUrl || ''
+    updateFriend(friend.id, { photoUrl })
+    toast(previous ? 'Photo changed' : 'Photo added', { action: { label: 'Undo', onClick: () => updateFriend(friend.id, { photoUrl: previous }) } })
+  }, (message) => toast(message))
+  return (
+    <span className="ppl-hero-photo">
+      <button type="button" className="ppl-photo-pick" onClick={picker.open} aria-label={has ? `Change ${friend.name}’s photo` : `Add a photo of ${friend.name}`} aria-busy={picker.busy || undefined}>
+        <PersonAvatar name={friend.name} src={friend.photoUrl} size={72} />
+        {(!has || picker.busy) && (
+          <span className={`ppl-photo-badge is-small${picker.busy ? ' is-busy' : ''}`} aria-hidden="true">
+            {picker.busy ? <span className="spinner" /> : <Icon name="camera" size={14} strokeWidth={2.2} />}
+          </span>
+        )}
+      </button>
+      {picker.input}
+    </span>
+  )
+}
+
+// "Last time": what you talked about at the latest catch-up, near the top of the person's sheet.
+// The note is the catch-up's own (contact_logs.note), edited in place.
+function LastTime({ log, onCatchUp }) {
+  const [editing, setEditing] = useState(false)
+  const cardRef = useRef(null)
+  const wasEditing = useRef(false)
+  const note = (log?.note || '').trim()
+
+  // Saving or cancelling removes the focused text box: keep focus on this card (for VoiceOver and
+  // keyboards) instead of dropping it to the top of the page.
+  useEffect(() => {
+    const closed = wasEditing.current && !editing
+    wasEditing.current = editing
+    const card = cardRef.current
+    if (closed && card && (!document.activeElement || document.activeElement === document.body)) card.focus({ preventScroll: true })
+  }, [editing])
+
+  if (!log) {
+    return (
+      <section className="ppl-lasttime is-empty" aria-labelledby="ppl-lasttime-title">
+        <h3 id="ppl-lasttime-title" className="ppl-label">Last time</h3>
+        <p className="ppl-lasttime-empty">Nothing here yet. After you talk, tap Talked today and add a line on what you talked about. It shows up here next time.</p>
+        <button type="button" className="ppl-lasttime-add" onClick={() => onCatchUp('earlier')}>
+          <Icon name="calendar" size={16} strokeWidth={2.2} /> Log one from an earlier day
+        </button>
+      </section>
+    )
+  }
+
+  function save(text) {
+    const undo = updateContactNote(log.id, text)
+    setEditing(false)
+    toast(text.trim() ? 'Note saved' : 'Note removed', { action: { label: 'Undo', onClick: undo } })
+  }
+
+  function remove() {
+    const undo = removeContactLog(log.id)
+    toast('Catch-up removed', { action: { label: 'Undo', onClick: undo } })
+  }
+
+  const when = `${formatDateShort(log.date)} · ${timeAgo(log.date)}`
+  return (
+    <section ref={cardRef} tabIndex={-1} className={`ppl-lasttime${note ? '' : ' is-blank'}`} aria-labelledby="ppl-lasttime-title">
+      <div className="ppl-lasttime-head">
+        <h3 id="ppl-lasttime-title" className="ppl-label">Last time</h3>
+        <span className="ppl-lasttime-date">{when}</span>
+        {note && !editing && (
+          <button type="button" className="icon-btn ppl-lasttime-edit" onClick={() => setEditing(true)} aria-label={`Edit what you talked about on ${formatDateShort(log.date)}`}>
+            <Icon name="pencil" size={17} />
+          </button>
+        )}
+      </div>
+      {editing ? (
+        <NoteEditor note={note} label={`What you talked about on ${formatDateShort(log.date)}`} onCancel={() => setEditing(false)} onSave={save} onRemove={remove} />
+      ) : note ? (
+        <p className="ppl-lasttime-note">{note}</p>
+      ) : (
+        <>
+          <p className="ppl-lasttime-empty">No notes from last time.</p>
+          <button type="button" className="ppl-lasttime-add" onClick={() => setEditing(true)}>
+            <Icon name="plus" size={16} strokeWidth={2.4} /> Add what you talked about
+          </button>
+        </>
+      )}
+    </section>
   )
 }
 
@@ -367,7 +620,7 @@ function CatchUpList({ logs }) {
   const [openId, setOpenId] = useState(null)
   const [editingId, setEditingId] = useState(null)
   const [showAll, setShowAll] = useState(false)
-  const shown = showAll ? logs : logs.slice(0, LOGS_SHOWN)
+  const shown = showAll ? logs : logs.slice(0, EARLIER_SHOWN)
 
   function toggle(log) {
     if (openId === log.id) {
@@ -411,9 +664,9 @@ function CatchUpList({ logs }) {
           />
         ))}
       </ul>
-      {logs.length > LOGS_SHOWN && (
+      {logs.length > EARLIER_SHOWN && (
         <button type="button" className="ppl-show-all" onClick={() => setShowAll((value) => !value)}>
-          {showAll ? 'Show fewer' : `Show all ${logs.length} catch-ups`}
+          {showAll ? 'Show fewer' : `Show all ${logs.length} earlier catch-ups`}
         </button>
       )}
     </>
@@ -447,8 +700,9 @@ function CatchUpItem({ log, open, editing, showAddHint, onToggle, onEdit, onCanc
   )
 }
 
-// Mounted per edit, so the draft starts from the saved note each time.
-function NoteEditor({ note, label, onCancel, onSave }) {
+// Mounted per edit, so the draft starts from the saved note each time. onRemove (optional) adds a
+// button that removes the whole catch-up.
+function NoteEditor({ note, label, onCancel, onSave, onRemove }) {
   const [draft, setDraft] = useState(note)
   const caretPlaced = useRef(false)
 
@@ -486,6 +740,7 @@ function NoteEditor({ note, label, onCancel, onSave }) {
         autoFocus
       />
       <div className="ppl-log-editor-actions">
+        {onRemove && <button type="button" className="ppl-log-editor-remove" onClick={onRemove} aria-label="Remove this catch-up">Remove</button>}
         <Button variant="secondary" size="sm" onClick={onCancel}>Cancel</Button>
         <Button type="submit" size="sm" disabled={draft.trim() === note}>Save</Button>
       </div>
