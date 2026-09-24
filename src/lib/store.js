@@ -351,8 +351,20 @@ export function refresh() {
       const result = await apiRequest(`/api/data?keys=${ALL_KEYS.join(',')}`)
       if (startedIn !== generation) return
       const data = { ...state.data }
+      // Keys the server hasn't changed and that show the same thing: they keep their objects (no
+      // re-render) and skip the cache rewrite.
+      const unchanged = new Set()
       for (const key of ALL_KEYS) {
         let server = isValid(key, result[key]) ? result[key] : emptyData()[key]
+        if (!uncached.has(key) && sameValue(server, base[key])) {
+          const shown = key === 'settings' ? data.settings : state.data[key]
+          const local = key === 'settings' ? settingsChanges(base.settings || {}, shown) : diffList(base[key] || [], shown)
+          const same = key === 'settings' ? !Object.keys(local).length : !local.upsert.length && !local.remove.length
+          if (same && !(key !== 'settings' && held[key] && Object.keys(held[key]).length)) {
+            unchanged.add(key)
+            continue
+          }
+        }
         if (key === 'settings') {
           // Settings are small: keep local values only for fields changed on this device.
           const local = settingsChanges(base.settings || {}, state.data.settings)
@@ -370,7 +382,7 @@ export function refresh() {
       }
       setState({ data, loaded: true, hydrated: true, syncing: false, lastSyncedAt: Date.now(), offline: false })
       // After setState: listeners may have edited again, and settings are cached once hydrated.
-      for (const key of ALL_KEYS) storeCache(key, state.data[key], true)
+      for (const key of ALL_KEYS) if (!unchanged.has(key)) storeCache(key, state.data[key], true)
       for (const key of ALL_KEYS) if (hasLocalChanges(key)) scheduleSave(key, 0)
     } catch (error) {
       if (startedIn !== generation) return

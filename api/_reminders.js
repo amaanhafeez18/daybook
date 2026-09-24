@@ -4,6 +4,8 @@ import webpush from 'web-push'
 // Pure, dependency-free gym modules shared with the app.
 import { resolveDay } from '../src/lib/gym/schedule.js'
 import { estimateMinutes } from '../src/lib/gym/stats.js'
+// Pure date helpers (no imports), shared with the app.
+import { timeRangeMinutes } from '../src/lib/dates.js'
 
 // Keep in sync with src/lib/notifications.js.
 export const DEFAULT_NOTIFICATIONS = {
@@ -213,6 +215,19 @@ function plannedWorkout(settings, gymSessions, today) {
   }
 }
 
+// The gym day `date` shows a routine that's still to do (not rest, skipped, shifted or done), else null.
+function plannedWorkoutOn(settings, gymSessions, date, today) {
+  const gym = settings?.gym
+  if (!isObject(gym) || !Array.isArray(gym.schedule?.versions) || !gym.schedule.versions.length || !Array.isArray(gymSessions)) return null
+  try {
+    const day = resolveDay(gym, gymSessions, date, today)
+    return ['today', 'upcoming'].includes(day.status) && day.routine ? day : null
+  } catch (error) {
+    console.error('Gym day failed:', error.message || error)
+    return null
+  }
+}
+
 // A workout for today is already in progress (settings.gym.active, synced by the app).
 function workoutInProgress(gym, today, timeZone) {
   const active = gym?.active
@@ -344,6 +359,76 @@ export function reminderPreview(task, prefs, timeZone, nowMs = Date.now()) {
   return { at, label: label(at), warning }
 }
 
+// ---- summaries -----------------------------------------------------------------------------
+
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const weekdayOf = (date) => new Date(`${date}T12:00:00Z`).getUTCDay()
+const weekdayName = (date) => WEEKDAY_NAMES[weekdayOf(date)]
+const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`
+
+// Timed tasks first, by time; then the rest.
+function byTaskTime(a, b) {
+  const left = isTime(a.time) ? a.time : '99:99'
+  const right = isTime(b.time) ? b.time : '99:99'
+  return left < right ? -1 : left > right ? 1 : 0
+}
+
+// "Essay (9:00 AM), Call mom, Gym +2 more"; long titles are cut so the banner stays readable.
+function taskNames(list) {
+  const short = (text) => {
+    const value = String(text || '').trim()
+    return value.length > 40 ? `${value.slice(0, 38).trimEnd()}…` : value
+  }
+  const names = list.slice(0, 3).map((task) => `${short(task.text)}${isTime(task.time) ? ` (${formatTime(task.time)})` : ''}`)
+  return `${names.join(', ')}${list.length > 3 ? ` +${list.length - 3} more` : ''}`
+}
+
+// Class slots on a date (rows: days ["Mon"] + day_details, or [{ day, time, room }]), by start time.
+function classSlotsOn(classes, date) {
+  const weekday = WEEKDAYS[weekdayOf(date)]
+  const slots = []
+  for (const item of Array.isArray(classes) ? classes : []) {
+    if (!isObject(item) || (isDate(item.end_date) && item.end_date < date)) continue
+    const details = isObject(item.day_details) ? item.day_details : {}
+    for (const day of Array.isArray(item.days) ? item.days : []) {
+      const name = typeof day === 'string' ? day : day?.day
+      if (name !== weekday) continue
+      const time = typeof day === 'string' ? details[day]?.time || item.time || '' : day?.time || ''
+      slots.push({ name: String(item.name || 'Class'), start: timeRangeMinutes(time).start })
+    }
+  }
+  return slots.sort((a, b) => (a.start ?? 1e9) - (b.start ?? 1e9))
+}
+
+const minutesText = (minutes) => formatTime(`${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`)
+
+// "ECON 1022 at 2:30 PM" / "3 classes from 11:30 AM" / "" (no classes).
+function classesLine(classes, date) {
+  const slots = classSlotsOn(classes, date)
+  if (!slots.length) return ''
+  const names = [...new Set(slots.map((slot) => slot.name))]
+  const first = slots[0].start
+  if (names.length === 1) return `${names[0]}${first !== null ? ` at ${minutesText(first)}` : ''}`
+  return `${names.length} classes${first !== null ? ` from ${minutesText(first)}` : ''}`
+}
+
+// "🎂 Ali’s birthday today/tomorrow" for friends whose birthday falls on one of `dates`. Feb 29
+// birthdays are marked on Mar 1 in other years.
+function birthdayLines(friends, today, dates) {
+  const lines = []
+  for (const date of dates) {
+    const year = Number(date.slice(0, 4))
+    const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0
+    for (const friend of Array.isArray(friends) ? friends : []) {
+      if (!isDate(friend?.birthday)) continue
+      const monthDay = friend.birthday.slice(5) === '02-29' && !leap ? '03-01' : friend.birthday.slice(5)
+      if (monthDay === date.slice(5)) lines.push(`🎂 ${friend.name}’s birthday ${date === today ? 'today' : 'tomorrow'}`)
+    }
+  }
+  return lines
+}
+
 // ---- what is due ----------------------------------------------------------------------------
 
 // Tapping a task's reminder opens that task (TasksPage reads #/tasks/<id>); anything without an id
@@ -384,24 +469,18 @@ export function dueNotifications({ settings, tasks, friends, contactLogs = null,
     candidates.push({ key: plan.key, fireAt: plan.fireAt, title: taskTitle(task), body, url: taskUrl(task), tag: `task-${task.id}`, ...(plan.late ? { batch: LATE_ALLDAY_BATCH } : {}) })
   }
 
-  // Morning summary
+  // Morning summary: every day it's on, a clear day included (so it's plain the reminders work).
   if (prefs.dailySummary && isTime(prefs.dailySummaryTime)) {
-    const dueToday = open.filter((task) => task.date === today && !isReminderTask(task))
+    const dueToday = open.filter((task) => task.date === today && !isReminderTask(task)).sort(byTaskTime)
     const overdue = counted.filter((task) => isDate(task.date) && task.date < today)
-    const weekday = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(`${today}T12:00:00Z`).getUTCDay()]
-    const classCount = classes.filter((item) => (!item.end_date || item.end_date >= today) && (item.days || []).some((day) => (typeof day === 'string' ? day : day?.day) === weekday)).length
     const lines = []
-    if (dueToday.length) lines.push(`${dueToday.length} due today: ${dueToday.slice(0, 3).map((task) => task.text).join(', ')}${dueToday.length > 3 ? '…' : ''}`)
+    if (dueToday.length) lines.push(`${plural(dueToday.length, 'task')}: ${taskNames(dueToday)}`)
     if (overdue.length) lines.push(`${overdue.length} overdue`)
-    if (classCount) lines.push(`${classCount} class${classCount === 1 ? '' : 'es'}`)
+    const classLine = classesLine(classes, today)
+    if (classLine) lines.push(classLine)
     if (workout) lines.push(`Gym: ${gymDayName(workout.routine)}`)
     if (prefs.people) {
-      // Feb 29 birthdays are marked on Mar 1 in other years.
-      const year = Number(today.slice(0, 4))
-      const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0
-      const monthDay = (friend) => (friend.birthday.slice(5) === '02-29' && !leap ? '03-01' : friend.birthday.slice(5))
-      const birthdays = friends.filter((friend) => isDate(friend.birthday) && (monthDay(friend) === today.slice(5) || monthDay(friend) === tomorrow.slice(5)))
-      for (const friend of birthdays) lines.push(`🎂 ${friend.name}’s birthday ${monthDay(friend) === today.slice(5) ? 'today' : 'tomorrow'}`)
+      lines.push(...birthdayLines(friends, today, [today, tomorrow]))
       let catchUpCount
       if (Array.isArray(contactLogs)) {
         // From the contact history, so it doesn't depend on the app having created "Talk to…" tasks.
@@ -419,22 +498,47 @@ export function dueNotifications({ settings, tasks, friends, contactLogs = null,
       }
       if (catchUpCount) lines.push(`${catchUpCount} catch-up${catchUpCount === 1 ? '' : 's'} due`)
     }
-    if (lines.length) {
-      candidates.push({ key: `summary:${today}`, fireAt: zonedToUtc(today, prefs.dailySummaryTime, timeZone), title: 'Your day', body: lines.join(' · '), url: '/#/today', tag: 'daily-summary' })
-    }
+    candidates.push({
+      key: `summary:${today}`,
+      fireAt: zonedToUtc(today, prefs.dailySummaryTime, timeZone),
+      title: `Your ${weekdayName(today)}`,
+      body: lines.length ? lines.join(' · ') : 'Nothing planned. A clear day.',
+      url: '/#/today',
+      tag: 'daily-summary',
+    })
   }
 
-  // Evening nudge for anything still open
+  // Evening check-in: a recap of today and a look at tomorrow, every day it's on. Needs today's done
+  // tasks too (api/cron.js loads them) to say how the day went.
   if (prefs.overdue && isTime(prefs.overdueTime)) {
+    const todays = tasks.filter((task) => task.date === today && !task.archived && !isReminderTask(task))
+    const stillOpen = todays.filter((task) => !task.done).sort(byTaskTime)
+    const doneCount = todays.length - stillOpen.length
     const overdue = counted.filter((task) => isDate(task.date) && task.date < today)
-    const stillOpen = open.filter((task) => task.date === today && !isReminderTask(task))
-    if (overdue.length || stillOpen.length) {
-      const parts = []
-      if (stillOpen.length) parts.push(`${stillOpen.length} still open today`)
-      if (overdue.length) parts.push(`${overdue.length} overdue`)
-      const names = [...stillOpen, ...overdue].slice(0, 3).map((task) => task.text).join(', ')
-      candidates.push({ key: `overdue:${today}`, fireAt: zonedToUtc(today, prefs.overdueTime, timeZone), title: 'Before the day ends', body: `${parts.join(' · ')}: ${names}`, url: '/#/tasks', tag: 'evening-nudge' })
+    const parts = []
+    if (todays.length && !stillOpen.length) parts.push(`All ${todays.length} done today ✓`)
+    else if (stillOpen.length) parts.push(`${doneCount ? `${doneCount} of ${todays.length} done · ` : ''}Still open: ${taskNames(stillOpen)}`)
+    if (overdue.length) parts.push(`${overdue.length} overdue`)
+    const ahead = []
+    const tomorrowTasks = open.filter((task) => task.date === tomorrow && !isReminderTask(task)).sort(byTaskTime)
+    if (tomorrowTasks.length) {
+      const first = tomorrowTasks.find((task) => isTime(task.time))
+      ahead.push(`${plural(tomorrowTasks.length, 'task')}${first ? ` (first ${formatTime(first.time)})` : ''}`)
     }
+    const classLine = classesLine(classes, tomorrow)
+    if (classLine) ahead.push(classLine)
+    const nextWorkout = plannedWorkoutOn(settings, gymSessions, tomorrow, today)
+    if (nextWorkout) ahead.push(`Gym: ${gymDayName(nextWorkout.routine)}`)
+    if (prefs.people) ahead.push(...birthdayLines(friends, today, [tomorrow]))
+    parts.push(ahead.length ? `Tomorrow: ${ahead.join(', ')}` : 'Tomorrow: nothing planned yet')
+    candidates.push({
+      key: `overdue:${today}`,
+      fireAt: zonedToUtc(today, prefs.overdueTime, timeZone),
+      title: stillOpen.length || overdue.length ? 'Before the day ends' : 'Evening check-in',
+      body: parts.join(' · '),
+      url: stillOpen.length || overdue.length ? '/#/tasks' : '/#/today',
+      tag: 'evening-nudge',
+    })
   }
 
   // Workout reminder on gym days, unless today's workout is already under way

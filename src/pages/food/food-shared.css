@@ -30,6 +30,42 @@
   --food-chart-l: #4A56D6; --food-chart-wash-l: rgba(74, 86, 214, 0.1);
   --food-chart-d: #7581E6; --food-chart-wash-d: rgba(117, 129, 230, 0.14);
 }
+:root[data-accent='lagoon'] {
+  --food-chart-l: #08706A; --food-chart-wash-l: rgba(8, 112, 106, 0.1);
+  --food-chart-d: #2FB3A8; --food-chart-wash-d: rgba(47, 179, 168, 0.14);
+}
+:root[data-accent='glacier'] {
+  --food-chart-l: #145DB3; --food-chart-wash-l: rgba(20, 93, 179, 0.1);
+  --food-chart-d: #4F9BE8; --food-chart-wash-d: rgba(79, 155, 232, 0.14);
+}
+:root[data-accent='blossom'] {
+  --food-chart-l: #B02D5C; --food-chart-wash-l: rgba(176, 45, 92, 0.1);
+  --food-chart-d: #E0628F; --food-chart-wash-d: rgba(224, 98, 143, 0.14);
+}
+:root[data-accent='aurora'] {
+  --food-chart-l: #6D3FD6; --food-chart-wash-l: rgba(109, 63, 214, 0.1);
+  --food-chart-d: #9277E8; --food-chart-wash-d: rgba(146, 119, 232, 0.14);
+}
+:root[data-accent='honey'] {
+  --food-chart-l: #855600; --food-chart-wash-l: rgba(133, 86, 0, 0.1);
+  --food-chart-d: #D29A1E; --food-chart-wash-d: rgba(210, 154, 30, 0.14);
+}
+:root[data-accent='citrus'] {
+  --food-chart-l: #44700A; --food-chart-wash-l: rgba(68, 112, 10, 0.1);
+  --food-chart-d: #86B830; --food-chart-wash-d: rgba(134, 184, 48, 0.14);
+}
+:root[data-accent='neon'] {
+  --food-chart-l: #B0199E; --food-chart-wash-l: rgba(176, 25, 158, 0.1);
+  --food-chart-d: #E046C4; --food-chart-wash-d: rgba(224, 70, 196, 0.14);
+}
+:root[data-accent='mocha'] {
+  --food-chart-l: #7A5842; --food-chart-wash-l: rgba(122, 88, 66, 0.1);
+  --food-chart-d: #B08A6C; --food-chart-wash-d: rgba(176, 138, 108, 0.14);
+}
+:root[data-accent='graphite'] {
+  --food-chart-l: #3A3A40; --food-chart-wash-l: rgba(58, 58, 64, 0.1);
+  --food-chart-d: #A8A8B0; --food-chart-wash-d: rgba(168, 168, 176, 0.14);
+}
 :root[data-appearance='dark'] {
   --food-protein: #3987E5;
   --food-carbs: #199E70;

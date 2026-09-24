@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import Icon from '../components/ui/Icon.jsx'
 import { Button, IconButton, Skeleton } from '../components/ui/primitives.jsx'
 import { startedMs, useClock, workoutClock, workoutWhen } from '../components/WorkoutPill.jsx'
@@ -15,16 +15,24 @@ import RoutinesTab from './gym/RoutinesTab.jsx'
 import HistoryTab from './gym/HistoryTab.jsx'
 import ExercisesTab from './gym/ExercisesTab.jsx'
 import WorkoutScreen from './gym/WorkoutScreen.jsx'
-import SessionDetail from './gym/SessionDetail.jsx'
-import RoutineEditor from './gym/RoutineEditor.jsx'
-import ExerciseDetail from './gym/ExerciseDetail.jsx'
-import StatsView from './gym/StatsView.jsx'
 import Onboarding from './gym/Onboarding.jsx'
 import ToolsSheet from './gym/ToolsSheet.jsx'
-import GymSettingsSheet from './gym/GymSettingsSheet.jsx'
 import './gym/gym-common.css'
 import './gym/gym.css'
 import './gym/browse.css'
+
+// Views opened from a tap (not the tabs or a running workout) load on demand, which keeps the Gym
+// chunk small; they're warmed a moment after the Gym page opens so the first tap is instant.
+const loadSessionDetail = () => import('./gym/SessionDetail.jsx')
+const loadRoutineEditor = () => import('./gym/RoutineEditor.jsx')
+const loadExerciseDetail = () => import('./gym/ExerciseDetail.jsx')
+const loadStatsView = () => import('./gym/StatsView.jsx')
+const loadGymSettings = () => import('./gym/GymSettingsSheet.jsx')
+const SessionDetail = lazy(loadSessionDetail)
+const RoutineEditor = lazy(loadRoutineEditor)
+const ExerciseDetail = lazy(loadExerciseDetail)
+const StatsView = lazy(loadStatsView)
+const GymSettingsSheet = lazy(loadGymSettings)
 
 // #/gym/<view>/<param>: four tabs under one header, the exercise library (opened from Routines)
 // as a page of its own, and detail views that take the whole page.
@@ -65,9 +73,17 @@ export default function GymPage() {
   const hydrated = useStore((state) => state.hydrated)
   const [toolsOpen, setToolsOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsUsed, setSettingsUsed] = useState(false) // mounted once opened, so it can animate closed
   // Scroll positions of the views a deeper one was opened from, restored on the way back.
   const scrolls = useRef({})
   const previous = useRef(route)
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      for (const load of [loadSessionDetail, loadRoutineEditor, loadExerciseDetail, loadStatsView, loadGymSettings]) load().catch(() => {})
+    }, 2000)
+    return () => clearTimeout(timer)
+  }, [])
 
   useEffect(() => {
     const onHash = () => {
@@ -94,7 +110,9 @@ export default function GymPage() {
   if (Detail) {
     return (
       <div className="gym-shell gym-shell-detail">
-        <Detail today={today} param={route.param} />
+        <Suspense fallback={<Skeleton lines={4} />}>
+          <Detail today={today} param={route.param} />
+        </Suspense>
       </div>
     )
   }
@@ -113,7 +131,10 @@ export default function GymPage() {
         </div>
         <div className="gym-shell-head-actions">
           <IconButton icon="calculator" label="Plate & 1RM calculators" className="gym-shell-head-btn" size={21} onClick={() => setToolsOpen(true)} />
-          <IconButton icon="settings" label="Gym settings" className="gym-shell-head-btn" size={21} onClick={() => setSettingsOpen(true)} />
+          <IconButton icon="settings" label="Gym settings" className="gym-shell-head-btn" size={21} onClick={() => {
+            setSettingsUsed(true)
+            setSettingsOpen(true)
+          }} />
         </div>
       </header>
 
@@ -141,7 +162,11 @@ export default function GymPage() {
       </div>
 
       <ToolsSheet open={toolsOpen} onClose={() => setToolsOpen(false)} initialTab="plates" />
-      <GymSettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      {settingsUsed && (
+        <Suspense fallback={null}>
+          <GymSettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+        </Suspense>
+      )}
     </div>
   )
 }

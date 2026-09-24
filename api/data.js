@@ -286,13 +286,14 @@ async function replaceRows(supabase, tableName, userId, value) {
 
 // PATCH: applies only what changed on the client. Items created elsewhere (another device, the
 // assistant) are never touched, so concurrent edits can't delete each other's work.
-async function patchRows(supabase, tableName, userId, upsert, remove) {
+// sessionCheck: the pending session check; the read-only owner lookup runs alongside it and nothing
+// is written unless it passes (null is returned when it doesn't).
+async function patchRows(supabase, tableName, userId, upsert, remove, sessionCheck) {
   const rows = toDbRows(upsert, tableName, userId)
+  const [valid, ownedIds] = await Promise.all([sessionCheck, rows.length ? ownedIdsFor(supabase, tableName, userId, rows.map((row) => row.id)) : null])
+  if (!valid) return null
   let dropped = new Set()
-  if (rows.length) {
-    const ownedIds = await ownedIdsFor(supabase, tableName, userId, rows.map((row) => row.id))
-    dropped = await writeRows(supabase, tableName, rows, ownedIds)
-  }
+  if (rows.length) dropped = await writeRows(supabase, tableName, rows, ownedIds)
   const ids = [...new Set((Array.isArray(remove) ? remove : []).map(String))]
   if (ids.length) await deleteRows(supabase, tableName, userId, ids)
   return dropped
@@ -353,19 +354,26 @@ export default async function handler(req, res) {
       return sendJson(res, 200, Object.fromEntries(keys.map((key, index) => [key, values[index]])))
     }
 
-    if (!(await verifyTokenVersion(supabase, decoded))) return expired()
+    // Starts now so it overlaps reading the body (and, for a list, the owner lookup); every write
+    // still waits for it.
+    const sessionCheck = verifyTokenVersion(supabase, decoded)
+    sessionCheck.catch(() => {}) // awaited below; this only keeps an early return from leaving it unhandled
 
     if (method === 'PATCH') {
       const body = await readJsonBody(req)
       const tableName = TABLES[body.key]
       if (!tableName) return sendJson(res, 400, { error: 'Unknown data key.' })
       if (tableName === 'settings') {
+        if (!(await sessionCheck)) return expired()
         await patchSettingsAtomic(supabase, decoded.id, body.set)
         return sendJson(res, 200, { ok: true })
       }
-      const dropped = await forTable(tableName, () => patchRows(supabase, tableName, decoded.id, body.upsert, body.delete))
+      const dropped = await forTable(tableName, () => patchRows(supabase, tableName, decoded.id, body.upsert, body.delete, sessionCheck))
+      if (dropped === null) return expired()
       return sendJson(res, 200, savedReply(dropped))
     }
+
+    if (!(await sessionCheck)) return expired()
 
     if (method === 'PUT') {
       const body = await readJsonBody(req)

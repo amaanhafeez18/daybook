@@ -10,7 +10,7 @@ import { navigate } from '../lib/router.js'
 import { flushAll, getState, refresh, resetStore, updateSettings, useData, useStore } from '../lib/store.js'
 import { discardActive, flushActive, getActiveWorkout, updateGym } from '../lib/gym/state.js'
 import { classSchedule } from '../lib/planner.js'
-import { ACCENTS, APPEARANCES, resolveAppearance } from '../lib/theme.js'
+import { ACCENTS, APPEARANCES, DEFAULT_ACCENT, resolveAppearance } from '../lib/theme.js'
 import { PRAYER_METHODS } from '../lib/environment.js'
 import { formatDateShort } from '../lib/dates.js'
 import { LEAD_OPTIONS, currentSubscription, disableNotifications, enableNotifications, leadLabel, notificationPrefs, pushSupport, sendTestNotification, syncSubscription } from '../lib/notifications.js'
@@ -24,7 +24,11 @@ const WEB_HINTS = {
   off: 'Never searches the web. Your saved foods and estimates still work.',
 }
 
+const APPEARANCE_OPTIONS = APPEARANCES.map((item) => ({ ...item, icon: item.id === 'light' ? 'sun' : item.id === 'dark' ? 'moon' : 'settings' }))
+const ASR_OPTIONS = [{ id: 0, label: 'Standard' }, { id: 1, label: 'Hanafi' }]
+
 // #/settings/<id> opens Settings scrolled to that section (e.g. the prayer card's "Method" link).
+// 'security' is the Change password row inside Account & security.
 const SECTION_IDS = new Set(['notifications', 'assistant', 'classes', 'prayer', 'appearance', 'profile', 'security', 'account', 'danger'])
 
 function useSectionLink() {
@@ -60,6 +64,12 @@ function useSectionLink() {
   }, [])
 }
 
+function syncText(syncing, lastSyncedAt) {
+  if (syncing) return 'Syncing…'
+  if (!lastSyncedAt) return 'Not synced yet'
+  return `Last synced ${new Date(lastSyncedAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`
+}
+
 export default function SettingsPage({ user, onUserChange, onSignOut }) {
   const settings = useData('settings')
   const classes = useData('classes')
@@ -74,6 +84,10 @@ export default function SettingsPage({ user, onUserChange, onSignOut }) {
 
   function saveName() {
     if ((settings.displayName || '') !== nameDraft.trim()) updateSettings({ displayName: nameDraft.trim() })
+  }
+
+  function syncNow() {
+    refresh().then(() => toast('Up to date')).catch((error) => toast(error.message, { tone: 'error' }))
   }
 
   async function signOut() {
@@ -97,38 +111,81 @@ export default function SettingsPage({ user, onUserChange, onSignOut }) {
     onSignOut()
   }
 
+  const displayName = nameDraft.trim() || user.username
+  const prayerOn = settings.showPrayerTimes !== false
+
   return (
     <div className="settings-page">
       <header className="page-header">
         <h1>Settings</h1>
       </header>
 
+      <section className="settings-group" id="profile" aria-label="Profile">
+        <div className="card set-list">
+          <div className="set-row set-profile">
+            <Avatar name={displayName} size={56} />
+            <span className="set-profile-text">
+              <strong>{displayName}</strong>
+              <small>@{user.username}</small>
+            </span>
+          </div>
+          <div className="set-row">
+            <label htmlFor="set-display-name">Display name</label>
+            <input
+              id="set-display-name"
+              className="set-inline-input"
+              value={nameDraft}
+              onChange={(event) => setNameDraft(event.target.value)}
+              onBlur={saveName}
+              onKeyDown={(event) => event.key === 'Enter' && event.currentTarget.blur()}
+              placeholder={user.username}
+              maxLength={40}
+              autoComplete="nickname"
+              enterKeyHint="done"
+            />
+          </div>
+        </div>
+        <p className="set-footnote">Used in greetings and by the assistant.</p>
+      </section>
+
       <NotificationSettings settings={settings} />
 
       <section className="settings-group" id="assistant">
         <h2>Assistant</h2>
-        <div className="card settings-card">
-          <Switch
-            label="Ask before making changes"
-            description="The assistant shows what it understood and waits for your Yes"
-            checked={settings.assistantConfirm !== 'off'}
-            onChange={(checked) => updateSettings({ assistantConfirm: checked ? 'all' : 'off' })}
-          />
-          <div className="field">
-            <span className="field-label">Web search</span>
+        <div className="card set-list">
+          <div className="set-row is-switch">
+            <Switch
+              label="Ask before making changes"
+              description="Shows what it understood and waits for your Yes"
+              checked={settings.assistantConfirm !== 'off'}
+              onChange={(checked) => updateSettings({ assistantConfirm: checked ? 'all' : 'off' })}
+            />
+          </div>
+          <div className="set-row is-stacked">
+            <span className="set-label" id="set-web-label">Web search</span>
             <Segmented options={WEB_OPTIONS} value={WEB_HINTS[settings.assistantWeb] ? settings.assistantWeb : 'ask'} onChange={(assistantWeb) => updateSettings({ assistantWeb })} label="Web search" />
-            <p className="field-hint">{WEB_HINTS[settings.assistantWeb] || WEB_HINTS.ask}</p>
+          </div>
+        </div>
+        <p className="set-footnote">{WEB_HINTS[settings.assistantWeb] || WEB_HINTS.ask}</p>
+      </section>
+
+      <section className="settings-group" id="appearance">
+        <h2>Appearance</h2>
+        <div className="card set-list">
+          <div className="set-row is-stacked">
+            <Segmented options={APPEARANCE_OPTIONS} value={resolveAppearance(settings)} onChange={(appearance) => updateSettings({ appearance, darkMode: appearance === 'dark' })} label="Light or dark" />
+          </div>
+          <div className="set-row is-stacked">
+            <span className="set-label" id="set-theme-label">Theme</span>
+            <ThemePicker value={settings.theme} onChange={(theme) => updateSettings({ theme })} labelledBy="set-theme-label" />
           </div>
         </div>
       </section>
 
       <section className="settings-group" id="classes">
-        <div className="settings-group-header">
-          <h2>Classes</h2>
-          <Button variant="secondary" size="sm" icon="plus" onClick={() => setClassSheet({})}>Add class</Button>
-        </div>
+        <h2>Classes</h2>
         <div className="card settings-card settings-list">
-          {classes.length === 0 ? <p className="muted">Add your timetable and it shows up on Today and the calendar.</p> : classes.map((item) => (
+          {classes.map((item) => (
             <button key={item.id} type="button" className="settings-row" onClick={() => setClassSheet(item)}>
               <span className="settings-row-icon"><Icon name="graduation" size={18} /></span>
               <span className="settings-row-text">
@@ -138,92 +195,50 @@ export default function SettingsPage({ user, onUserChange, onSignOut }) {
               <Icon name="chevronRight" size={18} />
             </button>
           ))}
+          <button type="button" className="settings-row set-add-row" onClick={() => setClassSheet({})}>
+            <span className="settings-row-icon"><Icon name="plus" size={18} /></span>
+            <span className="settings-row-text"><strong>Add class</strong></span>
+          </button>
         </div>
+        {classes.length === 0 && <p className="set-footnote">Add your timetable and it shows up on Today and the calendar.</p>}
       </section>
 
       <section className="settings-group" id="prayer">
         <h2>Prayer times</h2>
-        <div className="card settings-card">
-          <Switch label="Show prayer times on Today" checked={settings.showPrayerTimes !== false} onChange={(checked) => updateSettings({ showPrayerTimes: checked })} />
-          {settings.showPrayerTimes !== false && (
+        <div className="card set-list">
+          <div className="set-row is-switch">
+            <Switch label="Show on Today" checked={prayerOn} onChange={(checked) => updateSettings({ showPrayerTimes: checked })} />
+          </div>
+          {prayerOn && (
             <>
-              <Field label="Calculation method" hint="Automatic uses the standard authority for your location.">
-                {(id) => (
-                  <select id={id} className="input" value={settings.prayerMethod || 'auto'} onChange={(event) => updateSettings({ prayerMethod: event.target.value })}>
-                    {PRAYER_METHODS.map((method) => <option key={method.id} value={method.id}>{method.label}</option>)}
-                  </select>
-                )}
-              </Field>
-              <div className="field">
-                <span className="field-label">Asr time</span>
-                <Segmented options={[{ id: 0, label: 'Standard' }, { id: 1, label: 'Hanafi' }]} value={Number(settings.prayerSchool || 0)} onChange={(prayerSchool) => updateSettings({ prayerSchool })} label="Asr calculation" />
-                <p className="field-hint">Standard: Shafi‘i, Maliki, Hanbali. Hanafi Asr is later in the afternoon.</p>
+              <div className="set-row is-stacked">
+                <label className="set-label" htmlFor="set-prayer-method">Calculation method</label>
+                <select id="set-prayer-method" className="input" value={settings.prayerMethod || 'auto'} onChange={(event) => updateSettings({ prayerMethod: event.target.value })}>
+                  {PRAYER_METHODS.map((method) => <option key={method.id} value={method.id}>{method.label}</option>)}
+                </select>
+              </div>
+              <div className="set-row">
+                <span className="set-label" aria-hidden="true">Asr time</span>
+                <Segmented options={ASR_OPTIONS} value={Number(settings.prayerSchool || 0)} onChange={(prayerSchool) => updateSettings({ prayerSchool })} label="Asr time" className="set-seg-compact" />
               </div>
             </>
           )}
         </div>
+        {prayerOn && <p className="set-footnote">Automatic uses the standard authority for your location. Standard Asr follows Shafi‘i, Maliki and Hanbali; Hanafi Asr is later in the afternoon.</p>}
       </section>
 
-      <section className="settings-group" id="appearance">
-        <h2>Appearance</h2>
-        <div className="card settings-card">
-          <div className="field">
-            <span className="field-label">Theme</span>
-            <Segmented options={APPEARANCES.map((item) => ({ ...item, icon: item.id === 'light' ? 'sun' : item.id === 'dark' ? 'moon' : 'settings' }))} value={resolveAppearance(settings)} onChange={(appearance) => updateSettings({ appearance, darkMode: appearance === 'dark' })} label="Theme" />
-          </div>
-          <div className="field">
-            <span className="field-label">Accent colour</span>
-            <div className="swatches" role="radiogroup" aria-label="Accent colour">
-              {ACCENTS.map((accent) => (
-                <button
-                  key={accent.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={(settings.theme || 'sunset') === accent.id}
-                  className={`swatch ${(settings.theme || 'sunset') === accent.id ? 'is-active' : ''}`}
-                  style={{ '--swatch': accent.swatch }}
-                  onClick={() => updateSettings({ theme: accent.id })}
-                >
-                  <span className="swatch-color" aria-hidden="true"><Icon name="check" size={16} strokeWidth={3} /></span>
-                  {accent.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="settings-group" id="profile">
-        <h2>Profile</h2>
-        <div className="card settings-card">
-          <div className="profile-row">
-            <Avatar name={nameDraft || user.username} size={52} />
-            <div>
-              <strong>{nameDraft || user.username}</strong>
-              <small>@{user.username}</small>
-            </div>
-          </div>
-          <Field label="Display name" hint="Used in greetings and by the assistant.">
-            {(id) => (
-              <input
-                id={id}
-                className="input"
-                value={nameDraft}
-                onChange={(event) => setNameDraft(event.target.value)}
-                onBlur={saveName}
-                onKeyDown={(event) => event.key === 'Enter' && event.currentTarget.blur()}
-                placeholder={user.username}
-                maxLength={40}
-              />
-            )}
-          </Field>
-        </div>
-      </section>
-
-      <section className="settings-group" id="security">
-        <h2>Security</h2>
+      <section className="settings-group" id="account">
+        <h2>Account &amp; security</h2>
         <div className="card settings-card settings-list">
-          <button type="button" className="settings-row" onClick={() => setSecuritySheet('password')}>
+          <div className="settings-row is-static">
+            <span className="settings-row-icon"><Icon name="refresh" size={18} /></span>
+            <span className="settings-row-text">
+              <strong>Sync</strong>
+              <small>{syncText(syncing, lastSyncedAt)}</small>
+            </span>
+            <Button variant="secondary" size="sm" loading={syncing} onClick={syncNow}>Sync now</Button>
+          </div>
+          <button type="button" className="settings-row" id="security" onClick={() => setSecuritySheet('password')}>
             <span className="settings-row-icon"><Icon name="lock" size={18} /></span>
             <span className="settings-row-text"><strong>Change password</strong><small>Signs out your other devices</small></span>
             <Icon name="chevronRight" size={18} />
@@ -232,25 +247,11 @@ export default function SettingsPage({ user, onUserChange, onSignOut }) {
             <span className="settings-row-icon"><Icon name="undo" size={18} /></span>
             <span className="settings-row-text">
               <strong>Recovery question</strong>
-              <small>{user.hasRecovery ? 'Set — used to reset a forgotten password' : 'Not set — you can’t reset a forgotten password'}</small>
+              <small>{user.hasRecovery ? 'Lets you reset your password' : 'Not set — you can’t reset a forgotten password'}</small>
             </span>
             {!user.hasRecovery && <span className="badge badge-warning">Set up</span>}
             <Icon name="chevronRight" size={18} />
           </button>
-        </div>
-      </section>
-
-      <section className="settings-group" id="account">
-        <h2>Account</h2>
-        <div className="card settings-card settings-list">
-          <div className="settings-row is-static">
-            <span className="settings-row-icon"><Icon name="refresh" size={18} /></span>
-            <span className="settings-row-text">
-              <strong>Sync</strong>
-              <small>{syncing ? 'Syncing…' : lastSyncedAt ? `Last synced ${new Date(lastSyncedAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}` : 'Not synced yet'}</small>
-            </span>
-            <Button variant="secondary" size="sm" loading={syncing} onClick={() => refresh().then(() => toast('Up to date')).catch((error) => toast(error.message, { tone: 'error' }))}>Sync now</Button>
-          </div>
           <button type="button" className="settings-row is-danger" onClick={signOut}>
             <span className="settings-row-icon"><Icon name="logout" size={18} /></span>
             <span className="settings-row-text"><strong>Log out</strong></span>
@@ -265,6 +266,56 @@ export default function SettingsPage({ user, onUserChange, onSignOut }) {
       <ClassSheet item={classSheet} onClose={() => setClassSheet(null)} />
       <PasswordSheet open={securitySheet === 'password'} onClose={() => setSecuritySheet(null)} onUserChange={onUserChange} />
       <RecoverySheet open={securitySheet === 'recovery'} onClose={() => setSecuritySheet(null)} onUserChange={onUserChange} />
+    </div>
+  )
+}
+
+// ---- theme picker ----------------------------------------------------------------------------
+// A radio group of small previews: the theme's background mesh with a glass bar in its accent.
+// Arrow keys move (and select) like native radios; only the selected tile is in the Tab order.
+
+const ARROW_STEP = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }
+
+function ThemePicker({ value, onChange, labelledBy }) {
+  const current = ACCENTS.some((theme) => theme.id === value) ? value : DEFAULT_ACCENT
+  const buttons = useRef([])
+
+  function onKeyDown(event) {
+    const index = ACCENTS.findIndex((theme) => theme.id === current)
+    let next
+    if (ARROW_STEP[event.key]) next = (index + ARROW_STEP[event.key] + ACCENTS.length) % ACCENTS.length
+    else if (event.key === 'Home') next = 0
+    else if (event.key === 'End') next = ACCENTS.length - 1
+    else return
+    event.preventDefault()
+    onChange(ACCENTS[next].id)
+    buttons.current[next]?.focus()
+  }
+
+  return (
+    <div className="set-themes" role="radiogroup" aria-labelledby={labelledBy} onKeyDown={onKeyDown}>
+      {ACCENTS.map((theme, index) => {
+        const checked = theme.id === current
+        return (
+          <button
+            key={theme.id}
+            ref={(element) => { buttons.current[index] = element }}
+            type="button"
+            role="radio"
+            aria-checked={checked}
+            tabIndex={checked ? 0 : -1}
+            className={`set-theme ${checked ? 'is-active' : ''}`}
+            style={{ '--t-l': theme.swatch, '--t-d': theme.dark, '--t-m1': theme.mesh[0], '--t-m2': theme.mesh[1], '--t-m3': theme.mesh[2] }}
+            onClick={() => onChange(theme.id)}
+          >
+            <span className="set-theme-preview" aria-hidden="true">
+              <span className="set-theme-bar"><i /><i /></span>
+              <span className="set-theme-check"><Icon name="check" size={12} strokeWidth={3.5} /></span>
+            </span>
+            <span className="set-theme-name">{theme.label}</span>
+          </button>
+        )
+      })}
     </div>
   )
 }
@@ -297,8 +348,7 @@ function DangerZone({ username }) {
   }
 
   return (
-    <section className="settings-group set-danger" id="danger">
-      <h2>Danger zone</h2>
+    <section className="settings-group set-danger" id="danger" aria-label="Danger zone">
       <div className="card settings-card settings-list">
         <button type="button" className="settings-row is-danger" onClick={start}>
           <span className="settings-row-icon"><Icon name="trash" size={18} /></span>
@@ -505,15 +555,15 @@ function NotificationSettings({ settings }) {
         )}
       </div>
 
-      <div className="card settings-card pref-card">
-        <div className="pref-row">
-          <label htmlFor="pref-lead">Tasks with a time</label>
+      <div className="card set-list">
+        <div className="set-row">
+          <label htmlFor="pref-lead">Timed tasks</label>
           <select id="pref-lead" className="input" value={prefs.taskLead} onChange={(event) => set({ taskLead: Number(event.target.value) })}>
             {leadOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
         </div>
-        <div className="pref-row">
-          <label htmlFor="pref-allday">Tasks without a time</label>
+        <div className="set-row">
+          <label htmlFor="pref-allday">All-day tasks</label>
           <select id="pref-allday" className="input" value={allDayValue} onChange={(event) => (event.target.value === 'off' ? set({ allDayTime: '' }) : set({ allDayMode: event.target.value, allDayTime: prefs.allDayTime || '09:00' }))}>
             <option value="day">On the day</option>
             <option value="before">The day before</option>
@@ -521,54 +571,70 @@ function NotificationSettings({ settings }) {
           </select>
         </div>
         {allDayValue !== 'off' && (
-          <div className="pref-row">
+          <div className="set-row">
             <label htmlFor="pref-allday-time">Remind at</label>
             <input id="pref-allday-time" className="input" type="time" value={prefs.allDayTime} onChange={(event) => set({ allDayTime: event.target.value || '09:00' })} />
           </div>
         )}
       </div>
 
-      <div className="card settings-card pref-card">
-        <Switch label="Morning summary" description="What’s due, overdue, classes, birthdays and gym" checked={prefs.dailySummary} onChange={(dailySummary) => set({ dailySummary })} />
+      <div className="card set-list">
+        <div className="set-row is-switch">
+          <Switch label="Morning summary" description="Your day at a glance: tasks, classes, gym and people" checked={prefs.dailySummary} onChange={(dailySummary) => set({ dailySummary })} />
+        </div>
         {prefs.dailySummary && (
-          <div className="pref-row">
+          <div className="set-row">
             <label htmlFor="pref-summary">Time</label>
             <input id="pref-summary" className="input" type="time" value={prefs.dailySummaryTime} onChange={(event) => set({ dailySummaryTime: event.target.value || '08:00' })} />
           </div>
         )}
-        <Switch label="Evening check-in" description="Anything still open or overdue" checked={prefs.overdue} onChange={(overdue) => set({ overdue })} />
+        <div className="set-row is-switch">
+          <Switch label="Evening check-in" description="A recap of today and a look at tomorrow" checked={prefs.overdue} onChange={(overdue) => set({ overdue })} />
+        </div>
         {prefs.overdue && (
-          <div className="pref-row">
+          <div className="set-row">
             <label htmlFor="pref-evening">Time</label>
             <input id="pref-evening" className="input" type="time" value={prefs.overdueTime} onChange={(event) => set({ overdueTime: event.target.value || '18:00' })} />
           </div>
         )}
-        <Switch label="Workout reminder" description="On gym days, at a time you choose" checked={!!prefs.gym} onChange={(gym) => set({ gym })} />
+      </div>
+
+      <div className="card set-list">
+        <div className="set-row is-switch">
+          <Switch label="Workout reminder" description="On gym days, at a time you choose" checked={!!prefs.gym} onChange={(gym) => set({ gym })} />
+        </div>
         {prefs.gym && (
           <>
-            <div className="pref-row">
+            <div className="set-row">
               <label htmlFor="pref-gym">Time</label>
               <input id="pref-gym" className="input" type="time" value={prefs.gymTime} onChange={(event) => set({ gymTime: event.target.value || '17:00' })} />
             </div>
             {!hasGymPlan && (
-              <div className="pref-row">
-                <span className="field-hint">Starts once you set up a gym plan.</span>
+              <div className="set-row">
+                <span className="set-hint">Starts once you set up a gym plan.</span>
                 <button type="button" className="link-btn" onClick={() => navigate('gym')}>Set up</button>
               </div>
             )}
           </>
         )}
-        <Switch label="Catch-ups and birthdays" description="Reminders to reach out to people" checked={prefs.people} onChange={(people) => set({ people })} />
-        <Switch label="Quiet hours" description="Hold reminders until quiet hours end" checked={prefs.quietHours} onChange={(quietHours) => set({ quietHours })} />
+        <div className="set-row is-switch">
+          <Switch label="Catch-ups and birthdays" description="Reminders to reach out to people" checked={prefs.people} onChange={(people) => set({ people })} />
+        </div>
+        <div className="set-row is-switch">
+          <Switch label="Quiet hours" description="Hold reminders until quiet hours end" checked={prefs.quietHours} onChange={(quietHours) => set({ quietHours })} />
+        </div>
+        {/* One row per time: two time fields side by side don't fit a phone-width row. */}
         {prefs.quietHours && (
-          <div className="pref-row">
-            <label htmlFor="pref-quiet-start">From</label>
-            <span className="pref-range">
+          <>
+            <div className="set-row">
+              <label htmlFor="pref-quiet-start">From</label>
               <input id="pref-quiet-start" className="input" type="time" value={prefs.quietStart} onChange={(event) => set({ quietStart: event.target.value || '22:00' })} />
-              <span>to</span>
-              <input aria-label="Quiet hours end" className="input" type="time" value={prefs.quietEnd} onChange={(event) => set({ quietEnd: event.target.value || '07:00' })} />
-            </span>
-          </div>
+            </div>
+            <div className="set-row">
+              <label htmlFor="pref-quiet-end">To</label>
+              <input id="pref-quiet-end" className="input" type="time" value={prefs.quietEnd} onChange={(event) => set({ quietEnd: event.target.value || '07:00' })} />
+            </div>
+          </>
         )}
       </div>
     </section>

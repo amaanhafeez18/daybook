@@ -125,10 +125,12 @@ export default async function handler(req, res) {
     const decoded = verifyRequestToken(req)
     if (!decoded) return sendJson(res, 401, { error: 'Your session has expired. Please log in again.' })
     const supabase = getSupabase()
-    if (!(await verifyTokenVersion(supabase, decoded))) return sendJson(res, 401, { error: 'Your session has expired. Please log in again.' })
     if (!process.env.OPENAI_API_KEY) return sendJson(res, 503, { error: 'Food estimates aren’t set up yet. Add OPENAI_API_KEY in Vercel.' })
-
+    // The session check overlaps reading the body (a photo can take a moment to arrive).
+    const sessionCheck = verifyTokenVersion(supabase, decoded)
+    sessionCheck.catch(() => {}) // awaited below; this only keeps an early return from leaving it unhandled
     const body = await readLimitedJson(req, MAX_BODY_BYTES)
+    if (!(await sessionCheck)) return sendJson(res, 401, { error: 'Your session has expired. Please log in again.' })
     if (!isPlainObject(body)) return sendJson(res, 400, { error: 'Invalid request.' })
     const action = body.action ?? 'estimate'
     if (action === 'web') return await webLookup(req, res, { supabase, userId: decoded.id, body, debug })
