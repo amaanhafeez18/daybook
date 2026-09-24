@@ -61,6 +61,7 @@
 .food-menu button:active:not(:disabled) { background: var(--surface-2); }
 .food-menu button:disabled { opacity: 0.4; cursor: default; }
 .food-menu button.is-danger, .food-menu button.is-danger .icon { color: var(--danger); }
+.food-menu-divider { display: block; height: 1px; margin: 4px 8px; background: var(--separator, var(--border)); }
 
 /* ---- day switcher & week strip ------------------------------------------------------------ */
 
@@ -83,9 +84,10 @@
 }
 .food-switch-label:focus-within { box-shadow: 0 0 0 3px var(--accent-soft); }
 .food-switch-today {
-  flex-shrink: 0; min-height: 34px; margin-left: 4px; padding: 0 13px; border-radius: 999px;
+  position: relative; flex-shrink: 0; min-height: 34px; margin-left: 4px; padding: 0 13px; border-radius: 999px;
   background: var(--accent-soft); color: var(--accent); font-size: 14px; font-weight: 600;
 }
+.food-switch-today::after { content: ''; position: absolute; inset: -5px -2px; } /* a 44px target */
 
 .food-week {
   display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; margin: 0 0 16px; padding: 6px 4px;
@@ -178,6 +180,7 @@
   border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 13px; font-weight: 600;
 }
 .icon-btn.food-row-more { width: 36px; height: 36px; color: var(--text-3); flex-shrink: 0; }
+.icon-btn.food-row-more::after { content: ''; position: absolute; inset: -4px; } /* a 44px target */
 
 .food-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .food-suggest {
@@ -259,7 +262,7 @@
 .food-tray-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; padding: 0 2px 0 6px; }
 .food-tray-to { font-size: 13px; color: var(--text-2); }
 .food-tray-links { margin-left: auto; display: flex; gap: 2px; }
-.food-tray-link { min-height: 36px; padding: 0 8px; border-radius: 999px; color: var(--accent); font-size: 14px; font-weight: 600; white-space: nowrap; }
+.food-tray-link { min-height: 40px; padding: 0 8px; border-radius: 999px; color: var(--accent); font-size: 14px; font-weight: 600; white-space: nowrap; }
 .food-tray-link:active { background: var(--surface-2); }
 .segmented.food-tray-tabs { flex-shrink: 0; }
 .segmented.food-tray-tabs button { min-height: 32px; font-size: 13px; }
@@ -333,11 +336,6 @@ html.has-workout-pill:has(.food-dock):not(.has-sheet) .toaster { bottom: calc(va
 .food-es-cal-input::placeholder { color: var(--text-3); font-size: 19px; font-weight: 500; letter-spacing: -0.01em; }
 .food-es-unit { font-size: 17px; font-weight: 500; color: var(--text-2); }
 .food-es-meals { display: flex; flex-wrap: wrap; gap: 8px; }
-.food-es-disclose {
-  align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 4px;
-  color: var(--accent); font-size: 16px; font-weight: 500;
-}
-.food-es-disclose:active { opacity: 0.6; }
 .food-es-portion-row { display: grid; grid-template-columns: auto minmax(0, 1fr) 92px; align-items: center; gap: 8px; }
 .food-es-stepper { display: inline-flex; align-items: center; padding: 2px; border-radius: 14px; background: var(--surface-2); }
 .food-es-stepper button { display: grid; place-items: center; width: 38px; height: 42px; border-radius: 12px; color: var(--accent); }
@@ -354,6 +352,13 @@ html.has-workout-pill:has(.food-dock):not(.has-sheet) .toaster { bottom: calc(va
 .food-es-grid { display: grid; gap: 8px; }
 .food-es-grid.is-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .food-es-grid.is-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 10px; }
+.food-es-grid.is-2.is-flush { margin-top: 0; }
+/* The "More options" / "Even more" disclosures inside the entry and My foods sheets. */
+.food-es .disclosure-toggle { padding-left: 4px; padding-right: 4px; font-size: 16px; }
+.food-es .disclosure-body { gap: 16px; padding-top: 6px; }
+/* A closed "Even more" inside an open "More options" keeps its own chevron pointing down. */
+.food-es .disclosure:not(.is-open) > .disclosure-toggle > .disclosure-chevron { transform: none; }
+.food-es .disclosure.is-open + .food-es-ai { padding-top: 6px; }
 .food-es-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .food-es-field > span:first-child { margin-left: 4px; font-size: 12px; color: var(--text-2); }
 .food-es-field.is-wide { grid-column: 1 / -1; }
@@ -369,6 +374,7 @@ html.has-workout-pill:has(.food-dock):not(.has-sheet) .toaster { bottom: calc(va
 .food-es-ai-note { margin-left: 4px; font-size: 13px; color: var(--text-2); }
 .food-es-ai-note.is-error, .food-es-hint.is-error { color: var(--danger); }
 .food-es-hint { margin: 2px 0 0 4px; font-size: 13px; color: var(--text-2); }
+.food-es-hint-save { margin-top: -4px; min-height: 1.35em; line-height: 1.35; }
 .icon-btn.food-es-delete { width: 46px; height: 46px; background: var(--danger-soft); color: var(--danger); }
 
 /* Weight sheet */
@@ -466,6 +472,30 @@ button.food-cfg-row:active { background: var(--surface-2); }
 .food-cfg-note { display: flex; align-items: flex-start; gap: 8px; margin: 0 8px; font-size: 13px; line-height: 1.35; color: var(--text-2); }
 .food-cfg-note .icon { flex-shrink: 0; margin-top: 1px; }
 
+/* A disclosure that is one row of a grouped card (Meals in Food settings): the toggle reads like
+   the rows around it, and what it opens keeps the card's inset separators. */
+.food-cfg-row.is-disclosure { display: block; padding: 0; }
+.food-cfg-row.is-disclosure .disclosure-toggle { min-height: 52px; padding: 8px 16px; color: var(--text); font-size: 17px; font-weight: 400; letter-spacing: -0.02em; }
+.food-cfg-row.is-disclosure .disclosure-summary { font-size: 15px; }
+.food-cfg-row.is-disclosure .disclosure-chevron { color: var(--text-3); }
+.food-cfg-row.is-disclosure .disclosure-body { position: relative; gap: 0; padding-top: 0; }
+.food-cfg-row.is-disclosure .disclosure-body::before,
+.food-cfg-row.is-disclosure .food-cfg-meals + .food-cfg-row::before {
+  content: ''; position: absolute; top: 0; left: 16px; right: 0; height: 1px;
+  background: var(--separator, var(--border)); transform: scaleY(0.5); transform-origin: top; pointer-events: none;
+}
+.food-cfg-foot.food-cfg-foot-inset { margin: 0; padding: 0 16px 12px; }
+
+/* "Advanced" in Food settings: a card-like toggle, then the usual groups inside. */
+.food-cfg-advanced .disclosure-toggle {
+  min-height: 52px; padding: 8px 16px; border-radius: 20px; background: var(--card-bg, var(--surface));
+  color: var(--text); font-size: 17px; font-weight: 400; letter-spacing: -0.02em;
+}
+.food-cfg-advanced .disclosure-toggle:active { background: var(--surface-2); }
+.food-cfg-advanced .disclosure-summary { font-size: 14px; }
+.food-cfg-advanced .disclosure-chevron { color: var(--text-3); }
+.food-cfg-advanced .disclosure-body { gap: 22px; padding-top: 16px; }
+
 /* Goals */
 .segmented.food-goals-mode { margin-bottom: 18px; }
 .food-goals .food-cfg { gap: 18px; }
@@ -474,13 +504,29 @@ button.food-cfg-row:active { background: var(--surface-2); }
 .food-unit-input > span { position: absolute; right: 14px; font-size: 15px; color: var(--text-2); pointer-events: none; }
 .food-cfg-control .food-unit-input { width: 136px; }
 .food-goal-ftin { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+/* Option labels never break onto two lines ("ft / in" beside "cm"): the small segmented sizes its
+   buttons from their text instead of splitting its width evenly. */
+.food-cfg .segmented button { white-space: nowrap; }
 .segmented.food-seg-sm { flex: 0 0 auto; }
-.segmented.food-seg-sm button { min-height: 30px; padding: 0 10px; font-size: 13px; }
+.segmented.food-seg-sm button { flex: 1 1 auto; min-height: 30px; padding: 0 10px; font-size: 13px; }
 .food-choice { min-height: 58px; }
 .food-choice-mark { flex-shrink: 0; display: grid; place-items: center; width: 24px; color: var(--accent); }
 .food-choice.is-active .food-cfg-label > span:first-child { font-weight: 600; }
 .food-goal-rates { display: flex; flex-wrap: wrap; gap: 8px; }
-.food-goals-more { margin: -8px 0 0 8px; }
+.food-goals-more { margin: -6px 0 0; }
+.food-goals-more > .disclosure-toggle, .food-goals-macros > .disclosure-toggle, .food-goals-how > .disclosure-toggle, .food-goals-manual-more > .disclosure-toggle { padding-left: 16px; padding-right: 12px; }
+.food-goals-more .disclosure-body, .food-goals-macros .disclosure-body, .food-goals-manual-more .disclosure-body { padding-top: 2px; }
+.food-goals-switch { display: flex; justify-content: center; margin: -4px 0 4px; }
+.food-goals-switch .food-link { gap: 6px; min-height: 44px; }
+.food-goal-hero-hint { margin-top: 6px; font-size: 12px; color: var(--text-3); }
+.food-goal-steps { display: flex; flex-direction: column; gap: 10px; margin: 0 0 4px; padding: 0 0 0 16px; counter-reset: goal-step; list-style: none; }
+.food-goal-steps li { position: relative; display: flex; flex-direction: column; gap: 2px; padding-left: 30px; font-size: 14px; line-height: 1.4; color: var(--text-2); }
+.food-goal-steps li::before {
+  counter-increment: goal-step; content: counter(goal-step); position: absolute; left: 0; top: 1px;
+  display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 700;
+}
+.food-goal-steps strong { font-size: 15px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
 .card.food-goal-hero { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 22px 18px 18px; text-align: center; }
 .food-goal-hero-label { font-size: 13px; letter-spacing: 0.02em; text-transform: uppercase; color: var(--text-2); }
 .food-goal-hero-value { display: flex; align-items: baseline; justify-content: center; gap: 6px; }
@@ -512,9 +558,10 @@ button.food-cfg-row:active { background: var(--surface-2); }
 /* ---- weight view ---------------------------------------------------------------------------- */
 
 .card.food-wv-card { padding: 16px 12px 12px; }
-.food-wv-now { display: flex; align-items: baseline; gap: 6px; margin: 0 4px 12px; }
+.food-wv-now { display: flex; align-items: baseline; gap: 6px; margin: 0 4px 2px; }
 .food-wv-now strong { font-family: var(--font-display, var(--font)); font-size: 34px; font-weight: 700; letter-spacing: -0.02em; }
 .food-wv-now span { font-size: 15px; color: var(--text-2); }
+.food-wv-line { margin: 0 4px 12px; font-size: 15px; line-height: 1.35; color: var(--text-2); }
 .segmented.food-wv-range { margin: 0 0 12px; }
 .food-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 14px 0 22px; }
 @media (min-width: 640px) { .food-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
@@ -522,6 +569,8 @@ button.food-cfg-row:active { background: var(--surface-2); }
 .food-stat { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 12px 14px; border-radius: 20px; background: var(--card-bg, var(--surface)); }
 .food-stats.is-inline .food-stat { padding: 10px 12px; border-radius: 16px; background: var(--surface-2); }
 .food-stat-label { font-size: 13px; font-weight: 600; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Three tiles across a phone: "Days logged" wraps rather than being cut to "Days logg…". */
+.food-stats.is-inline .food-stat-label { white-space: normal; line-height: 1.2; }
 .food-stat-value { font-family: var(--font-display, var(--font)); font-size: 24px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.15; color: var(--text); overflow-wrap: anywhere; }
 .food-stat-sub { font-size: 13px; color: var(--text-2); }
 .food-stat-sub .food-link { min-height: 0; font-size: 13px; text-align: left; }
@@ -535,6 +584,7 @@ button.food-cfg-row:active { background: var(--surface-2); }
 
 .search-field.food-my-search { margin-bottom: 14px; }
 .food-my-main { min-height: 66px; }
+.food-row-sub > .food-my-portion { flex-shrink: 0; max-width: 65%; } /* the portion reads in full; brand and macros give way */
 .food-badge.food-my-badge { gap: 4px; }
 .food-my-badge .icon { color: var(--accent); }
 .food-my-log {
@@ -547,6 +597,8 @@ button.food-cfg-row:active { background: var(--surface-2); }
 .food-my-empty { padding: 18px 16px; font-size: 15px; color: var(--text-2); text-align: center; overflow-wrap: anywhere; }
 .food-my-form .food-es-grid.is-2 { margin-top: 0; }
 .food-es-field.food-my-energy { grid-column: 1 / -1; }
+.food-my-form .food-my-energy .input { min-height: 48px; font-size: 20px; font-weight: 600; }
+.food-my-more .disclosure-body { gap: 16px; }
 .food-my-source { display: flex; align-items: flex-start; gap: 6px; margin: 0 4px; font-size: 13px; line-height: 1.35; color: var(--text-2); }
 .food-my-source .icon { flex-shrink: 0; margin-top: 2px; color: var(--accent); }
 .food-my-source a { color: var(--accent); font-weight: 600; overflow-wrap: anywhere; }
@@ -629,6 +681,9 @@ button.food-cfg-row:active { background: var(--surface-2); }
 
 .food-ins-switch { margin-bottom: 14px; }
 .card.food-ins-summary { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; padding: 16px 18px; font-size: 17px; line-height: 1.4; letter-spacing: -0.02em; }
+.food-ins-headline { font-family: var(--font-display, var(--font)); font-size: 21px; font-weight: 700; line-height: 1.25; letter-spacing: -0.02em; }
+.food-ins-detail { font-size: 15px; color: var(--text-2); letter-spacing: -0.01em; }
+.food-ins-detail + .food-ins-detail { margin-top: -4px; }
 .food-ins-summary-note { font-size: 13px; color: var(--text-2); letter-spacing: 0; }
 .food-ins-grid { display: flex; flex-direction: column; gap: 14px; }
 @media (min-width: 1000px) {

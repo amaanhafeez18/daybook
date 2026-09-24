@@ -1,0 +1,35 @@
+/* =========================================================================================
+   Class sheet (components/ClassSheet.jsx, prefix cs-): the times grid (one row per meeting)
+   and the rooms list behind "More options". Loaded with whichever page first opens the sheet,
+   so rules that meet App.css / glass.css / apple.css use a heavier selector than theirs.
+   ========================================================================================= */
+
+/* Day · Starts · Ends (· remove, only once a day has more than one time). The header row labels
+   the two time columns once. Time pickers show "2:30 PM" and need every pixel on a 375px phone. */
+.cs-grid { display: grid; grid-template-columns: minmax(36px, auto) 1fr 1fr; column-gap: 6px; row-gap: 8px; align-items: center; }
+.cs-grid.has-extra { grid-template-columns: minmax(36px, auto) 1fr 1fr 26px; column-gap: 4px; }
+.cs-row { display: contents; }
+.cs-head { font-size: 12px; font-weight: 600; color: var(--text-3); padding-left: 6px; }
+.cs-day { font-size: 14px; font-weight: 600; color: var(--text); white-space: nowrap; }
+.cs-grid .input { min-width: 0; width: 100%; padding-left: 8px; padding-right: 4px; }
+.cs-grid .icon-btn.cs-remove { position: relative; width: 26px; height: 26px; color: var(--text-2); }
+/* The × is small so the time pickers keep their room; its touch target is still 44 px. */
+.cs-grid .icon-btn.cs-remove::after { content: ''; position: absolute; inset: -9px; border-radius: 50%; }
+.cs-grid .cs-raw { grid-column: 2 / -1; margin: -4px 0 2px; }
+/* On touch screens the whole field opens the picker, so the clock glyph only costs room. */
+@media (pointer: coarse) {
+  .cs-grid input[type='time']::-webkit-calendar-picker-indicator { display: none; }
+}
+
+/* Day chips (36 px) and the "+ Mon" chips (30 px) keep their size; their touch targets are 44 px. */
+#class-form .chip { position: relative; }
+#class-form .chip::after { content: ''; position: absolute; inset: -4px 0; }
+#class-form .chip.chip-sm::after { inset: -7px 0; }
+
+/* Rooms behind "More options": one field per meeting, labelled by its day and start time. */
+.cs-rooms { display: flex; flex-direction: column; gap: 8px; }
+.cs-room { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; align-items: center; }
+.cs-room-when { font-size: 14px; font-weight: 500; color: var(--text-2); white-space: nowrap; }
+@media (min-width: 400px) {
+  .cs-room:has(.cs-room-when) { grid-template-columns: minmax(96px, 0.8fr) minmax(0, 1.4fr); }
+}

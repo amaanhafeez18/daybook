@@ -1,6 +1,7 @@
 import { useId, useMemo, useRef, useState } from 'react'
 import Icon from '../../components/ui/Icon.jsx'
 import Sheet from '../../components/ui/Sheet.jsx'
+import Disclosure from '../../components/ui/Disclosure.jsx'
 import { Button } from '../../components/ui/primitives.jsx'
 import { toast } from '../../components/ui/feedback.jsx'
 import { addDaysISO, diffDays, formatDateLong, formatDateShort, isISODate } from '../../lib/dates.js'
@@ -284,9 +285,14 @@ function DayBody({ date, today, onClose }) {
       )}
 
       {planEditable && (
-        <section aria-label="Change the plan">
-          <h3 className="gym-day-h">{isToday ? 'Change today' : 'Change this day'}</h3>
-          <ul className="gym-hl-list">
+        <Disclosure
+          id="gym-day-plan"
+          label={isToday ? 'Change today' : 'Change this day'}
+          summary={[canSkip ? 'Skip or shift' : null, 'Change workout', canMove ? 'Move' : null].filter(Boolean).join(' · ')}
+          hasValues={hasChanges}
+          className="gym-disclosure gym-day-change"
+        >
+          <ul className="gym-hl-list" aria-label="Change the plan">
             {canSkip && (
               <li>
                 <ActionRow icon="skipForward" label="Skip or shift from here…" hint="Skip this day, or shift the plan a day later" onClick={() => setSub('skip')} />
@@ -326,7 +332,7 @@ function DayBody({ date, today, onClose }) {
               </li>
             )}
           </ul>
-        </section>
+        </Disclosure>
       )}
 
       <SkipSheet open={sub === 'skip'} onClose={() => setSub(null)} date={date} today={today} />

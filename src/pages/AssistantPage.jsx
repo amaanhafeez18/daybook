@@ -2,7 +2,7 @@ import { Fragment, memo, useCallback, useEffect, useId, useMemo, useRef, useStat
 import { createPortal } from 'react-dom'
 import Icon from '../components/ui/Icon.jsx'
 import Sheet from '../components/ui/Sheet.jsx'
-import { AutoTextarea, IconButton } from '../components/ui/primitives.jsx'
+import { AutoTextarea, EmptyState } from '../components/ui/primitives.jsx'
 import { confirmAction, toast } from '../components/ui/feedback.jsx'
 import { SESSION_EXPIRED_EVENT, apiRequest, getToken, readJson, readPref, writeJson, writePref } from '../lib/api.js'
 import { refresh, useData } from '../lib/store.js'
@@ -62,6 +62,11 @@ const ATTACH_SOURCES = [
   { id: 'files', icon: 'fileText', label: 'Files', hint: `PDFs up to ${formatBytes(MAX_UPLOAD_TOTAL)}, or text files` },
 ]
 const TOO_MANY = `You can attach up to ${MAX_ATTACHMENTS} files to one message.`
+// The "what can I ask?" hint above the composer goes away for good once dismissed (per device),
+// and on its own after this many messages.
+const ASK_HINT_PREF = 'hint.assistantAsk'
+const ASK_HINT_UNTIL = 8
+const ASK_HINT_PROMPT = 'What can you do?'
 
 let messageId = 0
 const nextId = () => `m${Date.now()}-${++messageId}`
@@ -84,9 +89,12 @@ export default function AssistantPage({ displayName }) {
   const [attachments, setAttachmentState] = useState([])
   const [attachError, setAttachError] = useState('')
   const [attachMenu, setAttachMenu] = useState(null) // the "+" menu: null, or { keyboard } while open
+  const [toolsMenu, setToolsMenu] = useState(null) // the header's ⋯ menu, likewise
+  const [askHintSeen, setAskHintSeen] = useState(() => readPref(ASK_HINT_PREF, false) === true)
   // Screen readers hear the finished reply once, not every streamed token.
   const [announcement, setAnnouncement] = useState('')
   const endRef = useRef(null)
+  const toolsRef = useRef(null)
   const abortRef = useRef(null)
   const busyRef = useRef(false)
   const followRef = useRef(true) // keep the newest message in view unless the user scrolled up
@@ -641,8 +649,20 @@ export default function AssistantPage({ displayName }) {
     toast(next ? 'Replies will be read aloud' : 'Replies won’t be read aloud')
   }
 
+  function dismissAskHint() {
+    setAskHintSeen(true)
+    writePref(ASK_HINT_PREF, true)
+  }
+
   const empty = messages.length === 0
   const lastIndex = messages.length - 1
+  const showAskHint = !empty && !askHintSeen && messages.length <= ASK_HINT_UNTIL
+  const closeToolsMenu = useCallback(() => setToolsMenu(null), [])
+  const toolItems = [
+    { id: 'memory', icon: 'bookmark', label: 'What I remember', hint: memories.length ? `${memories.length} ${memories.length === 1 ? 'thing' : 'things'} you’ve told me` : 'Nothing yet', onClick: () => setMemoryOpen(true) },
+    { id: 'speak', icon: speak ? 'volume' : 'volumeOff', label: 'Read replies aloud', hint: speak ? 'On' : 'Off', checked: speak, onClick: toggleSpeak },
+    { id: 'new', icon: 'message', label: 'New chat', hint: 'Clears this conversation', disabled: busy, onClick: newChat },
+  ]
 
   return (
     <div className="assistant">
@@ -651,13 +671,21 @@ export default function AssistantPage({ displayName }) {
           <h1>Assistant</h1>
           <p className="page-subtitle">Knows your tasks, calendar, people, gym and food</p>
         </div>
-        <div className="assistant-tools">
-          <IconButton icon={speak ? 'volume' : 'volumeOff'} label={speak ? 'Stop reading replies aloud' : 'Read replies aloud'} active={speak} onClick={toggleSpeak} />
-          <button type="button" className="icon-btn has-badge" onClick={() => setMemoryOpen(true)} aria-label={`What I remember (${memories.length})`} title="What I remember">
-            <Icon name="bookmark" size={20} />
-            {memories.length > 0 && <span className="badge-count asst-badge" aria-hidden="true">{memories.length}</span>}
+        <div className="assistant-tools asst-tools">
+          <button
+            ref={toolsRef}
+            type="button"
+            className={`icon-btn ${toolsMenu ? 'is-active' : ''}`}
+            onClick={(event) => setToolsMenu((open) => (open ? null : { keyboard: event.detail === 0 }))}
+            aria-label="More"
+            title="More"
+            aria-haspopup="menu"
+            aria-expanded={!!toolsMenu}
+            aria-controls={toolsMenu ? 'asst-tools-menu' : undefined}
+          >
+            <Icon name="more" size={22} />
           </button>
-          <IconButton icon="message" label="New chat" onClick={newChat} disabled={busy} />
+          {toolsMenu && <PopMenu id="asst-tools-menu" label="Assistant options" items={toolItems} focusFirst={!!toolsMenu.keyboard} anchorRef={toolsRef} onClose={closeToolsMenu} placement="down" />}
         </div>
       </header>
 
@@ -696,6 +724,15 @@ export default function AssistantPage({ displayName }) {
       )}
 
       <div className="composer-dock">
+        {showAskHint && (
+          <div className="asst-tip" role="note">
+            <button type="button" className="asst-tip-text" onClick={() => { dismissAskHint(); submitText(null, ASK_HINT_PROMPT) }} disabled={busy}>
+              <Icon name="sparkles" size={15} />
+              <span>Try asking “{ASK_HINT_PROMPT}”</span>
+            </button>
+            <button type="button" className="asst-tip-close" onClick={dismissAskHint} aria-label="Dismiss this tip"><Icon name="close" size={15} strokeWidth={2.4} /></button>
+          </div>
+        )}
         <Composer
           text={text}
           setText={setText}
@@ -730,7 +767,7 @@ function Welcome({ displayName, busy, onAsk, onTimetable }) {
     <div className="chat-welcome">
       <span className="assistant-avatar assistant-avatar-lg" aria-hidden="true"><Icon name="sparkles" size={30} /></span>
       <h2>{firstName ? `Hi ${firstName}, how can I help?` : 'How can I help?'}</h2>
-      <p>Ask about your day, send a photo or PDF, or say things like “move the dentist to Friday at 3” or “Ali started a new job — we had coffee today.”</p>
+      <p>Ask in plain words, type or talk: “move the dentist to Friday at 3”, “what’s on today?”, “had coffee with Ali”. I check with you before changing anything.</p>
       <div className="suggestions">
         {suggestions.map((suggestion) => (
           <button key={suggestion.text} type="button" className="suggestion" onClick={() => onAsk(suggestion.text)} disabled={busy}>
@@ -1122,7 +1159,16 @@ function Composer({
   return (
     <div className="asst-composer-wrap">
       {error && <p className="composer-error asst-notice" role="alert">{error}</p>}
-      {menu && <AttachMenu id={menuId} focusFirst={!!menu.keyboard} anchorRef={plusRef} onClose={onCloseMenu} onPick={onPick} />}
+      {menu && (
+        <PopMenu
+          id={menuId}
+          label="Add to your message"
+          items={ATTACH_SOURCES.map((source) => ({ ...source, onClick: () => onPick(source.id) }))}
+          focusFirst={!!menu.keyboard}
+          anchorRef={plusRef}
+          onClose={onCloseMenu}
+        />
+      )}
       <form className={`composer asst-composer ${hasAttachments ? 'has-attachments' : ''}`} onSubmit={onSubmit}>
         {tray}
         <div className="asst-row">
@@ -1185,8 +1231,9 @@ function Composer({
   )
 }
 
-// The "+" menu: Camera, Photos, Files. Closes on a tap outside, Escape or a choice.
-function AttachMenu({ id, focusFirst, anchorRef, onClose, onPick }) {
+// A small popover menu: the composer's "+" (Camera, Photos, Files) and the header's ⋯. Closes on
+// a tap outside, Escape or a choice. items: [{ id, icon, label, hint?, checked?, disabled?, onClick }].
+function PopMenu({ id, label, items: entries, focusFirst, anchorRef, onClose, placement = 'up' }) {
   const menuRef = useRef(null)
   const items = () => Array.from(menuRef.current?.querySelectorAll('[role="menuitem"]') || [])
 
@@ -1224,14 +1271,26 @@ function AttachMenu({ id, focusFirst, anchorRef, onClose, onPick }) {
   }
 
   return (
-    <div ref={menuRef} id={id} className="asst-menu" role="menu" aria-label="Add to your message" onKeyDown={onMenuKeyDown}>
-      {ATTACH_SOURCES.map((source) => (
-        <button key={source.id} type="button" role="menuitem" className="asst-menu-item" onClick={() => onPick(source.id)}>
-          <span className={`asst-menu-icon is-${source.id}`} aria-hidden="true"><Icon name={source.icon} size={20} /></span>
+    <div ref={menuRef} id={id} className={`asst-menu is-${placement}`} role="menu" aria-label={label} onKeyDown={onMenuKeyDown}>
+      {entries.map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'}
+          aria-checked={item.checked === undefined ? undefined : item.checked}
+          className={`asst-menu-item ${item.checked ? 'is-checked' : ''}`}
+          disabled={item.disabled}
+          onClick={() => {
+            onClose()
+            item.onClick()
+          }}
+        >
+          <span className={`asst-menu-icon is-${item.id}`} aria-hidden="true"><Icon name={item.icon} size={20} /></span>
           <span className="asst-menu-text">
-            <strong>{source.label}</strong>
-            <small>{source.hint}</small>
+            <strong>{item.label}</strong>
+            {item.hint && <small>{item.hint}</small>}
           </span>
+          {item.checked && <Icon name="check" size={18} strokeWidth={2.4} className="asst-menu-check" />}
         </button>
       ))}
     </div>
@@ -1321,21 +1380,17 @@ function MemorySheet({ open, onClose, memories, setMemories, enabled }) {
   }
 
   return (
-    <Sheet open={open} onClose={onClose} title="What I remember" description="Facts you’ve told me. I use them in every conversation." initialFocus={false}>
+    <Sheet open={open} onClose={onClose} title="What I remember" description="Things you’ve told me, kept for every conversation. Tap × to forget one." initialFocus={false}>
       {!enabled ? (
         <p className="muted">Memory isn’t switched on yet: the assistant_memories table needs to be created in Supabase.</p>
       ) : memories.length === 0 ? (
-        <div className="empty-state">
-          <span className="empty-icon"><Icon name="bookmark" size={24} /></span>
-          <h3>Nothing yet</h3>
-          <p>Tell me things like “my sister is Sara” or “I’m vegetarian” and I’ll remember them.</p>
-        </div>
+        <EmptyState icon="bookmark" title="Nothing yet">Tell me things like “my sister is Sara” or “I’m vegetarian” and I’ll remember them.</EmptyState>
       ) : (
-        <ul className="memory-list">
+        <ul className="memory-list asst-memories">
           {memories.map((memory) => (
             <li key={memory.id}>
               <span>{memory.content}</span>
-              <button type="button" className="icon-btn icon-btn-sm" onClick={() => forget(memory)} aria-label={`Forget: ${memory.content}`}><Icon name="close" size={16} /></button>
+              <button type="button" className="icon-btn icon-btn-sm asst-forget" onClick={() => forget(memory)} aria-label={`Forget: ${memory.content}`}><Icon name="close" size={16} /></button>
             </li>
           ))}
         </ul>

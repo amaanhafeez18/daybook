@@ -231,14 +231,14 @@ export default function WelcomeFlow({ user, onClose }) {
   const SCREENS = {
     welcome: {
       title: 'Welcome to Daybook',
-      body: 'Your tasks, calendar, people and habits in one calm place, with an assistant that handles the busywork.',
+      body: 'Your tasks, calendar and people in one calm place, with an assistant that does the busywork.',
       visual: <HeroVisual />,
       primary: { label: 'Get started', onClick: () => go(1), next: true },
-      note: 'Takes about a minute',
+      note: wide ? 'About a minute · use the arrow keys or the buttons' : 'About a minute · swipe or tap to move on',
     },
     you: {
       title: 'Make it yours',
-      body: 'Pick what you’d like help with and we’ll tailor the tour. You can use everything either way.',
+      body: 'Your name, and what you’d like help with. Everything is there either way.',
       content: (
         <div className="wl-form">
           <label className="wl-label" htmlFor={`${baseId}-name`}>What should we call you?</label>
@@ -286,7 +286,7 @@ export default function WelcomeFlow({ user, onClose }) {
     },
     today: {
       title: 'Your day on one screen',
-      body: 'Tasks, classes and catch-ups line up on Today. Try it: add your first task.',
+      body: 'Tasks, classes and catch-ups line up on Today. Add your first task; a day or time in the words is understood.',
       visual: <TodayVisual name={firstName} picks={picks} added={added} />,
       content: (
         <div className="wl-form">
@@ -333,19 +333,19 @@ export default function WelcomeFlow({ user, onClose }) {
     },
     assistant: {
       title: 'Or just ask',
-      body: 'Type or talk. The assistant adds tasks, plans your week and answers questions, and checks with you before changing anything.',
+      body: 'Type or talk. The assistant adds tasks, plans your week and answers questions, and it checks with you before changing anything.',
       visual: <AssistantVisual />,
       primary: { label: 'Continue', onClick: () => go(index + 1), next: true },
     },
     more: {
       title: 'Built around your routine',
-      body: 'The things you picked each have a home of their own.',
+      body: 'What you picked each has a home of its own.',
       visual: <ExtrasVisual picks={picks} />,
       primary: { label: 'Continue', onClick: () => go(index + 1), next: true },
     },
     notify: {
-      title: 'Never miss a thing',
-      body: 'A summary of your day each morning, and a nudge 15 minutes before anything with a time.',
+      title: 'A nudge at the right time',
+      body: 'A summary each morning, and a heads-up 15 minutes before anything with a time. Change it any time in Settings.',
       visual: <NotifyVisual />,
       content: <PushStatus state={push} error={pushError} />,
       primary: push === 'ask'
@@ -355,7 +355,7 @@ export default function WelcomeFlow({ user, onClose }) {
     },
     done: {
       title: `You’re all set${firstName ? `, ${firstName}` : ''}`,
-      body: 'Here’s where to find things.',
+      body: 'Here’s where things are.',
       visual: <DoneVisual />,
       content: <WhereThings picks={picks} wide={wide} />,
       primary: { label: 'Start using Daybook', onClick: () => finish('today') },
@@ -456,13 +456,16 @@ function PushStatus({ state, error }) {
   }
   if (state === 'on') return <p className="wl-added wl-notify-on" role="status"><span className="wl-tick"><Icon name="check" size={11} strokeWidth={3} /></span>Notifications are on for this device.</p>
   const note = error || {
+    ask: 'Only about your own plans, and only at the times you choose.',
     denied: 'Notifications are blocked for Daybook. You can allow them in your phone’s Settings → Notifications.',
     // Already the installed app (an older iPhone, say): installing isn't the answer there.
     unavailable: isStandalone()
       ? 'Notifications aren’t available on this device yet. You’ll still see everything on Today.'
       : 'You can turn them on any time in Settings → Notifications, from the installed app.',
   }[state]
-  return note ? <p className={`wl-panel ${error ? 'is-error' : ''}`} role={error ? 'alert' : undefined}>{note}</p> : null
+  if (!note) return null
+  if (state === 'ask' && !error) return <p className="wl-quiet">{note}</p>
+  return <p className={`wl-panel ${error ? 'is-error' : ''}`} role={error ? 'alert' : undefined}>{note}</p>
 }
 
 function WhereThings({ picks, wide }) {

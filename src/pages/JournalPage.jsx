@@ -1,13 +1,39 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../components/ui/Icon.jsx'
+import Disclosure from '../components/ui/Disclosure.jsx'
 import { AutoTextarea, Button, EmptyState, Segmented } from '../components/ui/primitives.jsx'
-import { confirmAction, toast } from '../components/ui/feedback.jsx'
+import { toast } from '../components/ui/feedback.jsx'
 import { getState, retryUnsaved, useData } from '../lib/store.js'
 import { MOODS, addNote, deleteJournalEntry, deleteNote, moodEmoji, saveJournalEntry } from '../lib/planner.js'
 import { addDaysISO, formatDateLong, formatDateShort, relativeDay, todayISO } from '../lib/dates.js'
 import '../components/journal.css'
 
 const AUTOSAVE_MS = 700
+// Search appears once there's enough to search through.
+const SEARCH_FROM = 4
+
+const matches = (query, ...fields) => {
+  const needle = query.trim().toLowerCase()
+  return !needle || fields.some((field) => String(field || '').toLowerCase().includes(needle))
+}
+
+// What a past entry is called in the list. Titles are optional (they sit under "Mood & title"),
+// so most entries are named by their first line, and only an entry with no words at all is
+// "Untitled".
+const HEADING_MAX = 70
+const PLACEHOLDER_TITLE = 'untitled entry' // saved by older versions when the title was left blank
+function entryPreview(item) {
+  const raw = (item.title || '').trim()
+  const title = raw.toLowerCase() === PLACEHOLDER_TITLE ? '' : raw
+  const body = (item.body || '').trim()
+  if (title) return { heading: title, text: body.slice(0, 140) }
+  if (!body) return { heading: 'Untitled entry', text: '' }
+  const [firstLine, ...rest] = body.split('\n')
+  const line = firstLine.trim()
+  const heading = line.length > HEADING_MAX ? `${line.slice(0, HEADING_MAX - 1).trimEnd()}…` : line
+  const text = line.length > HEADING_MAX ? body.slice(0, 140) : rest.join('\n').trim().slice(0, 140)
+  return { heading, text }
+}
 
 export default function JournalPage() {
   const [tab, setTab] = useState('journal')
@@ -36,6 +62,7 @@ function JournalEditor() {
   const entries = useData('journalEntries')
   const today = todayISO()
   const [date, setDate] = useState(today)
+  const [query, setQuery] = useState('')
   const entry = entries.find((item) => item.date === date) || null
   const [draft, setDraft] = useState({ title: '', body: '', mood: '' })
   const [saveState, setSaveState] = useState('idle') // idle | pending | saved
@@ -103,21 +130,26 @@ function JournalEditor() {
     if (nextDate) setDate(nextDate)
   }
 
-  async function remove() {
+  // Deleting is undoable from the toast, so there's no "are you sure?" first.
+  function remove() {
     if (!entry) return
-    const ok = await confirmAction({ title: 'Delete this entry?', message: `Your journal entry for ${formatDateLong(date)} will be removed.`, confirmLabel: 'Delete' })
-    if (!ok) return
     pending.current = null
     clearTimeout(timer.current)
     const undo = deleteJournalEntry(entry.id)
     baseId.current = null
     setDraft({ title: '', body: '', mood: '' })
     setSaveState('idle')
-    toast('Entry deleted', { action: { label: 'Undo', onClick: () => { undo(); setDate(date) } } })
+    toast(`Deleted your entry for ${formatDateShort(date)}`, { duration: 8000, action: { label: 'Undo', onClick: () => { undo(); setDate(date) } } })
   }
 
   const history = useMemo(() => [...entries].sort((a, b) => b.date.localeCompare(a.date)), [entries])
+  const shown = useMemo(() => history.filter((item) => matches(query, item.title, item.body, formatDateLong(item.date), relativeDay(item.date, today))), [history, query, today])
   const words = draft.body.trim() ? draft.body.trim().split(/\s+/).length : 0
+  const mood = MOODS.find((item) => item.id === draft.mood)
+  const extrasSummary = [mood ? `${mood.emoji} ${mood.label}` : '', draft.title.trim()].filter(Boolean).join(' · ')
+  // The draft is loaded a render after the date changes, so whether the day already has a mood or
+  // title is read from the saved entry too (that's what decides if "Mood & title" starts open).
+  const extrasSet = !!extrasSummary || !!(entry?.mood || (entry?.title || '').trim())
 
   return (
     <div className="journal-layout">
@@ -132,42 +164,45 @@ function JournalEditor() {
           <button type="button" className="icon-btn" onClick={() => goTo(addDaysISO(date, 1))} aria-label="Next day" disabled={date >= today}><Icon name="chevronRight" /></button>
         </div>
 
-        <div className="mood-picker" role="radiogroup" aria-label="Mood">
-          {MOODS.map((mood) => (
-            <button
-              key={mood.id}
-              type="button"
-              role="radio"
-              aria-checked={draft.mood === mood.id}
-              className={`mood ${draft.mood === mood.id ? 'is-active' : ''}`}
-              onClick={() => update('mood', draft.mood === mood.id ? '' : mood.id)}
-            >
-              <span aria-hidden="true">{mood.emoji}</span>
-              <small>{mood.label}</small>
-            </button>
-          ))}
-        </div>
+        {/* Keyed by the day (and its entry), so a day that already has a mood or title opens it by itself. */}
+        <Disclosure key={`${date}:${entry?.id || ''}`} id="journal-extras" label="Mood & title" summary={extrasSummary} hasValues={extrasSet} className="journal-extras">
+          <div className="mood-picker" role="radiogroup" aria-label="Mood">
+            {MOODS.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                role="radio"
+                aria-checked={draft.mood === item.id}
+                className={`mood ${draft.mood === item.id ? 'is-active' : ''}`}
+                onClick={() => update('mood', draft.mood === item.id ? '' : item.id)}
+              >
+                <span aria-hidden="true">{item.emoji}</span>
+                <small>{item.label}</small>
+              </button>
+            ))}
+          </div>
+          <input
+            className="journal-title"
+            value={draft.title}
+            onChange={(event) => update('title', event.target.value)}
+            placeholder="Give the day a title"
+            aria-label="Entry title"
+          />
+        </Disclosure>
 
-        <input
-          className="journal-title"
-          value={draft.title}
-          onChange={(event) => update('title', event.target.value)}
-          placeholder="Give today a title"
-          aria-label="Entry title"
-        />
         <AutoTextarea
           className="journal-body"
           value={draft.body}
           onChange={(event) => update('body', event.target.value)}
           placeholder={date === today ? 'What happened today? How are you feeling?' : 'What happened this day?'}
           aria-label="Entry"
-          minRows={8}
+          minRows={7}
           maxRows={30}
         />
 
         <footer className="journal-footer">
           <span className="journal-status" aria-live="polite">
-            {saveState === 'pending' ? 'Saving…' : saveState === 'saved' || entry ? <><Icon name="check" size={14} /> Saved</> : 'Starts saving as you type'}
+            {saveState === 'pending' ? 'Saving…' : saveState === 'saved' || entry ? <><Icon name="check" size={14} /> Saved</> : 'Saves as you type'}
             {words > 0 && <span className="muted"> · {words} word{words === 1 ? '' : 's'}</span>}
           </span>
           {entry && <Button variant="ghost" size="sm" icon="trash" onClick={remove}>Delete</Button>}
@@ -175,22 +210,33 @@ function JournalEditor() {
       </section>
 
       <section className="journal-history">
-        <h2 className="group-title">Past entries <span className="count">{history.length}</span></h2>
+        <div className="group-title-row journal-history-head">
+          <h2 className="group-title">Past entries <span className="count">{history.length}</span></h2>
+        </div>
+        {(history.length >= SEARCH_FROM || query) && (
+          <label className="search-field search-field-wide journal-search">
+            <Icon name="search" size={18} />
+            <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search entries" aria-label="Search entries" />
+          </label>
+        )}
         {history.length === 0 ? (
           <EmptyState icon="journal" title="Your journal is empty">Write a few lines about today — it only takes a minute.</EmptyState>
+        ) : shown.length === 0 ? (
+          <EmptyState icon="search" title="No matches">Try a different word or a date.</EmptyState>
         ) : (
           <ul className="entry-list">
-            {history.map((item) => {
+            {shown.map((item) => {
               const rel = relativeDay(item.date, today)
               const short = formatDateShort(item.date)
+              const preview = entryPreview(item)
               return (
                 <li key={item.id}>
                   <button type="button" className={`entry-card ${item.date === date ? 'is-active' : ''}`} onClick={() => goTo(item.date)}>
                     <span className="entry-mood" aria-hidden="true">{moodEmoji(item.mood) || '📝'}</span>
                     <span className="entry-text">
                       <small>{rel}{rel !== short ? ` · ${short}` : ''}</small>
-                      <strong>{item.title || 'Untitled entry'}</strong>
-                      {item.body && <span>{item.body.slice(0, 140)}</span>}
+                      <strong>{preview.heading}</strong>
+                      {preview.text && <span>{preview.text}</span>}
                     </span>
                   </button>
                 </li>
@@ -205,13 +251,16 @@ function JournalEditor() {
 
 function NotesList({ notes }) {
   const [text, setText] = useState('')
+  const [query, setQuery] = useState('')
   const sorted = useMemo(() => [...notes].sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))), [notes])
+  const shown = useMemo(() => sorted.filter((note) => matches(query, note.text)), [sorted, query])
 
   function submit(event) {
     event.preventDefault()
     if (!text.trim()) return
     addNote(text)
     setText('')
+    toast('Note saved')
   }
 
   function remove(note) {
@@ -222,17 +271,34 @@ function NotesList({ notes }) {
   return (
     <div className="notes">
       <form className="card note-composer" onSubmit={submit}>
-        <AutoTextarea value={text} onChange={(event) => setText(event.target.value)} placeholder="Jot something down…" aria-label="New note" minRows={2} maxRows={8} />
+        <AutoTextarea
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) submit(event)
+          }}
+          placeholder="Jot something down…"
+          aria-label="New note"
+          minRows={2}
+          maxRows={8}
+        />
         <div className="note-composer-actions">
-          <span className="field-hint">Tip: the assistant saves notes here when you ask it to.</span>
           <Button type="submit" size="sm" disabled={!text.trim()}>Save note</Button>
         </div>
       </form>
+      {(sorted.length >= SEARCH_FROM || query) && (
+        <label className="search-field search-field-wide journal-search">
+          <Icon name="search" size={18} />
+          <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search notes" aria-label="Search notes" />
+        </label>
+      )}
       {sorted.length === 0 ? (
-        <EmptyState icon="note" title="No notes yet">Quick thoughts, ideas and things to remember live here.</EmptyState>
+        <EmptyState icon="note" title="No notes yet">Ideas, lists, things to remember: jot them down above. The assistant can save notes here too.</EmptyState>
+      ) : shown.length === 0 ? (
+        <EmptyState icon="search" title="No matches">Try a different word.</EmptyState>
       ) : (
         <ul className="note-list">
-          {sorted.map((note) => (
+          {shown.map((note) => (
             <li key={note.id} className="card note-card">
               <p className="preserve-lines">{note.text}</p>
               <footer>

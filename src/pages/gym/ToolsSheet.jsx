@@ -15,7 +15,7 @@ const isNum = (value) => typeof value === 'number' && Number.isFinite(value)
 const DEFAULT_PAIRS = 2
 const TABS = [
   { id: 'plates', label: 'Plates' },
-  { id: '1rm', label: '1RM' },
+  { id: '1rm', label: 'Max (1RM)' },
   { id: 'percent', label: 'Percent' },
 ]
 const BARS = [
@@ -338,7 +338,7 @@ function OneRepMaxTab({ prefs, unit, weightKg, onWeight, reps, onReps, onUseAsBa
       {tooMany ? (
         <p className="gym-tools-hint">Estimates are only reliable up to 12 reps. Try a heavier set.</p>
       ) : !oneRm ? (
-        <p className="gym-tools-hint">Enter a set you did, like 80 {unit} × 5, to estimate your one-rep max.</p>
+        <p className="gym-tools-hint">Enter a set you did, like 80 {unit} × 5, to estimate your one-rep max (1RM): the most you could probably lift once.</p>
       ) : (
         <>
           <div className="gym-tools-hero">

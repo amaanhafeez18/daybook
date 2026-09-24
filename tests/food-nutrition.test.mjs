@@ -739,3 +739,22 @@ describe('portion units', () => {
     assert.equal(amountText(null, 'slice'), '')
   })
 })
+
+// Display helpers shared by the Food page (pure module).
+import { portionText } from '../src/pages/food/format.js'
+
+describe('portionText', () => {
+  test('amount with unit, then grams', () => {
+    assert.equal(portionText({ amount: 2, unit: 'slice', grams: 60 }), '2 slices · 60 g')
+    assert.equal(portionText({ amount: 150, unit: 'g' }), '150 g')
+    assert.equal(portionText({ grams: 150 }), '150 g')
+    assert.equal(portionText({ amount: 2 }), '×2')
+    assert.equal(portionText({}), '')
+  })
+  test('a unit that carries its own weight does not repeat the grams', () => {
+    assert.equal(portionText({ amount: 1, unit: 'serving (250 g)', grams: 250 }), '1 serving (250 g)')
+    assert.equal(portionText({ amount: 1, unit: 'can, 355 ml', grams: 355 }), '1 can, 355 ml')
+    assert.equal(portionText({ amount: 2, unit: 'bar (60g)', grams: 120 }), '2 bars (60g)')
+    assert.equal(portionText({ amount: 1, unit: 'bottle (12 fl oz)', grams: 355 }), '1 bottle (12 fl oz)')
+  })
+})

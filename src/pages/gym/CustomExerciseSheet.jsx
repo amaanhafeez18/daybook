@@ -1,5 +1,6 @@
 import { useEffect, useId, useState } from 'react'
 import Sheet from '../../components/ui/Sheet.jsx'
+import Disclosure from '../../components/ui/Disclosure.jsx'
 import { toast } from '../../components/ui/feedback.jsx'
 import { Button, Field, Segmented } from '../../components/ui/primitives.jsx'
 import { EQUIPMENT, MUSCLES, allExercises } from '../../lib/gym/library.js'
@@ -140,6 +141,10 @@ export default function CustomExerciseSheet({ open, onClose, exercise = null, on
   }
 
   const tracking = TRACKING_BY_ID[draft.tracking]
+  const equipmentName = EQUIPMENT.find((item) => item.id === draft.equipment)?.label || 'Other'
+  const categoryName = CATEGORY_OPTIONS.find((item) => item.id === draft.category)?.label || 'Compound'
+  const alsoWorks = draft.secondary.map((id) => MUSCLES.find((muscle) => muscle.id === id)?.label).filter(Boolean)
+  const moreSummary = [equipmentName, categoryName, `Rest ${restText(draft.rest)}`, alsoWorks.length ? `also ${alsoWorks.join(', ')}` : null].filter(Boolean).join(' · ')
 
   return (
     <Sheet
@@ -177,37 +182,13 @@ export default function CustomExerciseSheet({ open, onClose, exercise = null, on
           )}
         </Field>
 
-        <div className="field-row">
-          <Field label="Main muscle">
-            {(id) => (
-              <select id={id} className="input" value={draft.primary} onChange={(event) => set({ primary: event.target.value })}>
-                {MUSCLES.map((muscle) => <option key={muscle.id} value={muscle.id}>{muscle.label}</option>)}
-              </select>
-            )}
-          </Field>
-          <Field label="Equipment">
-            {(id) => (
-              <select id={id} className="input" value={draft.equipment} onChange={(event) => set({ equipment: event.target.value })}>
-                {EQUIPMENT.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-              </select>
-            )}
-          </Field>
-        </div>
-
-        <div className="field">
-          <span className="field-label" id={`${formId}-secondary`}>Also works <span className="gym-cx-optional">optional</span></span>
-          <div className="chip-row gym-cx-chips" role="group" aria-labelledby={`${formId}-secondary`}>
-            {MUSCLES.filter((muscle) => muscle.id !== draft.primary && muscle.id !== 'cardio').map((muscle) => {
-              const on = draft.secondary.includes(muscle.id)
-              return (
-                <button key={muscle.id} type="button" className={`chip chip-sm${on ? ' is-active' : ''}`} aria-pressed={on} onClick={() => toggleSecondary(muscle.id)}>
-                  {muscle.label}
-                </button>
-              )
-            })}
-          </div>
-          <p className="field-hint">Secondary muscles count as half a set in your weekly stats.</p>
-        </div>
+        <Field label="Main muscle">
+          {(id) => (
+            <select id={id} className="input" value={draft.primary} onChange={(event) => set({ primary: event.target.value })}>
+              {MUSCLES.map((muscle) => <option key={muscle.id} value={muscle.id}>{muscle.label}</option>)}
+            </select>
+          )}
+        </Field>
 
         <Field label="What you log" hint={tracking ? `Each set records ${tracking.logs}. Like ${tracking.example}.` : undefined}>
           {(id) => (
@@ -219,23 +200,54 @@ export default function CustomExerciseSheet({ open, onClose, exercise = null, on
           )}
         </Field>
 
-        <div className="field">
-          <span className="field-label">Type</span>
-          <Segmented options={CATEGORY_OPTIONS} value={draft.category} onChange={setCategory} label="Exercise type" />
-          <p className="field-hint">
-            {draft.category === 'compound' ? 'Moves several joints, like a squat or row.'
-              : draft.category === 'isolation' ? 'Targets one joint, like a curl or leg extension.'
-                : 'Conditioning work; the rest timer is off by default.'}
-          </p>
-        </div>
+        <Disclosure
+          id="custom-exercise-more"
+          label="More options"
+          summary={moreSummary}
+          hasValues={Array.isArray(exercise?.secondary) && exercise.secondary.length > 0}
+          className="gym-disclosure"
+        >
+          <Field label="Equipment" hint="Barbell exercises get the plate calculator.">
+            {(id) => (
+              <select id={id} className="input" value={draft.equipment} onChange={(event) => set({ equipment: event.target.value })}>
+                {EQUIPMENT.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+              </select>
+            )}
+          </Field>
 
-        <Field label="Rest timer" hint="Starts after each set. You can still change it per routine.">
-          {(id) => (
-            <select id={id} className="input" value={draft.rest} onChange={(event) => set({ rest: Number(event.target.value), restTouched: true })}>
-              {restChoices(draft.rest).map((sec) => <option key={sec} value={sec}>{restText(sec)}</option>)}
-            </select>
-          )}
-        </Field>
+          <div className="field">
+            <span className="field-label" id={`${formId}-secondary`}>Also works <span className="gym-cx-optional">optional</span></span>
+            <div className="chip-row gym-cx-chips" role="group" aria-labelledby={`${formId}-secondary`}>
+              {MUSCLES.filter((muscle) => muscle.id !== draft.primary && muscle.id !== 'cardio').map((muscle) => {
+                const on = draft.secondary.includes(muscle.id)
+                return (
+                  <button key={muscle.id} type="button" className={`chip chip-sm${on ? ' is-active' : ''}`} aria-pressed={on} onClick={() => toggleSecondary(muscle.id)}>
+                    {muscle.label}
+                  </button>
+                )
+              })}
+            </div>
+            <p className="field-hint">Secondary muscles count as half a set in your weekly stats.</p>
+          </div>
+
+          <div className="field">
+            <span className="field-label">Type</span>
+            <Segmented options={CATEGORY_OPTIONS} value={draft.category} onChange={setCategory} label="Exercise type" />
+            <p className="field-hint">
+              {draft.category === 'compound' ? 'Moves several joints, like a squat or row.'
+                : draft.category === 'isolation' ? 'Targets one joint, like a curl or leg extension.'
+                  : 'Conditioning work; the rest timer is off by default.'}
+            </p>
+          </div>
+
+          <Field label="Rest timer" hint="Starts after each set. You can still change it per routine.">
+            {(id) => (
+              <select id={id} className="input" value={draft.rest} onChange={(event) => set({ rest: Number(event.target.value), restTouched: true })}>
+                {restChoices(draft.rest).map((sec) => <option key={sec} value={sec}>{restText(sec)}</option>)}
+              </select>
+            )}
+          </Field>
+        </Disclosure>
         {exercise && <p className="field-hint">Changes apply to future workouts. Past workouts keep what you logged.</p>}
       </form>
     </Sheet>

@@ -151,24 +151,9 @@
 .gym-td-done-text strong { font-size: 17px; font-weight: 600; letter-spacing: -0.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gym-td-done-text small { font-size: 14px; color: var(--text-2); font-variant-numeric: tabular-nums; }
 
-/* ⋯ menu */
-.gym-td-menu-wrap { position: relative; flex-shrink: 0; }
+/* ⋯ button (opens the Today action sheet) */
+.gym-td-menu-wrap { position: relative; flex-shrink: 0; display: inline-flex; }
 .icon-btn.gym-td-more { width: 36px; height: 36px; background: var(--surface-2); color: var(--text); }
-.gym-td-menu {
-  position: absolute; top: calc(100% + 6px); right: 0; z-index: 30; min-width: 232px; padding: 6px;
-  border-radius: 18px; background: var(--glass-bg-strong);
-  -webkit-backdrop-filter: blur(30px) saturate(190%);
-  backdrop-filter: blur(30px) saturate(190%);
-  border: 1px solid var(--glass-border); box-shadow: var(--glass-highlight), var(--shadow-lg);
-  transform-origin: top right; animation: gym-td-menu-in 0.2s var(--ease);
-}
-@keyframes gym-td-menu-in { from { opacity: 0; transform: scale(0.9); } }
-.gym-td-menu button {
-  width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  min-height: 44px; padding: 0 12px; border-radius: 12px; color: var(--text); font-size: 16px; text-align: left;
-}
-.gym-td-menu button .icon { color: var(--text-2); }
-.gym-td-menu button:active { background: var(--surface-2); }
 
 /* exercise list */
 .card.gym-td-ex-list { padding: 4px 0; margin: 0; list-style: none; }
@@ -220,25 +205,18 @@
 .gym-td-stepper .icon-btn:disabled { color: var(--text-3); }
 .gym-td-stepper-value { min-width: 34px; text-align: center; font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
 
-/* action rows */
-.gym-td-actions .settings-row { min-height: 58px; }
-.gym-td-actions .settings-row-text strong { font-size: 17px; }
-.gym-td-actions .settings-row-text small { font-size: 13px; }
-.settings-row-icon.gym-td-action-icon { color: #fff; }
-.settings-row-icon.gym-td-action-icon.is-amber { background: var(--gym-c-amber); }
-.settings-row-icon.gym-td-action-icon.is-indigo { background: var(--gym-c-indigo); }
-.settings-row-icon.gym-td-action-icon.is-green { background: var(--gym-c-green); }
-
 /* goal ring + streak */
 .gym-td-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .card.gym-td-tile {
-  display: flex; align-items: center; gap: 12px; min-width: 0; min-height: 84px; padding: 14px;
+  display: flex; align-items: center; gap: 12px; min-width: 0; min-height: 84px; padding: 12px 14px;
   color: var(--text); text-align: left; transition: transform 0.35s var(--spring, var(--ease));
 }
 .card.gym-td-tile:active { transform: scale(0.97); transition-duration: 0.1s; }
 .gym-td-tile-text { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .gym-td-tile-text strong { font-family: var(--font-display, var(--font)); font-size: 24px; font-weight: 700; line-height: 1.1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 .gym-td-tile-text small { font-size: 13px; line-height: 1.25; color: var(--text-2); }
+.gym-td-tile-text .gym-td-tile-label { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-2); }
+.gym-td-tile-of { font-size: 16px; font-weight: 600; color: var(--text-2); }
 .gym-td-ring { flex-shrink: 0; }
 .gym-td-ring-track { fill: none; stroke: var(--surface-3); stroke-width: 6; }
 .gym-td-ring-value { fill: none; stroke: var(--accent); stroke-width: 6; stroke-linecap: round; transition: stroke-dashoffset 0.6s var(--ease); }
@@ -425,6 +403,12 @@
 .gym-cfg-plates { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip.gym-cfg-plate { min-width: 50px; font-variant-numeric: tabular-nums; }
 
+/* "Advanced" disclosure: its toggle reads like a group title; its body is another run of groups. */
+.gym-cfg-advanced { margin-top: -6px; }
+.gym-cfg-advanced .disclosure-toggle { padding-left: 16px; padding-right: 10px; }
+.gym-cfg-advanced .disclosure-summary { font-size: 13px; }
+.gym-cfg-advanced .disclosure-body { gap: 22px; padding-top: 6px; }
+
 .gym-cfg-row.gym-cfg-action { justify-content: flex-start; gap: 12px; }
 .gym-cfg-action:active:not(:disabled) { background: var(--surface-2); }
 .gym-cfg-action:disabled { opacity: 0.5; }
@@ -435,7 +419,7 @@
 /* ---- pointer devices get hover states; touch keeps the pressed states above ------------------ */
 
 @media (hover: hover) {
-  .gym-td-ex-row:hover, .gym-td-pick-row:hover, .gym-td-strip-day:hover, .gym-onb-tpl-head:hover, .gym-cfg-action:hover:not(:disabled), .gym-td-menu button:hover { background: var(--surface-2); }
+  .gym-td-ex-row:hover, .gym-td-pick-row:hover, .gym-td-strip-day:hover, .gym-onb-tpl-head:hover, .gym-cfg-action:hover:not(:disabled) { background: var(--surface-2); }
   .gym-td-done-card:hover { background: var(--surface-3); }
   .gym-skip-choice:hover:not(:disabled) { box-shadow: inset 0 0 0 1.5px var(--accent); }
 }
@@ -449,6 +433,7 @@
 @media (max-width: 380px) {
   .gym-td-strip-circle { width: 34px; height: 34px; font-size: 14px; }
   .card.gym-td-tile { gap: 10px; padding: 12px; }
+  .gym-td-ring { width: 44px; height: 44px; }
   .gym-td-flame { width: 44px; height: 44px; }
   .gym-td-hero-title { font-size: 27px; }
 }

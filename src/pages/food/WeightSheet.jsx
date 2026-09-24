@@ -68,7 +68,8 @@ export default function WeightSheet({ open, onClose, date, today }) {
     <Sheet
       open={open}
       onClose={onClose}
-      title="Log weight"
+      title="Weigh in"
+      description="One weigh-in a day; saving again replaces that day’s."
       size="sm"
       footer={<Button className="btn-grow" onClick={save} disabled={!valid}>{existing ? 'Update' : 'Save'}</Button>}
     >
@@ -105,6 +106,7 @@ export default function WeightSheet({ open, onClose, date, today }) {
           <input id={dateId} type="date" className="input" value={day} max={today} onChange={(event) => isISODate(event.target.value) && setDay(event.target.value)} />
         </label>
         {existing && <p className="food-ws-hint">Replaces the {fmtNum(kgToUnit(existing.kg, unit), 1)} {weightUnitLabel(unit)} logged {day === today ? 'today' : `for ${dayLabel(day, today)}`}.</p>}
+        {!valid && !error && <p className="food-ws-hint">Enter your weight to save.</p>}
         {error && <p className="field-error" role="alert">{error}</p>}
         <button type="submit" hidden aria-hidden="true" tabIndex={-1} />
       </form>

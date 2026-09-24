@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import Icon from '../../components/ui/Icon.jsx'
 import Sheet from '../../components/ui/Sheet.jsx'
 import { EmptyState, IconButton } from '../../components/ui/primitives.jsx'
@@ -16,7 +16,7 @@ import {
 } from '../../lib/gym/state.js'
 import { formatDistance, formatDuration, formatNumber, formatVolume, formatWeight, fromKg, fromMeters, toMeters } from '../../lib/gym/units.js'
 import { navigate } from '../../lib/router.js'
-import { DurationInput, NumberInput, RoutineChip, RoutineDot, SectionHeader, WeightInput } from './common.jsx'
+import { ActionSheet, DurationInput, NumberInput, RoutineChip, RoutineDot, SectionHeader, WeightInput } from './common.jsx'
 import ChangeWorkoutSheet from './ChangeWorkoutSheet.jsx'
 import ScheduleEditor from './ScheduleEditor.jsx'
 import SkipSheet from './SkipSheet.jsx'
@@ -224,7 +224,7 @@ export default function TodayTab({ today }) {
   const sessions = useGymSessions()
   const active = useActiveWorkout()
   const { prefs } = gym
-  const [sheet, setSheet] = useState(null) // 'skip' | 'change' | 'schedule' | 'pick' | 'another'
+  const [sheet, setSheet] = useState(null) // 'menu' | 'skip' | 'change' | 'schedule' | 'pick' | 'another'
 
   const day = useMemo(() => resolveDay(gym, sessions, today, today), [gym, sessions, today])
   const week = useMemo(() => resolveRange(gym, sessions, today, addDaysISO(today, 6), today), [gym, sessions, today])
@@ -256,30 +256,34 @@ export default function TodayTab({ today }) {
     })
   }
 
-  const menu = [
-    ...(hasSchedule ? [day.deload
-      ? { label: 'Skip this deload', icon: 'zap', onClick: () => toggleDeload(false) }
-      : { label: 'Deload this week', icon: 'arrowDown', onClick: () => toggleDeload(true) }] : []),
-    { label: hasSchedule ? 'Edit schedule' : 'Set up schedule', icon: 'calendar', onClick: () => setSheet('schedule') },
-  ]
-
+  // Everything else you can do with today lives behind the hero's one ⋯ menu: the plan changes
+  // (skip, shift, change, an empty workout), then the schedule itself (deload, edit).
   const startEmpty = () => beginWorkout({ routine: null, date: today })
-  const skipRow = { id: 'skip', label: 'Skip…', hint: 'Skip today or shift your plan a day', icon: 'skipForward', tone: 'amber', onClick: () => setSheet('skip') }
-  const shiftRow = { id: 'shift', label: 'Shift schedule…', hint: 'Add an extra rest day before what’s next', icon: 'skipForward', tone: 'amber', onClick: () => setSheet('skip') }
-  const changeRow = { id: 'change', label: 'Change today’s workout…', hint: 'Just for today, the plan stays the same', icon: 'shuffle', tone: 'indigo', onClick: () => setSheet('change') }
-  const emptyRow = { id: 'empty', label: 'Start empty workout', hint: 'Add exercises as you go', icon: 'plus', tone: 'green', onClick: startEmpty }
+  const skipItem = { id: 'skip', label: 'Skip or shift…', hint: 'Take today off, or shift the whole plan a day later', icon: 'skipForward', onClick: () => setSheet('skip') }
+  const shiftItem = { id: 'shift', label: 'Shift schedule…', hint: 'Add an extra rest day; everything after moves a day later', icon: 'arrowRight', onClick: () => setSheet('skip') }
+  const changeItem = { id: 'change', label: 'Change today’s workout…', hint: 'Another routine or rest, today only', icon: 'shuffle', onClick: () => setSheet('change') }
+  const emptyItem = { id: 'empty', label: 'Start empty workout', hint: 'Add exercises as you go', icon: 'plus', onClick: startEmpty }
 
-  let actions = []
-  if (day.status === 'today') actions = day.routineMissing ? [emptyRow] : [skipRow, changeRow, emptyRow]
-  else if (day.status === 'rest') actions = [changeRow, shiftRow]
-  else if (day.status === 'skipped' || day.status === 'shifted') actions = [changeRow, emptyRow]
-  else if (day.status === 'none' && hasSchedule) actions = [changeRow]
+  let planItems = []
+  if (day.status === 'today') planItems = day.routineMissing ? [emptyItem] : [skipItem, changeItem, emptyItem]
+  else if (day.status === 'rest') planItems = [changeItem, shiftItem]
+  else if (day.status === 'skipped' || day.status === 'shifted') planItems = [changeItem, emptyItem]
+  else if (day.status === 'none' && hasSchedule) planItems = [changeItem]
+
+  const scheduleItems = [
+    hasSchedule && (day.deload
+      ? { id: 'deload', label: 'Skip this deload', hint: 'Back to full sets and weights this week', icon: 'zap', onClick: () => toggleDeload(false) }
+      : { id: 'deload', label: 'Deload this week', hint: 'A lighter week: half the sets, about 10% less weight', icon: 'arrowDown', onClick: () => toggleDeload(true) }),
+    { id: 'schedule', label: hasSchedule ? 'Edit schedule' : 'Set up schedule', hint: 'Which routine falls on which day', icon: 'calendar', onClick: () => setSheet('schedule') },
+  ]
+  const menu = [planItems, scheduleItems]
+  const hasMenu = planItems.length + scheduleItems.filter(Boolean).length > 0
 
   return (
     <div className="gym-td">
       {hasSchedule && <WeekStrip days={week} today={today} gym={gym} />}
 
-      <Hero day={day} next={next} week={week} gym={gym} sessions={sessions} today={today} active={active} hasSchedule={hasSchedule} menu={menu} onSheet={setSheet} onUndoable={undoable} />
+      <Hero day={day} next={next} week={week} gym={gym} sessions={sessions} today={today} active={active} hasSchedule={hasSchedule} onMenu={hasMenu ? () => setSheet('menu') : null} onSheet={setSheet} onUndoable={undoable} />
 
       {day.status === 'today' && day.routine && (
         <section className="gym-td-section">
@@ -291,40 +295,28 @@ export default function TodayTab({ today }) {
         </section>
       )}
 
-      {actions.length > 0 && (
-        <div className="card settings-card settings-list gym-td-actions">
-          {actions.map((item) => (
-            <button key={item.id} type="button" className="settings-row" onClick={item.onClick}>
-              <span className={`settings-row-icon gym-td-action-icon is-${item.tone}`}><Icon name={item.icon} size={17} /></span>
-              <span className="settings-row-text">
-                <strong>{item.label}</strong>
-                <small>{item.hint}</small>
-              </span>
-              <Icon name="chevronRight" size={18} />
-            </button>
-          ))}
-        </div>
-      )}
-
       <div className="gym-td-tiles">
-        <button type="button" className="card gym-td-tile" onClick={() => navigate('gym/stats')} aria-label={`${weekCount} of ${prefs.weeklyGoal} workouts this week. Open stats`}>
+        <button type="button" className="card gym-td-tile" onClick={() => navigate('gym/stats')} aria-label={`Weekly goal: ${weekCount} of ${prefs.weeklyGoal} workouts this week. Open stats`}>
           <GoalRing value={weekCount} goal={prefs.weeklyGoal} />
           <span className="gym-td-tile-text">
-            <strong>{weekCount}/{prefs.weeklyGoal}</strong>
-            <small>{weekCount >= prefs.weeklyGoal ? 'Weekly goal met' : 'workouts this week'}</small>
+            <small className="gym-td-tile-label">This week</small>
+            <strong>{weekCount}<span className="gym-td-tile-of">/{prefs.weeklyGoal}</span></strong>
+            <small>{weekCount >= prefs.weeklyGoal ? 'Goal reached' : `${prefs.weeklyGoal - weekCount} more to go`}</small>
           </span>
         </button>
-        <button type="button" className={`card gym-td-tile${streak ? ' has-streak' : ''}`} onClick={() => navigate('gym/stats')} aria-label={`${plural(streak, 'week')} streak. Open stats`}>
+        <button type="button" className={`card gym-td-tile${streak ? ' has-streak' : ''}`} onClick={() => navigate('gym/stats')} aria-label={`Streak: ${plural(streak, 'week')} in a row. Open stats`}>
           <span className="gym-td-flame" aria-hidden="true"><Icon name="flame" size={24} /></span>
           <span className="gym-td-tile-text">
+            <small className="gym-td-tile-label">Streak</small>
             <strong>{streak}</strong>
-            <small>{streak ? `week${streak === 1 ? '' : 's'} in a row` : 'Train this week to start a streak'}</small>
+            <small>{streak ? `week${streak === 1 ? '' : 's'} in a row` : 'Train this week to start one'}</small>
           </span>
         </button>
       </div>
 
       <BodyWeightCard today={today} unit={prefs.unit} />
 
+      <ActionSheet open={sheet === 'menu'} onClose={() => setSheet(null)} title="Today" description="Change what happens today, or the plan itself." actions={menu} />
       <SkipSheet open={sheet === 'skip'} onClose={() => setSheet(null)} date={today} />
       <ChangeWorkoutSheet open={sheet === 'change'} onClose={() => setSheet(null)} date={today} />
       <ScheduleEditor open={sheet === 'schedule'} onClose={() => setSheet(null)} today={today} />
@@ -342,7 +334,7 @@ export default function TodayTab({ today }) {
 
 // ---- hero status card -----------------------------------------------------------------------------
 
-function Hero({ day, next, week, gym, sessions, today, active, hasSchedule, menu, onSheet, onUndoable }) {
+function Hero({ day, next, week, gym, sessions, today, active, hasSchedule, onMenu, onSheet, onUndoable }) {
   const routine = day.routine
   const sessionRoutine = day.sessions.length ? routineById(gym, day.sessions[0].routineId) : null
   const tint = day.status === 'done' ? sessionRoutine || routine : day.status === 'today' ? routine : null
@@ -361,7 +353,11 @@ function Hero({ day, next, week, gym, sessions, today, active, hasSchedule, menu
         {eyebrow}
       </span>
       {badges.length > 0 && <span className="gym-td-hero-badges">{badges}</span>}
-      <MoreMenu items={menu} />
+      {onMenu && (
+        <span className="gym-td-menu-wrap">
+          <IconButton icon="more" label="More options for today" className="gym-td-more" aria-haspopup="dialog" onClick={onMenu} />
+        </span>
+      )}
     </div>
   )
 
@@ -553,52 +549,6 @@ function DoneSession({ session, gym, sessions }) {
         <Icon name="chevronRight" size={18} className="gym-td-chevron" />
       </button>
     </li>
-  )
-}
-
-// ---- ⋯ menu ------------------------------------------------------------------------------------------
-
-function MoreMenu({ items }) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef(null)
-  useEffect(() => {
-    if (!open) return undefined
-    const onDown = (event) => {
-      if (!ref.current?.contains(event.target)) setOpen(false)
-    }
-    const onKey = (event) => {
-      if (event.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('pointerdown', onDown)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('pointerdown', onDown)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
-  if (!items.length) return null
-  return (
-    <div className="gym-td-menu-wrap" ref={ref}>
-      <IconButton icon="more" label="More options" className="gym-td-more" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((value) => !value)} />
-      {open && (
-        <div className="gym-td-menu" role="menu">
-          {items.map((item) => (
-            <button
-              key={item.label}
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setOpen(false)
-                item.onClick()
-              }}
-            >
-              <span>{item.label}</span>
-              <Icon name={item.icon} size={18} />
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
   )
 }
 

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import Icon from '../../components/ui/Icon.jsx'
 import Sheet from '../../components/ui/Sheet.jsx'
+import Disclosure from '../../components/ui/Disclosure.jsx'
 import { AutoTextarea, Button, Field, Skeleton } from '../../components/ui/primitives.jsx'
 import { confirmAction, toast } from '../../components/ui/feedback.jsx'
-import { addDaysISO, formatDateLong, formatDateShort, isISODate, nowTimeHHMM } from '../../lib/dates.js'
+import { addDaysISO, formatDateLong, formatDateShort, formatTime, isISODate, nowTimeHHMM } from '../../lib/dates.js'
 import { e1rm, isWorking, sessionDurationSec, sessionPRs, sessionVolume, sessionWorkingSets } from '../../lib/gym/stats.js'
 import { deleteSession, latestBodyWeight, newGymId, routineById, saveRoutine, saveSession, useBodyWeights, useGym, useGymSessions, useToday } from '../../lib/gym/state.js'
 import { formatVolume, formatWeight } from '../../lib/gym/units.js'
@@ -180,7 +181,7 @@ function SessionView({ session, gym, sessions, bodyWeights, today, onEdit, onDel
       ) : (
         <div className="gym-stat-grid gym-sd-stats">
           <Stat label="Duration" value={minutes || '—'} />
-          <Stat label="Volume" value={volume > 0 ? formatVolume(volume, unit) : '—'} />
+          <Stat label="Weight lifted" value={volume > 0 ? formatVolume(volume, unit) : '—'} />
           <Stat label="Working sets" value={sessionWorkingSets(session)} />
           {bodyweight !== null && <Stat label="Body weight" value={formatWeight(bodyweight, unit)} />}
         </div>
@@ -859,37 +860,47 @@ function SessionEditor({ session, gym, sessions, bodyWeights, today, onDone }) {
       </div>
 
       <section className="card gym-sd-form" aria-label="Workout details">
-        <Field label="Name">
-          {(id) => (
-            <input id={id} className="input" value={form.name} onChange={setField('name')} placeholder="Workout" maxLength={80} autoComplete="off" enterKeyHint="done" />
-          )}
-        </Field>
         <div className="field-row">
+          <Field label="Name">
+            {(id) => (
+              <input id={id} className="input" value={form.name} onChange={setField('name')} placeholder="Workout" maxLength={80} autoComplete="off" enterKeyHint="done" />
+            )}
+          </Field>
           <Field label="Date">
             {(id) => <input id={id} type="date" className="input" value={form.date} max={today} onChange={setField('date')} required />}
           </Field>
-          <Field label="Start time">
-            {(id) => <input id={id} type="time" className="input" value={form.time} onChange={setField('time')} />}
-          </Field>
         </div>
-        <Field label="Duration (minutes)">
-          {(id) => (
-            <input
-              id={id}
-              className="input gym-sd-minutes"
-              inputMode="numeric"
-              pattern="[0-9]*"
-              value={form.minutes}
-              onChange={setField('minutes')}
-              placeholder="—"
-              autoComplete="off"
-              enterKeyHint="done"
-            />
-          )}
-        </Field>
-        <Field label="Note">
-          {(id) => <AutoTextarea id={id} value={form.note} onChange={setField('note')} placeholder="How did it go?" minRows={2} maxRows={8} />}
-        </Field>
+        <Disclosure
+          id="session-edit-details"
+          label="Time, duration & note"
+          className="gym-disclosure"
+          hasValues={!!form.note.trim()}
+          summary={[form.time ? formatTime(form.time.slice(0, 5)) : null, form.minutes.trim() ? `${form.minutes.trim()} min` : null, form.note.trim() ? 'Note' : null].filter(Boolean).join(' · ') || 'Not set'}
+        >
+          <div className="field-row">
+            <Field label="Start time">
+              {(id) => <input id={id} type="time" className="input" value={form.time} onChange={setField('time')} />}
+            </Field>
+            <Field label="Duration (minutes)">
+              {(id) => (
+                <input
+                  id={id}
+                  className="input gym-sd-minutes"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={form.minutes}
+                  onChange={setField('minutes')}
+                  placeholder="—"
+                  autoComplete="off"
+                  enterKeyHint="done"
+                />
+              )}
+            </Field>
+          </div>
+          <Field label="Note">
+            {(id) => <AutoTextarea id={id} value={form.note} onChange={setField('note')} placeholder="How did it go?" minRows={2} maxRows={8} />}
+          </Field>
+        </Disclosure>
       </section>
 
       <ExerciseLog workout={draft} onChange={onLogChange} mode="edit" gym={gym} sessions={others} />

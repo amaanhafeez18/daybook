@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../../components/ui/Icon.jsx'
 import Sheet from '../../components/ui/Sheet.jsx'
+import Disclosure from '../../components/ui/Disclosure.jsx'
 import { toast } from '../../components/ui/feedback.jsx'
 import { AutoTextarea, Field } from '../../components/ui/primitives.jsx'
-import { isISODate, nowTimeHHMM } from '../../lib/dates.js'
+import { formatDateShort, formatTime, isISODate, nowTimeHHMM } from '../../lib/dates.js'
 import { isBackfillWorkout, sessionVolume, sessionWorkingSets } from '../../lib/gym/stats.js'
 import { discardActive, finishActive, latestBodyWeight, newGymId, routineById, useBodyWeights, useGym, useGymSessions, useToday } from '../../lib/gym/state.js'
 import { formatVolume } from '../../lib/gym/units.js'
@@ -166,6 +167,8 @@ export default function FinishSheet({ open, onClose, workout, onFinished }) {
   const [markFilled, setMarkFilled] = useState(false)
   const [form, setForm] = useState(() => defaultForm(current, gym, today))
   const [errors, setErrors] = useState({})
+  // Bumped when Save finds a problem, so the details disclosure (re)opens and shows it.
+  const [errorSeq, setErrorSeq] = useState(0)
   const initial = useRef(form)
 
   // What ✓ would fill into each empty field, so unticked sets settle the way the grid shows them.
@@ -178,6 +181,7 @@ export default function FinishSheet({ open, onClose, workout, onFinished }) {
     initial.current = defaults
     setForm(defaults)
     setErrors({})
+    setErrorSeq(0)
     setMarkFilled(false)
     const start = countSets(shown.current, shown.current ? workoutPlaceholders(shown.current, gym, sessions) : null)
     setStep(start.filled > 0 ? 'unticked' : start.done === 0 ? 'empty' : 'form')
@@ -211,6 +215,7 @@ export default function FinishSheet({ open, onClose, workout, onFinished }) {
     const problems = validate(form, today)
     if (problems) {
       setErrors(problems)
+      setErrorSeq((n) => n + 1)
       return
     }
     if (!current) return
@@ -277,45 +282,59 @@ export default function FinishSheet({ open, onClose, workout, onFinished }) {
         <div className="form-stack gym-finish-form">
           <div className="gym-finish-summary" aria-label="What will be saved">
             <span><strong>{preview.sets}</strong> {preview.sets === 1 ? 'set' : 'sets'}</span>
-            <span><strong>{formatVolume(preview.volume, gym.prefs.unit)}</strong></span>
+            <span><strong>{formatVolume(preview.volume, gym.prefs.unit)}</strong> lifted</span>
             <span><strong>{preview.exercises}</strong> {preview.exercises === 1 ? 'exercise' : 'exercises'}</span>
           </div>
           {dropped > 0 && (
             <p className="gym-finish-sub">{plural(dropped, 'unticked set')} won’t be saved.</p>
           )}
-          <Field label="Name">
-            {(id) => (
-              <input id={id} className="input" value={form.name} onChange={setField('name')} placeholder="Workout" autoComplete="off" enterKeyHint="done" maxLength={80} />
-            )}
-          </Field>
-          <div className="field-row">
-            <Field label="Date" error={errors.date}>
-              {(id) => <input id={id} type="date" className="input" value={form.date} max={today} onChange={setField('date')} />}
+          <Disclosure
+            key={errorSeq}
+            id="finish-details"
+            label="Name, time & note"
+            className="gym-disclosure"
+            hasValues={errorSeq > 0 || !!form.note.trim()}
+            summary={[
+              form.name.trim() || 'Workout',
+              form.date === today ? null : formatDateShort(form.date),
+              /^\d{1,2}:\d{2}/.test(form.time) ? formatTime(form.time.slice(0, 5)) : null,
+              `${String(form.minutes).trim() || '?'} min`,
+            ].filter(Boolean).join(' · ')}
+          >
+            <Field label="Name">
+              {(id) => (
+                <input id={id} className="input" value={form.name} onChange={setField('name')} placeholder="Workout" autoComplete="off" enterKeyHint="done" maxLength={80} />
+              )}
             </Field>
-            <Field label="Start" error={errors.time}>
-              {(id) => <input id={id} type="time" className="input" value={form.time} onChange={setField('time')} />}
+            <div className="field-row">
+              <Field label="Date" error={errors.date}>
+                {(id) => <input id={id} type="date" className="input" value={form.date} max={today} onChange={setField('date')} />}
+              </Field>
+              <Field label="Start" error={errors.time}>
+                {(id) => <input id={id} type="time" className="input" value={form.time} onChange={setField('time')} />}
+              </Field>
+            </div>
+            <Field label="Duration" error={errors.minutes}>
+              {(id) => (
+                <div className="gym-finish-minutes">
+                  <input
+                    id={id}
+                    className="input"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={form.minutes}
+                    onChange={setField('minutes')}
+                    autoComplete="off"
+                    enterKeyHint="done"
+                  />
+                  <span aria-hidden="true">min</span>
+                </div>
+              )}
             </Field>
-          </div>
-          <Field label="Duration" error={errors.minutes}>
-            {(id) => (
-              <div className="gym-finish-minutes">
-                <input
-                  id={id}
-                  className="input"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  value={form.minutes}
-                  onChange={setField('minutes')}
-                  autoComplete="off"
-                  enterKeyHint="done"
-                />
-                <span aria-hidden="true">min</span>
-              </div>
-            )}
-          </Field>
-          <Field label="Note">
-            {(id) => <AutoTextarea id={id} value={form.note} onChange={setField('note')} placeholder="How did it go?" minRows={2} maxRows={8} />}
-          </Field>
+            <Field label="Note">
+              {(id) => <AutoTextarea id={id} value={form.note} onChange={setField('note')} placeholder="How did it go?" minRows={2} maxRows={8} />}
+            </Field>
+          </Disclosure>
         </div>
       )}
     </Sheet>

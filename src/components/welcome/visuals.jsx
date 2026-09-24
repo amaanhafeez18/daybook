@@ -4,16 +4,19 @@ import { formatDue, greeting } from '../../lib/dates.js'
 // Decorative mock-ups for the welcome tour, drawn in the app's own colours (so they follow the
 // accent theme and light/dark). All aria-hidden: each slide's text says what they show.
 
+// The brand mark with a task, a class, a reminder and the assistant floating around it. Each
+// float sits in a wrapper: the wrapper handles the staggered entrance, the float itself the bob
+// (two animations on one element would fight over transform).
 export function HeroVisual() {
   return (
     <div className="wl-hero" aria-hidden="true">
       <span className="wl-hero-ring" />
       <span className="wl-hero-ring is-outer" />
       <span className="wl-hero-mark"><BrandMark size={92} /></span>
-      <span className="wl-float is-a"><span className="wl-tick"><Icon name="check" size={11} strokeWidth={3} /></span>Plan my week</span>
-      <span className="wl-float is-b"><Icon name="calendar" size={14} />9:00 Lecture</span>
-      <span className="wl-float is-c"><Icon name="bell" size={14} />Call mom · 5 PM</span>
-      <span className="wl-float is-d is-icon"><Icon name="sparkles" size={18} /></span>
+      <span className="wl-float-in is-a"><span className="wl-float is-a"><span className="wl-tick"><Icon name="check" size={11} strokeWidth={3} /></span>Plan my week</span></span>
+      <span className="wl-float-in is-b"><span className="wl-float is-b"><Icon name="calendar" size={14} />9:00 Lecture</span></span>
+      <span className="wl-float-in is-c"><span className="wl-float is-c"><Icon name="bell" size={14} />Call mom · 5 PM</span></span>
+      <span className="wl-float-in is-d"><span className="wl-float is-d is-icon"><Icon name="sparkles" size={18} /></span></span>
     </div>
   )
 }
@@ -122,7 +125,7 @@ export function NotifyVisual() {
 export function DoneVisual() {
   return (
     <div className="wl-done" aria-hidden="true">
-      {Array.from({ length: 8 }, (_, i) => <i key={i} style={{ '--i': i }} />)}
+      {Array.from({ length: 12 }, (_, i) => <i key={i} style={{ '--i': i }} />)}
       <span className="wl-done-badge"><Icon name="check" size={44} strokeWidth={2.6} /></span>
     </div>
   )

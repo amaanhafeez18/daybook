@@ -365,14 +365,22 @@ html.has-welcome { overflow: hidden; }
 .wl-face.is-2 { background: #E0708C; }
 .wl-face.is-3 { background: #7BAF6E; }
 
-/* Welcome: the brand mark with a few things orbiting it. */
+/* Welcome: the brand mark with a few things orbiting it. The rings breathe slowly, the floats
+   pop in one after another (their wrappers) and then bob (the floats themselves). */
 .wl-hero { position: relative; width: 300px; max-width: 100%; height: 250px; display: grid; place-items: center; }
-.wl-hero-ring { position: absolute; width: 150px; height: 150px; border-radius: 50%; border: 1.5px solid var(--accent-soft); background: radial-gradient(closest-side, var(--accent-soft), transparent); }
-.wl-hero-ring.is-outer { width: 236px; height: 236px; background: none; border-style: dashed; opacity: 0.8; }
+.wl-hero-ring { position: absolute; width: 150px; height: 150px; border-radius: 50%; border: 1.5px solid var(--accent-soft); background: radial-gradient(closest-side, var(--accent-soft), transparent); animation: wl-breathe 6s ease-in-out infinite; }
+.wl-hero-ring.is-outer { width: 236px; height: 236px; background: none; border-style: dashed; opacity: 0.8; animation-delay: -3s; animation-duration: 9s; }
+@keyframes wl-breathe { 50% { transform: scale(1.06); } }
 .wl-hero-mark { position: relative; filter: drop-shadow(0 14px 24px rgba(20, 30, 50, 0.25)); }
 .wl-hero-mark .brand-mark { display: block; border-radius: 26px; }
+.wl-slide.is-active .wl-hero-mark { animation: wl-pop 0.8s var(--wl-spring) 0.1s both; }
+.wl-float-in { position: absolute; }
+.wl-slide.is-active .wl-float-in { animation: wl-pop 0.6s var(--wl-spring) both; }
+.wl-float-in.is-a { top: 18px; left: 0; animation-delay: 0.35s; }
+.wl-float-in.is-b { top: 34px; right: -4px; animation-delay: 0.5s; }
+.wl-float-in.is-c { bottom: 22px; left: 8px; animation-delay: 0.65s; }
+.wl-float-in.is-d { bottom: 40px; right: 18px; animation-delay: 0.8s; }
 .wl-float {
-  position: absolute;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -388,10 +396,9 @@ html.has-welcome { overflow: hidden; }
   animation: wl-bob 5s ease-in-out infinite;
 }
 .wl-float .icon { color: var(--accent); }
-.wl-float.is-a { top: 18px; left: 0; }
-.wl-float.is-b { top: 34px; right: -4px; animation-delay: -1.5s; }
-.wl-float.is-c { bottom: 22px; left: 8px; animation-delay: -3s; }
-.wl-float.is-d { bottom: 40px; right: 18px; width: 44px; height: 44px; padding: 0; justify-content: center; background: var(--accent); color: var(--on-accent); border-color: transparent; animation-delay: -2.2s; }
+.wl-float.is-b { animation-delay: -1.5s; }
+.wl-float.is-c { animation-delay: -3s; }
+.wl-float.is-d { width: 44px; height: 44px; padding: 0; justify-content: center; background: var(--accent); color: var(--on-accent); border-color: transparent; animation-delay: -2.2s; }
 .wl-float.is-d .icon { color: inherit; }
 @keyframes wl-bob { 50% { transform: translateY(-7px); } }
 
@@ -514,9 +521,10 @@ html.has-welcome { overflow: hidden; }
 .wl-slide.is-active .wl-note.is-2 { animation-delay: 0.25s; }
 @keyframes wl-drop { from { opacity: 0; transform: translateY(-18px) scale(0.96); } }
 
-/* Done: a check with a little burst. */
-.wl-done { position: relative; width: 140px; height: 140px; display: grid; place-items: center; }
+/* Done: a check with a little burst of confetti. */
+.wl-done { position: relative; width: 160px; height: 150px; display: grid; place-items: center; }
 .wl-done-badge { width: 96px; height: 96px; display: grid; place-items: center; border-radius: 50%; background: var(--accent); color: var(--on-accent); box-shadow: 0 16px 36px -14px var(--accent); }
+.wl-slide.is-active .wl-done-badge { animation: wl-pop 0.7s var(--wl-spring) both; }
 .wl-done i {
   position: absolute;
   top: 50%;
@@ -526,12 +534,17 @@ html.has-welcome { overflow: hidden; }
   margin: -4px;
   border-radius: 50%;
   background: var(--accent);
-  opacity: 0.6;
-  transform: rotate(calc(var(--i) * 45deg)) translateY(-64px);
+  opacity: 0.7;
+  transform: rotate(calc(var(--i) * 30deg)) translateY(-66px);
 }
-.wl-done i:nth-child(even) { width: 6px; height: 6px; margin: -3px; background: var(--success); }
-.wl-slide.is-active .wl-done i { animation: wl-burst 0.8s var(--wl-ease) 0.15s both; }
-@keyframes wl-burst { from { opacity: 0; transform: rotate(calc(var(--i) * 45deg)) translateY(-30px) scale(0.4); } }
+.wl-done i:nth-child(3n + 2) { width: 6px; height: 10px; margin: -3px -5px; border-radius: 2px; background: var(--success); }
+.wl-done i:nth-child(3n) { width: 6px; height: 6px; margin: -3px; background: var(--warning); }
+.wl-done i:nth-child(4n) { background: var(--pink, var(--danger)); }
+.wl-slide.is-active .wl-done i { animation: wl-burst 0.9s var(--wl-ease) calc(0.2s + var(--i) * 0.02s) both; }
+@keyframes wl-burst { from { opacity: 0; transform: rotate(calc(var(--i) * 30deg)) translateY(-24px) scale(0.3); } }
+
+/* A quiet reassurance line under the notification banners. */
+.wl-quiet { margin: 14px 0 0; font-size: 14px; line-height: 1.4; color: var(--text-3); text-align: center; }
 
 /* ---- wide screens: a centred card over the app ---- */
 @media (min-width: 700px) and (min-height: 560px) {
@@ -576,6 +589,6 @@ html.has-welcome { overflow: hidden; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .wl, .wl.is-closing, .wl-float, .wl-slide.is-active *, .wl-row.is-fresh, .wl-added { animation: none !important; }
+  .wl, .wl.is-closing, .wl-float, .wl-hero-ring, .wl-slide.is-active *, .wl-row.is-fresh, .wl-added { animation: none !important; }
   .wl-track, .wl-slide, .wl-progress span::after { transition: none; }
 }

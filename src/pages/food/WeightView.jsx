@@ -49,15 +49,26 @@ export default function WeightView({ today, loaded }) {
   const eta = trend.etaWeeks
   const etaText = eta === 0 ? 'Reached' : trend.etaDate ? shortDay(trend.etaDate) : null
   const heading = isNum(trend.trendKg) ? trend.trendKg : trend.latestKg
+  // One plain sentence under the number: what happened this week and where it's going.
+  let headline
+  if (!isNum(trend.trendKg)) headline = 'A few more weigh-ins and your trend shows here.'
+  else if (!isNum(trend.weeklyChangeKg)) headline = 'Keep weighing in — the weekly change needs two weeks of data.'
+  else {
+    const change = kgToUnit(trend.weeklyChangeKg, unit)
+    const rounded = Math.round(change * 10) / 10
+    const dir = rounded === 0 ? 'Steady this week' : `${rounded < 0 ? 'Down' : 'Up'} ${fmtNum(Math.abs(rounded), 1)} ${u} this week`
+    const going = isNum(pace) && Math.abs(pace) >= 0.01 ? ` · about ${fmtNum(Math.abs(kgToUnit(pace, unit)), 2)} ${u} a week` : ''
+    headline = `${dir}${going}${isNum(targetKg) && etaText && eta !== 0 ? ` · goal around ${etaText}` : ''}`
+  }
 
   return (
     <div className="food-weightview">
       <DetailTop>
-        <Button size="sm" icon="plus" onClick={() => setSheet({ date: today })}>Log weight</Button>
+        <Button size="sm" icon="plus" onClick={() => setSheet({ date: today })}>Weigh in</Button>
       </DetailTop>
       <header className="food-page-head">
         <h1>Weight</h1>
-        <p className="page-subtitle">Shared with Gym · daily weigh-ins smoothed into a 7-day trend</p>
+        <p className="page-subtitle">Shared with Gym</p>
       </header>
       <MigrationNote />
 
@@ -65,7 +76,7 @@ export default function WeightView({ today, loaded }) {
         <section className="card"><Skeleton lines={5} /></section>
       ) : !bodyWeights.length ? (
         <section className="card">
-          <EmptyState icon="scale" title="No weigh-ins yet" action={<Button icon="plus" onClick={() => setSheet({ date: today })}>Log weight</Button>}>
+          <EmptyState icon="scale" title="No weigh-ins yet" action={<Button icon="plus" onClick={() => setSheet({ date: today })}>Weigh in</Button>}>
             Weigh in a few mornings a week — the trend smooths out day-to-day water swings.
           </EmptyState>
         </section>
@@ -74,23 +85,25 @@ export default function WeightView({ today, loaded }) {
           <section className="card food-wv-card">
             <div className="food-wv-now">
               <strong>{fmtWeight(heading, unit)}</strong>
-              <span>{u} {isNum(trend.trendKg) ? 'trend' : `· ${dayLabel(trend.latestDate, today)}`}</span>
+              <span>{u} {isNum(trend.trendKg) ? '· 7-day trend' : `· ${dayLabel(trend.latestDate, today)}`}</span>
             </div>
+            <p className="food-wv-line">{headline}</p>
             <Segmented options={RANGES} value={range} onChange={setRange} label="Range" className="food-wv-range" />
             <WeightChart points={points} unit={unit} targetKg={targetKg} ariaLabel={`Weight trend, ${RANGES.find((item) => item.id === range)?.label}`} />
             {!trend.reliable && trend.weighIns28 > 0 && (
               <p className="food-chart-note"><Icon name="info" size={14} />Weigh in 3× a week for a reliable trend ({trend.weighIns28} in the last 4 weeks).</p>
             )}
+            <p className="food-chart-note">The trend averages your last 7 days, so one heavy or light morning barely moves it.</p>
           </section>
 
           <div className="food-stats">
-            <StatTile label="Latest" value={fmtWeight(trend.latestKg, unit)} sub={`${u} · ${dayLabel(trend.latestDate, today)}`} />
-            <StatTile label="This week" value={isNum(trend.weeklyChangeKg) ? fmtWeightChange(trend.weeklyChangeKg, unit) : '—'} sub={isNum(trend.weeklyChangeKg) ? `${u} trend change` : 'Needs 2 weeks of data'} />
-            <StatTile label="Pace" value={isNum(pace) ? fmtWeightChange(pace, unit, 2) : '—'} sub={isNum(pace) ? `${u} a week (4 weeks)` : 'Needs a few weeks'} />
+            <StatTile label="Latest weigh-in" value={fmtWeight(trend.latestKg, unit)} sub={`${u} · ${dayLabel(trend.latestDate, today)}`} />
+            <StatTile label="This week" value={isNum(trend.weeklyChangeKg) ? fmtWeightChange(trend.weeklyChangeKg, unit) : '—'} sub={isNum(trend.weeklyChangeKg) ? `${u} vs a week ago` : 'Needs 2 weeks of data'} />
+            <StatTile label="Pace" value={isNum(pace) ? fmtWeightChange(pace, unit, 2) : '—'} sub={isNum(pace) ? `${u} a week, over 4 weeks` : 'Needs a few weeks'} />
             <StatTile
               label="Goal"
               value={isNum(targetKg) ? `${fmtWeight(targetKg, unit)}` : '—'}
-              sub={isNum(targetKg) ? (etaText ? (eta === 0 ? 'You’re there' : `ETA ${etaText}`) : 'Not heading there yet') : <button type="button" className="food-link" onClick={() => navigate('food/goals')}>Set a goal weight</button>}
+              sub={isNum(targetKg) ? (etaText ? (eta === 0 ? 'You’re there' : `Around ${etaText}`) : 'Not heading there yet') : <button type="button" className="food-link" onClick={() => navigate('food/goals')}>Set a goal weight</button>}
             />
           </div>
 

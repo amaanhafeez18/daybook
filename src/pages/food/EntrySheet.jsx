@@ -1,26 +1,55 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import Disclosure from '../../components/ui/Disclosure.jsx'
 import Icon from '../../components/ui/Icon.jsx'
 import Sheet from '../../components/ui/Sheet.jsx'
 import { Button, IconButton } from '../../components/ui/primitives.jsx'
 import { toast } from '../../components/ui/feedback.jsx'
-import { readPref, writePref } from '../../lib/api.js'
 import { isISODate, todayISO } from '../../lib/dates.js'
 import { energyInUnit, energyToKcal, findFavorite, macroCalories } from '../../lib/food/nutrition.js'
 import { addEntries, deleteEntry, deleteFavorite, estimateFood, saveFavorite, updateEntry, useFood } from '../../lib/food/state.js'
-import { dayLabel, energyNumber, entryName, fmtNum, isNum, mealIdFor, toNum, unitLabel } from './format.js'
+import { dayLabel, energyNumber, entryName, fmtNum, isNum, mealIdFor, portionText, toNum, unitLabel } from './format.js'
 
 // Manual add / edit with progressive disclosure (research §6.2): name, calories, meal and a
-// favourite star first; then "Add portion"; "More details" for protein / carbs / fat; "Even more"
-// for fiber, sugar, sodium, sat fat, alcohol, caffeine, brand, time, date and a note. The open
-// level is remembered on this device (settings can force the macros open). "Estimate with AI"
-// fills only the blank fields, sending the typed numbers as fixed.
+// My-foods star first; "More options" (a Disclosure) holds the portion and protein / carbs / fat,
+// and "Even more" inside it fiber, sugar, sodium, sat fat, alcohol, caffeine, brand, time, date
+// and a note. Each remembers on this device whether it was left open, and opens by itself when
+// something inside is already filled (the "open with portion and macros" setting opens the first
+// one always). "Estimate with AI" fills only the blank fields, sending the typed numbers as fixed.
 
-const LEVEL_PREF = 'foodEntryLevel'
 const UNITS = ['g', 'ml', 'oz', 'fl oz', 'cup', 'tbsp', 'tsp', 'piece', 'slice', 'serving', 'bowl', 'glass', 'can', 'small', 'medium', 'large']
 const SCALED = ['calories', 'grams', 'proteinG', 'carbsG', 'fatG', 'fiberG', 'sugarG', 'sodiumMg', 'satFatG', 'alcoholG', 'caffeineMg']
 const EXTRA_FIELDS = ['satFatG', 'alcoholG', 'caffeineMg']
 const MORE_FIELDS = ['fiberG', 'sugarG', 'sodiumMg', 'satFatG', 'alcoholG', 'caffeineMg', 'brand', 'note']
 const MACRO_FIELDS = ['proteinG', 'carbsG', 'fatG']
+const PORTION_FIELDS = ['amount', 'unit', 'grams']
+const MORE_LABELS = { fiberG: 'Fiber', sugarG: 'Sugar', sodiumMg: 'Sodium', satFatG: 'Sat fat', alcoholG: 'Alcohol', caffeineMg: 'Caffeine' }
+
+// 'P 12 · C 30 · F 8' for the macros that are filled in; '' when none are.
+function macroSummary(form) {
+  return [['proteinG', 'P'], ['carbsG', 'C'], ['fatG', 'F']]
+    .filter(([field]) => form[field].trim())
+    .map(([field, letter]) => `${letter} ${form[field].trim()}`)
+    .join(' · ')
+}
+
+// What "Even more" holds, as a short line: 'Fiber 3 g · Quest · 8:30 AM · note'.
+function extraSummary(form, day) {
+  const parts = []
+  for (const [field, label] of Object.entries(MORE_LABELS)) if (form[field].trim()) parts.push(`${label} ${form[field].trim()} ${field.endsWith('Mg') ? 'mg' : 'g'}`)
+  if (form.brand.trim()) parts.push(form.brand.trim())
+  if (form.time) parts.push(formatTime(form.time))
+  if (form.date && form.date !== day) parts.push(dayLabel(form.date, day))
+  if (form.note.trim()) parts.push('note')
+  return parts.join(' · ')
+}
+
+// '8:30 AM' from 'HH:MM'.
+function formatTime(hhmm) {
+  const [h, m] = String(hhmm).split(':').map(Number)
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return hhmm
+  const hour = h % 12 || 12
+  return `${hour}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`
+}
 
 const text = (value) => (typeof value === 'string' ? value : '')
 const numText = (value, dp = 1) => (isNum(value) ? String(Math.round(value * 10 ** dp) / 10 ** dp) : '')
@@ -91,9 +120,9 @@ export default function EntrySheet({ open, onClose, entry = null, defaults, toda
   const food = useFood()
   const { meals, energyUnit: unit, showDetails } = food.prefs
   const [form, setForm] = useState(() => blankForm(defaults, meals))
-  const [starChoice, setStarChoice] = useState(null) // null: follow whether it is a favorite
-  const [portionOpen, setPortionOpen] = useState(false)
-  const [level, setLevel] = useState(0)
+  const [starChoice, setStarChoice] = useState(null) // null: follow whether it is in My foods
+  // Bumped when the AI fills fields, so the disclosures mount again and open around the new values.
+  const [discKey, setDiscKey] = useState(0)
   const [ai, setAi] = useState({ busy: false, info: null, error: '' })
   const baseRef = useRef(null)
   const aiRef = useRef(null)
@@ -112,11 +141,7 @@ export default function EntrySheet({ open, onClose, entry = null, defaults, toda
     setStarChoice(null)
     setAi({ busy: false, info: null, error: '' })
     baseRef.current = captureBase(next, unit)
-    setPortionOpen(!!(next.amount || next.unit || next.grams))
-    const remembered = Number(readPref(LEVEL_PREF, 0)) || 0
-    const filledMore = MORE_FIELDS.some((field) => next[field]) || (editing && next.time)
-    const filledMacros = MACRO_FIELDS.some((field) => next[field])
-    setLevel(Math.max(remembered, showDetails ? 1 : 0, filledMacros ? 1 : 0, filledMore ? 2 : 0))
+    setDiscKey((value) => value + 1)
   }, [open, entry?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => () => aiRef.current?.abort(), [])
@@ -185,10 +210,11 @@ export default function EntrySheet({ open, onClose, entry = null, defaults, toda
   const favorite = findFavorite(food.favorites, { name: form.name, brand: form.brand, favoriteId: entry?.favoriteId })
   const star = starChoice ?? !!favorite
 
-  function openLevel(next) {
-    setLevel(next)
-    writePref(LEVEL_PREF, next)
-  }
+  // What the disclosures hold, for their closed summaries and for opening them by themselves.
+  const hasExtra = MORE_FIELDS.some((field) => form[field].trim())
+  const hasMore = hasExtra || PORTION_FIELDS.some((field) => form[field].trim()) || MACRO_FIELDS.some((field) => form[field].trim())
+  const extraLine = extraSummary(form, day)
+  const moreLine = [portionText({ amount: toNum(form.amount), unit: form.unit, grams: toNum(form.grams) }), macroSummary(form), extraLine].filter(Boolean).join(' · ')
 
   function buildRow() {
     const number = (field) => {
@@ -310,8 +336,7 @@ export default function EntrySheet({ open, onClose, entry = null, defaults, toda
       }
       setForm(next)
       baseRef.current = captureBase(next, unit)
-      if (filled.some((field) => ['amount', 'grams'].includes(field))) setPortionOpen(true)
-      if (filled.some((field) => MACRO_FIELDS.includes(field))) setLevel((current) => Math.max(current, 1))
+      if (filled.length) setDiscKey((value) => value + 1) // the disclosures open around what was filled
       const confidences = items.map((item) => item.confidence).filter(isNum)
       setAi({
         busy: false,
@@ -365,8 +390,8 @@ export default function EntrySheet({ open, onClose, entry = null, defaults, toda
             type="button"
             className={`food-es-star${star ? ' is-on' : ''}`}
             aria-pressed={star}
-            aria-label={star ? 'Remove from favorites' : 'Save as a favorite'}
-            title={star ? 'Favorite' : 'Save as a favorite'}
+            aria-label={star ? 'Remove from My foods' : 'Save to My foods'}
+            title={star ? 'In My foods' : 'Save to My foods'}
             disabled={!name}
             onClick={() => setStarChoice(!star)}
           >
@@ -400,7 +425,15 @@ export default function EntrySheet({ open, onClose, entry = null, defaults, toda
           ))}
         </div>
 
-        {portionOpen ? (
+        <Disclosure
+          key={`more-${discKey}`}
+          id="food-entry-more"
+          label="More options"
+          summary={moreLine || 'Portion, protein, carbs, fat, brand, time…'}
+          hasValues={hasMore}
+          defaultOpen={showDetails}
+          className="food-es-more"
+        >
           <div className="food-es-portion">
             <span className="food-es-label">Portion</span>
             <div className="food-es-portion-row">
@@ -416,15 +449,9 @@ export default function EntrySheet({ open, onClose, entry = null, defaults, toda
                 <span>g</span>
               </span>
             </div>
-            {baseRef.current && <p className="food-es-hint">Changing the amount scales the numbers.</p>}
+            <p className="food-es-hint">{baseRef.current ? 'Changing the amount scales the numbers.' : 'How much, e.g. 2 slices or 150 g.'}</p>
           </div>
-        ) : (
-          <button type="button" className="food-es-disclose" onClick={() => setPortionOpen(true)}>
-            <Icon name="plusCircle" size={18} />Add portion
-          </button>
-        )}
 
-        {level >= 1 ? (
           <div className="food-es-group">
             <span className="food-es-label">Macros</span>
             <div className="food-es-grid is-3">
@@ -433,47 +460,49 @@ export default function EntrySheet({ open, onClose, entry = null, defaults, toda
               <Num label="Fat" suffix="g" value={form.fatG} onChange={(value) => setNumber('fatG', value)} />
             </div>
           </div>
-        ) : (
-          <button type="button" className="food-es-disclose" onClick={() => openLevel(1)}>
-            More details<Icon name="chevronRight" size={16} />
-          </button>
-        )}
 
-        {level >= 2 ? (
-          <div className="food-es-group">
-            <span className="food-es-label">More</span>
-            <div className="food-es-grid is-3">
-              <Num label="Fiber" suffix="g" value={form.fiberG} onChange={(value) => setNumber('fiberG', value)} />
-              <Num label="Sugar" suffix="g" value={form.sugarG} onChange={(value) => setNumber('sugarG', value)} />
-              <Num label="Sodium" suffix="mg" value={form.sodiumMg} onChange={(value) => setNumber('sodiumMg', value)} />
-              <Num label="Sat fat" suffix="g" value={form.satFatG} onChange={(value) => setNumber('satFatG', value)} />
-              <Num label="Alcohol" suffix="g" value={form.alcoholG} onChange={(value) => setNumber('alcoholG', value)} />
-              <Num label="Caffeine" suffix="mg" value={form.caffeineMg} onChange={(value) => setNumber('caffeineMg', value)} />
+          <Disclosure
+            key={`extra-${discKey}`}
+            id="food-entry-extra"
+            label="Even more"
+            summary={extraLine || 'Fiber, sugar, sodium, brand, time, date, note'}
+            hasValues={hasExtra}
+            className="food-es-extra"
+          >
+            <div className="food-es-group">
+              <span className="food-es-label">Other nutrients</span>
+              <div className="food-es-grid is-3">
+                <Num label="Fiber" suffix="g" value={form.fiberG} onChange={(value) => setNumber('fiberG', value)} />
+                <Num label="Sugar" suffix="g" value={form.sugarG} onChange={(value) => setNumber('sugarG', value)} />
+                <Num label="Sodium" suffix="mg" value={form.sodiumMg} onChange={(value) => setNumber('sodiumMg', value)} />
+                <Num label="Sat fat" suffix="g" value={form.satFatG} onChange={(value) => setNumber('satFatG', value)} />
+                <Num label="Alcohol" suffix="g" value={form.alcoholG} onChange={(value) => setNumber('alcoholG', value)} />
+                <Num label="Caffeine" suffix="mg" value={form.caffeineMg} onChange={(value) => setNumber('caffeineMg', value)} />
+              </div>
             </div>
-            <div className="food-es-grid is-2">
-              <label className="food-es-field is-wide" htmlFor={ids.brand}>
-                <span>Brand</span>
-                <input id={ids.brand} className="input" value={form.brand} onChange={(event) => set('brand', event.target.value)} maxLength={80} autoComplete="off" />
-              </label>
-              <label className="food-es-field" htmlFor={ids.time}>
-                <span>Time</span>
-                <input id={ids.time} type="time" className="input" value={form.time} onChange={(event) => set('time', event.target.value)} />
-              </label>
-              <label className="food-es-field" htmlFor={ids.date}>
-                <span>Date</span>
-                <input id={ids.date} type="date" className="input" value={form.date} onChange={(event) => isISODate(event.target.value) && set('date', event.target.value)} />
-              </label>
-              <label className="food-es-field is-wide" htmlFor={ids.note}>
-                <span>Note</span>
-                <textarea id={ids.note} className="input textarea" rows={2} value={form.note} onChange={(event) => set('note', event.target.value)} maxLength={1000} />
-              </label>
+            <div className="food-es-group">
+              <span className="food-es-label">Details</span>
+              <div className="food-es-grid is-2 is-flush">
+                <label className="food-es-field is-wide" htmlFor={ids.brand}>
+                  <span>Brand</span>
+                  <input id={ids.brand} className="input" value={form.brand} onChange={(event) => set('brand', event.target.value)} maxLength={80} autoComplete="off" />
+                </label>
+                <label className="food-es-field" htmlFor={ids.time}>
+                  <span>Time</span>
+                  <input id={ids.time} type="time" className="input" value={form.time} onChange={(event) => set('time', event.target.value)} />
+                </label>
+                <label className="food-es-field" htmlFor={ids.date}>
+                  <span>Date</span>
+                  <input id={ids.date} type="date" className="input" value={form.date} onChange={(event) => isISODate(event.target.value) && set('date', event.target.value)} />
+                </label>
+                <label className="food-es-field is-wide" htmlFor={ids.note}>
+                  <span>Note</span>
+                  <textarea id={ids.note} className="input textarea" rows={2} value={form.note} onChange={(event) => set('note', event.target.value)} maxLength={1000} />
+                </label>
+              </div>
             </div>
-          </div>
-        ) : level >= 1 ? (
-          <button type="button" className="food-es-disclose" onClick={() => openLevel(2)}>
-            Even more<Icon name="chevronRight" size={16} />
-          </button>
-        ) : null}
+          </Disclosure>
+        </Disclosure>
 
         <div className="food-es-ai">
           <button type="button" className="food-es-ai-btn" onClick={ai.busy ? () => { aiRef.current?.abort(); setAi({ busy: false, info: null, error: '' }) } : estimate}>
@@ -489,8 +518,10 @@ export default function EntrySheet({ open, onClose, entry = null, defaults, toda
           {ai.error && <p className="food-es-ai-note is-error" role="alert">{ai.error}</p>}
         </div>
 
-        {!valid && Object.entries(form).some(([field, value]) => !['date', 'meal', 'name', 'calories', 'time'].includes(field) && value) && <p className="food-es-hint">Add a name or calories to save.</p>}
-        {invalidNumber && <p className="food-es-hint is-error" role="alert">Numbers can’t be negative or contain letters.</p>}
+        {/* Always rendered (blank once the form is valid), so the sheet doesn't jump when the hint goes. */}
+        <p className={`food-es-hint food-es-hint-save${invalidNumber ? ' is-error' : ''}`} role={invalidNumber ? 'alert' : undefined}>
+          {invalidNumber ? 'Numbers can’t be negative or contain letters.' : !valid ? 'Add a name or calories to save.' : ' '}
+        </p>
         <button type="submit" hidden aria-hidden="true" tabIndex={-1} />
       </form>
     </Sheet>

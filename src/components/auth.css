@@ -1,0 +1,24 @@
+/* Sign-in screen additions (components/AuthScreen.jsx). The base look lives in App.css / glass.css;
+   this file is loaded with AuthScreen (after them), so equal-specificity rules here win. */
+
+.auth-card { gap: 16px; }
+.auth-heading h2 { font-size: 26px; }
+.auth-heading p { font-size: 15px; line-height: 1.4; }
+/* One primary action: the submit button, a little taller than usual. */
+.auth-card .auth-submit { min-height: 52px; font-size: 17px; }
+/* Switching between log in and sign up, and the forgot link, as plain text under the form. */
+.auth-links { display: flex; flex-direction: column; align-items: center; gap: 2px; margin-top: -2px; }
+.auth-links .link-btn { min-height: 44px; padding: 0 8px; font-size: 16px; font-weight: 600; }
+/* Wraps as a centred sentence on the narrowest phones ("New to Daybook?" / "Create an account"). */
+.auth-switch { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 2px; margin: 0; color: var(--text-2); font-size: 15px; text-align: center; }
+.auth-switch .link-btn { padding: 0 4px; }
+.auth-card .auth-forgot { align-self: center; }
+/* The back arrow on the recovery screens: a full 44px target, its chevron level with the heading. */
+.auth-card .auth-back { width: 44px; height: 44px; margin: -7px 0 0 -12px; flex-shrink: 0; }
+/* The recovery question on sign-up: a light group, not a boxed form. */
+.auth-card .auth-recovery { padding: 14px 14px 16px; border-radius: 16px; border: 1px solid var(--border); background: var(--surface-2); }
+.auth-card .auth-recovery legend { font-size: 14px; font-weight: 600; color: var(--text); }
+.auth-recovery-hint { margin-top: -4px; }
+@media (hover: hover) {
+  .auth-links .link-btn:hover { text-decoration: none; opacity: 0.75; }
+}

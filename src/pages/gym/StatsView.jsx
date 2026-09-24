@@ -89,16 +89,16 @@ export default function StatsView({ today }) {
           value={`${summary.thisWeek}/${goal}`}
           sub={summary.thisWeek >= goal ? 'Goal reached' : `${goal - summary.thisWeek} to go`}
         />
-        <Stat label="Streak" value={`${summary.streak} wk`} sub={summary.streak === 1 ? 'week in a row' : 'weeks in a row'} />
-        <Stat label="Avg duration" value={summary.avgMinutes === null ? '—' : `${summary.avgMinutes} min`} sub="last 12 weeks" />
-        <Stat label="Volume" value={formatVolume(summary.volume30, unit)} sub="last 30 days" />
+        <Stat label="Streak" value={formatInt(summary.streak)} sub={summary.streak === 1 ? 'week in a row' : 'weeks in a row'} />
+        <Stat label="Average workout" value={summary.avgMinutes === null ? '—' : `${summary.avgMinutes} min`} sub="last 12 weeks" />
+        <Stat label="Weight lifted" value={formatVolume(summary.volume30, unit)} sub="last 30 days" />
         <Stat label="Time trained" value={`${formatNumber(summary.totalHours, summary.totalHours < 10 ? 1 : 0)} h`} sub="all time" />
       </div>
 
       {!hasSessions ? (
         <div className="card gym-st-card">
           <GymEmpty icon="chart" title="Your charts start here" action={<Button onClick={() => navigate('gym')}>Go to today’s workout</Button>}>
-            Finish a workout and your weekly workouts, volume and sets per muscle will show up here.
+            Finish a workout and your weekly workouts, weight lifted and sets per muscle will show up here.
           </GymEmpty>
         </div>
       ) : (
@@ -120,7 +120,7 @@ export default function StatsView({ today }) {
             <p className="gym-st-note">Weeks start on {firstWeekday === 0 ? 'Sunday' : firstWeekday === 1 ? 'Monday' : 'your first weekday'}. Your goal is {plural(goal, 'workout')} a week.</p>
           </section>
 
-          <SectionHeader title="Volume per week" />
+          <SectionHeader title="Weight lifted per week" />
           <section className="card gym-st-card">
             <BarChart
               bars={summary.weeks.map((week) => ({
@@ -131,9 +131,9 @@ export default function StatsView({ today }) {
               }))}
               formatValue={(value) => `${formatInt(value)} ${unit}`}
               height={170}
-              ariaLabel={`Volume per week in ${unit}, last 12 weeks`}
+              ariaLabel={`Weight lifted per week in ${unit}, last 12 weeks`}
             />
-            <p className="gym-st-note">Weight × reps of every working set; warm-ups don’t count.</p>
+            <p className="gym-st-note">Also called volume: weight × reps of every working set, added up. Warm-ups don’t count.</p>
           </section>
 
           <MuscleSets sessions={sessions} today={today} firstWeekday={firstWeekday} lookup={lookup} />
@@ -218,7 +218,7 @@ function MuscleSets({ sessions, today, firstWeekday, lookup }) {
           height={170}
           ariaLabel={`Weekly sets for ${label}, this week and the previous 8`}
         />
-        <p className="gym-st-note">Completed working sets: 1 for the main muscle, ½ for each muscle it also works. The shaded band is a common target of 10–20 sets a week.</p>
+        <p className="gym-st-note">Each completed working set counts 1 for its main muscle and ½ for each muscle it also works. The shaded band is a common weekly target of 10–20 sets.</p>
       </section>
 
       <section className="card gym-st-card gym-st-muscles" aria-labelledby="gym-st-muscles-title">
@@ -377,7 +377,7 @@ function BodyWeight({ unit, today }) {
           </label>
           <Button type="submit" icon="plus" className="gym-st-bw-add">Log</Button>
         </form>
-        <p className="gym-st-note">Your latest weight on or before a workout is used for bodyweight exercise volume. Logging a date again replaces that day.</p>
+        <p className="gym-st-note">Your latest weigh-in on or before a workout is what bodyweight exercises count as weight lifted. Logging a date again replaces that day.</p>
 
         {entries.length > 0 && (
           <ul className="gym-st-bw-list">

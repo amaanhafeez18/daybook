@@ -204,8 +204,21 @@
 .food-rv-check { display: flex; align-items: center; gap: 5px; margin-top: 6px; font-size: 13px; font-weight: 600; color: var(--food-over); }
 
 .food-rv-assume { display: block; width: 100%; margin-top: 6px; font-size: 13px; line-height: 1.35; color: var(--text-2); text-align: left; }
-.food-rv-assume.is-collapsed { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .food-rv-detail { margin-top: 2px; }
+
+/* The item's "More" line (same shape as the app's disclosures, compact): label, the assumptions as
+   a summary while closed, a chevron; the Save-to-My-foods switch sits at its right while it's on. */
+.food-rv-foot { display: flex; align-items: center; gap: 8px; margin: 4px -4px -4px 0; }
+.food-rv-more {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 2px;
+  color: var(--accent); font-size: 14px; font-weight: 600; text-align: left; border-radius: 8px;
+}
+.food-rv-more-label { flex: none; }
+.food-rv-more-summary { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); font-size: 13px; font-weight: 400; }
+.food-rv-more-chevron { flex: none; color: var(--text-3); transition: transform 0.25s var(--spring, ease); }
+.food-rv-more[aria-expanded='true'] .food-rv-more-chevron { transform: rotate(180deg); }
+.food-rv-more:active { opacity: 0.6; }
+.food-rv-foot .food-rv-save { flex: none; margin-left: auto; }
 .food-rv-options { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .food-rv-option {
   display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 13px; border-radius: 999px;
@@ -221,7 +234,6 @@
   color: var(--accent); font-size: 15px; font-weight: 600;
 }
 .food-rv-link:disabled { opacity: 0.5; }
-.food-rv-edit { margin-top: 4px; }
 .food-rv-editor { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
 .food-rv-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; font-size: 12px; font-weight: 500; color: var(--text-2); }
 .food-rv-field.is-wide { grid-column: 1 / -1; }
@@ -293,6 +305,9 @@
   .food-rv-remove:hover { background: var(--surface-2); color: var(--text); }
   .food-rv-option:hover:not(.is-active) { background: var(--surface-3); }
 }
+@media (pointer: coarse) {
+  .food-rv-more { min-height: 44px; }
+}
 @media (prefers-reduced-motion: reduce) {
-  .food-ring-arc, .food-macro-fill { transition: none; }
+  .food-ring-arc, .food-macro-fill, .food-rv-more-chevron { transition: none; }
 }

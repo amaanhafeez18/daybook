@@ -1,0 +1,31 @@
+/* "More options" disclosure (components/ui/Disclosure.jsx). Fits inside forms, cards and sheets. */
+.disclosure { min-width: 0; }
+.disclosure-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 2px;
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 600;
+  text-align: left;
+}
+.disclosure-label { flex: none; }
+.disclosure-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: 14px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.disclosure-chevron { flex: none; margin-left: auto; color: var(--text-3, var(--text-2)); transition: transform 0.25s var(--spring, ease); }
+.disclosure.is-open > .disclosure-toggle > .disclosure-chevron { transform: rotate(180deg); }
+.disclosure-body { display: flex; flex-direction: column; gap: 14px; padding-top: 4px; }
+@media (prefers-reduced-motion: reduce) {
+  .disclosure-chevron { transition: none; }
+}

@@ -216,7 +216,7 @@ export default function FoodQuickCard({ today, loaded }) {
                 submit()
               }
             }}
-            placeholder="Food or a barcode number"
+            placeholder="What did you eat?"
             aria-label="What did you eat? You can also type a barcode number."
             enterKeyHint="send"
             autoComplete="off"

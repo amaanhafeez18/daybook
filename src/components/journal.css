@@ -8,3 +8,28 @@
 @media (max-width: 639px) {
   .journal-page .page-subtitle { display: none; }
 }
+
+/* ---- editor: date · "Mood & title" (closed by default) · the entry ---------------------------- */
+.journal-editor .journal-extras { margin: -6px 0 -4px; }
+.journal-editor .journal-extras .disclosure-toggle { padding-left: 4px; padding-right: 4px; font-size: 14px; }
+.journal-editor .journal-extras .disclosure-body { gap: 10px; padding: 2px 0 6px; }
+.journal-editor .journal-title { width: 100%; padding: 6px 4px; }
+/* Big, quiet writing area: the body is the point of the screen. */
+.journal-editor .journal-body { min-height: 190px; font-size: 17px; line-height: 1.6; }
+.journal-editor .journal-footer .btn-ghost { color: var(--danger); }
+@media (pointer: coarse) {
+  .journal-editor .journal-footer .btn-sm { min-height: 44px; padding: 0 14px; }
+  .journal-editor .mood { min-height: 56px; }
+}
+
+/* ---- past entries and notes ---------------------------------------------------------------- */
+.journal-history-head { margin-bottom: 8px; }
+.journal-history-head .group-title { margin-bottom: 0; }
+.journal-search { margin-bottom: 12px; }
+.journal-search input { font-size: 16px; }
+/* The composer's only control is Save; what notes are for is said once, in the empty state. */
+.note-composer .note-composer-actions { justify-content: flex-end; }
+@media (pointer: coarse) {
+  .note-composer .btn-sm { min-height: 44px; padding: 0 16px; }
+  .note-card .icon-btn-sm { width: 44px; height: 44px; margin: -6px -8px -6px 0; }
+}

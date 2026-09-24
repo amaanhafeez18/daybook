@@ -9,10 +9,11 @@ import '../../components/food-quick.css'
 
 // Editable review of an AI estimate ("the plate"): per item a portion stepper that scales every
 // number, kcal and P/C/F, confidence (or where exact numbers came from: My foods, a barcode, the
-// web, a label), assumptions, alternative chips, inline edits and remove; per item "Search the
-// web" (asked for, never automatic), "Estimate instead" for saved foods, and a "Save to My foods"
-// switch; then the total, a "Fix…" line that re-runs the estimate with the current items as
-// context, the model's clarifying question (answered in the same line) and the accuracy disclaimer.
+// web, a label), alternative chips and remove; under each item's "More": assumptions, inline edits,
+// "Search the web" (asked for, never automatic), "Estimate instead" for saved foods, and a "Save to
+// My foods" switch (also shown closed when it is on); then the total, a "Fix…" line that re-runs
+// the estimate with the current items as context, the model's clarifying question (answered in the
+// same line) and the accuracy disclaimer.
 //
 // result: from prepareEstimate(). Each item keeps review bookkeeping in _-prefixed fields:
 //   _k key · _base the item at portion factor 1 · _f the portion factor · _orig the numbers as
@@ -367,12 +368,15 @@ export default function EstimateReview({ result, onChange, meal, onMealChange, d
   }
   const update = (patch) => commit({ ...result, ...patch })
   const setItem = (key, next) => update({ items: items.map((item) => (item._k === key ? next : item)) })
-  const toggle = (key) => setOpenKeys((current) => {
-    const next = new Set(current)
-    if (next.has(key)) next.delete(key)
-    else next.add(key)
-    return next
-  })
+  const toggle = (key) => {
+    setEditKey((current) => (current === key ? null : current))
+    setOpenKeys((current) => {
+      const next = new Set(current)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
 
   function removeItem(item) {
     const index = items.findIndex((current) => current._k === item._k)
@@ -696,7 +700,7 @@ export default function EstimateReview({ result, onChange, meal, onMealChange, d
       {fixing && <p className="food-rv-status" role="status">Updating the estimate…</p>}
       {fixError && <p className="food-rv-error" role="alert">{fixError}</p>}
 
-      <p className="food-rv-disclaimer">AI estimates can be off by 20% or more — adjust portions if you know them.</p>
+      <p className="food-rv-disclaimer">Estimates can be off by 20% or more — adjust the portions you know.</p>
     </div>
   )
 }
@@ -764,6 +768,11 @@ export function SourceBadge({ item }) {
   )
 }
 
+// One item on the plate. Closed: name, calories, the portion stepper, macros, confidence, where
+// exact numbers came from, and the one-tap alternatives. "More" (or a tap on the name) opens the
+// rest: what was assumed, the name and numbers to edit, "Search the web" / "Estimate instead", and
+// the "Save to My foods" switch — which also shows while closed whenever it is on, so nothing that
+// will happen on Save is hidden.
 function ReviewItem({
   item, unit, web, favorites, open, editing, disabled, compact, pendingKind, note, onToggle, onEdit, onChange, onRemove, onSearchWeb, onEstimateInstead, onStop, onSwap,
 }) {
@@ -779,6 +788,7 @@ function ReviewItem({
   const canWeb = web !== 'off' && (basis === 'estimate' || basis === 'menu' || basis === 'saved')
   const canEstimate = basis === 'saved'
   const save = saveChoice(item, favorites)
+  const moreId = useId()
 
   function applyOption(index) {
     const option = index === null ? null : options[index]
@@ -788,10 +798,24 @@ function ReviewItem({
     onChange(withFactor({ ...item, _base: base, _opt: index }, item._f))
   }
 
+  const saveSwitch = save.show && (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={save.on}
+      className={`food-rv-save${save.on ? ' is-on' : ''}`}
+      disabled={disabled}
+      onClick={() => onChange({ ...item, _save: !save.on })}
+    >
+      <span className="food-rv-save-box" aria-hidden="true">{save.on && <Icon name="check" size={13} strokeWidth={3} />}</span>
+      {save.label}
+    </button>
+  )
+
   return (
     <li className={`food-rv-item${level === 'low' ? ' is-low' : ''}${open ? ' is-open' : ''}${pendingKind ? ' is-busy' : ''}`} aria-busy={pendingKind ? true : undefined}>
       <div className="food-rv-head">
-        <button type="button" className="food-rv-name" onClick={open ? onToggle : onEdit} aria-expanded={open} aria-label={`${name}${open ? '' : ' — edit'}`}>
+        <button type="button" className="food-rv-name" onClick={open ? onToggle : onEdit} aria-expanded={open} aria-controls={moreId} aria-label={`${name}${open ? '' : ' — edit'}`}>
           <span className="food-rv-name-text">{name}</span>
           {item.brand && <span className="food-rv-brand">{item.brand}</span>}
         </button>
@@ -863,24 +887,24 @@ function ReviewItem({
         </div>
       )}
 
-      {!open && assumptions.length > 0 && !compact && (
-        <button type="button" className="food-rv-assume is-collapsed" onClick={onToggle}>Assumed: {assumptions.join('; ')}</button>
-      )}
+      {/* The "More" line: what was assumed reads as its summary while closed. */}
+      <div className="food-rv-foot">
+        <button type="button" className="food-rv-more" aria-expanded={open} aria-controls={moreId} onClick={onToggle}>
+          <span className="food-rv-more-label">{open ? 'Less' : 'More'}</span>
+          {!open && assumptions.length > 0 && !compact && <span className="food-rv-more-summary">Assumed: {assumptions.join('; ')}</span>}
+          <Icon name="chevronDown" size={15} strokeWidth={2.2} className="food-rv-more-chevron" />
+        </button>
+        {!open && !pendingKind && save.on && saveSwitch}
+      </div>
 
       {open && (
-        <div className="food-rv-detail">
+        <div className="food-rv-detail" id={moreId}>
           {assumptions.length > 0 && <p className="food-rv-assume">Assumed: {assumptions.join('; ')}</p>}
-          {editing ? (
-            <ItemEditor item={item} unit={unit} disabled={disabled} onChange={onChange} />
-          ) : (
-            <button type="button" className="food-rv-link food-rv-edit" onClick={onEdit} disabled={disabled}>
-              <Icon name="pencil" size={14} />Edit name and numbers
-            </button>
-          )}
+          <ItemEditor item={item} unit={unit} disabled={disabled} autoFocus={editing} onChange={onChange} />
         </div>
       )}
 
-      {(canWeb || canEstimate || save.show || pendingKind) && (
+      {(open || pendingKind) && (canWeb || canEstimate || save.show || pendingKind) && (
         <div className="food-rv-actions">
           {pendingKind ? (
             <>
@@ -901,19 +925,7 @@ function ReviewItem({
               )}
             </>
           )}
-          {save.show && (
-            <button
-              type="button"
-              role="switch"
-              aria-checked={save.on}
-              className={`food-rv-save${save.on ? ' is-on' : ''}`}
-              disabled={disabled}
-              onClick={() => onChange({ ...item, _save: !save.on })}
-            >
-              <span className="food-rv-save-box" aria-hidden="true">{save.on && <Icon name="check" size={13} strokeWidth={3} />}</span>
-              {save.label}
-            </button>
-          )}
+          {saveSwitch}
         </div>
       )}
       {note && <p className={`food-rv-webnote${note.error ? ' is-error' : ''}`} role={note.error ? 'alert' : 'status'}>{note.text}</p>}
@@ -921,11 +933,12 @@ function ReviewItem({
   )
 }
 
-function ItemEditor({ item, unit, disabled, onChange }) {
+// autoFocus: the item was opened by a tap on its name, so the name field takes focus.
+function ItemEditor({ item, unit, disabled, autoFocus = false, onChange }) {
   const nameRef = useRef(null)
   useEffect(() => {
-    nameRef.current?.focus({ preventScroll: true })
-  }, [])
+    if (autoFocus) nameRef.current?.focus({ preventScroll: true })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
   const set = (patch) => onChange(editItem(item, patch))
   return (
     <div className="food-rv-editor">

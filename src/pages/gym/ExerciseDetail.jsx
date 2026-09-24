@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import Icon from '../../components/ui/Icon.jsx'
+import Disclosure from '../../components/ui/Disclosure.jsx'
 import { toast } from '../../components/ui/feedback.jsx'
 import { AutoTextarea, Button, IconButton, Segmented } from '../../components/ui/primitives.jsx'
 import { addDaysISO, formatDateShort, relativeDay } from '../../lib/dates.js'
@@ -73,11 +74,11 @@ export function setText(set, tracking, unit, distanceUnit) {
 // ---- chart metrics ----------------------------------------------------------------------------
 
 const METRICS = {
-  e1rm: { label: 'e1RM', title: 'Estimated 1RM', kind: 'weight' },
+  e1rm: { label: 'Est. max', title: 'Estimated 1-rep max', kind: 'weight' },
   heaviest: { label: 'Heaviest', title: 'Heaviest weight', kind: 'weight' },
   added: { label: 'Added weight', title: 'Heaviest added weight', kind: 'weight' },
-  setVolume: { label: 'Best set', title: 'Best set volume', kind: 'volume' },
-  sessionVolume: { label: 'Volume', title: 'Session volume', kind: 'volume' },
+  setVolume: { label: 'Best set', title: 'Best set (weight × reps)', kind: 'volume' },
+  sessionVolume: { label: 'Weight lifted', title: 'Weight lifted per workout', kind: 'volume' },
   totalReps: { label: 'Total reps', title: 'Total reps', kind: 'reps' },
   maxReps: { label: 'Max reps', title: 'Most reps in a set', kind: 'reps' },
   longest: { label: 'Longest', title: 'Longest duration', kind: 'duration' },
@@ -309,7 +310,7 @@ function Facts({ history, exercise, tracking, sessions, prefs, today }) {
   }
   const unit = prefs.unit
   let best = null
-  if (records.e1rm) best = { label: 'Best e1RM', value: estimate(records.e1rm.value, unit) }
+  if (records.e1rm) best = { label: 'Est. 1-rep max', value: estimate(records.e1rm.value, unit) }
   else if (records.heaviest) best = { label: tracking === 'weighted_bodyweight' ? 'Most added' : 'Heaviest', value: formatWeight(records.heaviest.value, unit) }
   else if (records.mostReps) best = { label: 'Most reps', value: String(records.mostReps.value) }
   else if (records.longestDistance) best = { label: 'Longest', value: formatDistance(records.longestDistance.value, prefs.distanceUnit) }
@@ -434,7 +435,7 @@ function HistoryList({ history, tracking, prefs, today }) {
           )
         })}
       </ul>
-      {tracking === 'weight_reps' && <p className="gym-xd-footnote">Numbers on the right are each set’s estimated 1RM in {unit}.</p>}
+      {tracking === 'weight_reps' && <p className="gym-xd-footnote">The small number on the right is that set’s estimated one-rep max in {unit}: the most you could probably lift once, worked out from its weight and reps.</p>}
       {history.length > shown && (
         <Button variant="secondary" className="btn-block gym-xd-more" onClick={() => setShown((count) => count + PAGE)}>
           Show more ({history.length - shown} older)
@@ -554,9 +555,9 @@ function RecordsPanel({ sessions, exerciseId, tracking, prefs, hasHistory }) {
   const du = prefs.distanceUnit
   const rows = [
     ['heaviest', tracking === 'weighted_bodyweight' ? 'Heaviest added weight' : 'Heaviest weight', (v) => formatWeight(v, unit)],
-    ['e1rm', 'Best estimated 1RM', (v) => estimate(v, unit)],
-    ['setVolume', 'Best set volume', (v) => `${formatInt(fromKg(v, unit))} ${unit}`],
-    ['sessionVolume', 'Best workout volume', (v) => `${formatInt(fromKg(v, unit))} ${unit}`],
+    ['e1rm', 'Best estimated max', (v) => estimate(v, unit)],
+    ['setVolume', 'Best set (weight × reps)', (v) => `${formatInt(fromKg(v, unit))} ${unit}`],
+    ['sessionVolume', 'Most weight lifted in a workout', (v) => `${formatInt(fromKg(v, unit))} ${unit}`],
     ['mostReps', 'Most reps in a set', (v) => `${v} reps`],
     ['sessionReps', 'Most reps in a workout', (v) => `${v} reps`],
     ['longestDuration', 'Longest set', (v) => formatDuration(v)],
@@ -574,7 +575,7 @@ function RecordsPanel({ sessions, exerciseId, tracking, prefs, hasHistory }) {
         <div className="card gym-xd-onerm">
           <span className="gym-xd-onerm-label">Estimated one-rep max</span>
           <strong>{estimate(records.e1rm.value, unit)}</strong>
-          <span className="gym-xd-onerm-sub">From your best set · {formatDateShort(records.e1rm.date)}</span>
+          <span className="gym-xd-onerm-sub">The most you could probably lift once, worked out from your best set on {formatDateShort(records.e1rm.date)}.</span>
         </div>
       )}
 
@@ -643,7 +644,7 @@ function RepMaxTable({ records, unit, onOpen }) {
           ))}
         </tbody>
       </table>
-      <p className="gym-xd-footnote">Estimates use the Brzycki formula from your best estimated 1RM. A logged set replaces the estimate once it’s heavier.</p>
+      <p className="gym-xd-footnote">Estimates come from your best estimated max (Brzycki formula; change it in Gym settings → Advanced). A set you actually logged replaces the estimate once it’s heavier.</p>
     </section>
   )
 }
@@ -682,41 +683,48 @@ function ExerciseSettings({ exercise, tracking, meta, unit }) {
   const incrementShown = isNum(meta.increment) && meta.increment > 0 ? Number(formatNumber(fromKg(meta.increment, unit), 2)) : null
   const incrementChoices = [...new Set([...INCREMENTS[unit], ...(incrementShown ? [incrementShown] : [])])].sort((a, b) => a - b)
 
+  const custom = isNum(meta.restSec) || (showIncrement && incrementShown !== null)
+  const summary = [
+    `Rest ${restText(isNum(meta.restSec) ? meta.restSec : defaultRest)}`,
+    showIncrement ? `+${incrementShown === null ? formatWeight(defaultIncrement, unit) : `${formatNumber(incrementShown, 2)} ${unit}`}` : null,
+  ].filter(Boolean).join(' · ')
+
   return (
-    <section className="gym-xd-settings" aria-labelledby="gym-xd-settings-title">
-      <h2 className="group-title" id="gym-xd-settings-title">Settings for this exercise</h2>
-      <div className="card gym-xd-settings-card">
-        <label className="gym-xd-setting">
-          <span className="gym-xd-setting-text">
-            <span>Rest timer</span>
-            <small>Default for new routines and workouts</small>
-          </span>
-          <select
-            className="input"
-            value={restValue}
-            onChange={(event) => setExerciseMeta(exercise.id, { restSec: event.target.value === '' ? null : Number(event.target.value) })}
-          >
-            <option value="">Default ({restText(defaultRest)})</option>
-            {restChoices(isNum(meta.restSec) ? meta.restSec : undefined).map((sec) => <option key={sec} value={String(sec)}>{restText(sec)}</option>)}
-          </select>
-        </label>
-        {showIncrement && (
+    <section className="gym-xd-settings" aria-label="Settings for this exercise">
+      <Disclosure id="exercise-settings" label="Settings for this exercise" summary={summary} hasValues={custom} className="gym-disclosure">
+        <div className="card gym-xd-settings-card">
           <label className="gym-xd-setting">
             <span className="gym-xd-setting-text">
-              <span>Weight increase</span>
-              <small>Added when you hit the top of your rep range</small>
+              <span>Rest timer</span>
+              <small>Default for new routines and workouts</small>
             </span>
             <select
               className="input"
-              value={incrementShown === null ? '' : String(incrementShown)}
-              onChange={(event) => setExerciseMeta(exercise.id, { increment: event.target.value === '' ? null : toKg(Number(event.target.value), unit) })}
+              value={restValue}
+              onChange={(event) => setExerciseMeta(exercise.id, { restSec: event.target.value === '' ? null : Number(event.target.value) })}
             >
-              <option value="">Default (+{formatWeight(defaultIncrement, unit)})</option>
-              {incrementChoices.map((value) => <option key={value} value={String(value)}>+{formatNumber(value, 2)} {unit}</option>)}
+              <option value="">Default ({restText(defaultRest)})</option>
+              {restChoices(isNum(meta.restSec) ? meta.restSec : undefined).map((sec) => <option key={sec} value={String(sec)}>{restText(sec)}</option>)}
             </select>
           </label>
-        )}
-      </div>
+          {showIncrement && (
+            <label className="gym-xd-setting">
+              <span className="gym-xd-setting-text">
+                <span>Weight increase</span>
+                <small>Added when you hit the top of your rep range</small>
+              </span>
+              <select
+                className="input"
+                value={incrementShown === null ? '' : String(incrementShown)}
+                onChange={(event) => setExerciseMeta(exercise.id, { increment: event.target.value === '' ? null : toKg(Number(event.target.value), unit) })}
+              >
+                <option value="">Default (+{formatWeight(defaultIncrement, unit)})</option>
+                {incrementChoices.map((value) => <option key={value} value={String(value)}>+{formatNumber(value, 2)} {unit}</option>)}
+              </select>
+            </label>
+          )}
+        </div>
+      </Disclosure>
     </section>
   )
 }

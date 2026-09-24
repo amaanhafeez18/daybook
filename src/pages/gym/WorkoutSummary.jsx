@@ -249,7 +249,7 @@ export default function WorkoutSummary({ session, onDone }) {
 
       <div className="gym-stat-grid gym-summary-stats">
         <Stat label="Duration" value={minutes !== null ? formatMinutes(minutes) : '—'} />
-        <Stat label="Volume" value={formatVolume(volume, unit)} />
+        <Stat label="Weight lifted" value={formatVolume(volume, unit)} />
         <Stat label="Working sets" value={workingSets} />
         <Stat label="PRs" value={prs.length} />
       </div>
@@ -333,7 +333,7 @@ export default function WorkoutSummary({ session, onDone }) {
                   </span>
                   <span className="gym-summary-best">
                     <strong>{bestText || '—'}</strong>
-                    {oneRm !== null && <small>e1RM {formatWeight(oneRm, unit)}</small>}
+                    {oneRm !== null && <small title="Estimated one-rep max: the most you could probably lift once">est. max {formatWeight(oneRm, unit)}</small>}
                   </span>
                 </li>
               )

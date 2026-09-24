@@ -1,4 +1,5 @@
 import { useId, useRef, useState } from 'react'
+import Disclosure from '../../components/ui/Disclosure.jsx'
 import Icon from '../../components/ui/Icon.jsx'
 import Sheet from '../../components/ui/Sheet.jsx'
 import { IconButton, Segmented, Switch } from '../../components/ui/primitives.jsx'
@@ -9,9 +10,11 @@ import { deleteFavorite, setWebSetting, updateFood, useFood, useWebSetting } fro
 import { navigate } from '../../lib/router.js'
 import { NUTRIENT_INFO, energyNumber, entryName, fmtEnergy, fmtInt, portionText, unitLabel } from './format.js'
 
-// Food settings: goals (link), meals (rename, reorder, 3–6), units, which nutrients show, the
-// ring, week start, AI review, web search (settings.assistantWeb, shared with the assistant), My
-// foods (link) and saved favorites. The weight unit is the gym's (one setting).
+// Food settings. Basics: goals (link), meals (rename, reorder, 3–6; a disclosure that shows the
+// names while closed) and units. Everything else sits in an "Advanced" disclosure that remembers
+// whether it was left open: which nutrients show, the ring, week start, the Add food sheet's
+// default, AI review, web search (settings.assistantWeb, shared with the assistant) and My foods
+// (link + the saved list). The weight unit is the gym's (one setting).
 
 const ENERGY_UNITS = [{ id: 'kcal', label: 'kcal' }, { id: 'kJ', label: 'kJ' }]
 const WEIGHT_UNITS = [{ id: 'kg', label: 'kg' }, { id: 'lb', label: 'lb' }]
@@ -75,13 +78,18 @@ export default function FoodSettingsSheet({ open, onClose }) {
 
   function removeFavorite(favorite) {
     const undo = deleteFavorite(favorite.id)
-    toast(`Removed ${entryName(favorite)} from favorites`, { action: { label: 'Undo', onClick: undo } })
+    toast(`Removed ${entryName(favorite)} from My foods`, { action: { label: 'Undo', onClick: undo } })
   }
+
+  const mealNames = prefs.meals.map((meal) => meal.name).join(' · ')
+  const nutrientNames = Object.values(NUTRIENT_INFO).filter((info) => prefs.nutrients.includes(info.key)).map((info) => info.label).join(', ') || 'none'
+  const webLabel = WEB_MODES.find((mode) => mode.id === web)?.label || 'Ask first'
+  const advancedSummary = `${nutrientNames} · ${prefs.aiReview === 'autoHigh' ? 'Auto-log if sure' : 'Always review'} · Web: ${webLabel.toLowerCase()}`
 
   return (
     <Sheet open={open} onClose={onClose} title="Food settings" initialFocus={false}>
       <div className="food-cfg">
-        <Group title="Goals">
+        <Group title="Basics">
           <button type="button" className="food-cfg-row food-cfg-link" onClick={() => { onClose(); navigate('food/goals') }}>
             <span className="food-cfg-label">
               <span>Daily goals</span>
@@ -89,84 +97,85 @@ export default function FoodSettingsSheet({ open, onClose }) {
             </span>
             <Icon name="chevronRight" size={18} />
           </button>
-        </Group>
-
-        <Group title="Meals" footer="Use 3 to 6 meals. Food logged in a removed meal shows under Snacks (or your last meal).">
-          <MealsEditor meals={prefs.meals} />
-        </Group>
-
-        <Group title="Units & display">
+          <div className="food-cfg-row is-disclosure">
+            <Disclosure id="food-settings-meals" label="Meals" summary={mealNames}>
+              <MealsEditor meals={prefs.meals} />
+              <p className="food-cfg-foot food-cfg-foot-inset">Tap a name to rename it. Use 3 to 6 meals; food logged in a removed meal shows under Snacks (or your last meal).</p>
+            </Disclosure>
+          </div>
           <Row label="Energy"><Segmented options={ENERGY_UNITS} value={unit} onChange={(value) => setPrefs({ energyUnit: value })} label="Energy unit" /></Row>
           <Row label="Body weight" hint="Shared with Gym"><Segmented options={WEIGHT_UNITS} value={weightUnit} onChange={(value) => updateGym((g) => ({ prefs: { ...g.prefs, unit: value } }))} label="Weight unit" /></Row>
-          <Row label="Ring shows"><Segmented options={RING_MODES} value={prefs.ring} onChange={(value) => setPrefs({ ring: value })} label="Ring shows" /></Row>
-          <Row label="Week starts"><Segmented options={WEEK_STARTS} value={prefs.weekStart} onChange={(value) => setPrefs({ weekStart: value })} label="Week starts on" /></Row>
         </Group>
 
-        <Group title="Nutrients shown" footer="Protein, carbs and fat count toward calories. Sugar and sodium goals are limits.">
-          <div className="food-cfg-row is-chips">
-            {Object.values(NUTRIENT_INFO).map((info) => {
-              const on = prefs.nutrients.includes(info.key)
-              return (
-                <button key={info.key} type="button" className={`chip chip-sm food-chip${on ? ' is-active' : ''}`} aria-pressed={on} onClick={() => toggleNutrient(info.key)}>
-                  {on && <Icon name="check" size={14} strokeWidth={2.6} />}{info.label}
+        <section className="food-cfg-group food-cfg-advanced">
+          <Disclosure id="food-settings-advanced" label="Advanced" summary={advancedSummary}>
+            <Group title="Display">
+              <Row label="Ring shows"><Segmented options={RING_MODES} value={prefs.ring} onChange={(value) => setPrefs({ ring: value })} label="Ring shows" /></Row>
+              <Row label="Week starts"><Segmented options={WEEK_STARTS} value={prefs.weekStart} onChange={(value) => setPrefs({ weekStart: value })} label="Week starts on" /></Row>
+              <div className="food-cfg-row is-switch">
+                <Switch checked={prefs.showDetails} onChange={(value) => setPrefs({ showDetails: value })} label="Open with portion and macros" description="The Add food sheet starts with More options open" />
+              </div>
+            </Group>
+
+            <Group title="Nutrients shown" footer="Shown under the ring and on the Insights page. Protein, carbs and fat count toward calories; sugar and sodium goals are limits.">
+              <div className="food-cfg-row is-chips">
+                {Object.values(NUTRIENT_INFO).map((info) => {
+                  const on = prefs.nutrients.includes(info.key)
+                  return (
+                    <button key={info.key} type="button" className={`chip chip-sm food-chip${on ? ' is-active' : ''}`} aria-pressed={on} onClick={() => toggleNutrient(info.key)}>
+                      {on && <Icon name="check" size={14} strokeWidth={2.6} />}{info.label}
+                    </button>
+                  )
+                })}
+              </div>
+            </Group>
+
+            <Group title="AI estimates" footer={prefs.aiReview === 'autoHigh' ? 'Estimates where every item is at least 80% sure are logged straight away, with Undo.' : 'Every AI estimate opens for review before it’s logged.'}>
+              <Row label="After an estimate" stacked>
+                <Segmented options={AI_REVIEW} value={prefs.aiReview} onChange={(value) => setPrefs({ aiReview: value })} label="AI estimates" />
+              </Row>
+            </Group>
+
+            <Group title="Web search" footer={WEB_NOTES[web]}>
+              <Row label="Look up exact numbers online" hint="Shared with the assistant" stacked>
+                <Segmented options={WEB_MODES} value={web} onChange={setWebSetting} label="Web search" />
+              </Row>
+            </Group>
+
+            <Group title={`My foods${favorites.length ? ` (${favorites.length})` : ''}`} footer="Foods you star, and labels, barcodes and web lookups you log, are saved with their exact numbers and used again when you mention the food.">
+              <button type="button" className="food-cfg-row food-cfg-link" onClick={() => { onClose(); navigate('food/foods') }}>
+                <span className="food-cfg-label">
+                  <span>Open My foods</span>
+                  <small>{favorites.length ? `${favorites.length} saved${saved ? ` · ${saved} with exact numbers` : ''}` : 'Nothing saved yet'}</small>
+                </span>
+                <Icon name="chevronRight" size={18} />
+              </button>
+              {favorites.length > 0 && (
+                <ul className="food-cfg-favs">
+                  {favorites.slice(0, FAVORITES_SHOWN).map((favorite) => {
+                    const kcal = entryCalories(favorite)
+                    const portion = portionText(favorite)
+                    return (
+                      <li key={favorite.id} className="food-cfg-row">
+                        <span className="food-cfg-label">
+                          <span>{entryName(favorite)}</span>
+                          <small>{[portion, kcal > 0 ? `${energyNumber(kcal, unit)} ${unitLabel(unit)}` : null].filter(Boolean).join(' · ') || 'No calories'}</small>
+                        </span>
+                        <IconButton icon="trash" label={`Remove ${entryName(favorite)} from My foods`} className="food-cfg-remove" size={18} onClick={() => removeFavorite(favorite)} />
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+              {favorites.length > FAVORITES_SHOWN && (
+                <button type="button" className="food-cfg-row food-cfg-link" onClick={() => { onClose(); navigate('food/foods') }}>
+                  <span className="food-cfg-label"><span>See all {favorites.length} in My foods</span></span>
+                  <Icon name="chevronRight" size={18} />
                 </button>
-              )
-            })}
-          </div>
-        </Group>
-
-        <Group title="Logging" footer={prefs.aiReview === 'autoHigh' ? 'Estimates where every item is at least 80% sure are logged straight away, with Undo.' : 'Every AI estimate opens for review before it’s logged.'}>
-          <Row label="AI estimates" stacked>
-            <Segmented options={AI_REVIEW} value={prefs.aiReview} onChange={(value) => setPrefs({ aiReview: value })} label="AI estimates" />
-          </Row>
-          <div className="food-cfg-row is-switch">
-            <Switch checked={prefs.showDetails} onChange={(value) => setPrefs({ showDetails: value })} label="Always show macros" description="Protein, carbs and fat open in the entry sheet" />
-          </div>
-        </Group>
-
-        <Group title="Web search" footer={WEB_NOTES[web]}>
-          <Row label="Look up exact numbers online" hint="Shared with the assistant" stacked>
-            <Segmented options={WEB_MODES} value={web} onChange={setWebSetting} label="Web search" />
-          </Row>
-        </Group>
-
-        <Group title="My foods" footer="Labels, barcodes and web lookups you log are saved here with their exact numbers, and used again when you mention the food.">
-          <button type="button" className="food-cfg-row food-cfg-link" onClick={() => { onClose(); navigate('food/foods') }}>
-            <span className="food-cfg-label">
-              <span>My foods</span>
-              <small>{favorites.length ? `${favorites.length} saved${saved ? ` · ${saved} with exact numbers` : ''}` : 'Nothing saved yet'}</small>
-            </span>
-            <Icon name="chevronRight" size={18} />
-          </button>
-        </Group>
-
-        <Group title={`Favorites${favorites.length ? ` (${favorites.length})` : ''}`}>
-          {favorites.length ? (
-            <ul className="food-cfg-favs">
-              {favorites.slice(0, FAVORITES_SHOWN).map((favorite) => {
-                const kcal = entryCalories(favorite)
-                const portion = portionText(favorite)
-                return (
-                  <li key={favorite.id} className="food-cfg-row">
-                    <span className="food-cfg-label">
-                      <span>{entryName(favorite)}</span>
-                      <small>{[portion, kcal > 0 ? `${energyNumber(kcal, unit)} ${unitLabel(unit)}` : null].filter(Boolean).join(' · ') || 'No calories'}</small>
-                    </span>
-                    <IconButton icon="trash" label={`Remove ${entryName(favorite)} from favorites`} className="food-cfg-remove" size={18} onClick={() => removeFavorite(favorite)} />
-                  </li>
-                )
-              })}
-            </ul>
-          ) : (
-            <p className="food-cfg-empty">Tap the star when adding a food to keep it one tap away.</p>
-          )}
-          {favorites.length > FAVORITES_SHOWN && (
-            <button type="button" className="food-cfg-row food-cfg-link" onClick={() => { onClose(); navigate('food/foods') }}>
-              <span className="food-cfg-label"><span>See all {favorites.length} in My foods</span></span>
-              <Icon name="chevronRight" size={18} />
-            </button>
-          )}
-        </Group>
+              )}
+            </Group>
+          </Disclosure>
+        </section>
 
         <p className="food-cfg-note">
           <Icon name="info" size={16} />

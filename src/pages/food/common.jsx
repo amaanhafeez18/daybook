@@ -21,7 +21,8 @@ export function DetailTop({ backLabel = 'Food', fallback = 'food', children }) {
   )
 }
 
-// A popover menu under a round ⋯ button. items: [{ label, icon, onClick, danger?, disabled? }]
+// A popover menu under a round ⋯ button. items: [{ label, icon, onClick, danger?, disabled? }];
+// { divider: true } draws a line between groups (edit · go to · settings).
 export function Menu({ items, label = 'More options', icon = 'more', className = '' }) {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
@@ -41,13 +42,15 @@ export function Menu({ items, label = 'More options', icon = 'more', className =
     }
   }, [open])
   const shown = items.filter(Boolean)
-  if (!shown.length) return null
+  if (!shown.some((item) => !item.divider)) return null
   return (
     <div className={`food-menu-wrap ${className}`} ref={ref}>
       <IconButton icon={icon} label={label} className="food-head-btn" size={21} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((value) => !value)} />
       {open && (
         <div className="food-menu" role="menu">
-          {shown.map((item) => (
+          {shown.map((item, index) => (item.divider ? (
+            <span key={`divider-${index}`} className="food-menu-divider" role="separator" />
+          ) : (
             <button
               key={item.label}
               type="button"
@@ -62,7 +65,7 @@ export function Menu({ items, label = 'More options', icon = 'more', className =
               <span>{item.label}</span>
               <Icon name={item.icon} size={18} />
             </button>
-          ))}
+          )))}
         </div>
       )}
     </div>

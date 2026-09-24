@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Icon from '../components/ui/Icon.jsx'
 import Sheet from '../components/ui/Sheet.jsx'
+import Disclosure from '../components/ui/Disclosure.jsx'
 import { Avatar, Button, Field, PasswordInput, Segmented, Switch } from '../components/ui/primitives.jsx'
 import { confirmAction, toast } from '../components/ui/feedback.jsx'
 import { RECOVERY_QUESTIONS } from '../components/AuthScreen.jsx'
@@ -12,8 +13,8 @@ import { discardActive, flushActive, getActiveWorkout, updateGym } from '../lib/
 import { classSchedule } from '../lib/planner.js'
 import { ACCENTS, APPEARANCES, DEFAULT_ACCENT, resolveAppearance } from '../lib/theme.js'
 import { PRAYER_METHODS } from '../lib/environment.js'
-import { formatDateShort } from '../lib/dates.js'
-import { LEAD_OPTIONS, currentSubscription, disableNotifications, enableNotifications, leadLabel, notificationPrefs, pushSupport, sendTestNotification, syncSubscription } from '../lib/notifications.js'
+import { formatDateShort, formatTime } from '../lib/dates.js'
+import { DEFAULT_NOTIFICATIONS, LEAD_OPTIONS, currentSubscription, disableNotifications, enableNotifications, leadLabel, notificationPrefs, pushSupport, sendTestNotification, syncSubscription } from '../lib/notifications.js'
 import { openWelcome } from '../components/welcome/rules.js'
 import '../components/settings.css'
 
@@ -31,6 +32,10 @@ const ASR_OPTIONS = [{ id: 0, label: 'Standard' }, { id: 1, label: 'Hanafi' }]
 // #/settings/<id> opens Settings scrolled to that section (e.g. the prayer card's "Method" link).
 // 'security' is the Change password row inside Account & security.
 const SECTION_IDS = new Set(['notifications', 'assistant', 'classes', 'prayer', 'appearance', 'profile', 'security', 'account', 'danger'])
+
+// The section a deep link points at, read before useSectionLink clears it from the hash, so a
+// disclosure it points into (the prayer method) can start open.
+const landingSection = () => window.location.hash.match(/^#\/?settings\/([a-z-]+)/)?.[1] || ''
 
 function useSectionLink() {
   useEffect(() => {
@@ -79,6 +84,7 @@ export default function SettingsPage({ user, onUserChange, onSignOut }) {
   const [nameDraft, setNameDraft] = useState(settings.displayName || '')
   const [classSheet, setClassSheet] = useState(null)
   const [securitySheet, setSecuritySheet] = useState(null) // 'password' | 'recovery'
+  const [landed] = useState(landingSection)
 
   useSectionLink()
   useEffect(() => { setNameDraft(settings.displayName || '') }, [settings.displayName])
@@ -114,6 +120,9 @@ export default function SettingsPage({ user, onUserChange, onSignOut }) {
 
   const displayName = nameDraft.trim() || user.username
   const prayerOn = settings.showPrayerTimes !== false
+  const prayerMethod = PRAYER_METHODS.find((method) => method.id === String(settings.prayerMethod || 'auto')) || PRAYER_METHODS[0]
+  const prayerSchool = Number(settings.prayerSchool || 0)
+  const prayerCustom = prayerMethod.id !== 'auto' || prayerSchool === 1
 
   return (
     <div className="settings-page">
@@ -165,22 +174,25 @@ export default function SettingsPage({ user, onUserChange, onSignOut }) {
           <div className="set-row is-stacked">
             <span className="set-label" id="set-web-label">Web search</span>
             <Segmented options={WEB_OPTIONS} value={WEB_HINTS[settings.assistantWeb] ? settings.assistantWeb : 'ask'} onChange={(assistantWeb) => updateSettings({ assistantWeb })} label="Web search" />
+            <p className="set-note">{WEB_HINTS[settings.assistantWeb] || WEB_HINTS.ask}</p>
           </div>
         </div>
-        <p className="set-footnote">{WEB_HINTS[settings.assistantWeb] || WEB_HINTS.ask}</p>
+        <p className="set-footnote">What the assistant remembers about you is in the Assistant tab, under ⋯ → What I remember.</p>
       </section>
 
       <section className="settings-group" id="appearance">
         <h2>Appearance</h2>
         <div className="card set-list">
           <div className="set-row is-stacked">
+            <span className="set-label" id="set-appearance-label">Light or dark</span>
             <Segmented options={APPEARANCE_OPTIONS} value={resolveAppearance(settings)} onChange={(appearance) => updateSettings({ appearance, darkMode: appearance === 'dark' })} label="Light or dark" />
           </div>
           <div className="set-row is-stacked">
-            <span className="set-label" id="set-theme-label">Theme</span>
+            <span className="set-label" id="set-theme-label">Colour</span>
             <ThemePicker value={settings.theme} onChange={(theme) => updateSettings({ theme })} labelledBy="set-theme-label" />
           </div>
         </div>
+        <p className="set-footnote">System follows your phone’s light and dark setting.</p>
       </section>
 
       <section className="settings-group" id="classes">
@@ -208,10 +220,19 @@ export default function SettingsPage({ user, onUserChange, onSignOut }) {
         <h2>Prayer times</h2>
         <div className="card set-list">
           <div className="set-row is-switch">
-            <Switch label="Show on Today" checked={prayerOn} onChange={(checked) => updateSettings({ showPrayerTimes: checked })} />
+            <Switch label="Show on Today" description="Today’s five prayer times for where you are" checked={prayerOn} onChange={(checked) => updateSettings({ showPrayerTimes: checked })} />
           </div>
-          {prayerOn && (
-            <>
+        </div>
+        {prayerOn && (
+          <Disclosure
+            id="settings-prayer-calculation"
+            label="Calculation"
+            summary={`${prayerMethod.id === 'auto' ? 'Automatic' : prayerMethod.label} · ${prayerSchool === 1 ? 'Hanafi' : 'Standard'} Asr`}
+            hasValues={prayerCustom}
+            defaultOpen={landed === 'prayer'}
+            className="set-disclosure"
+          >
+            <div className="card set-list">
               <div className="set-row is-stacked">
                 <label className="set-label" htmlFor="set-prayer-method">Calculation method</label>
                 <select id="set-prayer-method" className="input" value={settings.prayerMethod || 'auto'} onChange={(event) => updateSettings({ prayerMethod: event.target.value })}>
@@ -220,12 +241,12 @@ export default function SettingsPage({ user, onUserChange, onSignOut }) {
               </div>
               <div className="set-row">
                 <span className="set-label" aria-hidden="true">Asr time</span>
-                <Segmented options={ASR_OPTIONS} value={Number(settings.prayerSchool || 0)} onChange={(prayerSchool) => updateSettings({ prayerSchool })} label="Asr time" className="set-seg-compact" />
+                <Segmented options={ASR_OPTIONS} value={prayerSchool} onChange={(school) => updateSettings({ prayerSchool: school })} label="Asr time" className="set-seg-compact" />
               </div>
-            </>
-          )}
-        </div>
-        {prayerOn && <p className="set-footnote">Automatic uses the standard authority for your location. Standard Asr follows Shafi‘i, Maliki and Hanbali; Hanafi Asr is later in the afternoon.</p>}
+            </div>
+            <p className="set-footnote">Automatic uses the standard authority for your location. Standard Asr follows Shafi‘i, Maliki and Hanbali; Hanafi Asr is later in the afternoon.</p>
+          </Disclosure>
+        )}
       </section>
 
       <section className="settings-group" id="account">
@@ -539,6 +560,19 @@ function NotificationSettings({ settings }) {
   const taskLead = Number(prefs.taskLead)
   if (Number.isFinite(taskLead) && !leadOptions.some((option) => option.value === taskLead)) leadOptions.push({ value: taskLead, label: leadLabel(taskLead) })
 
+  // What's set under Advanced, and whether any of it differs from the defaults (then it starts open).
+  const advanced = []
+  if (taskLead === -1) advanced.push('No task reminders')
+  else advanced.push(`Tasks ${leadLabel(taskLead).replace(/^At time of task$/, 'on time').replace(' minutes', ' min')}`)
+  if (allDayValue === 'off') advanced.push('all-day off')
+  else advanced.push(`all-day ${formatTime(prefs.allDayTime)}${allDayValue === 'before' ? ' the day before' : ''}`)
+  if (prefs.gym) advanced.push(`workout ${formatTime(prefs.gymTime)}`)
+  if (!prefs.people) advanced.push('people off')
+  if (prefs.quietHours) advanced.push(`quiet ${formatTime(prefs.quietStart)}–${formatTime(prefs.quietEnd)}`)
+  const advancedCustom = taskLead !== DEFAULT_NOTIFICATIONS.taskLead
+    || allDayValue !== DEFAULT_NOTIFICATIONS.allDayMode || prefs.allDayTime !== DEFAULT_NOTIFICATIONS.allDayTime
+    || !!prefs.gym || !prefs.people || !!prefs.quietHours
+
   return (
     <section className="settings-group" id="notifications">
       <h2>Notifications</h2>
@@ -547,41 +581,12 @@ function NotificationSettings({ settings }) {
           <span className="settings-row-icon"><Icon name="bell" size={18} /></span>
           <span className="settings-row-text">
             <strong>This device</strong>
-            <small>{DEVICE_STATUS[support] || (on ? 'On — reminders arrive here' : 'Off')}</small>
+            <small>{DEVICE_STATUS[support] || (on ? 'On — reminders arrive here' : 'Off — turn on to get reminders here')}</small>
           </span>
           {!DEVICE_STATUS[support] && (on
             ? <Button variant="secondary" size="sm" loading={busy} onClick={disable}>Turn off</Button>
             : <Button size="sm" loading={busy} onClick={enable}>Turn on</Button>)}
         </div>
-        {on && (
-          <button type="button" className="settings-row" onClick={test}>
-            <span className="settings-row-icon"><Icon name="send" size={18} /></span>
-            <span className="settings-row-text"><strong>Send a test notification</strong></span>
-          </button>
-        )}
-      </div>
-
-      <div className="card set-list">
-        <div className="set-row">
-          <label htmlFor="pref-lead">Timed tasks</label>
-          <select id="pref-lead" className="input" value={prefs.taskLead} onChange={(event) => set({ taskLead: Number(event.target.value) })}>
-            {leadOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-          </select>
-        </div>
-        <div className="set-row">
-          <label htmlFor="pref-allday">All-day tasks</label>
-          <select id="pref-allday" className="input" value={allDayValue} onChange={(event) => (event.target.value === 'off' ? set({ allDayTime: '' }) : set({ allDayMode: event.target.value, allDayTime: prefs.allDayTime || '09:00' }))}>
-            <option value="day">On the day</option>
-            <option value="before">The day before</option>
-            <option value="off">No reminder</option>
-          </select>
-        </div>
-        {allDayValue !== 'off' && (
-          <div className="set-row">
-            <label htmlFor="pref-allday-time">Remind at</label>
-            <input id="pref-allday-time" className="input" type="time" value={prefs.allDayTime} onChange={(event) => set({ allDayTime: event.target.value || '09:00' })} />
-          </div>
-        )}
       </div>
 
       <div className="card set-list">
@@ -604,45 +609,80 @@ function NotificationSettings({ settings }) {
           </div>
         )}
       </div>
+      <p className="set-footnote">Tasks with a time also get a reminder 15 minutes before, and people a nudge when a catch-up is due. Change these under Advanced.</p>
 
-      <div className="card set-list">
-        <div className="set-row is-switch">
-          <Switch label="Workout reminder" description="On gym days, at a time you choose" checked={!!prefs.gym} onChange={(gym) => set({ gym })} />
-        </div>
-        {prefs.gym && (
-          <>
+      <Disclosure id="settings-notifications-advanced" label="Advanced" summary={advanced.join(' · ')} hasValues={advancedCustom} className="set-disclosure">
+        <div className="card set-list">
+          <div className="set-row">
+            <label htmlFor="pref-lead">Timed tasks</label>
+            <select id="pref-lead" className="input" value={prefs.taskLead} onChange={(event) => set({ taskLead: Number(event.target.value) })}>
+              {leadOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          </div>
+          <div className="set-row">
+            <label htmlFor="pref-allday">All-day tasks</label>
+            <select id="pref-allday" className="input" value={allDayValue} onChange={(event) => (event.target.value === 'off' ? set({ allDayTime: '' }) : set({ allDayMode: event.target.value, allDayTime: prefs.allDayTime || '09:00' }))}>
+              <option value="day">On the day</option>
+              <option value="before">The day before</option>
+              <option value="off">No reminder</option>
+            </select>
+          </div>
+          {allDayValue !== 'off' && (
             <div className="set-row">
-              <label htmlFor="pref-gym">Time</label>
-              <input id="pref-gym" className="input" type="time" value={prefs.gymTime} onChange={(event) => set({ gymTime: event.target.value || '17:00' })} />
+              <label htmlFor="pref-allday-time">Remind at</label>
+              <input id="pref-allday-time" className="input" type="time" value={prefs.allDayTime} onChange={(event) => set({ allDayTime: event.target.value || '09:00' })} />
             </div>
-            {!hasGymPlan && (
+          )}
+        </div>
+
+        <div className="card set-list">
+          <div className="set-row is-switch">
+            <Switch label="Workout reminder" description="On gym days, at a time you choose" checked={!!prefs.gym} onChange={(gym) => set({ gym })} />
+          </div>
+          {prefs.gym && (
+            <>
               <div className="set-row">
-                <span className="set-hint">Starts once you set up a gym plan.</span>
-                <button type="button" className="link-btn" onClick={() => navigate('gym')}>Set up</button>
+                <label htmlFor="pref-gym">Time</label>
+                <input id="pref-gym" className="input" type="time" value={prefs.gymTime} onChange={(event) => set({ gymTime: event.target.value || '17:00' })} />
               </div>
-            )}
-          </>
-        )}
-        <div className="set-row is-switch">
-          <Switch label="Catch-ups and birthdays" description="Reminders to reach out to people" checked={prefs.people} onChange={(people) => set({ people })} />
+              {!hasGymPlan && (
+                <div className="set-row">
+                  <span className="set-hint">Starts once you set up a gym plan.</span>
+                  <button type="button" className="link-btn" onClick={() => navigate('gym')}>Set up</button>
+                </div>
+              )}
+            </>
+          )}
+          <div className="set-row is-switch">
+            <Switch label="Catch-ups and birthdays" description="Reminders to reach out to people" checked={prefs.people} onChange={(people) => set({ people })} />
+          </div>
+          <div className="set-row is-switch">
+            <Switch label="Quiet hours" description="Hold reminders until quiet hours end" checked={prefs.quietHours} onChange={(quietHours) => set({ quietHours })} />
+          </div>
+          {/* One row per time: two time fields side by side don't fit a phone-width row. */}
+          {prefs.quietHours && (
+            <>
+              <div className="set-row">
+                <label htmlFor="pref-quiet-start">From</label>
+                <input id="pref-quiet-start" className="input" type="time" value={prefs.quietStart} onChange={(event) => set({ quietStart: event.target.value || '22:00' })} />
+              </div>
+              <div className="set-row">
+                <label htmlFor="pref-quiet-end">To</label>
+                <input id="pref-quiet-end" className="input" type="time" value={prefs.quietEnd} onChange={(event) => set({ quietEnd: event.target.value || '07:00' })} />
+              </div>
+            </>
+          )}
         </div>
-        <div className="set-row is-switch">
-          <Switch label="Quiet hours" description="Hold reminders until quiet hours end" checked={prefs.quietHours} onChange={(quietHours) => set({ quietHours })} />
-        </div>
-        {/* One row per time: two time fields side by side don't fit a phone-width row. */}
-        {prefs.quietHours && (
-          <>
-            <div className="set-row">
-              <label htmlFor="pref-quiet-start">From</label>
-              <input id="pref-quiet-start" className="input" type="time" value={prefs.quietStart} onChange={(event) => set({ quietStart: event.target.value || '22:00' })} />
-            </div>
-            <div className="set-row">
-              <label htmlFor="pref-quiet-end">To</label>
-              <input id="pref-quiet-end" className="input" type="time" value={prefs.quietEnd} onChange={(event) => set({ quietEnd: event.target.value || '07:00' })} />
-            </div>
-          </>
+
+        {on && (
+          <div className="card settings-card settings-list">
+            <button type="button" className="settings-row" onClick={test}>
+              <span className="settings-row-icon"><Icon name="send" size={18} /></span>
+              <span className="settings-row-text"><strong>Send a test notification</strong><small>Checks that reminders reach this device</small></span>
+            </button>
+          </div>
         )}
-      </div>
+      </Disclosure>
     </section>
   )
 }

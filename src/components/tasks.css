@@ -94,6 +94,13 @@
 .tr-act-archive { background: var(--tr-archive); }
 .task-row.tr-row[data-full] .tr-act-later { flex-grow: 0; opacity: 0; margin-right: -6px; }
 
+/* 44 px targets on every task row: the 24 px checkbox gets an invisible ring around it, and the
+   text button stretches into the row's own padding (margins cancel it, so rows stay the same
+   height). Sheets, cards and the calendar all use these rows. */
+.task-row > .check { position: relative; }
+.task-row > .check::after { content: ''; position: absolute; inset: -10px; border-radius: 50%; }
+.task-row > .task-body { margin: -11px 0; padding: 11px 0; }
+
 /* Finished rows fade their content only, so the action colours stay full strength. */
 .task-row.tr-row.is-done { opacity: 1; }
 .task-row.tr-row.is-done > :not(.tr-lead):not(.tr-trail) { opacity: 0.55; }
@@ -103,6 +110,27 @@
   .task-row.tr-row.is-open > :not(.tr-lead):not(.tr-trail),
   .tr-lead, .tr-trail, .tr-act, .tr-lead .icon { transition: none; }
 }
+
+/* ---- toolbar: "To do | Completed · N" never wraps inside a segment; the search field gives way ---- */
+
+.tk-toolbar .segmented { flex: 0 0 auto; }
+.tk-toolbar .segmented button { white-space: nowrap; padding: 0 12px; }
+.tk-toolbar .search-field { flex: 1 1 120px; min-width: 0; }
+
+/* "Move all to today" / "Archive all" beside a group title: a 44 px target that keeps the row's
+   height (the extra height sits in negative margins). */
+.tk-body .group-title-row .link-btn { display: inline-flex; align-items: center; min-height: 44px; margin: -8px 0 -6px; padding: 0 2px; }
+
+/* ---- task sheet: "Archive" at the end of More options ------------------------------------------- */
+
+.btn.ts-archive { align-self: flex-start; }
+/* The Due chips (36 px) keep their size; their touch targets are 44 px. */
+#task-form .chip { position: relative; }
+#task-form .chip::after { content: ''; position: absolute; inset: -4px 0; }
+/* Date and time pickers share the row (the date needs more room) and shrink with the sheet
+   instead of pushing it sideways on narrow windows. */
+#task-form .field-row { grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr); }
+#task-form .field-row > .input { min-width: 0; }
 
 /* ---- overdue rows: one-tap "Today" -------------------------------------------------------------- */
 
@@ -151,6 +179,7 @@
 .tk-quick .btn { flex-shrink: 0; }
 
 .tk-quick-more {
+  position: relative;
   flex-shrink: 0;
   display: grid;
   place-items: center;
@@ -160,6 +189,7 @@
   color: var(--accent);
   transition: transform 0.35s var(--spring, ease), background 0.2s;
 }
+.tk-quick-more::after { content: ''; position: absolute; inset: -4px; border-radius: 50%; } /* 48 px target */
 .tk-quick-more:active { transform: scale(0.9); background: var(--surface-2); transition-duration: 0.1s; }
 @media (hover: hover) { .tk-quick-more:hover { background: var(--surface-2); } }
 
@@ -196,28 +226,19 @@
 /* ---- archived tasks (bottom of the Completed view) ------------------------------------------------ */
 
 .tk-archived { margin-top: 8px; }
-.tk-archived-toggle {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  min-height: 44px;
-  padding: 0 6px;
-  border-radius: 12px;
-  color: var(--text-2);
-  font-size: 15px;
-  font-weight: 600;
-  text-align: left;
-}
-.tk-archived-toggle > span { flex: 1; min-width: 0; }
-.tk-archived-toggle:active { background: var(--surface-2); }
-.tk-archived-toggle .tk-chevron { color: var(--text-3); transition: transform 0.25s var(--tr-ease); }
-.tk-archived-toggle[aria-expanded='true'] .tk-chevron { transform: rotate(180deg); }
-.card-list.tk-archived-list { --sep-inset: 16px; margin-top: 6px; animation: tk-chips-in 0.22s var(--tr-ease) both; }
+/* The app's disclosure, in the quiet grey of a list footer. */
+.tk-archived .tk-archived-fold .disclosure-toggle { padding: 0 6px; border-radius: 12px; color: var(--text-2); }
+.tk-archived .tk-archived-fold .disclosure-toggle:active { background: var(--surface-2); }
+.tk-archived .tk-archived-fold .disclosure-label { display: inline-flex; align-items: center; gap: 10px; }
+.tk-archived .tk-archived-fold .disclosure-body { gap: 6px; padding-top: 0; }
+.tk-arch-hint { padding: 0 6px; color: var(--text-2); font-size: 14px; }
+.card-list.tk-archived-list { --sep-inset: 16px; animation: tk-chips-in 0.22s var(--tr-ease) both; }
 .tk-arch-row { display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 8px 10px 8px 16px; }
 .tk-arch-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .tk-arch-title { font-size: 15px; overflow-wrap: anywhere; }
 .tk-arch-text small { color: var(--text-2); font-size: 13px; }
-.tk-arch-row .btn { flex-shrink: 0; }
-.icon-btn.tk-arch-delete { flex-shrink: 0; width: 40px; height: 40px; color: var(--text-2); }
+.tk-arch-row .btn { position: relative; flex-shrink: 0; }
+.tk-arch-row .btn::after { content: ''; position: absolute; inset: -6px 0; } /* 48 px tall target */
+.icon-btn.tk-arch-delete { position: relative; flex-shrink: 0; width: 40px; height: 40px; color: var(--text-2); }
+.icon-btn.tk-arch-delete::after { content: ''; position: absolute; inset: -4px; border-radius: 50%; }
 .tk-arch-more { display: flex; justify-content: center; padding: 6px 0; }

@@ -326,12 +326,12 @@ export default function CalendarPage() {
         <section className="agenda">
           <div className="agenda-header">
             <h2>{dayTitle}</h2>
-            <Button variant="secondary" size="sm" icon="plus" onClick={() => setTaskSheet({ defaults: { date: selected } })}>Add</Button>
+            <Button size="sm" icon="plus" onClick={() => setTaskSheet({ defaults: { date: selected } })}>Add event</Button>
           </div>
           {dayItems.length === 0 ? (
             <>
               <EmptyState icon="calendar" title="Nothing planned">
-                Tap “Add” to put something on {selected === today ? 'today' : 'this day'}.
+                Tap “Add event” to put something on {selected === today ? 'today' : 'this day'}.
               </EmptyState>
               <p className="cal-legend-line" aria-hidden="true">{legend}</p>
             </>
@@ -366,7 +366,7 @@ export default function CalendarPage() {
         </section>
       </div>
 
-      <TaskSheet open={!!taskSheet} task={taskSheet?.task || null} defaults={taskSheet?.defaults || { date: selected }} onClose={() => setTaskSheet(null)} />
+      <TaskSheet open={!!taskSheet} task={taskSheet?.task || null} defaults={taskSheet?.defaults || { date: selected }} noun="event" onClose={() => setTaskSheet(null)} />
       <EventSheet event={eventEditing} onClose={() => setEventEditing(null)} />
       <ClassSheet item={classEditing} onClose={() => setClassEditing(null)} />
     </div>
@@ -410,13 +410,13 @@ function EventSheet({ event, onClose }) {
       initialFocus={false}
       footer={(
         <>
-          <Button variant="ghost" icon="trash" onClick={remove}>Delete</Button>
+          <Button variant="ghost" icon="trash" onClick={remove}>Remove</Button>
           <Button type="submit" form="event-form" className="btn-grow">Save</Button>
         </>
       )}
     >
       <form id="event-form" className="form-stack" onSubmit={submit}>
-        <Field label="What" error={error}>
+        <Field label="Event" error={error}>
           {(id) => <input id={id} className="input input-lg" value={form.title} onChange={(changeEvent) => { setForm({ ...form, title: changeEvent.target.value }); setError('') }} placeholder="e.g. Dentist, Coffee with Sara" autoComplete="off" data-autofocus />}
         </Field>
         <div className="field-row">

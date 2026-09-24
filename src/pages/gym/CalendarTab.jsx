@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import Icon from '../../components/ui/Icon.jsx'
+import Disclosure from '../../components/ui/Disclosure.jsx'
 import { Button } from '../../components/ui/primitives.jsx'
 import { WEEKDAY_SHORT, diffDays, formatDateLong, formatMonthYear, isISODate } from '../../lib/dates.js'
 import { addDays, resolveRange, weekStart } from '../../lib/gym/schedule.js'
@@ -287,20 +288,15 @@ function DayCell({ day, gym, abbr, today, onOpen }) {
   )
 }
 
+// The routine key (which letter is which routine) always shows; what the marks mean sits behind
+// a disclosure, since after the first week it's noise. Tap any day for the full story. The key
+// and legend are decorative for screen readers (every day cell already says it in words); the
+// disclosure button itself stays reachable.
 function Legend({ routines, abbr }) {
   return (
-    <div className="gym-cal-foot" aria-hidden="true">
-      <div className="gym-cal-legend">
-        <span><i className="gym-key gym-key-done" />Done</span>
-        <span><i className="gym-key gym-key-planned" />Planned</span>
-        <span><i className="gym-key gym-key-today" />Today</span>
-        <span><i className="gym-key gym-key-missed" />Missed</span>
-        <span><span className="gym-key-struck">A</span>Skipped</span>
-        <span><Icon name="arrowRight" size={12} strokeWidth={2.6} />Shifted</span>
-        <span><span className="gym-key-edit"><Icon name="pencil" size={8} strokeWidth={2.8} /></span>Changed</span>
-      </div>
+    <div className="gym-cal-foot">
       {routines.length > 0 && (
-        <div className="gym-cal-routines">
+        <div className="gym-cal-routines" aria-hidden="true">
           {routines.map((routine) => (
             <span key={routine.id} className="gym-cal-rkey" style={{ '--gym-dot': routineColor(routine) }}>
               <b>{abbr.get(routine.id) || '•'}</b>
@@ -309,6 +305,17 @@ function Legend({ routines, abbr }) {
           ))}
         </div>
       )}
+      <Disclosure id="gym-calendar-key" label="What the marks mean" className="gym-disclosure gym-cal-key">
+        <div className="gym-cal-legend" aria-hidden="true">
+          <span><i className="gym-key gym-key-done" />Done</span>
+          <span><i className="gym-key gym-key-planned" />Planned</span>
+          <span><i className="gym-key gym-key-today" />Today</span>
+          <span><i className="gym-key gym-key-missed" />Missed</span>
+          <span><span className="gym-key-struck">A</span>Skipped</span>
+          <span><Icon name="arrowRight" size={12} strokeWidth={2.6} />Shifted</span>
+          <span><span className="gym-key-edit"><Icon name="pencil" size={8} strokeWidth={2.8} /></span>Changed</span>
+        </div>
+      </Disclosure>
     </div>
   )
 }
