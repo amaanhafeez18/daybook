@@ -1,5 +1,6 @@
 import bcrypt from 'bcryptjs'
 import { clientIp, getSupabase, readJsonBody, signToken, underLimit, verifyRequestToken, verifyTokenVersion } from './db.js'
+import { removeUserUploads } from './_uploads.js'
 
 const USERNAME_PATTERN = /^[a-z0-9._-]{3,32}$/
 const MIN_PASSWORD_LENGTH = 8
@@ -111,6 +112,8 @@ async function wipeUserData(supabase, userId) {
     }
     return { table, status: 'failed' }
   }))
+  // Files attached in the assistant (storage, not a table). Best effort: they expire in a few days anyway.
+  await removeUserUploads(supabase, userId).catch((error) => console.error('Clear all data: uploads failed:', error.message))
   const pick = (status) => results.filter((result) => result.status === status).map((result) => result.table)
   return { cleared: pick('cleared'), failed: pick('failed') }
 }
