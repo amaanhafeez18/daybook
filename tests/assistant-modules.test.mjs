@@ -871,6 +871,27 @@ describe('reminderPreview and the late all-day reminder (B5)', () => {
     assert.equal(mixed.url, '/#/tasks')
   })
 
+  test('prayer reminders: off by default, at the time or with a lead, chosen prayers, never held by quiet hours', () => {
+    const timings = { Fajr: '05:40', Dhuhr: '13:05', Asr: '16:30', Maghrib: '19:10', Isha: '20:40' }
+    const run = (notifications, nowIso) => dueNotifications({ settings: { timeZone: 'UTC', notifications }, tasks: [], friends: [], classes: [], prayerTimings: timings }, at(nowIso)).filter((item) => item.tag?.startsWith('prayer-'))
+    assert.deepEqual(run({}, `${TODAY}T16:30:00Z`), [])
+    const asr = run({ prayer: true }, `${TODAY}T16:30:00Z`)
+    assert.equal(asr.length, 1)
+    assert.equal(asr[0].key, `prayer:${TODAY}:Asr`)
+    assert.equal(asr[0].title, 'Time for Asr')
+    assert.equal(asr[0].body, 'Asr at 4:30 PM')
+    assert.equal(asr[0].fireAt, at(`${TODAY}T16:30:00Z`))
+    const early = run({ prayer: true, prayerLead: 10 }, `${TODAY}T16:20:00Z`)
+    assert.equal(early[0].title, 'Asr in 10 min')
+    assert.deepEqual(run({ prayer: true, prayers: ['Fajr', 'Isha'] }, `${TODAY}T16:30:00Z`), [])
+    // Quiet hours 22:00–07:00 would push Fajr to 7:00: prayers aren't held.
+    const fajr = run({ prayer: true, quietHours: true, quietStart: '22:00', quietEnd: '07:00' }, `${TODAY}T05:40:00Z`)
+    assert.equal(fajr.length, 1)
+    assert.equal(fajr[0].fireAt, at(`${TODAY}T05:40:00Z`))
+    // No timings (location unknown or the service down): nothing, quietly.
+    assert.deepEqual(dueNotifications({ settings: { timeZone: 'UTC', notifications: { prayer: true } }, tasks: [], friends: [], classes: [] }, at(`${TODAY}T16:30:00Z`)), [])
+  })
+
   test('quiet hours move the reminder and say so', () => {
     const quiet = { ...prefs, quietHours: true, quietStart: '22:00', quietEnd: '07:00' }
     const task = { id: 't6', text: 'Late call', date: TODAY, time: '23:30' }
