@@ -1,10 +1,18 @@
 import { getSupabase, underLimit, verifyRequestToken, verifyTokenVersion } from './db.js'
 import { FOOD_MODEL, responsesJson, transcribeAudio } from './_openai.js'
-import { ESTIMATE_SCHEMA, ESTIMATE_SCHEMA_NAME, buildContent, buildInstructions, estimatePlan, toClientItems, transcriptionVocabulary } from './_food-estimate.js'
+import { ESTIMATE_SCHEMA, ESTIMATE_SCHEMA_NAME, barcodeFromReply, buildContent, buildInstructions, estimatePlan, favoritesForPrompt, toClientItems, transcriptionVocabulary } from './_food-estimate.js'
+import { barcodeOf, lookupBarcode, productItem, webNutrition, webSetting } from './_web.js'
 
 // POST { action: 'estimate', text?, image? (data:image/jpeg;base64,…), audio? (base64), mimeType?,
 //        date, time?, meal?, previous? (items from a prior estimate, for "Fix"), context? }
-//   → { items: EstimateItem[], clarify: string|null, notFood: boolean, transcript?: string }
+//        skipSaved? (true = estimate instead of using the user's saved foods)
+//   → { items: EstimateItem[], clarify: string|null, notFood: boolean, transcript?: string,
+//       lookup?: { type: 'barcode', barcode, found, url? } }
+//   Items also carry basis ('estimate'|'label'|'menu'|'saved'|'barcode'|'web'), savedFoodId, source, barcode.
+//   Only digits (8–14) = a barcode: looked up in Open Food Facts without the model.
+// POST { action: 'web', query, item?, date?, meal? } → { items: [one web item], webFound, message? }
+//   Exact nutrition from the web (costs money per call; the app only calls it on a tap). 403
+//   { code: 'web_off' } when the owner turned web search off.
 // Nothing is saved here: the app shows the estimate for review and logs what the user keeps.
 // Errors: { error, code? } — code 'daily_limit' for this app's own daily cap (a 429 without it is
 // OpenAI being busy for a moment).
@@ -14,6 +22,7 @@ const MODEL_ENV = FOOD_MODEL.env || 'OPENAI_MODEL'
 const MAX_BODY_BYTES = 4.2 * 1024 * 1024 // Vercel rejects bodies over 4.5 MB with a non-JSON 413
 const MAX_TEXT_CHARS = 1000 // the app sends at most this much (src/lib/food/state.js)
 const DAILY_LIMIT = 200
+const WEB_DAILY_LIMIT = 60 // web lookups (each is a paid search)
 const TIME_BUDGET_MS = 57000 // vercel.json maxDuration for this function is 60 s
 const IMAGE_DATA_URL = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/
 
@@ -85,6 +94,21 @@ function localNow(timeZone) {
   return { date: now.toISOString().slice(0, 10), time: now.toISOString().slice(11, 16) }
 }
 
+// { action: 'web' }: exact nutrition for one food from the web (the user tapped "Search the web").
+async function webLookup(req, res, { supabase, userId, body, debug }) {
+  const settings = await loadSettings(supabase, userId)
+  if (webSetting(settings) === 'off') return sendJson(res, 403, { error: 'Web search is off. Turn it on in Settings → Assistant.', code: 'web_off' })
+  const item = isPlainObject(body.item) ? body.item : {}
+  const parts = [typeof body.query === 'string' ? body.query : '', typeof item.brand === 'string' ? item.brand : '', typeof item.name === 'string' ? item.name : '']
+  const query = [...new Set(parts.map((part) => part.replace(/\s+/g, ' ').trim()).filter(Boolean))].join(' — ').slice(0, 300)
+  if (!query) return sendJson(res, 400, { error: 'Say which food to look up.' })
+  if (!(await underLimit(supabase, `foodweb:${userId}`, WEB_DAILY_LIMIT, 86400))) return sendJson(res, 429, { error: 'You’ve used today’s web lookups. Try again tomorrow.', code: 'daily_limit' })
+  const timeZone = typeof settings.timeZone === 'string' ? settings.timeZone : typeof body.context?.timeZone === 'string' ? body.context.timeZone.slice(0, 64) : 'UTC'
+  const found = await webNutrition(query, { ctx: { timeZone, localDate: localNow(timeZone).date }, userId, debug, timeoutMs: 50000 })
+  if (!found.found) return sendJson(res, 200, { items: [], webFound: false, message: found.notes || 'Couldn’t find exact numbers online.' })
+  return sendJson(res, 200, { items: [found.item], webFound: true, sources: found.sources.slice(0, 5) })
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS')
@@ -106,7 +130,9 @@ export default async function handler(req, res) {
 
     const body = await readLimitedJson(req, MAX_BODY_BYTES)
     if (!isPlainObject(body)) return sendJson(res, 400, { error: 'Invalid request.' })
-    if ((body.action ?? 'estimate') !== 'estimate') return sendJson(res, 400, { error: 'Unknown action.' })
+    const action = body.action ?? 'estimate'
+    if (action === 'web') return await webLookup(req, res, { supabase, userId: decoded.id, body, debug })
+    if (action !== 'estimate') return sendJson(res, 400, { error: 'Unknown action.' })
 
     const typed = typeof body.text === 'string' ? body.text.trim() : ''
     if (typed.length > MAX_TEXT_CHARS) return sendJson(res, 400, { error: `Keep descriptions under ${MAX_TEXT_CHARS.toLocaleString('en-US')} characters.` })
@@ -140,12 +166,22 @@ export default async function handler(req, res) {
       text = [typed, transcript].filter(Boolean).join('\n').slice(0, 2000)
     }
 
+    // Just a barcode number: straight to the product database, no model.
+    const typedBarcode = !image && !audio && !previous ? barcodeOf(typed) : null
+    if (typedBarcode) {
+      const found = await lookupBarcode(typedBarcode)
+      if (!found.found) return sendJson(res, 200, { items: [], clarify: null, notFood: false, lookup: { type: 'barcode', barcode: typedBarcode, found: false } })
+      return sendJson(res, 200, { items: [productItem(found.product)], clarify: null, notFood: false, lookup: { type: 'barcode', barcode: typedBarcode, found: true, url: found.product.url } })
+    }
+
+    // "Estimate instead" leaves the saved foods out; otherwise they're offered with ids S1, S2…
+    const saved = body.skipSaved === true ? [] : favoritesForPrompt(favorites, text)
     const plan = estimatePlan({ model: MODEL, text, image: Boolean(image), previousCount: previous?.length || 0 })
     const result = await responsesJson({
       model: MODEL,
       modelEnv: MODEL_ENV,
       instructions: buildInstructions({ unit: settings.gym?.prefs?.unit === 'lb' ? 'lb' : 'kg' }),
-      content: buildContent({ text, image, previous, favorites, meal, date, time, region: timeZone, voice: Boolean(audio) }),
+      content: buildContent({ text, image, previous, favorites: saved, meal, date, time, region: timeZone, voice: Boolean(audio) }),
       schema: ESTIMATE_SCHEMA,
       name: ESTIMATE_SCHEMA_NAME,
       effort: plan.effort,
@@ -155,13 +191,28 @@ export default async function handler(req, res) {
       debug,
     })
 
-    const items = toClientItems(result, text)
+    let items = toClientItems(result, text, { saved })
     const clarify = typeof result?.clarify === 'string' && result.clarify.trim() ? result.clarify.trim().slice(0, 300) : null
+    // A barcode read in the photo: the product's own numbers replace the photo estimate.
+    let lookup
+    const photoBarcode = image ? barcodeFromReply(result) : null
+    if (photoBarcode) {
+      const found = await lookupBarcode(photoBarcode).catch((error) => {
+        debug.push({ step: 'barcode.failed', message: error.message })
+        return null
+      })
+      lookup = { type: 'barcode', barcode: photoBarcode, found: Boolean(found?.found), ...(found?.found ? { url: found.product.url } : {}) }
+      if (found?.found) {
+        const product = productItem(found.product)
+        items = items.length <= 1 ? [product] : [product, ...items.slice(1)]
+      }
+    }
     return sendJson(res, 200, {
       items,
       clarify,
       notFood: result?.not_food === true && items.length === 0,
       ...(transcript !== undefined ? { transcript } : {}),
+      ...(lookup ? { lookup } : {}),
     })
   } catch (error) {
     const status = [400, 413, 422, 429, 502, 503, 504].includes(error?.status) ? error.status : 500

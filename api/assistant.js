@@ -7,6 +7,7 @@ import { mergeSettings, patchSettingsAtomic } from './_settings.js'
 import { resolveFriend, similarFriends } from './_people.js'
 import { FOOD_LOOKUP_TOOLS, FOOD_TOOL_DEFS, describeFoodAction, executeFoodTool, foodSnapshot, loadFoodData } from './_food-tools.js'
 import { UPLOAD_BUCKET } from './_uploads.js'
+import { WEB_SETTINGS, webAnswer, webNutrition, webSetting } from './_web.js'
 // The gym modules are pure ESM shared with the app, so days, records and suggestions match the Gym page.
 import * as sched from '../src/lib/gym/schedule.js'
 import * as gymLib from '../src/lib/gym/library.js'
@@ -153,7 +154,14 @@ function normalizeProposal(raw) {
     actions: normalizePlanActions(raw.actions),
     staged: normalizeStaged(raw.staged),
     results: Array.isArray(raw.results) ? normalizeResults(raw.results) : undefined,
+    alternatives: normalizeAlternatives(raw.alternatives),
   })
+}
+
+// One-tap alternatives under a proposal card ("Look it up online", "Estimate instead"): 1–3 short strings.
+function normalizeAlternatives(raw) {
+  const list = (Array.isArray(raw) ? raw : []).filter((item) => typeof item === 'string' && item.trim()).map((item) => truncate(item.trim(), 40)).slice(0, 3)
+  return list.length ? list : undefined
 }
 
 // Changes staged in a turn that ended with a question instead: never shown as a card, but kept
@@ -192,6 +200,8 @@ function normalizeMessage(message) {
     ...(proposal ? { proposal } : {}),
     ...(draft ? { draft } : {}),
     ...(choices.length ? { choices } : {}),
+    // A web search the assistant asked permission for (the next "Search the web" approves it).
+    ...(message.role === 'assistant' && typeof message.webQuery === 'string' && message.webQuery.trim() ? { webQuery: truncate(message.webQuery.trim(), 300) } : {}),
   }
 }
 
@@ -207,7 +217,7 @@ function publicMessage(message) {
 }
 
 function publicProposal(proposal) {
-  return { id: proposal.id, status: proposal.status, summary: proposal.summary || '', actions: proposal.actions || [], createdAt: proposal.createdAt }
+  return { id: proposal.id, status: proposal.status, summary: proposal.summary || '', actions: proposal.actions || [], createdAt: proposal.createdAt, ...(proposal.alternatives?.length ? { alternatives: proposal.alternatives } : {}) }
 }
 
 // The browser sends its local date/time so "today" and "tomorrow" match the user's clock, not the server's (UTC).
@@ -252,6 +262,7 @@ const TOOL_LABELS = {
   write_journal: 'Writing in your journal',
   save_note: 'Saving a note',
   remember: 'Remembering that',
+  web_lookup: 'Searching the web',
   forget: 'Forgetting that',
   search: 'Searching your history',
   update_settings: 'Updating settings',
@@ -297,20 +308,26 @@ const TOOL_LABELS = {
   food_delete_entry: 'Removing a food entry',
   food_set_goals: 'Setting your goals',
   food_calculate_goals: 'Working out your goals',
-  food_favorite: 'Updating your favourites',
+  food_memory: 'Updating My foods',
+  food_memory_find: 'Checking My foods',
+  food_barcode_lookup: 'Looking up the barcode',
   food_update_prefs: 'Updating food settings',
   weight_delete: 'Removing a weigh-in',
 }
 
 // Read-only tools: no action chip, no data refresh and never staged for confirmation.
-const LOOKUP_TOOLS = ['search', 'read_journal', 'get_weather', 'get_prayer_times', 'gym_get_schedule', 'gym_list_sessions', 'gym_exercise_records', 'person_history', ...FOOD_LOOKUP_TOOLS]
+const LOOKUP_TOOLS = ['search', 'read_journal', 'get_weather', 'get_prayer_times', 'gym_get_schedule', 'gym_list_sessions', 'gym_exercise_records', 'person_history', 'web_lookup', ...FOOD_LOOKUP_TOOLS]
+// Tools that only shape the reply (questions, card buttons): never staged, never shown as actions.
+const UI_TOOLS = ['ask_choice', 'offer_alternatives']
 const FOOD_TOOL_NAMES = new Set(FOOD_TOOL_DEFS.map((def) => def.name))
 // Everything else except ask_choice changes data, so it is staged when confirmations are on.
-const isWriteTool = (name) => name !== 'ask_choice' && !LOOKUP_TOOLS.includes(name)
+const isWriteTool = (name) => !UI_TOOLS.includes(name) && !LOOKUP_TOOLS.includes(name)
 // Memory is saved at once, never behind a Yes/No card (it's low-risk and can be removed in the memory sheet).
 const INSTANT_TOOLS = new Set(['remember', 'forget'])
+// The user asking for a web search in their own words (or tapping "Search the web" / "Look it up online").
+const WEB_REQUEST_RE = /\b(search|look(ed)?\s*(it|this|that|them)?\s*up|google|check|find|pull)\b[^.?!\n]{0,40}\b(online|on the web|on the internet|the web|web|internet)\b|\bsearch (the )?(web|internet|online)\b|\bgoogle (it|that|this)\b|\bsearch again\b/i
 // Results that show as action chips (and in the stored history): writes, plus failed lookups.
-const isActionResult = (result) => result.tool !== 'ask_choice' && (!LOOKUP_TOOLS.includes(result.tool) || !result.ok)
+const isActionResult = (result) => !UI_TOOLS.includes(result.tool) && (!LOOKUP_TOOLS.includes(result.tool) || !result.ok)
 
 const PRAYER_METHOD_IDS = ['auto', '1', '2', '3', '4', '5', '7', '8', '9', '10', '11', '12', '13', '15', '16', '17', '20']
 
@@ -470,6 +487,7 @@ const tools = [
     theme: { type: 'string', enum: ['sunset', 'forest', 'midnight'] },
     displayName: { type: 'string' },
     assistantConfirm: { type: 'string', enum: ['all', 'off'] },
+    assistantWeb: { type: 'string', enum: WEB_SETTINGS, description: 'Web searches: "ask" = ask before each (default), "always" = search when useful, "off" = never.' },
     showPrayerTimes: { type: 'boolean', description: 'Show the prayer times card on Today.' },
     prayerMethod: { type: 'string', enum: PRAYER_METHOD_IDS },
     prayerSchool: { type: 'integer', enum: [0, 1] },
@@ -695,6 +713,13 @@ const tools = [
     question: { type: 'string', description: 'One short question.' },
     choices: { type: 'array', items: { type: 'string' }, minItems: 2, maxItems: 6, description: 'Short answers (a few words each), "Something else" last when useful.' },
   }, ['question', 'choices']),
+  tool('web_lookup', 'Search the web (each search has a small cost). kind "nutrition": exact published nutrition for a named product, packaged food or restaurant item (returns the numbers per serving and the source page). kind "general": a short, sourced answer to a question that needs current facts from the internet. Web searches follow the user\'s setting: when they haven\'t allowed one yet, you get needs_consent and the app asks them (Search the web / Estimate it / I\'ll give the numbers); don\'t call it again that turn. Never for generic foods (an apple, eggs, rice): estimate those.', {
+    query: { type: 'string', description: 'What to look up, specific: brand, product, flavour, size, country ("Quest protein bar cookies & cream", "Tim Hortons medium iced capp Canada").' },
+    kind: { type: 'string', enum: ['nutrition', 'general'] },
+  }, ['query']),
+  tool('offer_alternatives', 'Only in a turn where you staged changes: add up to 3 one-tap alternatives under the Yes/No card, e.g. ["Look it up online", "Estimate instead"] when logging with saved numbers, or ["Search again", "Estimate instead"] after a web lookup. Tapping one cancels the card and sends that text as the user\'s reply.', {
+    options: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 3 },
+  }, ['options']),
   ...FOOD_TOOL_DEFS,
   // Defined here unless the food module ships its own (tool names must be unique).
   ...(FOOD_TOOL_NAMES.has('food_update_prefs') ? [] : [tool('food_update_prefs','Change the Food tracker\'s display settings (only include what changes). Goals use food_set_goals / food_calculate_goals; the body-weight unit is the gym unit (gym_update_prefs). Adding, removing or reordering meals is done in Food settings in the app.', {
@@ -858,6 +883,7 @@ function buildSnapshot(data, ctx, username) {
       prayerMethod: data.settings.prayerMethod || 'auto',
       prayerSchool: Number(data.settings.prayerSchool || 0) === 1 ? 'Hanafi' : 'Standard',
       assistantConfirm: data.settings.assistantConfirm === 'off' ? 'off' : 'all',
+      assistantWeb: webSetting(data.settings),
       notifications: notificationPrefs(data.settings), // what the reminders actually use (defaults filled in)
     },
     gym: buildGymSnapshot(data, ctx),
@@ -929,9 +955,20 @@ Gym (snapshot.gym: today's workout with weights in the user's unit, ↑ = progre
 - "I weigh 72.5" = gym_log_bodyweight in their unit (the same weight log the Food tab uses).
 
 Food (snapshot.food: today's totals vs goals, what's remaining, meals, the last 7 days, favourites, weight trend):
-- food_log: split what they ate into items and estimate each item's calories and macros yourself (protein, carbs, fat; fibre and sugar when you can). Use a typical serving when no size is given and say what you assumed; favourites and their usual portions win. Chains and brands: use their published nutrition and sizes (Tim Hortons Canada hot cups S 10 / M 14 / L 20 / XL 24 fl oz, a double-double = 2 cream + 2 sugar; Starbucks Tall 12 / Grande 16 / Venti 20 fl oz hot, 24 iced). Numbers the user gives (calories, grams, servings) are exact. Pick the meal from what they said, else from the time of day. Plain tea or black coffee is about 2–5 kcal; ask with choices when milk or sugar changes a lot.
+- food_log: split what they ate into items and estimate each generic or homemade item's calories and macros yourself (protein, carbs, fat; fibre and sugar when you can). Use a typical serving when no size is given and say what you assumed; My foods and their usual portions win. Named brands, packaged products and restaurant menu items follow the "Food memory" rules below (My foods first, then the web), not your own memory. Coffee-shop cup sizes: Tim Hortons Canada hot S 10 / M 14 / L 20 / XL 24 fl oz, a double-double = 2 cream + 2 sugar; Starbucks Tall 12 / Grande 16 / Venti 20 fl oz hot, 24 iced. Numbers the user gives (calories, grams, servings) are exact. Pick the meal from what they said, else from the time of day. Plain tea or black coffee is about 2–5 kcal; ask with choices when milk or sugar changes a lot.
 - "How many calories do I have left?" / "what should I eat?": answer from snapshot.food (remaining calories and macros, weekly averages) with practical ideas that fit what's left (e.g. protein-heavy when protein is behind). No moralising.
 - Goals: food_set_goals for numbers they give; food_calculate_goals when they give their details or ask you to work goals out.
+
+Food memory, labels, barcodes and the web (snapshot.food.myFoods = "My foods": foods the user saved with exact numbers, where they came from and when):
+- Before estimating a food, check My foods (snapshot.food.myFoods; food_memory_find for anything not listed). When it's there, stage food_log with its saved_food_id and servings (the saved numbers are used exactly) and say where they're from in a few words ("using your saved label numbers from Sep 20"); the card offers "Look it up online" / "Estimate instead" for fresh numbers. If they tap one, do that for the same food (web_lookup, or your own estimate) and stage food_log (plus food_memory save with the saved id when the new numbers should replace the old).
+- A nutrition label in a photo: copy its per-serving numbers exactly (servings eaten default 1). Stage food_memory save (source "label") so it's remembered, plus food_log when they ate it — one card.
+- A barcode (typed digits, or readable in a photo): food_barcode_lookup, then show the product name, brand, serving and numbers and stage food_log together with food_memory save (source "barcode", with the barcode). Not in the database → offer a web search (web_lookup asks the user first).
+- A named brand, packaged product or restaurant menu item (e.g. a Quest bar, a Fairlife shake, a Big Mac, a Starbucks drink) that isn't in My foods, with no label photo and no numbers from the user: your FIRST step is web_lookup (kind "nutrition", with brand, flavour and size in the query). Don't stage food_log from your own memory before that. If the user hasn't allowed web searches, the app asks them with choices: after "Estimate it", estimate from what you know, say it's an estimate, stage food_log plus food_memory save (source "estimate") and offer_alternatives(["Search the web", "I'll give the numbers"]); after "I'll give the numbers", ask for them (calories, protein, carbs, fat per serving) and save with source "user". If the web search finds nothing, say so and estimate the same way.
+- After a web lookup: show the numbers and the source, then stage food_log (if they ate it) and food_memory save (source "web", source_url) in one card; offer_alternatives(["Search again", "Estimate instead"]) when the match isn't certain.
+- Generic foods (fruit, eggs, rice, homemade dishes) never need the web: estimate them and keep offering options when the recipe or size is unclear.
+- "Update the macros for X" / "my shake is actually 150 kcal": food_memory save with that food's id and the corrected numbers. "What do you have for X?": answer from My foods with the source and date, and offer to refresh it online.
+- Other questions that need current facts from the internet (opening hours, events, prices, news): web_lookup kind "general" (the user is asked first unless they allowed it).
+- Never ask about using the web yourself (no ask_choice for it): call web_lookup, and the app asks the user with choices when their OK is needed.
 
 Attachments (photos, PDFs and text files in the user's message; the latest ones stay attached to that message for a few follow-up turns, older ones only show as "[Attached: …]"):
 - When the user answers a question about an attachment ("add it to my calendar"), use the attachment itself: it is still attached to their earlier message. Never ask them to type out what the attachment shows.
@@ -2968,6 +3005,10 @@ function settingsChanges(args) {
     if (!['all', 'off'].includes(args.assistantConfirm)) return { changes, problem: 'assistantConfirm is "all" or "off".' }
     changes.assistantConfirm = args.assistantConfirm
   }
+  if (given('assistantWeb')) {
+    if (!WEB_SETTINGS.includes(args.assistantWeb)) return { changes, problem: 'assistantWeb is "ask", "always" or "off".' }
+    changes.assistantWeb = args.assistantWeb
+  }
   if (isPlainObject(args.notifications)) {
     const next = {}
     for (const key of NOTIFICATION_KEYS) if (args.notifications[key] !== undefined && args.notifications[key] !== null) next[key] = args.notifications[key]
@@ -4863,6 +4904,17 @@ export default async function handler(req, res) {
     turnHistory = settled.history
     if (!proposalUpdate && settled.updates.length) proposalUpdate = settled.updates[settled.updates.length - 1]
 
+    // Web searches cost money, so they follow the user's setting: 'always', 'off', or 'ask' (default):
+    // allowed this turn only when they just said so ("look it up online", tapping "Search the web")
+    // or said yes to the search the assistant asked about last turn.
+    const webMode = webSetting(data.settings)
+    const pendingWeb = [...history].reverse().find((message) => message.role === 'assistant')?.webQuery || ''
+    const webApproved = webMode === 'always' || (webMode === 'ask' && (WEB_REQUEST_RE.test(text) || (Boolean(pendingWeb) && parseDecision(text) === 'yes')))
+    if (webMode === 'off') notes.push('Web search is turned off in Settings: don\'t call web_lookup; estimate or ask the user for the numbers.')
+    else if (webMode === 'always') notes.push('Web searches are allowed without asking (the user\'s setting): call web_lookup whenever a food or fact needs it.')
+    else if (webApproved) notes.push(pendingWeb && !WEB_REQUEST_RE.test(text) ? `The user approved the web search you asked about: "${pendingWeb}". Call web_lookup for it now, then finish their original request.` : 'The user just asked for a web search, so it is allowed this turn: call web_lookup now for the item or question from the conversation (don\'t ask again), then finish their original request.')
+    if (webApproved && webMode === 'ask') notes.push('For a food they ate, finishing means staging food_log (meal from the time of day unless they said) plus food_memory save in one card, not asking which meal.')
+
     const confirmMode = data.settings.assistantConfirm !== 'off'
     const instructions = buildInstructions(buildSnapshot(data, ctx, user.username), { confirmMode })
     // The latest earlier attachment stays visible for follow-ups ("add it to my calendar"), unless this
@@ -4931,6 +4983,50 @@ export default async function handler(req, res) {
     const directRefs = {}
     let directCount = 0
     let choice = null
+    let alternatives = [] // one-tap alternatives for the proposal card (offer_alternatives)
+    let webAsk = null // a web search waiting for the user's OK
+    let webCount = 0
+    // web_lookup: runs only with the user's OK; otherwise the app asks them (choices) and the turn ends.
+    const runWebLookup = async (args) => {
+      const query = cleanText(args?.query, 300)
+      const kind = args?.kind === 'general' ? 'general' : 'nutrition'
+      if (!query) return { ok: false, message: 'Say what to look up.' }
+      if (webMode === 'off') return { ok: false, message: 'Web search is turned off in Settings → Assistant. Estimate instead, or ask the user for the numbers.' }
+      if (!webApproved) {
+        webAsk = { query, kind }
+        if (!choice) {
+          choice = kind === 'nutrition'
+            ? { question: `I don't have ${query.length <= 60 ? `"${query}"` : 'that'} saved. Want me to search the web for the exact numbers?`, choices: ['Search the web', 'Estimate it', 'I\'ll give the numbers'] }
+            : { question: 'Want me to search the web for that?', choices: ['Search the web', 'Not now'] }
+        }
+        return { ok: false, needs_consent: true, message: 'Not searched: web searches need the user\'s OK, so they are being asked now (choices are shown). In one short sentence say what you would look up; don\'t call web_lookup again this turn and don\'t stage anything.' }
+      }
+      if (webCount >= 3) return { ok: false, message: 'That\'s enough web searches for one message; use what you found.' }
+      webCount += 1
+      emit({ type: 'status', text: 'Searching the web…' })
+      try {
+        if (kind === 'general') {
+          const answer = await webAnswer(query, { ctx, userId: user.id, debug, timeoutMs: 40000 })
+          return { ok: true, found: answer.found, answer: answer.answer, sources: answer.sources.slice(0, 5) }
+        }
+        const found = await webNutrition(query, { ctx, userId: user.id, debug, timeoutMs: 40000 })
+        if (!found.found) return { ok: true, found: false, message: found.notes || 'No reliable published numbers found for that exact item.', sources: found.sources.slice(0, 3) }
+        const item = found.item
+        return {
+          ok: true,
+          found: true,
+          nutrition: {
+            name: item.name, brand: item.brand, amount: item.amount, unit: item.unit, grams: item.grams,
+            calories: item.calories, protein_g: item.proteinG, carbs_g: item.carbsG, fat_g: item.fatG, fiber_g: item.fiberG, sugar_g: item.sugarG, sodium_mg: item.sodiumMg,
+            confidence: item.confidence, notes: found.notes,
+          },
+          source_url: item.source?.url || null,
+          source_title: item.source?.title || null,
+        }
+      } catch (error) {
+        return { ok: false, message: error.message || 'The web search failed.' }
+      }
+    }
     let cutShort = false // stopped after actions were saved or staged; the reply says what happened
     let timedOut = false // out of time before anything was done
     for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
@@ -4951,6 +5047,16 @@ export default async function handler(req, res) {
           roundStaged = false
           result = readChoice(args)
           if (result.ok) choice = result.choice // shown once the turn ends (see below)
+        } else if (call.name === 'offer_alternatives') {
+          const options = normalizeAlternatives(args?.options) || []
+          if (options.length) alternatives = options
+          result = options.length ? { ok: true, message: 'Shown under the card.' } : { ok: false, message: 'Give 1–3 short options.' }
+        } else if (call.name === 'web_lookup') {
+          roundStaged = false
+          result = await runWebLookup(args)
+          // Asking first isn't an action; a search that ran (or failed) is recorded like a lookup.
+          if (!result.needs_consent) results.push({ tool: call.name, ...result })
+          if (!result.ok && !result.needs_consent) emit({ type: 'action', tool: call.name, ok: false, message: result.message })
         } else if (confirmMode && isWriteTool(call.name) && !INSTANT_TOOLS.has(call.name)) {
           emit({ type: 'status', text: 'Getting that ready…' })
           result = await stageTool(supabase, user.id, call.name, args, data, ctx, stage)
@@ -5029,6 +5135,11 @@ export default async function handler(req, res) {
         debug.push({ step: 'staged.held_back', count: heldBack.staged.length, question: choice.question })
       }
     }
+    // A log that reuses My foods always offers fresh numbers instead.
+    const fromSaved = stage.list.some(({ tool: toolName, args }) => toolName === 'food_log' && Array.isArray(args?.items) && args.items.some((item) => item?.saved_food_id))
+    if (fromSaved && !alternatives.length) alternatives = webMode === 'off' ? ['Estimate instead'] : ['Look it up online', 'Estimate instead']
+    // Alternatives offered without anything staged are just quick replies.
+    if (!stage.list.length && !choice && alternatives.length) choice = { question: '', choices: alternatives }
     if (choice) emit({ type: 'choices', question: choice.question, choices: choice.choices })
 
     const executed = results.filter(isActionResult).map(({ tool: toolName, ok, message }) => ({ tool: toolName, ok, message }))
@@ -5069,6 +5180,7 @@ export default async function handler(req, res) {
         summary: proposalSummary(actions),
         actions,
         staged: stage.list.map(({ tool: toolName, args, ref }) => ({ tool: toolName, args, ref })),
+        ...(alternatives.length ? { alternatives } : {}),
       }
       emit({ type: 'proposal', proposal: publicProposal(proposal) })
     }
@@ -5083,6 +5195,7 @@ export default async function handler(req, res) {
         ...(proposal ? { proposal } : {}),
         ...(heldBack ? { draft: heldBack } : {}),
         ...(choice ? { choices: choice.choices } : {}),
+        ...(webAsk && choice ? { webQuery: webAsk.query } : {}),
       },
     ]
     // The usage count was written on its own (it leaves updated_at alone); only if that failed does

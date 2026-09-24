@@ -137,7 +137,9 @@ async function postResponses(body, timeoutMs, debug) {
 // `content` is the user message's content parts (textPart/imagePart/filePart). `modelEnv` names
 // the Vercel variable that chose the model (for the "model not available" message). Returns the
 // parsed object; throws an Error with a user-facing message and an HTTP `status` otherwise.
-export async function responsesJson({ model = DEFAULT_MODEL, modelEnv, instructions, content, schema, name = 'result', effort = 'low', maxOutputTokens, userId, timeoutMs = REQUEST_TIMEOUT_MS, debug = [] }) {
+// `tools` (e.g. [{ type: 'web_search' }]) and `include` add hosted tools; with `withPayload` the result is
+// { result, payload } so callers can read tool items (web sources).
+export async function responsesJson({ model = DEFAULT_MODEL, modelEnv, instructions, content, schema, name = 'result', effort = 'low', maxOutputTokens, userId, timeoutMs = REQUEST_TIMEOUT_MS, debug = [], tools, include, withPayload = false }) {
   if (!process.env.OPENAI_API_KEY) throw aiError(503, 'AI isn’t set up on the server yet. Add OPENAI_API_KEY in Vercel.')
   const reasoning = isReasoningModel(model)
   const format = { type: 'json_schema', name: String(name).replace(/[^\w-]/g, '_').slice(0, 64), strict: true, schema }
@@ -160,6 +162,8 @@ export async function responsesJson({ model = DEFAULT_MODEL, modelEnv, instructi
   } else {
     body.temperature = 0.2
   }
+  if (Array.isArray(tools) && tools.length) body.tools = tools
+  if (Array.isArray(include) && include.length) body.include = [...new Set([...(body.include || []), ...include])]
 
   const deadline = Date.now() + (Number(timeoutMs) || REQUEST_TIMEOUT_MS)
   debug.push({ step: 'openai.request', model, format: format.name, effort: reasoning ? body.reasoning.effort : null, parts: body.input[0].content.map((part) => part.type) })
@@ -185,11 +189,13 @@ export async function responsesJson({ model = DEFAULT_MODEL, modelEnv, instructi
     .find((item) => item?.type === 'output_text' || item?.type === 'refusal')
   if (!part) throw aiError(502, 'The AI didn’t return an answer. Please try again.')
   if (part.type === 'refusal') throw aiError(422, String(part.refusal || '').trim().slice(0, 300) || 'The AI couldn’t help with that one.')
+  let result
   try {
-    return JSON.parse(part.text)
+    result = JSON.parse(part.text)
   } catch {
     throw aiError(502, 'The AI returned an unreadable answer. Please try again.')
   }
+  return withPayload ? { result, payload } : result
 }
 
 // ---- Voice ----------------------------------------------------------------------------------------

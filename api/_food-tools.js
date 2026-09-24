@@ -4,11 +4,12 @@
 // Files starting with "_" are not deployed as their own serverless functions.
 import { randomUUID } from 'crypto'
 import {
-  ACTIVITY_LEVELS, FAVORITES_MAX, amountText, calcGoals, clampEstimateItem, dayTotals, energyInUnit, entryCalories, entryMeal, entryTemplate,
+  ACTIVITY_LEVELS, FAVORITES_MAX, SAVED_SOURCES, amountText, matchSavedFoods, calcGoals, clampEstimateItem, dayTotals, energyInUnit, entryCalories, entryMeal, entryTemplate,
   findFavorite, foodKey, formatEnergy, logStreak, macroCalories, mealForTime, mealTotals, normalizeFood, recents, remaining,
   scaleEntry, weeklyInsights, weightTrend,
 } from '../src/lib/food/nutrition.js'
 import { mergeSettings, patchSettingsAtomic } from './_settings.js'
+import { lookupBarcode, productItem } from './_web.js'
 
 const LOAD_DAYS = 60
 const LOAD_LIMIT = 3000
@@ -255,7 +256,7 @@ function portionText(entry) {
 function itemLabel(entry) {
   const name = clean(entry.name, 120) || 'Quick add'
   const brand = clean(entry.brand, 60)
-  const details = [brand && !name.toLowerCase().includes(brand.toLowerCase()) ? brand : '', portionText(entry)].filter(Boolean)
+  const details = [brand, portionText(entry)].filter((detail) => detail && !name.toLowerCase().includes(detail.toLowerCase()))
   if (!details.length) return name
   if (/\)$/.test(name)) return name.replace(/\)$/, `, ${details.join(', ')})`)
   return `${name} (${details.join(', ')})`
@@ -313,6 +314,24 @@ const fail = (message) => ({ ok: false, message })
 const isRef = (value) => typeof value === 'string' && /^\$\d+$/.test(value)
 const ALCOHOLIC = /\b(beers?|lagers?|ales?|stouts?|porters?|ipa|pilsners?|ciders?|wines?|ros[eé]|prosecco|champagne|cava|vodka|whiske?y|bourbon|scotch|rum|gin|tequila|mezcal|brandy|cognac|sake|soju|liqueurs?|cocktails?|margaritas?|mojitos?|martinis?|negronis?|spritz|sangria|mimosas?|daiquiris?|hard seltzers?|shandy|shots? of)\b/i
 
+const sameUnit = (a, b) => clean(String(a ?? ''), 24).toLowerCase().replace(/s$/, '') === clean(String(b ?? ''), 24).toLowerCase().replace(/s$/, '')
+
+// A food_log item for a saved food: its numbers × servings (from `servings`, else amount ÷ the saved
+// portion when the units match, else 1).
+function savedItem(fav, item) {
+  const servings = num(item.servings)
+  const byAmount = num(item.amount) > 0 && num(fav.amount) > 0 && sameUnit(item.unit, fav.unit) ? num(item.amount) / num(fav.amount) : null
+  const factor = servings > 0 ? Math.min(servings, 50) : byAmount !== null ? Math.min(byAmount, 50) : 1
+  const scaled = scaleEntry(fav, factor)
+  const noPortion = num(fav.amount) === null && factor !== 1 // "2 servings" of a food saved without a portion
+  return {
+    name: fav.name, brand: fav.brand, amount: noPortion ? factor : scaled.amount, unit: noPortion ? 'serving' : fav.unit, grams: scaled.grams,
+    calories: scaled.calories, protein_g: scaled.proteinG, carbs_g: scaled.carbsG, fat_g: scaled.fatG,
+    fiber_g: scaled.fiberG, sugar_g: scaled.sugarG, sodium_mg: scaled.sodiumMg,
+    alcohol_g: scaled.extra?.alcoholG ?? null, caffeine_mg: scaled.extra?.caffeineMg ?? null,
+  }
+}
+
 function planLog(args, data, ctx) {
   const today = todayOf(ctx)
   const food = foodOf(data)
@@ -339,18 +358,28 @@ function planLog(args, data, ctx) {
   if (items.length > MAX_ITEMS) return { error: `Log at most ${MAX_ITEMS} items at once.` }
   const note = clean(args.note, 1000) || null
   const rows = []
-  for (const item of items) {
+  const saved = [] // per row: its numbers came from My foods
+  for (const raw of items) {
+    // A My foods item: its saved numbers, scaled to the servings eaten (they win over any estimate).
+    const savedFood = raw.saved_food_id ? food.favorites.find((fav) => String(fav.id) === String(raw.saved_food_id)) : null
+    if (raw.saved_food_id && !savedFood) return { error: `No saved food with id "${clean(String(raw.saved_food_id), 60)}": use an id from My foods (snapshot or food_memory_find), or leave saved_food_id out.` }
+    const item = savedFood ? savedItem(savedFood, raw) : raw
     const name = clean(item.name, 80)
     // The energy check recomputes calories from the macros when they disagree. A drink's alcohol
     // (7 kcal/g) is missing from those macros unless alcohol_g is given, so then the stated calories stand.
     const boozy = num(item.alcohol_g) === null && ALCOHOLIC.test(name)
-    const locked = item.user_calories === true || boozy ? ['calories'] : []
+    // Published and label calories often sit below protein·4 + carbs·4 + fat·9 (fibre, sugar alcohols,
+    // rounding), so within 30% the stated number stands; further off, the macros win.
+    const stated = num(item.calories)
+    const fromMacros = macroCalories({ proteinG: num(item.protein_g), carbsG: num(item.carbs_g), fatG: num(item.fat_g), fiberG: num(item.fiber_g), alcoholG: num(item.alcohol_g) })
+    const close = stated > 0 && fromMacros > 0 && Math.abs(stated - fromMacros) <= 0.3 * Math.max(stated, fromMacros)
+    const locked = savedFood || item.user_calories === true || boozy || close ? ['calories'] : []
     const clamped = clampEstimateItem({ ...item, name: name || 'Quick add', locked, options: [], assumptions: [] })
     if (clamped.calories === null) return { error: `Estimate the calories for "${name || 'each item'}" (kcal for the amount eaten) and try again.` }
     const extra = {}
     if (clamped.extra.alcoholG !== null) extra.alcoholG = clamped.extra.alcoholG
     if (clamped.extra.caffeineMg !== null) extra.caffeineMg = clamped.extra.caffeineMg
-    const favorite = findFavorite(food.favorites, { name: clamped.name, brand: clamped.brand })
+    const favorite = savedFood || findFavorite(food.favorites, { name: clamped.name, brand: clamped.brand })
     rows.push({
       date, time, meal,
       name: clamped.name, brand: clamped.brand, amount: clamped.amount, unit: clamped.unit, grams: clamped.grams,
@@ -358,8 +387,9 @@ function planLog(args, data, ctx) {
       fiberG: clamped.fiberG, sugarG: clamped.sugarG, sodiumMg: clamped.sodiumMg,
       extra, note, source: 'assistant', favoriteId: favorite ? String(favorite.id) : null, ai: null,
     })
+    saved.push(Boolean(savedFood))
   }
-  return { rows, date, time, meal, food }
+  return { rows, saved, date, time, meal, food }
 }
 
 // Field names the update tool accepts (both the tool's snake_case and the app's camelCase).
@@ -600,6 +630,7 @@ function planFavorite(args, data, entry) {
   if (action === 'remove') {
     const wanted = clean(args.name, 120).toLowerCase()
     const found = (args.id && favorites.find((fav) => String(fav.id) === String(args.id)))
+      || (args.name ? matchSavedFoods(favorites, String(args.name), { limit: 1, min: 0.99 })[0]?.food : null)
       || findFavorite(favorites, { name: args.name, brand: args.brand })
       || favorites.find((fav) => fav.name.toLowerCase() === wanted || fav.aliases.some((alias) => alias.toLowerCase() === wanted))
     if (!found) return { error: `No favorite called "${clean(args.name, 120) || args.id || ''}".` }
@@ -618,9 +649,18 @@ function planFavorite(args, data, entry) {
   const existing = findFavorite(favorites, { name: template.name, brand: template.brand })
   const aliases = [...(existing?.aliases || []), ...(Array.isArray(args.aliases) ? args.aliases : [])]
     .filter((alias) => typeof alias === 'string').map((alias) => clean(alias, 60)).filter(Boolean)
-  const favorite = { ...template, id: existing?.id || randomUUID(), meal: null, aliases: [...new Set(aliases)].slice(0, 20), updatedAt: nowIso() }
+  const byId = args.id ? favorites.find((fav) => String(fav.id) === String(args.id)) : null
+  const previous = byId || existing
+  const source = SAVED_SOURCES.includes(args.source) ? args.source : entry ? 'entry' : previous?.source || 'user'
+  const sourceUrl = typeof args.source_url === 'string' && /^https?:\/\//i.test(args.source_url) ? args.source_url.slice(0, 300) : previous?.sourceUrl || null
+  const barcode = typeof args.barcode === 'string' && /^\d{6,14}$/.test(args.barcode.replace(/[\s-]/g, '')) ? args.barcode.replace(/[\s-]/g, '') : previous?.barcode || null
+  const favorite = {
+    ...template, id: previous?.id || randomUUID(), meal: null, aliases: [...new Set([...(byId?.aliases || []), ...aliases])].slice(0, 20),
+    source, sourceUrl, barcode, verifiedAt: nowIso(), updatedAt: nowIso(),
+  }
   const rest = favorites.filter((fav) => fav.id !== favorite.id && foodKey(fav.name, fav.brand) !== key)
-  return { action, favorite, existed: Boolean(existing), favorites: [favorite, ...rest].slice(0, FAVORITES_MAX) }
+  const others = rest.filter((fav) => fav.id !== favorite.id)
+  return { action, favorite, existed: Boolean(previous), favorites: [favorite, ...others].slice(0, FAVORITES_MAX) }
 }
 
 function planWeightDelete(args, data, ctx) {
@@ -654,11 +694,11 @@ const NUTRIENTS = {
   caffeine_mg: { type: 'number', description: 'Caffeine (mg) in caffeinated drinks, when known.' },
   brand: { type: 'string', description: 'Brand or restaurant, if any.' },
 }
-const LOG_NUTRIENTS = { ...NUTRIENTS, calories: { type: 'number', description: 'kcal for the whole amount eaten (required: your best estimate).' } }
+const LOG_NUTRIENTS = { ...NUTRIENTS, calories: { type: 'number', description: 'kcal for the whole amount eaten (required, your best estimate, unless saved_food_id is given).' } }
 const MEAL_ARG = { type: 'string', description: 'breakfast, lunch, dinner or snack (or one of the user\'s meal names). Omit to use the time of day.' }
 
 export const FOOD_TOOL_DEFS = [
-  tool('food_log', 'Log food or drink the user ate or drank (not plans or wishes). Estimate the nutrition yourself for the whole amount eaten: calories always, protein/carbs/fat when you reasonably can, and alcohol_g for alcoholic drinks. Use a typical portion when none is given and say what you assumed. If a food matches one of the user\'s usual foods in the snapshot, reuse its numbers. One item per food ("2 eggs and toast" = 2 items). Give a time only when they said when; meal defaults from the time of day.', {
+  tool('food_log', 'Log food or drink the user ate or drank (not plans or wishes). Estimate the nutrition yourself for the whole amount eaten: calories always, protein/carbs/fat when you reasonably can, and alcohol_g for alcoholic drinks. Use a typical portion when none is given and say what you assumed. A food in My foods (snapshot.food.myFoods or food_memory_find): pass its saved_food_id and servings instead of numbers, so the saved numbers are used exactly. One item per food ("2 eggs and toast" = 2 items). Give a time only when they said when; meal defaults from the time of day.', {
     items: {
       type: 'array',
       minItems: 1,
@@ -667,10 +707,12 @@ export const FOOD_TOOL_DEFS = [
         type: 'object',
         properties: {
           name: { type: 'string', description: 'Short food name, e.g. "Scrambled eggs", "Chai (milk, 1 sugar)".' },
+          saved_food_id: { type: 'string', description: 'The My foods id when this is a saved food: its saved numbers are used exactly (scaled by servings), so the nutrient fields can be left out.' },
+          servings: { type: 'number', description: 'With saved_food_id: how many of the saved portions they ate (default 1; 2 for "two bars", 0.5 for half).' },
           ...LOG_NUTRIENTS,
           user_calories: { type: 'boolean', description: 'true when the user stated the calories themselves (kept even if the macros disagree).' },
         },
-        required: ['name', 'calories'],
+        required: ['name'],
         additionalProperties: false,
       },
     },
@@ -723,20 +765,30 @@ export const FOOD_TOOL_DEFS = [
     target_weight: { type: 'number', description: 'Goal weight in the user\'s unit (0 removes it).' },
     body_fat_pct: { type: 'number', description: 'Body fat %, only if the user knows it.' },
   }),
-  tool('food_favorite', 'Save a food as a favorite (name, portion and nutrition, to log again quickly) or remove one. Save from a logged entry with entry_id, or give the numbers. Saving a name that exists updates it.', {
+  tool('food_memory', 'The user\'s "My foods" memory: exact nutrition for foods they eat, reused next time. save = remember (or update) a food with its portion and nutrients for that portion — from a nutrition label, a barcode lookup, a web lookup, or numbers the user gave; saving the same name or id updates it (use this when they ask to change saved macros). remove = forget one. Save from a logged entry with entry_id, or give the numbers.', {
     action: { type: 'string', enum: ['save', 'remove'] },
+    id: { type: 'string', description: 'The saved food\'s id (from food_memory_find or the snapshot), to update or remove that exact one.' },
     name: { type: 'string' },
-    entry_id: { type: 'string', description: 'Save this logged entry as the favorite.' },
+    entry_id: { type: 'string', description: 'Save this logged entry.' },
     ...NUTRIENTS,
-    aliases: { type: 'array', items: { type: 'string' }, description: 'Other names the user uses for it.' },
+    source: { type: 'string', enum: SAVED_SOURCES, description: 'Where the numbers come from: label (photo of a nutrition label), barcode (product database), web (web lookup), user (the user said them), estimate, entry.' },
+    source_url: { type: 'string', description: 'The web page or database page the numbers came from.' },
+    barcode: { type: 'string', description: 'The product barcode digits, when known.' },
+    aliases: { type: 'array', items: { type: 'string' }, description: 'Other names the user uses for it ("my shake", "protein bar").' },
   }, ['action']),
+  tool('food_memory_find', 'Look up the user\'s saved foods ("My foods") matching a name, nickname or barcode, with their exact nutrition, portion, where the numbers came from and when. Use before estimating a food the user may have saved.', {
+    query: { type: 'string', description: 'Food name, nickname or barcode.' },
+  }, ['query']),
+  tool('food_barcode_lookup', 'Look up a packaged product by its barcode (8–14 digits, e.g. read from a photo) in the Open Food Facts product database: name, brand, serving and nutrition per serving (or per 100 g). Show the product and numbers to the user to confirm before logging or saving.', {
+    barcode: { type: 'string' },
+  }, ['barcode']),
   tool('weight_delete', 'Delete the body-weight entry logged on a date (e.g. a mistaken weigh-in). To correct it instead, log the right weight with gym_log_bodyweight.', {
     date: DATE,
   }, ['date']),
 ]
 
 export const FOOD_TOOL_NAMES = FOOD_TOOL_DEFS.map((definition) => definition.name)
-export const FOOD_LOOKUP_TOOLS = ['food_day', 'food_week']
+export const FOOD_LOOKUP_TOOLS = ['food_day', 'food_week', 'food_memory_find', 'food_barcode_lookup']
 export const FOOD_TOOL_LABELS = {
   food_log: 'Logging your food',
   food_day: 'Checking your food log',
@@ -745,7 +797,9 @@ export const FOOD_TOOL_LABELS = {
   food_delete_entry: 'Removing a food entry',
   food_set_goals: 'Setting your goals',
   food_calculate_goals: 'Working out your goals',
-  food_favorite: 'Updating your favorites',
+  food_memory: 'Updating My foods',
+  food_memory_find: 'Checking My foods',
+  food_barcode_lookup: 'Looking up the barcode',
   weight_delete: 'Removing a weigh-in',
 }
 
@@ -768,6 +822,23 @@ export async function loadFoodData(supabase, userId, ctx) {
     console.error('Food entries failed:', error?.message || error)
     return { foodEntries: [], foodMissing: false, foodError: 'Couldn’t load food entries right now.' }
   }
+}
+
+// The user's saved foods ("My foods") with exact per-portion numbers and where they came from,
+// newest first: "id · Name (Brand) · 1 scoop (31 g) · 120 kcal P24 C3 F1.5 · label 2026-09-20".
+function myFoods(data, limit = 40) {
+  const food = foodOf(data)
+  const unit = food.prefs.energyUnit
+  const list = [...food.favorites].sort((a, b) => String(b.verifiedAt || b.updatedAt || '').localeCompare(String(a.verifiedAt || a.updatedAt || '')))
+  const lines = list.slice(0, limit).map((fav) => {
+    const kcal = num(fav.calories) ?? macroCalories(fav)
+    const macros = [num(fav.proteinG) !== null ? `P${round(fav.proteinG, 1)}` : '', num(fav.carbsG) !== null ? `C${round(fav.carbsG, 1)}` : '', num(fav.fatG) !== null ? `F${round(fav.fatG, 1)}` : ''].filter(Boolean).join(' ')
+    const portion = amountText(fav.amount, fav.unit)
+    const when = String(fav.verifiedAt || fav.updatedAt || '').slice(0, 10)
+    return [fav.id, `${fav.name}${fav.brand ? ` (${fav.brand})` : ''}${fav.aliases?.length ? ` [aka ${fav.aliases.slice(0, 3).join(', ')}]` : ''}`, `${portion || 'portion?'}${num(fav.grams) !== null ? ` (${round(fav.grams, 0)} g)` : ''}`, `${kcal !== null ? energy(kcal, unit) : '?'}${macros ? ` ${macros}` : ''}`, [fav.source, when].filter(Boolean).join(' ')].join(' · ')
+  })
+  if (list.length > limit) lines.push(`…and ${list.length - limit} more (use food_memory_find)`)
+  return lines
 }
 
 function usualFoods(data, today, limit = 15) {
@@ -863,6 +934,7 @@ export function foodSnapshot(data, ctx) {
     last7Days: days.length ? { days, avgKcal: avg('kcal'), avgProteinG: avg('proteinG'), loggedDays: days.length } : null,
     streakDays: streak.current >= 2 ? streak.current : null,
     usualFoods: usualFoods(data, today),
+    myFoods: myFoods(data),
     profile: profileOut,
     weight,
     weightUnit,
@@ -875,7 +947,7 @@ function logLabel(plan, data, ctx, time) {
   const today = todayOf(ctx)
   const unit = plan.food.prefs.energyUnit
   const total = plan.rows.reduce((sum, row) => sum + entryCalories(row), 0)
-  const labels = plan.rows.map(itemLabel)
+  const labels = plan.rows.map((row, index) => `${itemLabel(row)}${plan.saved?.[index] ? ' from My foods' : ''}`)
   const what = labels.length <= 3
     ? labels.join(', ')
     : `${labels.length} items (${plan.rows.slice(0, 3).map((row) => clean(row.name, 40)).join(', ')}, …)`
@@ -927,13 +999,16 @@ export function describeFoodAction(name, args, data, ctx) {
       const pace = paceText(plan.result, plan.unit)
       return `Set daily goal: ${goalParts(plan.goals, unit).join(' · ')}${pace ? ` (${pace})` : ''}`
     }
-    if (name === 'food_favorite') {
+    if (name === 'food_memory') {
       const entry = input.entry_id ? findKnown(input.entry_id) : null
-      if (input.action === 'save' && input.entry_id && !entry) return `Save ${clean(input.name, 80) || 'that entry'} as a favorite`
+      if (input.action === 'save' && input.entry_id && !entry) return `Save ${clean(input.name, 80) || 'that entry'} to My foods`
       const plan = planFavorite(input, data, entry)
-      if (plan.error) return input.action === 'remove' ? `Remove favorite: ${clean(input.name, 80)}` : `Save favorite: ${clean(input.name, 80)}`
-      if (plan.action === 'remove') return `Remove favorite: ${plan.favorite.name}`
-      return `${plan.existed ? 'Update' : 'Save'} favorite: ${itemLabel(plan.favorite)} · ${energy(plan.favorite.calories, unit)}`
+      if (plan.error) return input.action === 'remove' ? `Remove from My foods: ${clean(input.name, 80)}` : `Save to My foods: ${clean(input.name, 80)}`
+      if (plan.action === 'remove') return `Remove from My foods: ${plan.favorite.name}`
+      const fav = plan.favorite
+      const macros = [num(fav.proteinG) !== null ? `P ${round(fav.proteinG, 1)}` : '', num(fav.carbsG) !== null ? `C ${round(fav.carbsG, 1)}` : '', num(fav.fatG) !== null ? `F ${round(fav.fatG, 1)}` : ''].filter(Boolean).join(' ')
+      const from = { label: 'from the label', barcode: 'from the barcode', web: 'from the web', user: 'your numbers' }[fav.source]
+      return `${plan.existed ? 'Update in' : 'Save to'} My foods: ${itemLabel(fav)} · ${energy(fav.calories, unit)}${macros ? ` · ${macros}` : ''}${from ? ` (${from})` : ''}`
     }
     if (name === 'weight_delete') {
       const plan = planWeightDelete(input, data, ctx)
@@ -945,6 +1020,44 @@ export function describeFoodAction(name, args, data, ctx) {
     // fall through to the generic label
   }
   return FOOD_TOOL_LABELS[name] || 'Update food'
+}
+
+// Saved foods matching a name/nickname/barcode, with exact numbers and provenance.
+function runMemoryFind(input, data) {
+  const query = clean(input.query, 120)
+  if (!query) return fail('Say which food to look for.')
+  const food = foodOf(data)
+  const hits = matchSavedFoods(food.favorites, query, { limit: 5, min: 0.5 })
+  if (!hits.length) return { ok: true, found: false, message: `Nothing saved matches "${query}".` }
+  return {
+    ok: true,
+    found: true,
+    foods: hits.map(({ food: fav, score }) => ({
+      id: fav.id, name: fav.name, brand: fav.brand || null, portion: amountText(fav.amount, fav.unit) || null, grams: fav.grams ?? null,
+      calories: fav.calories ?? null, protein_g: fav.proteinG ?? null, carbs_g: fav.carbsG ?? null, fat_g: fav.fatG ?? null,
+      fiber_g: fav.fiberG ?? null, sugar_g: fav.sugarG ?? null, sodium_mg: fav.sodiumMg ?? null,
+      source: fav.source || null, source_url: fav.sourceUrl || null, barcode: fav.barcode || null,
+      saved: String(fav.verifiedAt || fav.updatedAt || '').slice(0, 10) || null, aliases: fav.aliases, match: score,
+    })),
+  }
+}
+
+// A barcode looked up in Open Food Facts.
+async function runBarcode(input) {
+  try {
+    const found = await lookupBarcode(input.barcode)
+    if (!found.found) return { ok: true, found: false, barcode: found.barcode, message: `Barcode ${found.barcode} isn't in the Open Food Facts database.` }
+    const item = productItem(found.product)
+    return {
+      ok: true,
+      found: true,
+      product: { barcode: found.product.barcode, name: found.product.name, brand: found.product.brand, package: found.product.quantity, serving: found.product.servingText, url: found.product.url },
+      per: found.product.nutrition.basis === 'serving' ? 'serving' : '100 g',
+      nutrition: { amount: item.amount, unit: item.unit, grams: item.grams, calories: item.calories, protein_g: item.proteinG, carbs_g: item.carbsG, fat_g: item.fatG, fiber_g: item.fiberG, sugar_g: item.sugarG, sodium_mg: item.sodiumMg },
+    }
+  } catch (error) {
+    return fail(error.message || 'The barcode lookup failed.')
+  }
 }
 
 // Checks a food tool call without writing (for staging a proposal). Entries not in memory and staged
@@ -968,7 +1081,7 @@ export function checkFoodTool(name, args, data, ctx) {
   }
   if (name === 'food_set_goals') return result(planGoals(input, data))
   if (name === 'food_calculate_goals') return result(planCalculate(input, data, ctx))
-  if (name === 'food_favorite') {
+  if (name === 'food_memory') {
     if (input.action === 'save' && input.entry_id && !findKnown(input.entry_id)) return isRef(input.entry_id) ? { ok: true } : fail('No food entry with that id.')
     return result(planFavorite(input, data, input.entry_id ? findKnown(input.entry_id) : null))
   }
@@ -1083,6 +1196,8 @@ export async function executeFoodTool(supabase, userId, name, args, data, ctx) {
 
   if (name === 'food_day') return runFoodDay(supabase, userId, input, data, ctx)
   if (name === 'food_week') return runFoodWeek(supabase, userId, input, data, ctx)
+  if (name === 'food_memory_find') return runMemoryFind(input, data)
+  if (name === 'food_barcode_lookup') return runBarcode(input)
 
   if (name === 'food_log') {
     if (data.foodMissing) return fail(FOOD_MISSING)
@@ -1184,7 +1299,7 @@ export async function executeFoodTool(supabase, userId, name, args, data, ctx) {
     }
   }
 
-  if (name === 'food_favorite') {
+  if (name === 'food_memory') {
     let entry = null
     if (input.action === 'save' && input.entry_id) {
       entry = data.foodMissing ? null : await findEntry(supabase, userId, data, input.entry_id)
@@ -1193,8 +1308,8 @@ export async function executeFoodTool(supabase, userId, name, args, data, ctx) {
     const plan = planFavorite(input, data, entry)
     if (plan.error) return fail(plan.error)
     await writeFood(supabase, userId, data, { favorites: plan.favorites })
-    if (plan.action === 'remove') return { ok: true, message: `Removed ${plan.favorite.name} from favorites.` }
-    return { ok: true, message: `${plan.existed ? 'Updated' : 'Saved'} favorite: ${itemLabel(plan.favorite)}, ${energy(plan.favorite.calories, unit)}.`, id: plan.favorite.id }
+    if (plan.action === 'remove') return { ok: true, message: `Removed ${plan.favorite.name} from My foods.` }
+    return { ok: true, message: `${plan.existed ? 'Updated' : 'Saved'} in My foods: ${itemLabel(plan.favorite)}, ${energy(plan.favorite.calories, unit)}.`, id: plan.favorite.id }
   }
 
   if (name === 'weight_delete') {

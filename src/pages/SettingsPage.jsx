@@ -16,6 +16,14 @@ import { formatDateShort } from '../lib/dates.js'
 import { LEAD_OPTIONS, currentSubscription, disableNotifications, enableNotifications, leadLabel, notificationPrefs, pushSupport, sendTestNotification, syncSubscription } from '../lib/notifications.js'
 import '../components/settings.css'
 
+// settings.assistantWeb (also set in Food settings): when the assistant and food search may use the web.
+const WEB_OPTIONS = [{ id: 'ask', label: 'Ask first' }, { id: 'always', label: 'Always' }, { id: 'off', label: 'Off' }]
+const WEB_HINTS = {
+  ask: 'For branded foods and things it doesn’t know, the assistant asks before searching the web.',
+  always: 'Searches the web without asking when it needs exact numbers or facts.',
+  off: 'Never searches the web. Your saved foods and estimates still work.',
+}
+
 // #/settings/<id> opens Settings scrolled to that section (e.g. the prayer card's "Method" link).
 const SECTION_IDS = new Set(['notifications', 'assistant', 'classes', 'prayer', 'appearance', 'profile', 'security', 'account', 'danger'])
 
@@ -94,6 +102,11 @@ export default function SettingsPage({ user, onUserChange, onSignOut }) {
             checked={settings.assistantConfirm !== 'off'}
             onChange={(checked) => updateSettings({ assistantConfirm: checked ? 'all' : 'off' })}
           />
+          <div className="field">
+            <span className="field-label">Web search</span>
+            <Segmented options={WEB_OPTIONS} value={WEB_HINTS[settings.assistantWeb] ? settings.assistantWeb : 'ask'} onChange={(assistantWeb) => updateSettings({ assistantWeb })} label="Web search" />
+            <p className="field-hint">{WEB_HINTS[settings.assistantWeb] || WEB_HINTS.ask}</p>
+          </div>
         </div>
       </section>
 

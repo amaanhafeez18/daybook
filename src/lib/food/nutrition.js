@@ -132,7 +132,8 @@ export const KJ_PER_KCAL = 4.184
 export const ENTRY_SOURCES = deepFreeze(['manual', 'quick', 'ai_text', 'ai_photo', 'ai_voice', 'favorite', 'recent', 'copy', 'assistant'])
 export const NUTRIENTS = deepFreeze(['protein', 'carbs', 'fat', 'fiber', 'sugar', 'sodium'])
 export const GOAL_KEYS = deepFreeze(['calories', 'protein', 'carbs', 'fat', 'fiber', 'sugar', 'sodium'])
-export const FAVORITES_MAX = 150
+export const FAVORITES_MAX = 400 // "My foods": saved foods with their exact nutrition
+export const SAVED_SOURCES = ['label', 'barcode', 'web', 'user', 'estimate', 'entry']
 
 // Research §3: activity factors for the goal calculator.
 export const ACTIVITY_LEVELS = deepFreeze([
@@ -527,6 +528,11 @@ function normalizeFavorite(raw) {
     meal: text(raw.meal, 40) || null,
     aliases: strings(raw.aliases, 20, 60),
     updatedAt: typeof raw.updatedAt === 'string' && raw.updatedAt ? raw.updatedAt : null,
+    // Where the numbers came from (a label, a barcode lookup, the web, the user…), for trust and reuse.
+    source: SAVED_SOURCES.includes(raw.source) ? raw.source : null,
+    sourceUrl: typeof raw.sourceUrl === 'string' && /^https?:\/\//i.test(raw.sourceUrl) ? raw.sourceUrl.slice(0, 300) : null,
+    barcode: typeof raw.barcode === 'string' && /^\d{6,14}$/.test(raw.barcode) ? raw.barcode : null,
+    verifiedAt: typeof raw.verifiedAt === 'string' && raw.verifiedAt ? raw.verifiedAt : null,
   }
   delete favorite.favoriteId
   return favorite
@@ -587,6 +593,36 @@ export function findFavorite(favorites, entryLike) {
   const key = foodKey(entryLike.name, entryLike.brand)
   return key ? favorites.find((fav) => isObj(fav) && foodKey(fav.name, fav.brand) === key) || null : null
 }
+
+// Saved foods that match free text ("my protein bar", "2 scoops of gold standard", a barcode), best
+// first: exact barcode, then name/brand/alias token overlap. → [{ food, score }] with score 0–1.
+export function matchSavedFoods(favorites, query, { limit = 3, min = 0.6 } = {}) {
+  if (!Array.isArray(favorites) || typeof query !== 'string' || !query.trim()) return []
+  const digits = query.replace(/\D/g, '')
+  const words = (value) => normText(value).replace(/[^\p{L}\p{N} ]+/gu, ' ').split(' ').filter((word) => word.length > 1 && !MATCH_STOP.has(word))
+  const queryWords = new Set(words(query).map(singular))
+  const out = []
+  for (const food of favorites) {
+    if (!isObj(food) || !food.name) continue
+    if (food.barcode && digits.length >= 8 && digits.includes(food.barcode)) {
+      out.push({ food, score: 1 })
+      continue
+    }
+    let best = 0
+    for (const label of [food.brand ? `${food.brand} ${food.name}` : food.name, food.name, ...(food.aliases || [])]) {
+      const target = words(label).map(singular)
+      if (!target.length) continue
+      const hits = target.filter((word) => queryWords.has(word)).length
+      // All of the saved name's words appear in the text (e.g. "protein bar" in "had my protein bar").
+      best = Math.max(best, hits / target.length * (hits >= Math.min(2, target.length) ? 1 : 0.7))
+    }
+    if (best >= min) out.push({ food, score: Math.round(best * 100) / 100 })
+  }
+  return out.sort((a, b) => b.score - a.score || str(b.food.updatedAt).localeCompare(str(a.food.updatedAt))).slice(0, limit)
+}
+
+const MATCH_STOP = new Set(['my', 'the', 'a', 'an', 'of', 'and', 'with', 'had', 'ate', 'drank', 'some', 'one', 'two', 'three', 'cup', 'cups', 'glass', 'bowl', 'piece', 'pieces', 'slice', 'slices', 'scoop', 'scoops', 'serving', 'servings', 'today', 'just', 'for', 'in', 'on', 'at', 'from'])
+const singular = (word) => (word.length > 3 && word.endsWith('s') && !word.endsWith('ss') ? word.slice(0, -1) : word)
 
 // ---- goal calculator ----------------------------------------------------------------------------
 

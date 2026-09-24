@@ -119,6 +119,7 @@ export default function DayView({ date, today, loaded }) {
               { label: 'Copy this day to…', icon: 'copy', onClick: () => setSheet({ type: 'copyDay' }), disabled: !hasEntries },
               { label: 'Goals', icon: 'target', onClick: () => navigate('food/goals') },
               { label: 'Weight', icon: 'scale', onClick: () => navigate('food/weight') },
+              { label: 'My foods', icon: 'bookmark', onClick: () => navigate('food/foods') },
               { label: 'Food settings', icon: 'settings', onClick: () => setSheet({ type: 'settings' }) },
             ]}
           />

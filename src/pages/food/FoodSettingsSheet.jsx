@@ -5,18 +5,26 @@ import { IconButton, Segmented, Switch } from '../../components/ui/primitives.js
 import { toast } from '../../components/ui/feedback.jsx'
 import { updateGym, useGym } from '../../lib/gym/state.js'
 import { MEALS_DEFAULT, entryCalories } from '../../lib/food/nutrition.js'
-import { deleteFavorite, updateFood, useFood } from '../../lib/food/state.js'
+import { deleteFavorite, setWebSetting, updateFood, useFood, useWebSetting } from '../../lib/food/state.js'
 import { navigate } from '../../lib/router.js'
 import { NUTRIENT_INFO, energyNumber, entryName, fmtEnergy, fmtInt, portionText, unitLabel } from './format.js'
 
 // Food settings: goals (link), meals (rename, reorder, 3–6), units, which nutrients show, the
-// ring, week start, AI review and saved favorites. The weight unit is the gym's (one setting).
+// ring, week start, AI review, web search (settings.assistantWeb, shared with the assistant), My
+// foods (link) and saved favorites. The weight unit is the gym's (one setting).
 
 const ENERGY_UNITS = [{ id: 'kcal', label: 'kcal' }, { id: 'kJ', label: 'kJ' }]
 const WEIGHT_UNITS = [{ id: 'kg', label: 'kg' }, { id: 'lb', label: 'lb' }]
 const RING_MODES = [{ id: 'remaining', label: 'Left' }, { id: 'eaten', label: 'Eaten' }]
 const WEEK_STARTS = [{ id: 1, label: 'Mon' }, { id: 0, label: 'Sun' }, { id: 6, label: 'Sat' }]
 const AI_REVIEW = [{ id: 'always', label: 'Always review' }, { id: 'autoHigh', label: 'Auto-log if sure' }]
+const WEB_MODES = [{ id: 'ask', label: 'Ask first' }, { id: 'always', label: 'Always' }, { id: 'off', label: 'Off' }]
+const WEB_NOTES = {
+  ask: 'Used for exact macros of branded foods. Each search costs a little, so it only runs when you tap Search the web.',
+  always: 'Used for exact macros of branded foods. Each search costs a little; it may run without asking when exact numbers would help.',
+  off: 'Never searches the web. Your saved foods still apply.',
+}
+const FAVORITES_SHOWN = 10
 
 function setPrefs(patch) {
   updateFood((food) => ({ prefs: { ...food.prefs, ...patch } }))
@@ -47,7 +55,9 @@ function Row({ label, hint, children, stacked = false }) {
 export default function FoodSettingsSheet({ open, onClose }) {
   const food = useFood()
   const gym = useGym()
+  const web = useWebSetting()
   const { prefs, goals, favorites } = food
+  const saved = favorites.filter((favorite) => ['label', 'barcode', 'web', 'user'].includes(favorite.source)).length
   const unit = prefs.energyUnit
   const weightUnit = gym.prefs.unit === 'lb' ? 'lb' : 'kg'
   const goalParts = [
@@ -114,10 +124,26 @@ export default function FoodSettingsSheet({ open, onClose }) {
           </div>
         </Group>
 
+        <Group title="Web search" footer={WEB_NOTES[web]}>
+          <Row label="Look up exact numbers online" hint="Shared with the assistant" stacked>
+            <Segmented options={WEB_MODES} value={web} onChange={setWebSetting} label="Web search" />
+          </Row>
+        </Group>
+
+        <Group title="My foods" footer="Labels, barcodes and web lookups you log are saved here with their exact numbers, and used again when you mention the food.">
+          <button type="button" className="food-cfg-row food-cfg-link" onClick={() => { onClose(); navigate('food/foods') }}>
+            <span className="food-cfg-label">
+              <span>My foods</span>
+              <small>{favorites.length ? `${favorites.length} saved${saved ? ` · ${saved} with exact numbers` : ''}` : 'Nothing saved yet'}</small>
+            </span>
+            <Icon name="chevronRight" size={18} />
+          </button>
+        </Group>
+
         <Group title={`Favorites${favorites.length ? ` (${favorites.length})` : ''}`}>
           {favorites.length ? (
             <ul className="food-cfg-favs">
-              {favorites.map((favorite) => {
+              {favorites.slice(0, FAVORITES_SHOWN).map((favorite) => {
                 const kcal = entryCalories(favorite)
                 const portion = portionText(favorite)
                 return (
@@ -133,6 +159,12 @@ export default function FoodSettingsSheet({ open, onClose }) {
             </ul>
           ) : (
             <p className="food-cfg-empty">Tap the star when adding a food to keep it one tap away.</p>
+          )}
+          {favorites.length > FAVORITES_SHOWN && (
+            <button type="button" className="food-cfg-row food-cfg-link" onClick={() => { onClose(); navigate('food/foods') }}>
+              <span className="food-cfg-label"><span>See all {favorites.length} in My foods</span></span>
+              <Icon name="chevronRight" size={18} />
+            </button>
           )}
         </Group>
 

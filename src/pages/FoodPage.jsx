@@ -5,17 +5,19 @@ import { useStore } from '../lib/store.js'
 import DayView from './food/DayView.jsx'
 import GoalWizard from './food/GoalWizard.jsx'
 import InsightsView from './food/InsightsView.jsx'
+import MyFoodsView from './food/MyFoodsView.jsx'
 import WeightView from './food/WeightView.jsx'
 import './food/food.css'
 
-// #/food (today), #/food/day/<date>, #/food/insights[/<week start>], #/food/weight, #/food/goals.
+// #/food (today), #/food/day/<date>, #/food/insights[/<week start>], #/food/weight, #/food/goals,
+// #/food/foods (My foods).
 
 function parseHash() {
   const parts = window.location.hash.replace(/^#\/?/, '').split('?')[0].split('/').filter(Boolean)
   const view = parts[1] || 'day'
   if (view === 'day') return { view: 'day', param: isISODate(parts[2]) ? parts[2] : null }
   if (view === 'insights') return { view, param: isISODate(parts[2]) ? parts[2] : null }
-  if (view === 'weight' || view === 'goals') return { view, param: null }
+  if (view === 'weight' || view === 'goals' || view === 'foods') return { view, param: null }
   return { view: 'day', param: null }
 }
 
@@ -45,5 +47,6 @@ export default function FoodPage({ loaded: loadedProp }) {
   if (route.view === 'insights') return <InsightsView today={today} param={route.param} loaded={loaded} />
   if (route.view === 'weight') return <WeightView today={today} loaded={loaded} />
   if (route.view === 'goals') return <GoalWizard today={today} />
+  if (route.view === 'foods') return <MyFoodsView today={today} loaded={loaded} />
   return <DayView date={route.param || today} today={today} loaded={loaded} />
 }

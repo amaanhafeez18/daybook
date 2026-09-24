@@ -6,9 +6,9 @@
 
 /* ---- page frame -------------------------------------------------------------------------- */
 
-.food-day, .food-ins, .food-weightview, .food-goals { min-width: 0; }
+.food-day, .food-ins, .food-weightview, .food-goals, .food-myfoods { min-width: 0; }
 .food-ins { max-width: 1000px; margin: 0 auto; }
-.food-weightview, .food-goals { max-width: 720px; margin: 0 auto; }
+.food-weightview, .food-goals, .food-myfoods { max-width: 720px; margin: 0 auto; }
 
 .page-header.food-head { flex-direction: row; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .food-head-text { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
@@ -531,6 +531,26 @@ button.food-cfg-row:active { background: var(--surface-2); }
 .food-more-btn { display: block; min-height: 44px; margin: 8px auto 0; padding: 0 18px; border-radius: 999px; color: var(--accent); font-size: 16px; font-weight: 600; }
 .food-more-btn:active { background: var(--surface-2); }
 
+/* ---- My foods ---------------------------------------------------------------------------------- */
+
+.search-field.food-my-search { margin-bottom: 14px; }
+.food-my-main { min-height: 66px; }
+.food-badge.food-my-badge { gap: 4px; }
+.food-my-badge .icon { color: var(--accent); }
+.food-my-log {
+  position: relative; flex-shrink: 0; display: inline-flex; align-items: center; gap: 3px; min-height: 32px; margin-right: 4px;
+  padding: 0 12px 0 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 14px; font-weight: 600;
+  transition: transform 0.3s var(--spring, var(--ease));
+}
+.food-my-log::after { content: ''; position: absolute; inset: -6px -4px; }
+.food-my-log:active { transform: scale(0.94); }
+.food-my-empty { padding: 18px 16px; font-size: 15px; color: var(--text-2); text-align: center; overflow-wrap: anywhere; }
+.food-my-form .food-es-grid.is-2 { margin-top: 0; }
+.food-es-field.food-my-energy { grid-column: 1 / -1; }
+.food-my-source { display: flex; align-items: flex-start; gap: 6px; margin: 0 4px; font-size: 13px; line-height: 1.35; color: var(--text-2); }
+.food-my-source .icon { flex-shrink: 0; margin-top: 2px; color: var(--accent); }
+.food-my-source a { color: var(--accent); font-weight: 600; overflow-wrap: anywhere; }
+
 /* ---- charts ----------------------------------------------------------------------------------- */
 
 .food-chart { position: relative; min-width: 0; }
@@ -683,6 +703,7 @@ button.food-cfg-row:active { background: var(--surface-2); }
   .food-meal-ghost:hover, .food-switch-label:hover:not(.is-static) { background: var(--surface-2); }
   .food-chart-toggle:hover { background: var(--surface-2); color: var(--text); }
   .food-suggest:hover { box-shadow: 0 0 0 1px var(--border-strong) inset; }
+  .food-my-log:hover { opacity: 0.8; }
 }
 @media (hover: none) {
   .icon-btn.food-head-btn:hover { background: var(--glass-bg); color: var(--text); }
