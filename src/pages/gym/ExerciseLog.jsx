@@ -8,7 +8,7 @@ import { compareSessions, deloadWeight, e1rm, increment, isBackfillWorkout, live
 import { formatDistance, formatDuration, formatNumber, formatPace, formatVolume, formatWeight, fromMeters, toMeters } from '../../lib/gym/units.js'
 import { getActiveWorkout, getGym, newGymId, normalizeGym, routineById, saveRoutine, setExerciseMeta } from '../../lib/gym/state.js'
 import { navigate } from '../../lib/router.js'
-import { DurationInput, GymEmpty, NumberInput, SetTypeBadge, WeightInput } from './common.jsx'
+import { ActionSheet, DurationInput, GymEmpty, NumberInput, SetTypeBadge, WeightInput } from './common.jsx'
 import ExercisePicker from './ExercisePicker.jsx'
 import { PlateCalculatorSheet } from './ToolsSheet.jsx'
 import { unlockAudio } from './RestTimer.jsx'
@@ -21,8 +21,8 @@ import './workout.css'
 const SET_TYPES = ['normal', 'warmup', 'drop', 'failure']
 const TYPE_NAME = { normal: 'Set', warmup: 'Warm-up set', drop: 'Drop set', failure: 'Failure set' }
 const TYPE_OPTIONS = [
-  { type: 'normal', label: 'Normal', hint: 'Counts toward volume, sets and records' },
-  { type: 'warmup', label: 'Warm-up', hint: 'Left out of volume, set counts and PRs' },
+  { type: 'normal', label: 'Normal', hint: 'Counts toward weight lifted, sets and records' },
+  { type: 'warmup', label: 'Warm-up', hint: 'Left out of weight lifted, set counts and PRs' },
   { type: 'drop', label: 'Drop set', hint: 'Lighter set straight after, no rest before it' },
   { type: 'failure', label: 'Failure', hint: 'A working set taken to failure' },
 ]
@@ -986,8 +986,11 @@ export default function ExerciseLog({ workout, onChange, mode = 'live', gym, ses
   const pinnedTarget = pinnedSheet ? find(pinnedSheet.exRef) : null
   const pickerTarget = picker?.mode === 'replace' ? find(picker.exRef) : null
 
+  // The card's ⋯ menu (the shared ActionSheet, which closes itself before running an action),
+  // grouped by intent: things for this workout, tools, then arranging the list, with the
+  // destructive action last on its own.
   function menuItems() {
-    if (!menuTarget) return { main: [], danger: [] }
+    if (!menuTarget) return { groups: [], name: '' }
     const { exercise, index } = menuTarget
     const ref = { id: exercise.id, i: index }
     const key = keyOf(ref)
@@ -995,28 +998,30 @@ export default function ExerciseLog({ workout, onChange, mode = 'live', gym, ses
     const name = exercise.name || 'Exercise'
     const next = exercises[index + 1]
     const linkedWithNext = next && exercise.supersetId != null && next.supersetId === exercise.supersetId
-    const run = (fn) => () => {
-      closeSheet()
-      fn()
-    }
-    const main = [
-      { icon: 'note', label: derived.meta?.note ? 'Edit pinned note' : 'Pinned note', hint: 'A sticky note shown every time you do this exercise', onClick: () => setSheet({ kind: 'pinned', exRef: ref }) },
-      !exercise.note && !openNotes.has(key) && { icon: 'pencil', label: 'Add note for this workout', onClick: run(() => actions.openNote(key, index)) },
-      live && { icon: 'timer', label: 'Rest timer', value: derived.rest ? formatDuration(derived.rest) : 'Off', onClick: () => setSheet({ kind: 'rest', exRef: ref }) },
-      derived.tracking === 'weight_reps' && { icon: 'flame', label: 'Add warm-up sets', hint: 'Ramps up to your first working weight', onClick: run(() => actions.addWarmups(ref)) },
+    const log = [
+      !exercise.note && !openNotes.has(key) && { id: 'note', icon: 'pencil', label: 'Add a note', hint: 'For this workout only', onClick: () => actions.openNote(key, index) },
+      { id: 'pinned', icon: 'note', label: derived.meta?.note ? 'Edit pinned note' : 'Pin a note', hint: 'Shown every time you do this exercise', onClick: () => setSheet({ kind: 'pinned', exRef: ref }) },
+      live && { id: 'rest', icon: 'timer', label: 'Rest timer', value: derived.rest ? formatDuration(derived.rest) : 'Off', onClick: () => setSheet({ kind: 'rest', exRef: ref }) },
+    ]
+    const tools = [
+      derived.tracking === 'weight_reps' && { id: 'warmups', icon: 'flame', label: 'Add warm-up sets', hint: 'Lighter sets that build up to your first working weight', onClick: () => actions.addWarmups(ref) },
       derived.barbell && {
+        id: 'plates',
         icon: 'calculator',
         label: 'Plate calculator',
-        onClick: run(() => setPlates({ open: true, initialKg: plateWeight(exercise, derived), exercise: derived.entry || { equipment: 'barbell', tracking: 'weight_reps' } })),
+        hint: 'Which plates to load on the bar',
+        onClick: () => setPlates({ open: true, initialKg: plateWeight(exercise, derived), exercise: derived.entry || { equipment: 'barbell', tracking: 'weight_reps' } }),
       },
-      { icon: 'shuffle', label: 'Replace exercise', onClick: run(() => actions.openReplace(ref)) },
-      next && !linkedWithNext && { icon: 'link', label: 'Link with next', hint: `Superset with ${next.name || 'the next exercise'}`, onClick: run(() => actions.linkNext(ref)) },
-      exercise.supersetId != null && { icon: 'link', label: 'Unlink superset', onClick: run(() => actions.unlink(ref)) },
-      exercises.length > 1 && { icon: 'layers', label: 'Reorder exercises', onClick: run(() => setReorder(true)) },
-      live && exercise.exerciseId && { icon: 'history', label: 'Exercise history', onClick: run(() => navigate(`gym/exercise/${encodeURIComponent(exercise.exerciseId)}`)) },
-    ].filter(Boolean)
-    const danger = [{ icon: 'trash', label: 'Remove exercise', tone: 'danger', onClick: run(() => actions.removeExercise(ref)) }]
-    return { main, danger, name }
+      live && exercise.exerciseId && { id: 'history', icon: 'history', label: 'History & records', onClick: () => navigate(`gym/exercise/${encodeURIComponent(exercise.exerciseId)}`) },
+    ]
+    const arrange = [
+      { id: 'replace', icon: 'shuffle', label: 'Replace exercise', hint: 'Keeps the sets', onClick: () => actions.openReplace(ref) },
+      next && !linkedWithNext && { id: 'link', icon: 'link', label: 'Superset with next', hint: `Alternate with ${next.name || 'the next exercise'}, no rest in between`, onClick: () => actions.linkNext(ref) },
+      exercise.supersetId != null && { id: 'unlink', icon: 'link', label: 'Unlink superset', onClick: () => actions.unlink(ref) },
+      exercises.length > 1 && { id: 'reorder', icon: 'layers', label: 'Reorder exercises', onClick: () => setReorder(true) },
+    ]
+    const danger = [{ id: 'remove', icon: 'trash', label: 'Remove exercise', danger: true, onClick: () => actions.removeExercise(ref) }]
+    return { groups: [log, tools, arrange, danger], name }
   }
 
   const menu = menuItems()
@@ -1068,10 +1073,7 @@ export default function ExerciseLog({ workout, onChange, mode = 'live', gym, ses
         </button>
       )}
 
-      <Sheet open={sheet?.kind === 'menu' && !!menuTarget} onClose={closeSheet} title={menu.name || 'Exercise'} size="sm" initialFocus={false}>
-        <ActionList items={menu.main} />
-        <ActionList items={menu.danger} />
-      </Sheet>
+      <ActionSheet open={sheet?.kind === 'menu' && !!menuTarget} onClose={closeSheet} title={menu.name || 'Exercise'} actions={menu.groups} />
 
       <Sheet
         open={sheet?.kind === 'type' && !!typeSet}
@@ -1638,7 +1640,7 @@ function RestEditSheet({ open, onClose, name, value, warmupRest, onSave }) {
         ))}
       </div>
       <p className="gym-sheet-hint">
-        Starts when you tick a set. After warm-up sets it runs {formatDuration(warmupRest)} (change that in Gym settings). Kept for {name} next time.
+        Starts when you tick a set, and is kept for {name} next time. After a warm-up set it runs {formatDuration(warmupRest)} instead (Gym settings → Advanced).
       </p>
     </Sheet>
   )

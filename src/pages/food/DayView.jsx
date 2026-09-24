@@ -117,9 +117,11 @@ export default function DayView({ date, today, loaded }) {
           <Menu
             items={[
               { label: 'Copy this day to…', icon: 'copy', onClick: () => setSheet({ type: 'copyDay' }), disabled: !hasEntries },
+              { divider: true },
               { label: 'Goals', icon: 'target', onClick: () => navigate('food/goals') },
               { label: 'Weight', icon: 'scale', onClick: () => navigate('food/weight') },
               { label: 'My foods', icon: 'bookmark', onClick: () => navigate('food/foods') },
+              { divider: true },
               { label: 'Food settings', icon: 'settings', onClick: () => setSheet({ type: 'settings' }) },
             ]}
           />
@@ -487,10 +489,10 @@ function WeightCard({ bodyWeights, unit, today, targetKg, loaded, onLog }) {
     <section className="card food-weight" aria-labelledby="food-weight-title">
       <div className="food-card-head">
         <h2 id="food-weight-title" className="food-card-title"><Icon name="scale" size={18} />Weight</h2>
-        <Button variant="secondary" size="sm" icon="plus" onClick={onLog}>Log</Button>
+        <Button variant="secondary" size="sm" icon="plus" onClick={onLog}>Weigh in</Button>
       </div>
       {!loaded ? <Skeleton lines={2} /> : trend.latestKg === null ? (
-        <p className="food-weight-empty">Log your weight a few times a week to see a smoothed trend here.</p>
+        <p className="food-weight-empty">Weigh in a few mornings a week and a smoothed trend shows here.</p>
       ) : (
         <button type="button" className="food-weight-body" onClick={() => navigate('food/weight')} aria-label={`Weight ${fmtWeight(trend.latestKg, unit)} ${u}. Open weight details`}>
           <span className="food-weight-text">
@@ -560,10 +562,10 @@ function RowActionsSheet({ entry, food, today, onClose, onEdit, onDelete }) {
     try {
       if (favorite) {
         const undo = deleteFavorite(favorite.id)
-        toast(`Removed ${name} from favorites`, { action: { label: 'Undo', onClick: undo } })
+        toast(`Removed ${name} from My foods`, { action: { label: 'Undo', onClick: undo } })
       } else {
         const saved = saveFavorite(entry)
-        toast(`Added ${name} to favorites`, { action: { label: 'Undo', onClick: () => saved && deleteFavorite(saved.id) } })
+        toast(`Saved ${name} to My foods`, { action: { label: 'Undo', onClick: () => saved && deleteFavorite(saved.id) } })
       }
       onClose()
     } catch (error) {
@@ -585,7 +587,7 @@ function RowActionsSheet({ entry, food, today, onClose, onEdit, onDelete }) {
         <div className="food-act-list">
           <button type="button" className="food-act-row" onClick={() => onEdit(entry)}><Icon name="pencil" size={19} />Edit</button>
           <button type="button" className="food-act-row" onClick={duplicate}><Icon name="copy" size={19} />Duplicate</button>
-          <button type="button" className="food-act-row" aria-expanded={copyOpen} onClick={() => setCopyOpen((value) => !value)}><Icon name="calendar" size={19} />Copy to another day</button>
+          <button type="button" className="food-act-row" aria-expanded={copyOpen} onClick={() => setCopyOpen((value) => !value)}><Icon name="calendar" size={19} />Copy to…</button>
           {copyOpen && (
             <div className="food-act-copy">
               <label className="food-pick">
@@ -598,7 +600,7 @@ function RowActionsSheet({ entry, food, today, onClose, onEdit, onDelete }) {
             </div>
           )}
           <button type="button" className="food-act-row" onClick={toggleFavorite} disabled={!shown.name}>
-            <Icon name="star" size={19} className={favorite ? 'is-filled' : ''} />{favorite ? 'Remove from favorites' : 'Add to favorites'}
+            <Icon name="star" size={19} className={favorite ? 'is-filled' : ''} />{favorite ? 'Remove from My foods' : 'Save to My foods'}
           </button>
           <button type="button" className="food-act-row is-danger" onClick={() => onDelete(entry)}><Icon name="trash" size={19} />Delete</button>
         </div>

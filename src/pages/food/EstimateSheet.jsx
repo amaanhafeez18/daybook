@@ -141,7 +141,7 @@ export default function EstimateSheet({ request, onClose, onManual, today }) {
                   <Button variant="secondary" size="sm" icon="note" onClick={saveNameOnly}>Save without calories</Button>
                 )}
                 {onManual && (
-                  <Button variant="secondary" size="sm" icon="pencil" onClick={() => { onClose(); onManual({ name: isBarcode ? '' : shownText.trim(), meal, date }) }}>Enter manually</Button>
+                  <Button variant="secondary" size="sm" icon="pencil" onClick={() => { onClose(); onManual({ name: isBarcode ? '' : shownText.trim(), meal, date }) }}>Add by hand</Button>
                 )}
               </div>
             </div>

@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import Disclosure from '../../components/ui/Disclosure.jsx'
 import Icon from '../../components/ui/Icon.jsx'
 import Sheet from '../../components/ui/Sheet.jsx'
 import { Button, EmptyState, IconButton, Skeleton } from '../../components/ui/primitives.jsx'
@@ -11,13 +12,15 @@ import { quickLog } from './QuickAddBar.jsx'
 import { defaultMeal, energyNumber, entryName, fmtGrams, isNum, portionText, toNum, unitLabel } from './format.js'
 
 // #/food/foods: "My foods" (settings.food.favorites) — foods saved with their exact numbers from a
-// nutrition label, a barcode, the web or typed in, which the estimate reuses when the food is
-// mentioned again. Search, tap to edit (name, portion, nutrients, other names, barcode), swipe or
-// Delete with Undo, and "Log" to add one to today.
+// nutrition label, a barcode, the web, a starred entry or typed in, which the estimate reuses when
+// the food is mentioned again. Search, tap to edit (name, portion and calories first; brand,
+// macros, other nutrients, other names, barcode and where the numbers came from under "More
+// details"), swipe or Delete with Undo, and "Log" to add one to today.
 
 const PAGE = 50
 const UNITS = ['g', 'ml', 'oz', 'fl oz', 'cup', 'tbsp', 'tsp', 'piece', 'slice', 'serving', 'bar', 'scoop', 'bowl', 'glass', 'can', 'bottle', 'pack']
 const NUMBER_FIELDS = ['amount', 'grams', 'calories', 'proteinG', 'carbsG', 'fatG', 'fiberG', 'sugarG', 'sodiumMg']
+const DETAIL_FIELDS = ['brand', 'proteinG', 'carbsG', 'fatG', 'fiberG', 'sugarG', 'sodiumMg', 'aliases', 'barcode']
 
 // Where a saved food's numbers came from, for its badge: { icon, text, url? }. Older favorites
 // (starred before My foods) have no source.
@@ -32,7 +35,7 @@ export function savedBadge(food) {
     case 'user': return { icon: icon('pencil'), text: 'Your numbers', url }
     case 'estimate': return { icon: icon('sparkles'), text: 'Estimate', url }
     case 'entry': return { icon: icon('history'), text: 'From your log', url }
-    default: return { icon: icon('star'), text: 'Favorite', url }
+    default: return { icon: icon('star'), text: 'Starred', url }
   }
 }
 
@@ -83,7 +86,7 @@ export default function MyFoodsView({ today, loaded }) {
       ) : !favorites.length ? (
         <section className="card">
           <EmptyState icon="bookmark" title="No saved foods yet" action={<Button icon="plus" onClick={() => setEditing({ food: null })}>Add a food</Button>}>
-            When you log a nutrition label, a barcode or numbers found on the web, they’re saved here automatically. Next time you mention that food, its exact numbers are used. Starred favorites show up here too.
+            Foods you save keep their exact numbers, so next time you mention one, those numbers are used. Star a food when you log it, keep a label, barcode or web lookup, or add one here.
           </EmptyState>
         </section>
       ) : (
@@ -133,16 +136,16 @@ function SavedRow({ item, unit, onEdit, onDelete, onLog }) {
         <button type="button" className="food-row-main food-my-main" onClick={onEdit} aria-label={`${name}${kcal > 0 ? `, ${energyNumber(kcal, unit)} ${unitLabel(unit)}` : ''}. Edit`}>
           <span className="food-row-text">
             <span className="food-row-name">{name}</span>
-            {(portion || item.brand) && (
+            {/* The portion (and brand, macros) first; where the numbers came from on its own line,
+                so a long badge never squeezes "2 slices" out at phone width. */}
+            {(portion || item.brand || macros) && (
               <span className="food-row-sub">
-                {portion && <span>{portion}</span>}
+                {portion && <span className="food-my-portion">{portion}</span>}
                 {item.brand && <span>{item.brand}</span>}
+                {macros && <span>{macros}</span>}
               </span>
             )}
-            <span className="food-row-sub">
-              {macros && <span>{macros}</span>}
-              <span className="food-badge food-my-badge">{badge.icon}{badge.text}{day ? `, ${day}` : ''}</span>
-            </span>
+            <span className="food-row-sub"><span className="food-badge food-my-badge">{badge.icon}{badge.text}{day ? `, ${day}` : ''}</span></span>
           </span>
           <span className={`food-row-kcal${kcal > 0 ? '' : ' is-empty'}`}>
             {kcal > 0 ? <>{energyNumber(kcal, unit)} <small>{unitLabel(unit)}</small></> : '—'}
@@ -192,7 +195,7 @@ function SourceNote({ food }) {
     user: 'Numbers you entered',
     estimate: 'From an AI estimate',
     entry: 'Saved from your log',
-  }[food.source] || 'Saved as a favorite'
+  }[food.source] || 'Starred when it was logged'
   const day = fmtSavedDay(food.verifiedAt || food.updatedAt)
   const badge = savedBadge(food)
   return (
@@ -214,6 +217,9 @@ function SourceNote({ food }) {
 function SavedFoodSheet({ open, food, unit, onClose }) {
   const [form, setForm] = useState(() => formFrom(food, unit))
   const [error, setError] = useState('')
+  // Bumped each time the sheet opens, so "More details" mounts again and opens (or not) around
+  // the food it now shows rather than keeping the last one's state.
+  const [discKey, setDiscKey] = useState(0)
   const ids = { name: useId(), brand: useId(), amount: useId(), unit: useId(), grams: useId(), cal: useId(), aliases: useId(), barcode: useId(), list: useId() }
   const editing = !!food?.id
 
@@ -221,6 +227,7 @@ function SavedFoodSheet({ open, food, unit, onClose }) {
     if (!open) return
     setForm(formFrom(food, unit))
     setError('')
+    setDiscKey((value) => value + 1)
   }, [open, food?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const set = (field, value) => {
@@ -235,6 +242,17 @@ function SavedFoodSheet({ open, food, unit, onClose }) {
   const barcode = form.barcode.replace(/[\s-]/g, '')
   const badBarcode = !!barcode && !/^\d{6,14}$/.test(barcode)
   const name = form.name.trim()
+  // What "More details" holds, for its closed summary and for opening it by itself.
+  const hasDetails = DETAIL_FIELDS.some((field) => form[field].trim())
+  const macroLine = [['proteinG', 'P'], ['carbsG', 'C'], ['fatG', 'F']].filter(([field]) => form[field].trim()).map(([field, letter]) => `${letter} ${form[field].trim()}`).join(' · ')
+  const aliasCount = form.aliases.split(/[,\n]/).map((alias) => alias.trim()).filter(Boolean).length
+  const detailLine = [
+    form.brand.trim(),
+    macroLine,
+    [['fiberG', 'Fiber'], ['sugarG', 'Sugar'], ['sodiumMg', 'Sodium']].filter(([field]) => form[field].trim()).map(([, label]) => label).join(', '),
+    aliasCount ? `${aliasCount} other name${aliasCount === 1 ? '' : 's'}` : '',
+    barcode ? 'barcode' : '',
+  ].filter(Boolean).join(' · ')
 
   function save() {
     if (!name || invalid || badBarcode) return
@@ -301,16 +319,10 @@ function SavedFoodSheet({ open, food, unit, onClose }) {
       )}
     >
       <form className="food-es food-my-form" onSubmit={(event) => { event.preventDefault(); save() }}>
-        <div className="food-es-grid is-2 food-my-names">
-          <label className="food-es-field is-wide" htmlFor={ids.name}>
-            <span>Name</span>
-            <input id={ids.name} className="input" value={form.name} onChange={(event) => set('name', event.target.value)} maxLength={120} autoComplete="off" enterKeyHint="next" placeholder="e.g. Protein bar" data-autofocus={!editing || undefined} />
-          </label>
-          <label className="food-es-field is-wide" htmlFor={ids.brand}>
-            <span>Brand</span>
-            <input id={ids.brand} className="input" value={form.brand} onChange={(event) => set('brand', event.target.value)} maxLength={80} autoComplete="off" enterKeyHint="next" placeholder="Optional" />
-          </label>
-        </div>
+        <label className="food-es-field is-wide" htmlFor={ids.name}>
+          <span>Name</span>
+          <input id={ids.name} className="input" value={form.name} onChange={(event) => set('name', event.target.value)} maxLength={120} autoComplete="off" enterKeyHint="next" placeholder="e.g. Protein bar" data-autofocus={!editing || undefined} />
+        </label>
 
         <div className="food-es-group">
           <span className="food-es-label">Portion</span>
@@ -326,35 +338,46 @@ function SavedFoodSheet({ open, food, unit, onClose }) {
             </label>
             <Num label="Weight" suffix="g" value={form.grams} onChange={(value) => set('grams', value)} />
           </div>
-          <p className="food-es-hint">The numbers below are for this portion.</p>
         </div>
 
         <div className="food-es-group">
-          <span className="food-es-label">Nutrition</span>
-          <div className="food-es-grid is-3">
-            <Num label="Energy" suffix={unitLabel(unit)} value={form.calories} onChange={(value) => set('calories', value)} wide />
-            <Num label="Protein" suffix="g" value={form.proteinG} onChange={(value) => set('proteinG', value)} />
-            <Num label="Carbs" suffix="g" value={form.carbsG} onChange={(value) => set('carbsG', value)} />
-            <Num label="Fat" suffix="g" value={form.fatG} onChange={(value) => set('fatG', value)} />
-            <Num label="Fiber" suffix="g" value={form.fiberG} onChange={(value) => set('fiberG', value)} />
-            <Num label="Sugar" suffix="g" value={form.sugarG} onChange={(value) => set('sugarG', value)} />
-            <Num label="Sodium" suffix="mg" value={form.sodiumMg} onChange={(value) => set('sodiumMg', value)} />
+          <Num label={`Calories for this portion`} suffix={unitLabel(unit)} value={form.calories} onChange={(value) => set('calories', value)} wide />
+        </div>
+
+        <Disclosure key={discKey} id="food-saved-more" label="More details" summary={detailLine || 'Brand, protein, carbs, fat, other names, barcode'} hasValues={hasDetails} className="food-my-more">
+          <label className="food-es-field is-wide" htmlFor={ids.brand}>
+            <span>Brand</span>
+            <input id={ids.brand} className="input" value={form.brand} onChange={(event) => set('brand', event.target.value)} maxLength={80} autoComplete="off" enterKeyHint="next" placeholder="Optional" />
+          </label>
+
+          <div className="food-es-group">
+            <span className="food-es-label">Nutrition for this portion</span>
+            <div className="food-es-grid is-3">
+              <Num label="Protein" suffix="g" value={form.proteinG} onChange={(value) => set('proteinG', value)} />
+              <Num label="Carbs" suffix="g" value={form.carbsG} onChange={(value) => set('carbsG', value)} />
+              <Num label="Fat" suffix="g" value={form.fatG} onChange={(value) => set('fatG', value)} />
+              <Num label="Fiber" suffix="g" value={form.fiberG} onChange={(value) => set('fiberG', value)} />
+              <Num label="Sugar" suffix="g" value={form.sugarG} onChange={(value) => set('sugarG', value)} />
+              <Num label="Sodium" suffix="mg" value={form.sodiumMg} onChange={(value) => set('sodiumMg', value)} />
+            </div>
           </div>
-        </div>
 
-        <div className="food-es-group">
-          <label className="food-es-label" htmlFor={ids.aliases}>Other names</label>
-          <input id={ids.aliases} className="input" value={form.aliases} onChange={(event) => set('aliases', event.target.value)} placeholder="e.g. my usual bar, quest bar" autoComplete="off" enterKeyHint="next" />
-          <p className="food-es-hint">Separate with commas. Mentioning any of these uses this food’s numbers.</p>
-        </div>
+          <div className="food-es-group">
+            <label className="food-es-label" htmlFor={ids.aliases}>Other names</label>
+            <input id={ids.aliases} className="input" value={form.aliases} onChange={(event) => set('aliases', event.target.value)} placeholder="e.g. my usual bar, quest bar" autoComplete="off" enterKeyHint="next" />
+            <p className="food-es-hint">Separate with commas. Mentioning any of these uses this food’s numbers.</p>
+          </div>
 
-        <div className="food-es-group">
-          <label className="food-es-label" htmlFor={ids.barcode}>Barcode</label>
-          <input id={ids.barcode} className="input" inputMode="numeric" value={form.barcode} onChange={(event) => set('barcode', event.target.value)} placeholder="Optional" maxLength={20} autoComplete="off" enterKeyHint="done" />
-          {badBarcode && <p className="food-es-hint is-error" role="alert">A barcode is 6 to 14 digits.</p>}
-        </div>
+          <div className="food-es-group">
+            <label className="food-es-label" htmlFor={ids.barcode}>Barcode</label>
+            <input id={ids.barcode} className="input" inputMode="numeric" value={form.barcode} onChange={(event) => set('barcode', event.target.value)} placeholder="Optional" maxLength={20} autoComplete="off" enterKeyHint="done" />
+            {badBarcode && <p className="food-es-hint is-error" role="alert">A barcode is 6 to 14 digits.</p>}
+          </div>
 
-        {editing && <SourceNote food={food} />}
+          {editing && <SourceNote food={food} />}
+        </Disclosure>
+
+        {!name && <p className="food-es-hint">Add a name to save.</p>}
         {invalid && <p className="food-es-hint is-error" role="alert">Numbers can’t be negative or contain letters.</p>}
         {error && <p className="food-es-hint is-error" role="alert">{error}</p>}
         <button type="submit" hidden aria-hidden="true" tabIndex={-1} />

@@ -304,7 +304,7 @@ export default function HistoryTab({ today: todayProp }) {
           title="No workouts yet"
           action={<Button icon="play" onClick={startFirst}>Start a workout</Button>}
         >
-          Finished workouts land here with their top sets, volume and personal records.
+          Finished workouts land here with their top sets, weight lifted and personal records.
         </GymEmpty>
       </div>
     )
@@ -436,7 +436,7 @@ function HistoryCard({ session, gym, today, unit, distanceUnit, formula, volume,
         <>
           <span className="gym-hist-meta">
             {minutes && <span><Icon name="clock" size={14} />{minutes}</span>}
-            {volume > 0 && <span><Icon name="dumbbell" size={14} />{formatVolume(volume, unit)}</span>}
+            {volume > 0 && <span title="Weight lifted"><Icon name="dumbbell" size={14} /><span className="sr-only">Weight lifted </span>{formatVolume(volume, unit)}</span>}
             {session.isDeload && <span><Icon name="arrowDown" size={14} />Deload</span>}
             {prCount > 0 && (
               <span className="gym-pr-badge">

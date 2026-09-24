@@ -5,21 +5,80 @@
    that meet one of theirs use a heavier selector rather than rely on that order.
    ========================================================================================= */
 
-/* ---- header -------------------------------------------------------------------------------- */
+/* ---- header: one ⋯ button (memory, read aloud, new chat) ------------------------------------- */
 
-/* The memory count is information, not an alert: neutral grey instead of red. */
-.assistant-tools .badge-count.asst-badge {
-  background: var(--text-2);
-  color: var(--bg);
-  font-variant-numeric: tabular-nums;
+.asst-tools { position: relative; }
+.asst-tools > .icon-btn { width: 44px; height: 44px; }
+.asst-menu.is-down {
+  top: calc(100% + 8px);
+  bottom: auto;
+  left: auto;
+  right: 0;
+  width: min(300px, calc(100vw - 32px));
+  transform-origin: calc(100% - 22px) 0;
+  animation-name: asst-menu-down;
 }
+@keyframes asst-menu-down { from { opacity: 0; transform: translateY(-8px) scale(0.9); } }
+.asst-menu-icon.is-memory { background: var(--accent-soft); color: var(--accent); }
+.asst-menu-icon.is-speak { background: var(--surface-2); color: var(--text); }
+.asst-menu-icon.is-new { background: var(--success-soft); color: var(--success); }
+.asst-menu-item.is-checked .asst-menu-icon.is-speak { background: var(--accent); color: var(--on-accent); }
+.asst-menu-check { flex-shrink: 0; margin-left: auto; color: var(--accent); }
+.asst-menu-item:disabled { opacity: 0.45; }
 @media (max-width: 639px) {
   .assistant-header .page-subtitle { display: none; }
 }
 
 /* ---- welcome ------------------------------------------------------------------------------- */
 
+.chat-welcome > p { font-size: 15px; line-height: 1.45; max-width: 40ch; }
 .chat-welcome .suggestion span { line-height: 1.3; }
+
+/* "Not sure what to ask?": one dismissible line above the composer for the first few messages. */
+.asst-tip {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto 8px;
+  padding: 0 2px 0 4px;
+  border-radius: 999px;
+  background: var(--glass-bg-strong, var(--surface));
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border, var(--border));
+  box-shadow: var(--glass-highlight, none), var(--glass-shadow, var(--shadow-md));
+  animation: rise 0.25s var(--ease);
+}
+.asst-tip-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 6px 0 10px;
+  border-radius: 999px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+}
+.asst-tip-text .icon { color: var(--accent); }
+.asst-tip-text span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asst-tip-text:disabled { opacity: 0.6; }
+.asst-tip-close { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 999px; color: var(--text-3); }
+@media (hover: hover) {
+  .asst-tip-text:hover:not(:disabled), .asst-tip-close:hover { background: var(--surface-2); }
+}
+
+/* ---- memory sheet ----------------------------------------------------------------------------- */
+
+.asst-memories li { align-items: center; font-size: 16px; line-height: 1.4; padding: 8px 0; }
+.asst-memories .asst-forget { flex-shrink: 0; width: 40px; height: 40px; margin: -4px -8px -4px 0; color: var(--text-3); }
+@media (hover: hover) {
+  .asst-memories .asst-forget:hover { color: var(--danger); }
+}
 .asst-hint {
   display: inline-flex;
   align-items: center;
@@ -216,12 +275,16 @@
   pointer-events: none;
 }
 
-/* The attachment tray makes the composer taller: keep the newest message clear of it. */
+/* The attachment tray (or the tip above the bar) makes the dock taller: keep the newest message clear of it. */
 .assistant:has(.composer.has-attachments) .chat-end {
   scroll-margin-bottom: calc(var(--nav-h) + var(--safe-bottom) + 170px + var(--gymw-pill-space, 0px));
 }
+.assistant:has(.asst-tip) .chat-end {
+  scroll-margin-bottom: calc(var(--nav-h) + var(--safe-bottom) + 150px + var(--gymw-pill-space, 0px));
+}
 @media (min-width: 900px) {
   .assistant:has(.composer.has-attachments) .chat-end { scroll-margin-bottom: 176px; }
+  .assistant:has(.asst-tip) .chat-end { scroll-margin-bottom: 150px; }
 }
 
 .asst-composer-wrap { position: relative; }

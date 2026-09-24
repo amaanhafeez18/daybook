@@ -277,7 +277,7 @@ export default function WorkoutScreen({ today }) {
           <strong>{doneSets}</strong>
         </div>
         <div className="gym-wo-stat">
-          <span>Volume</span>
+          <span>Weight lifted</span>
           <strong>{formatVolume(volume, unit)}</strong>
         </div>
         {workout.isDeload && (

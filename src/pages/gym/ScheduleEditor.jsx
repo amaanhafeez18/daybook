@@ -1,6 +1,7 @@
 import { useId, useMemo, useState } from 'react'
 import Icon from '../../components/ui/Icon.jsx'
 import Sheet from '../../components/ui/Sheet.jsx'
+import Disclosure from '../../components/ui/Disclosure.jsx'
 import { confirmAction, toast } from '../../components/ui/feedback.jsx'
 import { Button, IconButton, Segmented } from '../../components/ui/primitives.jsx'
 import { WEEKDAY_SHORT } from '../../lib/dates.js'
@@ -353,26 +354,34 @@ export default function ScheduleEditor({ open, onClose, today }) {
               )}
             </section>
 
-            <section className="gym-sched-section">
-              <div className="gym-sched-field">
-                <label htmlFor={deloadId}>Deload week</label>
-                <select
-                  id={deloadId}
-                  className="input gym-sched-inline-select"
-                  value={draft.deloadEvery}
-                  onChange={(event) => update((current) => ({ ...current, deloadEvery: Number(event.target.value) }))}
-                >
-                  {[...new Set([...DELOAD_CHOICES, draft.deloadEvery])].sort((a, b) => a - b).map((weeks) => (
-                    <option key={weeks} value={weeks}>{weeks ? `Every ${weeks} weeks` : 'Off'}</option>
-                  ))}
-                </select>
-              </div>
-              <p className="gym-sched-hint gym-sched-field-hint">
-                {draft.deloadEvery
-                  ? `Every ${ordinal(draft.deloadEvery)} week is lighter: half the sets and 10% less weight, to recover.`
-                  : 'A regular lighter week (half the sets, 10% less weight) helps you recover and keep progressing.'}
-              </p>
-            </section>
+            <Disclosure
+              id="gym-schedule-deload"
+              label="Deload weeks"
+              summary={draft.deloadEvery ? `Every ${draft.deloadEvery} weeks` : 'Off'}
+              hasValues={draft.deloadEvery > 0}
+              className="gym-disclosure"
+            >
+              <section className="gym-sched-section">
+                <div className="gym-sched-field">
+                  <label htmlFor={deloadId}>Deload every</label>
+                  <select
+                    id={deloadId}
+                    className="input gym-sched-inline-select"
+                    value={draft.deloadEvery}
+                    onChange={(event) => update((current) => ({ ...current, deloadEvery: Number(event.target.value) }))}
+                  >
+                    {[...new Set([...DELOAD_CHOICES, draft.deloadEvery])].sort((a, b) => a - b).map((weeks) => (
+                      <option key={weeks} value={weeks}>{weeks ? `${weeks} weeks` : 'Off'}</option>
+                    ))}
+                  </select>
+                </div>
+                <p className="gym-sched-hint gym-sched-field-hint">
+                  {draft.deloadEvery
+                    ? `Every ${ordinal(draft.deloadEvery)} week is lighter: half the sets and 10% less weight, to recover.`
+                    : 'A regular lighter week (half the sets, 10% less weight) helps you recover and keep progressing.'}
+                </p>
+              </section>
+            </Disclosure>
 
             <button type="button" className="wiz-sched-link" onClick={openWizard}>
               <Icon name="wand" size={20} />

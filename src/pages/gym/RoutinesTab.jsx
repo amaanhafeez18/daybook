@@ -13,7 +13,7 @@ import {
 import { estimateMinutes } from '../../lib/gym/stats.js'
 import { navigate } from '../../lib/router.js'
 import { useStore } from '../../lib/store.js'
-import { GymEmpty, RoutineChip, RoutineDot, SectionHeader } from './common.jsx'
+import { ActionSheet, GymEmpty, RoutineChip, RoutineDot, SectionHeader, useSheetTarget } from './common.jsx'
 import ScheduleEditor from './ScheduleEditor.jsx'
 import SplitWizard from './SplitWizard.jsx'
 import { beginWorkout } from './startWorkout.js'
@@ -58,35 +58,8 @@ export async function removeRoutine(routine, today) {
   return true
 }
 
-// iOS-style action sheet: a titled sheet with one grouped list of actions.
-export function ActionSheet({ open, onClose, title, description, actions }) {
-  return (
-    <Sheet open={open} onClose={onClose} title={title} description={description} size="sm" initialFocus={false}>
-      <div className="gym-as-list">
-        {actions.filter(Boolean).map((action) => (
-          <button
-            key={action.id}
-            type="button"
-            className={`gym-as-row${action.danger ? ' is-danger' : ''}`}
-            disabled={action.disabled}
-            aria-current={action.checked ? 'true' : undefined}
-            onClick={() => {
-              onClose()
-              action.onClick()
-            }}
-          >
-            {action.icon && <Icon name={action.icon} size={20} />}
-            <span className="gym-as-label">
-              {action.label}
-              {action.hint && <small>{action.hint}</small>}
-            </span>
-            {action.checked && <Icon name="check" size={18} strokeWidth={2.4} className="gym-as-check" />}
-          </button>
-        ))}
-      </div>
-    </Sheet>
-  )
-}
+// The ⋯ action sheet and its state hook live in common.jsx; re-exported for the routine editor.
+export { ActionSheet, useSheetTarget }
 
 // ---- tab -----------------------------------------------------------------------------------------
 
@@ -99,14 +72,6 @@ function readCollapsed() {
   } catch {
     return []
   }
-}
-
-// Sheet state that keeps its target while the sheet animates closed, so its content doesn't blank out.
-export function useSheetTarget() {
-  const [state, setState] = useState({ open: false, target: null })
-  const show = (target) => setState({ open: true, target })
-  const hide = () => setState((current) => (current.open ? { ...current, open: false } : current))
-  return [state, show, hide]
 }
 
 // Ungrouped routines first, then one group per folder (a routine whose folder is gone is ungrouped).
@@ -225,10 +190,15 @@ export default function RoutinesTab({ today }) {
         onClose={hideMenu}
         title={menu.target ? routineName(menu.target) : ''}
         actions={menu.target ? [
-          { id: 'duplicate', label: 'Duplicate', icon: 'copy', onClick: () => duplicate(menu.target) },
-          { id: 'move', label: 'Move to folder…', icon: 'layers', onClick: () => showMove(menu.target) },
-          routines.length > 1 && { id: 'reorder', label: 'Reorder routines', icon: 'arrowDown', onClick: () => setReordering(true) },
-          { id: 'delete', label: 'Delete routine', icon: 'trash', danger: true, onClick: () => removeRoutine(menu.target, today) },
+          [
+            { id: 'edit', label: 'Edit routine', icon: 'pencil', hint: 'Exercises, sets and targets', onClick: () => navigate(`gym/routine/${encodeURIComponent(menu.target.id)}`) },
+            { id: 'duplicate', label: 'Duplicate', icon: 'copy', hint: 'A copy you can change, like a variation', onClick: () => duplicate(menu.target) },
+          ],
+          [
+            { id: 'move', label: 'Move to folder…', icon: 'layers', onClick: () => showMove(menu.target) },
+            routines.length > 1 && { id: 'reorder', label: 'Reorder routines', icon: 'arrowDown', onClick: () => setReordering(true) },
+          ],
+          [{ id: 'delete', label: 'Delete routine', icon: 'trash', danger: true, onClick: () => removeRoutine(menu.target, today) }],
         ] : []}
       />
       <ActionSheet
@@ -303,8 +273,7 @@ export default function RoutinesTab({ today }) {
 
       {!reordering && (
         <div className="gym-rt-new">
-          <Button icon="plus" onClick={() => navigate('gym/routine/new')}>New routine</Button>
-          <Button variant="secondary" icon="layers" onClick={() => showFolderEdit({ folder: null })}>New folder</Button>
+          <Button icon="plus" className="btn-block" onClick={() => navigate('gym/routine/new')}>New routine</Button>
         </div>
       )}
 
@@ -378,7 +347,7 @@ export default function RoutinesTab({ today }) {
         )
       })}
 
-      {!reordering && <MoreLinks onTemplates={() => setTemplatesOpen(true)} />}
+      {!reordering && <MoreLinks onTemplates={() => setTemplatesOpen(true)} onFolder={() => showFolderEdit({ folder: null })} />}
 
       {sheets}
     </div>
@@ -386,8 +355,8 @@ export default function RoutinesTab({ today }) {
 }
 
 // The foot of the tab: the exercise library (no longer a tab of its own) and, once there are
-// routines, templates to add more.
-function MoreLinks({ onTemplates }) {
+// routines, templates to add more and folders to group them.
+function MoreLinks({ onTemplates, onFolder }) {
   return (
     <ul className="card-list gym-br-links">
       <li>
@@ -404,7 +373,22 @@ function MoreLinks({ onTemplates }) {
         <li>
           <button type="button" className="gym-as-row" onClick={onTemplates}>
             <Icon name="layers" size={20} />
-            <span className="gym-as-label">Add routines from a template</span>
+            <span className="gym-as-label">
+              Add routines from a template
+              <small>Ready-made routines and a schedule</small>
+            </span>
+            <Icon name="chevronRight" size={18} className="gym-br-chevron" />
+          </button>
+        </li>
+      )}
+      {onFolder && (
+        <li>
+          <button type="button" className="gym-as-row" onClick={onFolder}>
+            <Icon name="plus" size={20} />
+            <span className="gym-as-label">
+              New folder
+              <small>Keep related routines together, like a program</small>
+            </span>
             <Icon name="chevronRight" size={18} className="gym-br-chevron" />
           </button>
         </li>
@@ -440,10 +424,7 @@ function RoutineCard({ routine, today, lastDate, upNext, onStart, onMenu }) {
           {lastDate ? `Last done ${timeAgo(lastDate, today)}` : 'Not done yet'}
         </span>
         <div className="gym-rt-card-actions">
-          <button type="button" className="btn btn-secondary btn-sm gym-rt-edit" onClick={edit} aria-label={`Edit ${name}`} title="Edit">
-            <Icon name="pencil" size={16} />
-          </button>
-          <button type="button" className="btn btn-primary btn-sm" onClick={onStart}>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={onStart}>
             <Icon name="play" size={15} strokeWidth={2.2} />
             Start
             <span className="sr-only"> {name}</span>

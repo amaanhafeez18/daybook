@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import Icon from '../../components/ui/Icon.jsx'
+import Disclosure from '../../components/ui/Disclosure.jsx'
 import { confirmAction, toast } from '../../components/ui/feedback.jsx'
 import { AutoTextarea, Button, Field, IconButton, Skeleton } from '../../components/ui/primitives.jsx'
 import { MUSCLES, TRACKING, exerciseById, newRoutineExercise } from '../../lib/gym/library.js'
@@ -448,6 +449,8 @@ function Editor({ param, today }) {
   if (menuRow) lastMenuName.current = exerciseName(menuRow)
   const pickerRow = picker.mode === 'replace' ? rows.find((row) => row.id === picker.rowId) : null
   const distanceUnit = prefs.distanceUnit === 'mi' ? 'mi' : 'km'
+  const draftColor = ROUTINE_COLORS.find((color) => color.id === draft.color) || ROUTINE_COLORS[0]
+  const draftFolder = gym.folders.find((folder) => folder.id === draft.folderId) || null
 
   return (
     <div className="gym-re">
@@ -458,7 +461,7 @@ function Editor({ param, today }) {
       </header>
 
       <section className="card gym-re-details" aria-label="Routine details">
-        <Field label="Name" hint={!canSave && dirty ? 'Give it a name to save it.' : undefined}>
+        <Field label="Name" hint={!canSave && (dirty || isNew) ? 'Give it a name to save it.' : undefined}>
           {(id) => (
             <input
               id={id}
@@ -476,58 +479,72 @@ function Editor({ param, today }) {
           )}
         </Field>
 
-        <div className="field">
-          <span className="field-label" id={colorLabelId}>Colour</span>
-          <div className="gym-re-swatches" role="radiogroup" aria-labelledby={colorLabelId}>
-            {ROUTINE_COLORS.map((color) => {
-              const checked = draft.color === color.id
-              return (
-                <button
-                  key={color.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={checked}
-                  aria-label={color.label}
-                  title={color.label}
-                  className="gym-re-swatch"
-                  style={{ '--gym-sw': color.value }}
-                  onClick={() => setDraft((current) => ({ ...current, color: color.id }))}
-                >
-                  <span className="gym-re-swatch-dot"><Icon name="check" size={16} strokeWidth={3} /></span>
-                </button>
-              )
-            })}
+        <Disclosure
+          id="routine-details"
+          label="Colour, folder & notes"
+          className="gym-disclosure"
+          hasValues={!!draft.notes.trim() || !!draftFolder}
+          summary={(
+            <>
+              <span className="gym-disclosure-dot" style={{ '--gym-dot': draftColor.value }} aria-hidden="true" />
+              {[draftColor.label, draftFolder?.name, draft.notes.trim() ? 'Notes' : null].filter(Boolean).join(' · ')}
+            </>
+          )}
+        >
+          <div className="field">
+            <span className="field-label" id={colorLabelId}>Colour</span>
+            <div className="gym-re-swatches" role="radiogroup" aria-labelledby={colorLabelId}>
+              {ROUTINE_COLORS.map((color) => {
+                const checked = draft.color === color.id
+                return (
+                  <button
+                    key={color.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={checked}
+                    aria-label={color.label}
+                    title={color.label}
+                    className="gym-re-swatch"
+                    style={{ '--gym-sw': color.value }}
+                    onClick={() => setDraft((current) => ({ ...current, color: color.id }))}
+                  >
+                    <span className="gym-re-swatch-dot"><Icon name="check" size={16} strokeWidth={3} /></span>
+                  </button>
+                )
+              })}
+            </div>
+            <p className="field-hint">Shows on the calendar and the routine’s days.</p>
           </div>
-        </div>
 
-        {gym.folders.length > 0 && (
-          <Field label="Folder">
+          {gym.folders.length > 0 && (
+            <Field label="Folder" hint="Folders keep related routines together on the Routines tab.">
+              {(id) => (
+                <select
+                  id={id}
+                  className="input"
+                  value={draftFolder ? draft.folderId : ''}
+                  onChange={(event) => setDraft((current) => ({ ...current, folderId: event.target.value || null }))}
+                >
+                  <option value="">No folder</option>
+                  {gym.folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}
+                </select>
+              )}
+            </Field>
+          )}
+
+          <Field label="Notes">
             {(id) => (
-              <select
+              <AutoTextarea
                 id={id}
-                className="input"
-                value={gym.folders.some((folder) => folder.id === draft.folderId) ? draft.folderId : ''}
-                onChange={(event) => setDraft((current) => ({ ...current, folderId: event.target.value || null }))}
-              >
-                <option value="">No folder</option>
-                {gym.folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}
-              </select>
+                value={draft.notes}
+                onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))}
+                placeholder="Focus, cues, anything to remember"
+                minRows={2}
+                maxRows={8}
+              />
             )}
           </Field>
-        )}
-
-        <Field label="Notes">
-          {(id) => (
-            <AutoTextarea
-              id={id}
-              value={draft.notes}
-              onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))}
-              placeholder="Focus, cues, anything to remember"
-              minRows={2}
-              maxRows={8}
-            />
-          )}
-        </Field>
+        </Disclosure>
       </section>
 
       <SectionHeader
@@ -627,13 +644,17 @@ function Editor({ param, today }) {
         onClose={hideRowMenu}
         title={lastMenuName.current}
         actions={menuRow ? [
-          { id: 'replace', label: 'Replace exercise', icon: 'shuffle', hint: 'Keeps the sets when it’s tracked the same way', onClick: () => setPicker({ open: true, mode: 'replace', rowId: menuRow.id }) },
-          menuLinked
-            ? { id: 'unlink', label: 'Unlink from next', icon: 'link', hint: `Ends the superset before ${exerciseName(menuNext)}`, onClick: () => toggleLink(menuRow.id) }
-            : { id: 'link', label: 'Superset with next', icon: 'link', disabled: !menuNext, hint: menuNext ? `Alternate with ${exerciseName(menuNext)}, resting after the round` : 'Add another exercise below it first', onClick: () => toggleLink(menuRow.id) },
-          { id: 'up', label: 'Move up', icon: 'arrowUp', disabled: menuIndex <= 0, onClick: () => moveRow(menuRow.id, -1) },
-          { id: 'down', label: 'Move down', icon: 'arrowDown', disabled: !menuNext, onClick: () => moveRow(menuRow.id, 1) },
-          { id: 'remove', label: 'Remove exercise', icon: 'trash', danger: true, onClick: () => removeRow(menuRow.id) },
+          [
+            { id: 'replace', label: 'Replace exercise', icon: 'shuffle', hint: 'Keeps the sets when it’s tracked the same way', onClick: () => setPicker({ open: true, mode: 'replace', rowId: menuRow.id }) },
+            menuLinked
+              ? { id: 'unlink', label: 'Unlink from next', icon: 'link', hint: `Ends the superset before ${exerciseName(menuNext)}`, onClick: () => toggleLink(menuRow.id) }
+              : { id: 'link', label: 'Superset with next', icon: 'link', disabled: !menuNext, hint: menuNext ? `Alternate with ${exerciseName(menuNext)}, no rest in between` : 'Add another exercise below it first', onClick: () => toggleLink(menuRow.id) },
+          ],
+          [
+            { id: 'up', label: 'Move up', icon: 'arrowUp', disabled: menuIndex <= 0, onClick: () => moveRow(menuRow.id, -1) },
+            { id: 'down', label: 'Move down', icon: 'arrowDown', disabled: !menuNext, onClick: () => moveRow(menuRow.id, 1) },
+          ],
+          [{ id: 'remove', label: 'Remove exercise', icon: 'trash', danger: true, onClick: () => removeRow(menuRow.id) }],
         ] : []}
       />
     </div>
@@ -673,32 +694,39 @@ function ExerciseCard({ row, group, muscles, unit, distanceUnit, showRpe, defaul
         <IconButton icon="more" label={`Options for ${name}`} className="gym-re-ex-more" onClick={onMenu} />
       </header>
 
-      <AutoTextarea
-        className="gym-re-note"
-        value={row.note || ''}
-        onChange={(event) => onChange((current) => ({ ...current, note: event.target.value }))}
-        placeholder="Add a note"
-        aria-label={`Note for ${name}`}
-        minRows={1}
-        maxRows={5}
-      />
-
-      <div className="gym-re-rest">
-        <Icon name="timer" size={18} />
-        <span className="gym-re-rest-label" id={`rest-${row.id}`}>Rest timer</span>
-        <div className="gym-re-stepper" role="group" aria-labelledby={`rest-${row.id}`}>
-          <IconButton icon="minus" size={16} label="Less rest" disabled={rest <= 0} onClick={() => stepRest(-1)} />
-          <output aria-live="off">{rest > 0 ? formatDuration(rest) : 'Off'}</output>
-          <IconButton icon="plus" size={16} label="More rest" disabled={rest >= REST_MAX} onClick={() => stepRest(1)} />
-        </div>
-      </div>
-
       <SetsTable row={row} unit={unit} distanceUnit={distanceUnit} showRpe={showRpe} onSets={setSets} />
 
       <button type="button" className="gym-re-addset" onClick={addSet}>
         <Icon name="plus" size={16} strokeWidth={2.2} />
         Add set
       </button>
+
+      <Disclosure
+        id="routine-exercise-extras"
+        label="Rest & note"
+        className="gym-disclosure gym-re-extras"
+        hasValues={!!row.note?.trim()}
+        summary={`Rest ${rest > 0 ? formatDuration(rest) : 'off'}${row.note?.trim() ? ' · Note' : ''}`}
+      >
+        <div className="gym-re-rest">
+          <Icon name="timer" size={18} />
+          <span className="gym-re-rest-label" id={`rest-${row.id}`}>Rest after each set</span>
+          <div className="gym-re-stepper" role="group" aria-labelledby={`rest-${row.id}`}>
+            <IconButton icon="minus" size={16} label="Less rest" disabled={rest <= 0} onClick={() => stepRest(-1)} />
+            <output aria-live="off">{rest > 0 ? formatDuration(rest) : 'Off'}</output>
+            <IconButton icon="plus" size={16} label="More rest" disabled={rest >= REST_MAX} onClick={() => stepRest(1)} />
+          </div>
+        </div>
+        <AutoTextarea
+          className="gym-re-note"
+          value={row.note || ''}
+          onChange={(event) => onChange((current) => ({ ...current, note: event.target.value }))}
+          placeholder="Note, like seat height or grip"
+          aria-label={`Note for ${name}`}
+          minRows={1}
+          maxRows={5}
+        />
+      </Disclosure>
     </article>
   )
 }

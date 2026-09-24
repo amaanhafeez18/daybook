@@ -14,8 +14,8 @@ import '../../components/food-quick.css'
 
 // The Food page's quick-add bar, pinned above the tab bar: describe food (Enter runs the AI
 // estimate; a barcode number is looked up), a photo (of the food or of a barcode), or a voice
-// note. Focusing it opens a tray above with Suggested · Recent · Favorites (one tap logs, with
-// Undo), a meal picker, and links to manual entry / quick calories. While typing, the tray shows
+// note. Focusing it opens a tray above with Suggested · Recent · My foods (one tap logs, with
+// Undo), a meal picker, and links to "Add by hand" / quick calories. While typing, the tray shows
 // matching foods you've logged or saved before (a barcode number matches saved barcodes).
 
 // The camera button: a small menu with "Photo of food" and "Scan barcode" (both open the same
@@ -78,7 +78,7 @@ export function CameraChoice({ onPick, onOpen, disabled = false, preparing = fal
 const TABS = [
   { id: 'suggested', label: 'Suggested' },
   { id: 'recent', label: 'Recent' },
-  { id: 'favorites', label: 'Favorites' },
+  { id: 'favorites', label: 'My foods' },
 ]
 
 // Logs a recent, suggestion or favorite with its last portion. Returns the undo.
@@ -225,7 +225,7 @@ export default function QuickAddBar({ date, today, meal, mealChosen = false, onM
   const emptyText = {
     suggested: 'Foods you log often at this time show up here.',
     recent: 'Foods you’ve logged in the last 90 days show up here.',
-    favorites: 'Tap the star when adding a food to keep it here. Labels, barcodes and web lookups you save show up here too.',
+    favorites: 'Foods you save show up here: tap the star on a food, or keep a label, barcode or web lookup when you log it.',
   }[tab]
 
   return (
@@ -236,7 +236,7 @@ export default function QuickAddBar({ date, today, meal, mealChosen = false, onM
             <span className="food-tray-to">Add to</span>
             <MealSelect meals={meals} value={meal} onChange={onMealChange} />
             <span className="food-tray-links">
-              <button type="button" className="food-tray-link" onClick={() => { setTrayOpen(false); onManual({ name: text.trim() }) }}>Manual entry</button>
+              <button type="button" className="food-tray-link" onClick={() => { setTrayOpen(false); onManual({ name: text.trim() }) }}>Add by hand</button>
               <button type="button" className="food-tray-link" onClick={() => { setTrayOpen(false); onManual({ quick: true }) }}>Quick calories</button>
             </span>
           </div>

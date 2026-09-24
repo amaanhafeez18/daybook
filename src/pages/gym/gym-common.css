@@ -157,8 +157,9 @@
   padding: 12px 14px; border-radius: 20px; background: var(--card-bg, var(--surface));
 }
 .gym-stat-label { font-size: 13px; font-weight: 600; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Scales down a little on phones so a big total ("148,556 lb") stays on one line in a half-width tile. */
 .gym-stat-value {
-  font-family: var(--font-display, var(--font)); font-size: 28px; font-weight: 700; line-height: 1.15;
+  font-family: var(--font-display, var(--font)); font-size: clamp(22px, 6.8vw, 28px); font-weight: 700; line-height: 1.15;
   letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--text); overflow-wrap: anywhere;
 }
 .gym-stat-sub { font-size: 13px; color: var(--text-2); }
@@ -169,3 +170,39 @@
 .gym-section-header > :not(h2) { flex-shrink: 0; }
 
 .gym-empty .empty-state { padding: 32px 16px; }
+
+/* ---- action sheet rows (common.jsx ActionSheet; also used as plain grouped lists) ------------ */
+
+.gym-as-groups { display: flex; flex-direction: column; gap: 12px; }
+.gym-as-list { display: flex; flex-direction: column; overflow: hidden; border-radius: 18px; background: var(--card-bg); }
+.gym-as-row {
+  position: relative; display: flex; align-items: center; gap: 14px; width: 100%;
+  min-height: 52px; padding: 10px 16px; text-align: left; color: var(--text); font-size: 17px;
+  transition: background 0.15s;
+}
+.gym-as-row + .gym-as-row::before {
+  content: ''; position: absolute; top: 0; left: 50px; right: 0; height: 1px;
+  background: var(--separator, var(--border)); transform: scaleY(0.5); transform-origin: top; pointer-events: none;
+}
+.gym-as-row > .icon { color: var(--accent); }
+.gym-as-row.is-danger, .gym-as-row.is-danger > .icon { color: var(--danger); }
+.gym-as-row:disabled { cursor: default; }
+.gym-as-row:disabled > * { opacity: 0.4; }
+.gym-as-row:active:not(:disabled) { background: var(--surface-2); }
+@media (hover: hover) { .gym-as-row:hover:not(:disabled) { background: var(--surface-2); } }
+.gym-as-label { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; overflow-wrap: anywhere; }
+.gym-as-label small { font-size: 13px; color: var(--text-2); letter-spacing: -0.005em; }
+.gym-as-row.is-danger .gym-as-label small { color: var(--text-2); }
+.gym-as-value { flex-shrink: 0; font-size: 16px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.gym-as-check { color: var(--accent); flex-shrink: 0; }
+/* Inside a sheet (a near-white glass panel in light mode) grouped lists use the grey fill. */
+.sheet .gym-as-list { background: var(--surface-2); }
+.sheet .gym-as-row:active:not(:disabled) { background: var(--surface-3); }
+@media (hover: hover) { .sheet .gym-as-row:hover:not(:disabled) { background: var(--surface-3); } }
+
+/* ---- "More options" disclosures inside gym cards and sheets ---------------------------------- */
+
+.gym-disclosure .disclosure-toggle { padding-left: 4px; padding-right: 4px; }
+.gym-disclosure .disclosure-summary { display: inline-flex; align-items: center; gap: 6px; }
+.gym-disclosure .disclosure-body { padding-top: 2px; }
+.gym-disclosure-dot { display: inline-block; flex-shrink: 0; width: 10px; height: 10px; border-radius: 50%; background: var(--gym-dot, var(--gym-c-none)); }

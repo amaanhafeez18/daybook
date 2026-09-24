@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import Icon, { BrandMark } from './ui/Icon.jsx'
-import { Button, Field, PasswordInput, Segmented } from './ui/primitives.jsx'
+import { Button, Field, PasswordInput } from './ui/primitives.jsx'
 import { authRequest } from '../lib/api.js'
 import { currentSubscription } from '../lib/notifications.js'
+import './auth.css'
 
 export const RECOVERY_QUESTIONS = [
   'What was the name of your first pet?',
@@ -20,6 +21,8 @@ const FEATURES = [
 
 const EMPTY = { username: '', password: '', question: RECOVERY_QUESTIONS[0], customQuestion: '', answer: '', newPassword: '' }
 
+// One screen, one thing to do at a time: log in (the default), create an account, or get back in
+// with the recovery question. Each mode has a single primary button; switching is a plain link.
 export default function AuthScreen({ onAuthenticated }) {
   const [mode, setMode] = useState('login') // login | signup | forgot | reset
   const [form, setForm] = useState(EMPTY)
@@ -68,6 +71,12 @@ export default function AuthScreen({ onAuthenticated }) {
   }
 
   const isRecovery = mode === 'forgot' || mode === 'reset'
+  const heading = {
+    login: ['Welcome back', 'Log in to pick up where you left off.'],
+    signup: ['Create your account', 'A username, a password, and a way back in if you forget it.'],
+    forgot: ['Forgot your password?', 'Enter your username to see your recovery question.'],
+    reset: ['Answer your question', 'Then choose a new password.'],
+  }[mode]
 
   return (
     <div className="auth">
@@ -99,33 +108,17 @@ export default function AuthScreen({ onAuthenticated }) {
             <span>Daybook</span>
           </div>
 
-          {isRecovery ? (
-            <div className="auth-heading">
+          <div className="auth-heading">
+            {isRecovery && (
               <button type="button" className="icon-btn auth-back" onClick={() => switchMode('login')} aria-label="Back to log in">
                 <Icon name="chevronLeft" />
               </button>
-              <div>
-                <h2>{mode === 'forgot' ? 'Reset your password' : 'Answer your question'}</h2>
-                <p>{mode === 'forgot' ? 'Enter your username to see your recovery question.' : 'Then choose a new password.'}</p>
-              </div>
+            )}
+            <div>
+              <h2>{heading[0]}</h2>
+              <p>{heading[1]}</p>
             </div>
-          ) : (
-            <>
-              <div className="auth-heading">
-                <div>
-                  <h2>{mode === 'login' ? 'Welcome back' : 'Create your account'}</h2>
-                  <p>{mode === 'login' ? 'Log in to pick up where you left off.' : 'It takes less than a minute.'}</p>
-                </div>
-              </div>
-              <Segmented
-                className="auth-switch"
-                options={[{ id: 'login', label: 'Log in' }, { id: 'signup', label: 'Sign up' }]}
-                value={mode}
-                onChange={switchMode}
-                label="Account"
-              />
-            </>
-          )}
+          </div>
 
           <form className="form-stack" onSubmit={submit} noValidate>
             {mode !== 'reset' && (
@@ -155,8 +148,8 @@ export default function AuthScreen({ onAuthenticated }) {
 
             {mode === 'signup' && (
               <fieldset className="auth-recovery">
-                <legend>Password recovery</legend>
-                <p className="field-hint">If you forget your password, you’ll answer this to reset it.</p>
+                <legend>If you forget your password</legend>
+                <p className="field-hint auth-recovery-hint">There’s no email on file, so you’ll answer this question to get back in.</p>
                 <Field label="Recovery question">
                   {(id) => (
                     <select id={id} className="input" value={form.question} onChange={set('question')}>
@@ -200,7 +193,7 @@ export default function AuthScreen({ onAuthenticated }) {
               </div>
             )}
 
-            <Button type="submit" size="lg" loading={busy} className="btn-block">
+            <Button type="submit" size="lg" loading={busy} className="btn-block auth-submit">
               {mode === 'login' && 'Log in'}
               {mode === 'signup' && 'Create account'}
               {mode === 'forgot' && 'Continue'}
@@ -209,7 +202,15 @@ export default function AuthScreen({ onAuthenticated }) {
           </form>
 
           {mode === 'login' && (
-            <button type="button" className="link-btn auth-forgot" onClick={() => switchMode('forgot')}>Forgot password?</button>
+            <div className="auth-links">
+              <button type="button" className="link-btn auth-forgot" onClick={() => switchMode('forgot')}>Forgot password?</button>
+              <p className="auth-switch">New to Daybook? <button type="button" className="link-btn" onClick={() => switchMode('signup')}>Create an account</button></p>
+            </div>
+          )}
+          {mode === 'signup' && (
+            <div className="auth-links">
+              <p className="auth-switch">Already have an account? <button type="button" className="link-btn" onClick={() => switchMode('login')}>Log in</button></p>
+            </div>
           )}
         </div>
       </main>

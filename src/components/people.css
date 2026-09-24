@@ -196,21 +196,57 @@
 }
 .ppl-show-all:active { background: var(--surface-2); }
 
-/* ---- Add form: "More details" disclosure ------------------------------------------------------ */
-.ppl-more {
-  align-self: flex-start;
-  display: inline-flex;
+/* ---- the person form ---------------------------------------------------------------------------- */
+/* "Close friend · Friend · Acquaintance" on one line in a phone-width sheet (the usual 12px
+   padding wraps "Close friend" onto two lines at 375px). */
+.ppl-form .segmented button { padding: 0 8px; }
+/* Birthday and workplace side by side only where a date field has room to show its whole value. */
+@media (max-width: 479px) {
+  .ppl-form .field-row { grid-template-columns: minmax(0, 1fr); }
+}
+/* "More options" sits flush with the fields; its body keeps the form's spacing. */
+.ppl-form > .disclosure { margin-top: -6px; }
+.ppl-form > .disclosure .disclosure-body { gap: 16px; padding-top: 6px; }
+/* Why Save / Add is disabled, next to it in the footer. */
+.ppl-footer-hint { flex: 1 1 100%; order: -1; font-size: 13px; color: var(--text-2); text-align: center; }
+@media (min-width: 640px) {
+  .ppl-footer-hint { flex: 1; order: 0; align-self: center; text-align: left; }
+}
+
+/* ---- ⋯ menu in the person sheet ----------------------------------------------------------------- */
+.sheet-footer .ppl-menu-btn { width: 46px; height: 46px; flex-shrink: 0; border-radius: 50%; background: var(--surface-2); color: var(--text); }
+.ppl-actions { display: flex; flex-direction: column; margin: -4px 0 0; }
+.ppl-action {
+  display: flex;
   align-items: center;
-  gap: 4px;
-  min-height: 44px;
-  margin: -8px 0 -6px;
-  padding: 0 4px;
-  border-radius: 10px;
-  color: var(--accent);
+  gap: 14px;
+  width: 100%;
+  min-height: 52px;
+  padding: 0 8px;
+  border-radius: 14px;
+  color: var(--text);
   font-size: 17px;
   letter-spacing: -0.02em;
+  text-align: left;
 }
-.ppl-more:active { opacity: 0.6; }
+.ppl-action .icon { color: var(--accent); }
+.ppl-action.is-danger, .ppl-action.is-danger .icon { color: var(--danger); }
+.ppl-action:active { background: var(--surface-2); }
+.ppl-actions li + li .ppl-action { position: relative; }
+.ppl-actions li + li .ppl-action::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 42px;
+  right: 8px;
+  height: 1px;
+  background: var(--separator, var(--border));
+  transform: scaleY(0.5);
+  pointer-events: none;
+}
+@media (hover: hover) {
+  .ppl-action:hover { background: var(--surface-2); }
+}
 
 /* ---- catch-up sheet ----------------------------------------------------------------------------- */
 .ppl-catch-up .textarea { min-height: 76px; }

@@ -1,12 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
+import Icon from './ui/Icon.jsx'
 import Sheet from './ui/Sheet.jsx'
+import Disclosure from './ui/Disclosure.jsx'
 import { Button, Field } from './ui/primitives.jsx'
 import { toast } from './ui/feedback.jsx'
 import { classSchedule, deleteClass, saveClass } from '../lib/planner.js'
-import { formatTime, timeToMinutes } from '../lib/dates.js'
+import { formatDateShort, formatTime, timeToMinutes } from '../lib/dates.js'
+import './class-sheet.css'
 
 // Add a class (item = {}) or edit one (item = the class record); item = null closes the sheet.
 // Opened from Settings, the Today card and the calendar agenda.
+// Name, days and one time per day show first; rooms, extra times on a day and the last day of
+// classes sit behind "More options" (open by itself once any of them is set).
 
 const DAY_ORDER = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
@@ -50,7 +55,8 @@ export default function ClassSheet({ item, onClose }) {
   }, [open, editing?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const hasDay = (day) => slots.some((slot) => slot.day === day)
-  // A new day copies the times of the first meeting (most classes keep the same hours).
+  const chosenDays = DAY_ORDER.filter(hasDay)
+  // A new day copies the times (and room) of the first meeting: most classes keep the same hours.
   const toggleDay = (day) => setSlots((current) => {
     if (current.some((slot) => slot.day === day)) return current.filter((slot) => slot.day !== day)
     const model = current[0] || { start: '', end: '', room: '', raw: null }
@@ -61,6 +67,18 @@ export default function ClassSheet({ item, onClose }) {
   const setSlot = (key, field, value) => setSlots((current) => current.map((slot) => (slot.key === key
     ? { ...slot, [field]: value, ...(field === 'start' || field === 'end' ? { raw: null } : {}) }
     : slot)))
+
+  // Rows in weekday order; a day with several meetings numbers them ("Thu", "Thu 2").
+  const rows = chosenDays.flatMap((day) => {
+    const times = slots.filter((slot) => slot.day === day)
+    return times.map((slot, index) => ({ slot, day, index, count: times.length }))
+  })
+  const hasExtra = rows.some((row) => row.count > 1)
+  const rooms = [...new Set(slots.map((slot) => slot.room.trim()).filter(Boolean))]
+  const summary = [
+    rooms.length ? `${rooms.length === 1 ? 'Room' : 'Rooms'} ${rooms.join(', ')}` : '',
+    endDate ? `Ends ${formatDateShort(endDate)}` : '',
+  ].filter(Boolean).join(' · ')
 
   function submit(event) {
     event.preventDefault()
@@ -88,13 +106,15 @@ export default function ClassSheet({ item, onClose }) {
     toast(`Removed ${editing.name}`, { action: { label: 'Undo', onClick: undo } })
   }
 
+  const rowLabel = ({ day, index, count }) => (count > 1 ? `${day} ${index + 1}` : day)
+
   // Only a new class starts in the name field: tapping a class row on Today or in the calendar
   // shouldn't bring up the keyboard.
   return (
     <Sheet
       open={open}
       onClose={onClose}
-      title={editing ? 'Edit class' : 'Add a class'}
+      title={editing ? 'Edit class' : 'New class'}
       initialFocus={!editing}
       footer={(
         <>
@@ -115,34 +135,71 @@ export default function ClassSheet({ item, onClose }) {
             ))}
           </div>
         </div>
-        {DAY_ORDER.filter(hasDay).map((day) => {
-          const times = slots.filter((slot) => slot.day === day)
-          return (
-            <fieldset key={day} className="slot">
-              <legend>{day}</legend>
-              {times.map((slot, index) => (
-                <div key={slot.key} className="slot-time">
-                  {times.length > 1 && (
-                    <div className="slot-time-head">
-                      <span className="field-hint">Time {index + 1}</span>
-                      <button type="button" className="link-btn" onClick={() => removeTime(slot.key)} aria-label={`Remove ${day} time ${index + 1}`}>Remove</button>
-                    </div>
-                  )}
-                  <div className="field-row field-row-3">
-                    <label className="mini-field"><span>Starts</span><input className="input" type="time" value={slot.start} onChange={(event) => setSlot(slot.key, 'start', event.target.value)} /></label>
-                    <label className="mini-field"><span>Ends</span><input className="input" type="time" value={slot.end} onChange={(event) => setSlot(slot.key, 'end', event.target.value)} /></label>
-                    <label className="mini-field"><span>Room</span><input className="input" value={slot.room} onChange={(event) => setSlot(slot.key, 'room', event.target.value)} placeholder="Optional" /></label>
+
+        {rows.length > 0 && (
+          <div className="field cs-times">
+            <span className="field-label">Times</span>
+            <div className={`cs-grid ${hasExtra ? 'has-extra' : ''}`} role="group" aria-label="Class times">
+              <span className="cs-head" aria-hidden="true" />
+              <span className="cs-head" aria-hidden="true">Starts</span>
+              <span className="cs-head" aria-hidden="true">Ends</span>
+              {hasExtra && <span className="cs-head" aria-hidden="true" />}
+              {rows.map((row) => {
+                const { slot } = row
+                const label = rowLabel(row)
+                return (
+                  <div key={slot.key} className="cs-row">
+                    <span className="cs-day">{label}</span>
+                    <input className="input" type="time" value={slot.start} onChange={(event) => setSlot(slot.key, 'start', event.target.value)} aria-label={`${label} starts`} />
+                    <input className="input" type="time" value={slot.end} onChange={(event) => setSlot(slot.key, 'end', event.target.value)} aria-label={`${label} ends`} />
+                    {hasExtra && (row.count > 1 ? (
+                      <button type="button" className="icon-btn icon-btn-sm cs-remove" onClick={() => removeTime(slot.key)} aria-label={`Remove ${label}`} title="Remove this time">
+                        <Icon name="close" size={16} />
+                      </button>
+                    ) : <span />)}
+                    {slot.raw && slot.raw !== rangeText(slot.start, slot.end) && <p className="field-hint cs-raw">Currently: {slot.raw}</p>}
                   </div>
-                  {slot.raw && slot.raw !== rangeText(slot.start, slot.end) && <p className="field-hint">Currently: {slot.raw}</p>}
-                </div>
-              ))}
-              <button type="button" className="link-btn slot-add" onClick={() => addTime(day)}>+ Add another time on {day}</button>
-            </fieldset>
-          )
-        })}
-        <Field label="Last day of classes" hint="Optional — classes stop showing after this date.">
-          {(id) => <input id={id} className="input" type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} />}
-        </Field>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        <Disclosure key={editing?.id || 'new'} id="class-more" label="More options" summary={summary} hasValues={!!summary}>
+          {rows.length > 0 ? (
+            <div className="field">
+              <span className="field-label">{rows.length === 1 ? 'Room' : 'Rooms'}</span>
+              <div className="cs-rooms">
+                {rows.map((row) => {
+                  const { slot } = row
+                  const label = rowLabel(row)
+                  const when = slot.start ? `${label} · ${formatTime(slot.start)}` : label
+                  return (
+                    <label key={slot.key} className="cs-room">
+                      {rows.length > 1 && <span className="cs-room-when">{when}</span>}
+                      <input className="input" value={slot.room} onChange={(event) => setSlot(slot.key, 'room', event.target.value)} placeholder="e.g. SEB 1200" aria-label={rows.length > 1 ? `Room for ${when}` : 'Room'} autoComplete="off" />
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+          ) : (
+            <p className="field-hint">Pick a day to set a room or extra times.</p>
+          )}
+          {chosenDays.length > 0 && (
+            <div className="field">
+              <span className="field-label">Add another time on</span>
+              <div className="chip-row">
+                {chosenDays.map((day) => (
+                  <button key={day} type="button" className="chip chip-sm" onClick={() => addTime(day)} aria-label={`Add another time on ${day}`}>+ {day}</button>
+                ))}
+              </div>
+            </div>
+          )}
+          <Field label="Last day of classes" hint="Optional — the class stops showing after this date.">
+            {(id) => <input id={id} className="input" type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} />}
+          </Field>
+        </Disclosure>
       </form>
     </Sheet>
   )

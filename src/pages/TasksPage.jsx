@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../components/ui/Icon.jsx'
+import Disclosure from '../components/ui/Disclosure.jsx'
 import { Button, EmptyState, Segmented, Skeleton } from '../components/ui/primitives.jsx'
 import { confirmAction, toast } from '../components/ui/feedback.jsx'
 import TaskRow from '../components/TaskRow.jsx'
@@ -34,7 +35,6 @@ export default function TasksPage({ loaded }) {
   const [query, setQuery] = useState('')
   const [sheet, setSheet] = useState(null) // { task?, defaults?, completeFirst?, fromDock? }
   const [linkedId, setLinkedId] = useState(linkedTaskId)
-  const [showArchived, setShowArchived] = useState(false)
   const [allArchived, setAllArchived] = useState(false)
   const [dockKey, setDockKey] = useState(0) // bumping it empties the quick-add
   const today = todayISO()
@@ -116,7 +116,7 @@ export default function TasksPage({ loaded }) {
     if (ok) deleteTaskForever(task.id)
   }
 
-  const archivedOpen = showArchived || !!query.trim()
+  const searching = !!query.trim()
   const archivedShown = allArchived ? archived : archived.slice(0, ARCHIVED_SHOWN)
 
   return (
@@ -130,11 +130,11 @@ export default function TasksPage({ loaded }) {
           <Button icon="plus" onClick={() => setSheet({})}>New task</Button>
         </header>
 
-        <div className="toolbar">
+        <div className="toolbar tk-toolbar">
           <Segmented options={VIEWS.map((item) => ({ ...item, label: item.id === 'done' && done.length ? `${item.label} · ${done.length}` : item.label }))} value={view} onChange={setView} label="Show" />
           <label className="search-field">
             <Icon name="search" size={18} />
-            <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search" aria-label="Search tasks" />
+            <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search tasks" aria-label="Search tasks" />
           </label>
         </div>
 
@@ -193,12 +193,16 @@ export default function TasksPage({ loaded }) {
 
             {archived.length > 0 && (
               <section className="task-group tk-archived">
-                <button type="button" className="tk-archived-toggle" aria-expanded={archivedOpen} onClick={() => setShowArchived(!archivedOpen)}>
-                  <Icon name="archive" size={17} />
-                  <span>Archived · {archived.length}</span>
-                  <Icon name="chevronDown" size={16} strokeWidth={2.2} className="tk-chevron" />
-                </button>
-                {archivedOpen && (
+                {/* A search shows matching archived tasks too (remounted open while it lasts). */}
+                <Disclosure
+                  key={searching ? 'search' : 'browse'}
+                  id="tasks-archived"
+                  className="tk-archived-fold"
+                  label={<><Icon name="archive" size={17} />Archived</>}
+                  summary={`${archived.length} task${archived.length === 1 ? '' : 's'}`}
+                  defaultOpen={searching}
+                >
+                  <p className="tk-arch-hint">Archived tasks are out of the way but kept. Restore one, or delete it for good.</p>
                   <ul className="card-list tk-archived-list">
                     {archivedShown.map((task) => (
                       <li key={task.id} className="tk-arch-row">
@@ -218,7 +222,7 @@ export default function TasksPage({ loaded }) {
                       </li>
                     )}
                   </ul>
-                )}
+                </Disclosure>
               </section>
             )}
           </>

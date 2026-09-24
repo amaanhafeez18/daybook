@@ -132,7 +132,11 @@ button.gym-cal-cell:active { transform: scale(0.9); transition-duration: 0.1s; }
   display: inline-grid; place-items: center; width: 14px; height: 14px; border-radius: 50%;
   background: var(--card-bg, var(--surface)); color: var(--text-2); box-shadow: 0 0 0 1px var(--border-strong);
 }
-.gym-cal-routines { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 10px; }
+.gym-cal-routines { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.gym-cal-routines + .gym-cal-key { margin-top: 4px; }
+.gym-cal-key .disclosure-toggle { justify-content: center; min-height: 36px; font-size: 13px; font-weight: 600; color: var(--text-2); }
+.gym-cal-key .disclosure-chevron { margin-left: 0; }
+.gym-cal-key .disclosure-body { padding: 4px 0 2px; }
 .gym-cal-rkey {
   display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 26px; padding: 3px 10px 3px 3px;
   border-radius: 999px; background: var(--surface-2); color: var(--text); font-size: 13px; font-weight: 600;
@@ -221,6 +225,8 @@ button.gym-cal-cell:active { transform: scale(0.9); transition-duration: 0.1s; }
 .gym-day-log-actions .btn { min-width: 0; }
 .gym-day-hint { margin: 0 6px; font-size: 13px; color: var(--text-2); }
 
+.gym-day-change { margin-top: -6px; }
+.gym-day-change .disclosure-toggle { padding-left: 16px; padding-right: 12px; }
 .gym-day-move { display: flex; align-items: center; gap: 8px; padding: 2px 14px 14px 58px; }
 .gym-day-move .input { flex: 1; min-width: 0; min-height: 42px; padding: 8px 12px; background: var(--card-bg); }
 .gym-day-move .btn { flex-shrink: 0; min-height: 40px; }

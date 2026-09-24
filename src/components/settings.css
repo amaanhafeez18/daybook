@@ -27,6 +27,15 @@
 
 /* iOS grouped-list footer under a card. */
 .set-footnote { margin: 8px 16px 0; font-size: 13px; line-height: 1.4; color: var(--text-2); }
+/* A one-line explanation inside a stacked row (under a segmented control). */
+.set-note { margin: -2px 0 0; font-size: 13px; line-height: 1.4; color: var(--text-2); }
+
+/* ---- "Advanced" / "Calculation" disclosures: a grouped-list row, cards inside ---------------- */
+.settings-group > .set-disclosure { margin-top: 12px; }
+.settings-group > .set-footnote + .set-disclosure { margin-top: 8px; }
+.set-disclosure > .disclosure-toggle { padding: 4px 16px; font-size: 15px; }
+.set-disclosure .disclosure-body { gap: 12px; padding-top: 2px; }
+.set-disclosure .disclosure-body > .set-footnote { margin-top: -4px; }
 
 /* ---- plain rows ------------------------------------------------------------------------------- */
 .card.set-list { padding: 0; overflow: hidden; }

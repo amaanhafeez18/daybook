@@ -1,7 +1,8 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../components/ui/Icon.jsx'
 import Sheet from '../components/ui/Sheet.jsx'
-import { AutoTextarea, Avatar, Button, EmptyState, Field, Segmented, Skeleton } from '../components/ui/primitives.jsx'
+import Disclosure from '../components/ui/Disclosure.jsx'
+import { AutoTextarea, Avatar, Button, EmptyState, Field, IconButton, Segmented, Skeleton } from '../components/ui/primitives.jsx'
 import { toast } from '../components/ui/feedback.jsx'
 import { useData, useStore } from '../lib/store.js'
 import {
@@ -14,6 +15,8 @@ import '../components/people.css'
 
 const NOTE_INPUT_MAX = 2000
 const EARLIER_SHOWN = 5
+// Custom catch-up intervals offered in the form, besides the relationship's usual one and "off".
+const REMINDER_CHOICES = [7, 14, 30, 60, 90]
 
 // A web link to a picture (older people, or "Use a link instead"), as opposed to a picked photo.
 const isPhotoLink = (value) => !!(value || '').trim() && !isInlinePhoto(value)
@@ -258,11 +261,39 @@ function PhotoField({ name, photo, picker, onRemove, onUseLink }) {
   )
 }
 
-// Adding shows only the essentials; `full` (editing) shows every field. `onChange` is the form's
-// state setter (it also takes an updater function). onBusyChange(true) while a picked photo is
-// still being prepared, so the sheet can hold off saving until it's in the form.
-function PersonForm({ value, onChange, onBusyChange, full = false }) {
-  const [more, setMore] = useState(full)
+// The form's catch-up reminder value: '' = the usual interval for the relationship, '0' = no
+// reminders, otherwise a number of days (as a string, for the select).
+function reminderFormValue(friend) {
+  const days = friend.reminderDays
+  if (days === undefined || days === null || days === '') return ''
+  const usual = RELATIONSHIPS.find((item) => item.id === friend.relationship)?.reminderDays ?? 0
+  return Number(days) === usual ? '' : String(Number(days))
+}
+
+// A custom reminder is saved after the rest: updateFriend/addFriend set the relationship's usual
+// interval whenever the relationship is in the patch, which would undo it in the same call.
+function applyReminder(id, form) {
+  if (form.reminderDays === '') return
+  updateFriend(id, { reminderDays: Number(form.reminderDays) })
+}
+
+// What's set inside "More options", shown on the closed disclosure.
+function moreSummary(value) {
+  const parts = []
+  if (value.organization.trim()) parts.push(value.organization.trim())
+  if (value.birthday) parts.push(`Birthday ${formatDateShort(value.birthday)}`)
+  if (value.currentStatus.trim()) parts.push(truncate(value.currentStatus.trim(), 30))
+  if (value.facts.trim()) parts.push('Things to remember')
+  if (value.reminderDays === '0') parts.push('No reminders')
+  else if (value.reminderDays) parts.push(`Every ${value.reminderDays} days`)
+  return parts.join(' · ')
+}
+
+// Photo, name and relationship; everything else (birthday, workplace, what they're up to, things
+// to remember, the catch-up interval) under "More options". `onChange` is the form's state setter
+// (it also takes an updater function). onBusyChange(true) while a picked photo is still being
+// prepared, so the sheet can hold off saving until it's in the form.
+function PersonForm({ value, onChange, onBusyChange }) {
   // The link field is for people who already have a web link, or who ask for one.
   const [linkOpen, setLinkOpen] = useState(() => isPhotoLink(value.photoUrl))
   const setPhoto = (photoUrl) => onChange((current) => ({ ...current, photoUrl }))
@@ -278,16 +309,8 @@ function PersonForm({ value, onChange, onBusyChange, full = false }) {
   const photo = (value.photoUrl || '').trim()
   const set = (field) => (event) => onChange({ ...value, [field]: event.target.value })
   const relationship = RELATIONSHIPS.find((item) => item.id === value.relationship)
-  const birthday = (
-    <Field label="Birthday">
-      {(id) => <input id={id} className="input" type="date" value={value.birthday} onChange={set('birthday')} />}
-    </Field>
-  )
-  const organization = (
-    <Field label="Works / studies at">
-      {(id) => <input id={id} className="input" value={value.organization} onChange={set('organization')} autoComplete="off" />}
-    </Field>
-  )
+  const usual = relationship?.reminderDays ?? null
+  const summary = moreSummary(value)
   return (
     <>
       <PhotoField
@@ -298,39 +321,9 @@ function PersonForm({ value, onChange, onBusyChange, full = false }) {
           setPhoto('')
           picker.clearError()
         }}
-        onUseLink={linkOpen ? null : () => {
-          setMore(true)
-          setLinkOpen(true)
-        }}
+        onUseLink={linkOpen ? null : () => setLinkOpen(true)}
       />
-      <Field label="Name">
-        {(id) => <input id={id} className="input input-lg" value={value.name} onChange={set('name')} autoComplete="off" autoCapitalize="words" data-autofocus />}
-      </Field>
-      <div className="field">
-        <span className="field-label">Relationship</span>
-        <Segmented options={RELATIONSHIPS.map((item) => ({ id: item.id, label: item.label }))} value={value.relationship} onChange={(next) => onChange({ ...value, relationship: next })} label="Relationship" />
-        <p className="field-hint">{relationship?.reminderDays ? `You’ll get a nudge after ${relationship.reminderDays} days without a catch-up.` : 'No catch-up reminders for acquaintances.'}</p>
-      </div>
-      {full ? <div className="field-row">{birthday}{organization}</div> : birthday}
-      {!more && (
-        <button type="button" className="ppl-more" aria-expanded="false" onClick={() => setMore(true)}>
-          More details
-          <Icon name="chevronDown" size={18} strokeWidth={2.2} />
-        </button>
-      )}
-      {more && (
-        <>
-          {!full && organization}
-          <Field label="What they’re up to">
-            {(id) => <input id={id} className="input" value={value.currentStatus} onChange={set('currentStatus')} placeholder="e.g. Just started at Google" autoComplete="off" />}
-          </Field>
-          <Field label="Things to remember">
-            {(id) => <AutoTextarea id={id} value={value.facts} onChange={set('facts')} placeholder="Kids’ names, favourite food, allergies…" minRows={3} />}
-          </Field>
-        </>
-      )}
-      {/* Below the name (the sheet focuses the first field when it opens). */}
-      {more && linkOpen && (
+      {linkOpen && (
         <Field label="Photo link" hint="A web address of a picture. Choosing a photo above replaces it.">
           {(id) => (
             <input
@@ -349,12 +342,49 @@ function PersonForm({ value, onChange, onBusyChange, full = false }) {
           )}
         </Field>
       )}
+      <Field label="Name">
+        {(id) => <input id={id} className="input input-lg" value={value.name} onChange={set('name')} autoComplete="off" autoCapitalize="words" data-autofocus />}
+      </Field>
+      <div className="field">
+        <span className="field-label">Relationship</span>
+        <Segmented options={RELATIONSHIPS.map((item) => ({ id: item.id, label: item.label }))} value={value.relationship} onChange={(next) => onChange({ ...value, relationship: next })} label="Relationship" />
+        <p className="field-hint">
+          {value.reminderDays === '0' ? 'No catch-up reminders.'
+            : value.reminderDays ? `You’ll get a nudge after ${value.reminderDays} days without a catch-up.`
+              : usual ? `You’ll get a nudge after ${usual} days without a catch-up.` : 'No catch-up reminders for acquaintances.'}
+        </p>
+      </div>
+      <Disclosure id="person-more" label="More options" summary={summary} hasValues={!!summary}>
+        <div className="field-row">
+          <Field label="Birthday">
+            {(id) => <input id={id} className="input" type="date" value={value.birthday} onChange={set('birthday')} />}
+          </Field>
+          <Field label="Works / studies at">
+            {(id) => <input id={id} className="input" value={value.organization} onChange={set('organization')} autoComplete="off" />}
+          </Field>
+        </div>
+        <Field label="What they’re up to">
+          {(id) => <input id={id} className="input" value={value.currentStatus} onChange={set('currentStatus')} placeholder="e.g. Just started at Google" autoComplete="off" />}
+        </Field>
+        <Field label="Things to remember">
+          {(id) => <AutoTextarea id={id} value={value.facts} onChange={set('facts')} placeholder="Kids’ names, favourite food, allergies…" minRows={3} />}
+        </Field>
+        <Field label="Catch-up reminder" hint="A “Talk to …” task appears on Today when it’s been this long.">
+          {(id) => (
+            <select id={id} className="input" value={value.reminderDays} onChange={set('reminderDays')}>
+              <option value="">{usual ? `Every ${usual} days (usual for a ${relationship.label.toLowerCase()})` : 'None (usual for an acquaintance)'}</option>
+              {REMINDER_CHOICES.filter((days) => days !== usual).map((days) => <option key={days} value={String(days)}>Every {days} days</option>)}
+              {usual ? <option value="0">No reminders</option> : null}
+            </select>
+          )}
+        </Field>
+      </Disclosure>
       {picker.input}
     </>
   )
 }
 
-const EMPTY_PERSON = { name: '', relationship: 'friend', birthday: '', organization: '', currentStatus: '', facts: '', photoUrl: '' }
+const EMPTY_PERSON = { name: '', relationship: 'friend', birthday: '', organization: '', currentStatus: '', facts: '', photoUrl: '', reminderDays: '' }
 
 function AddPersonSheet({ open, onClose, onAdded }) {
   const [form, setForm] = useState(EMPTY_PERSON)
@@ -364,16 +394,54 @@ function AddPersonSheet({ open, onClose, onAdded }) {
   function submit(event) {
     event.preventDefault()
     if (!form.name.trim() || photoBusy) return
-    const friend = addFriend(form)
+    const { reminderDays, ...fields } = form
+    const friend = addFriend(fields)
+    applyReminder(friend.id, { reminderDays })
     toast(`Added ${friend.name}`)
     onAdded(friend)
   }
 
+  const blocked = !form.name.trim() ? 'Give them a name to add them.' : photoBusy ? 'Preparing the photo…' : ''
   return (
-    <Sheet open={open} onClose={onClose} title="Add a person" footer={<Button type="submit" form="add-person" className="btn-grow" disabled={!form.name.trim() || photoBusy}>Add person</Button>}>
-      <form id="add-person" className="form-stack" onSubmit={submit}>
+    <Sheet
+      open={open}
+      onClose={onClose}
+      title="Add a person"
+      footer={(
+        <>
+          {blocked && <span className="ppl-footer-hint" aria-live="polite">{blocked}</span>}
+          <Button type="submit" form="add-person" className="btn-grow" disabled={!!blocked}>Add person</Button>
+        </>
+      )}
+    >
+      <form id="add-person" className="form-stack ppl-form" onSubmit={submit}>
         <PersonForm value={form} onChange={setForm} onBusyChange={setPhotoBusy} />
       </form>
+    </Sheet>
+  )
+}
+
+// A short list of actions for the ⋯ button: destructive ones last, in red.
+function ActionSheet({ open, onClose, title, items }) {
+  return (
+    <Sheet open={open} onClose={onClose} size="sm" title={title} initialFocus={false}>
+      <ul className="ppl-actions">
+        {items.filter(Boolean).map((item) => (
+          <li key={item.label}>
+            <button
+              type="button"
+              className={`ppl-action${item.danger ? ' is-danger' : ''}`}
+              onClick={() => {
+                onClose()
+                item.onClick()
+              }}
+            >
+              <Icon name={item.icon} size={20} />
+              <span>{item.label}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
     </Sheet>
   )
 }
@@ -384,6 +452,7 @@ function PersonSheet({ friendId, onClose, onCatchUp }) {
   // Keeps showing the last person while the sheet animates closed.
   const [shownId, setShownId] = useState(friendId)
   const [editing, setEditing] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
   const [form, setForm] = useState(EMPTY_PERSON)
   const [photoBusy, setPhotoBusy] = useState(false)
   const contentRef = useRef(null)
@@ -393,6 +462,7 @@ function PersonSheet({ friendId, onClose, onCatchUp }) {
   useEffect(() => {
     if (friendId) setShownId(friendId)
     setEditing(false)
+    setMenuOpen(false)
   }, [friendId])
 
   // Switching between the person and the edit form removes the focused button (Edit, Save,
@@ -415,20 +485,35 @@ function PersonSheet({ friendId, onClose, onCatchUp }) {
   const latest = logs.find((log) => log.date === logs[0].date && (log.note || '').trim()) || logs[0]
   const earlier = logs.filter((log) => log !== latest)
 
+  // The hero photo's picker lives here, so the ⋯ menu can open it too.
+  const heroPicker = usePhotoPicker((photoUrl) => {
+    if (!friend) return
+    const previous = friend.photoUrl || ''
+    updateFriend(friend.id, { photoUrl })
+    toast(previous ? 'Photo changed' : 'Photo added', { action: { label: 'Undo', onClick: () => updateFriend(friend.id, { photoUrl: previous }) } })
+  }, (message) => toast(message))
+
   function startEdit() {
     // Older people store their notes in `note`; show them here so they can be edited.
-    setForm({ ...EMPTY_PERSON, ...Object.fromEntries(Object.keys(EMPTY_PERSON).map((key) => [key, friend[key] || EMPTY_PERSON[key]])), facts: friend.facts || friend.note || '' })
+    setForm({
+      ...EMPTY_PERSON,
+      ...Object.fromEntries(Object.keys(EMPTY_PERSON).map((key) => [key, friend[key] || EMPTY_PERSON[key]])),
+      facts: friend.facts || friend.note || '',
+      reminderDays: reminderFormValue(friend),
+    })
     setEditing(true)
   }
 
   function save(event) {
     event.preventDefault()
     if (!form.name.trim() || photoBusy) return
-    const patch = { ...form, name: form.name.trim() }
+    const { reminderDays, ...fields } = form
+    const patch = { ...fields, name: form.name.trim() }
     // Keep a legacy note in step, so clearing the field doesn't bring it back.
     if (friend.note) patch.note = form.facts
     // The sheet switches back to showing the person with the changes: no toast needed.
     updateFriend(friend.id, patch)
+    applyReminder(friend.id, { reminderDays })
     setEditing(false)
   }
 
@@ -455,11 +540,12 @@ function PersonSheet({ friendId, onClose, onCatchUp }) {
       footer={editing ? (
         <Fragment key="editing">
           <Button variant="secondary" onClick={() => setEditing(false)}>Cancel</Button>
-          <Button type="submit" form="edit-person" className="btn-grow" disabled={photoBusy}>Save</Button>
+          {!form.name.trim() && <span className="ppl-footer-hint" aria-live="polite">A name is needed.</span>}
+          <Button type="submit" form="edit-person" className="btn-grow" disabled={photoBusy || !form.name.trim()}>Save</Button>
         </Fragment>
       ) : (
         <Fragment key="viewing">
-          <Button variant="ghost" icon="trash" onClick={remove}>Remove</Button>
+          <IconButton icon="more" label="More actions" className="ppl-menu-btn" aria-haspopup="dialog" onClick={() => setMenuOpen(true)} />
           <Button variant="secondary" icon="pencil" onClick={startEdit}>Edit</Button>
           <Button icon="check" className="btn-grow" onClick={() => onCatchUp(friend.id, 'today')}>Talked today</Button>
         </Fragment>
@@ -467,13 +553,23 @@ function PersonSheet({ friendId, onClose, onCatchUp }) {
       initialFocus={editing}
     >
       {friend && (editing ? (
-        <form ref={contentRef} id="edit-person" className="form-stack" onSubmit={save}>
-          <PersonForm value={form} onChange={setForm} onBusyChange={setPhotoBusy} full />
+        <form ref={contentRef} id="edit-person" className="form-stack ppl-form" onSubmit={save}>
+          <PersonForm value={form} onChange={setForm} onBusyChange={setPhotoBusy} />
         </form>
       ) : (
         <div ref={contentRef} className="person-detail">
+          <ActionSheet
+            open={menuOpen}
+            onClose={() => setMenuOpen(false)}
+            title={friend.name}
+            items={[
+              { icon: 'calendar', label: 'Log an earlier catch-up', onClick: () => onCatchUp(friend.id, 'earlier') },
+              { icon: 'camera', label: (friend.photoUrl || '').trim() ? 'Change photo' : 'Add photo', onClick: heroPicker.open },
+              { icon: 'trash', label: 'Remove person', danger: true, onClick: remove },
+            ]}
+          />
           <div className="ppl-hero">
-            <HeroPhoto friend={friend} />
+            <HeroPhoto friend={friend} picker={heroPicker} />
             <div className="ppl-last">
               <p className="ppl-last-line">
                 <i className={`status-dot is-${tone}`} aria-hidden="true" />
@@ -526,13 +622,8 @@ function PersonSheet({ friendId, onClose, onCatchUp }) {
 }
 
 // The person's photo in their sheet: tap it to choose a new one (saved straight away, with Undo).
-function HeroPhoto({ friend }) {
+function HeroPhoto({ friend, picker }) {
   const has = !!(friend.photoUrl || '').trim()
-  const picker = usePhotoPicker((photoUrl) => {
-    const previous = friend.photoUrl || ''
-    updateFriend(friend.id, { photoUrl })
-    toast(previous ? 'Photo changed' : 'Photo added', { action: { label: 'Undo', onClick: () => updateFriend(friend.id, { photoUrl: previous }) } })
-  }, (message) => toast(message))
   return (
     <span className="ppl-hero-photo">
       <button type="button" className="ppl-photo-pick" onClick={picker.open} aria-label={has ? `Change ${friend.name}’s photo` : `Add a photo of ${friend.name}`} aria-busy={picker.busy || undefined}>
@@ -569,9 +660,9 @@ function LastTime({ log, onCatchUp }) {
     return (
       <section className="ppl-lasttime is-empty" aria-labelledby="ppl-lasttime-title">
         <h3 id="ppl-lasttime-title" className="ppl-label">Last time</h3>
-        <p className="ppl-lasttime-empty">Nothing here yet. After you talk, tap Talked today and add a line on what you talked about. It shows up here next time.</p>
+        <p className="ppl-lasttime-empty">After you talk, tap Talked today and jot down what it was about. It shows up here next time.</p>
         <button type="button" className="ppl-lasttime-add" onClick={() => onCatchUp('earlier')}>
-          <Icon name="calendar" size={16} strokeWidth={2.2} /> Log one from an earlier day
+          <Icon name="calendar" size={16} strokeWidth={2.2} /> Log an earlier catch-up
         </button>
       </section>
     )

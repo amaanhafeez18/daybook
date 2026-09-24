@@ -5,32 +5,9 @@
    ROUTINE_COLORS values, which keep >= 4.5:1 with white text in both modes.
    ========================================================================================= */
 
-/* ---- shared: action sheet rows, reorder lists, small toggles ------------------------------ */
+/* ---- shared: reorder lists, small toggles (action-sheet rows live in gym-common.css) ------ */
 
-.gym-as-list { display: flex; flex-direction: column; overflow: hidden; border-radius: 18px; background: var(--card-bg); }
-.gym-as-row {
-  position: relative; display: flex; align-items: center; gap: 14px; width: 100%;
-  min-height: 52px; padding: 10px 16px; text-align: left; color: var(--text); font-size: 17px;
-  transition: background 0.15s;
-}
-.gym-as-row + .gym-as-row::before {
-  content: ''; position: absolute; top: 0; left: 50px; right: 0; height: 1px;
-  background: var(--separator, var(--border)); transform: scaleY(0.5); transform-origin: top; pointer-events: none;
-}
-.gym-as-row > .icon { color: var(--accent); }
-.gym-as-row.is-danger, .gym-as-row.is-danger > .icon { color: var(--danger); }
-.gym-as-row:disabled { cursor: default; }
-.gym-as-row:disabled > * { opacity: 0.4; }
-.gym-as-row:active:not(:disabled) { background: var(--surface-2); }
-@media (hover: hover) { .gym-as-row:hover:not(:disabled) { background: var(--surface-2); } }
-.gym-as-label { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; overflow-wrap: anywhere; }
-.gym-as-label small { font-size: 13px; color: var(--text-2); letter-spacing: -0.005em; }
-.gym-as-row.is-danger .gym-as-label small { color: var(--text-2); }
-.gym-as-check { color: var(--accent); flex-shrink: 0; }
-/* Inside a sheet (a near-white glass panel in light mode) grouped lists use the grey fill. */
-.sheet .gym-as-list, .sheet .gym-tpl, .sheet .gym-tpl-routines { background: var(--surface-2); }
-.sheet .gym-as-row:active:not(:disabled) { background: var(--surface-3); }
-@media (hover: hover) { .sheet .gym-as-row:hover:not(:disabled) { background: var(--surface-3); } }
+.sheet .gym-tpl, .sheet .gym-tpl-routines { background: var(--surface-2); }
 
 .gym-reorder-list { --sep-inset: 44px; }
 .gym-reorder-row { display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 6px 8px 6px 18px; }
@@ -56,8 +33,8 @@
 .gym-rt-hero-actions { display: flex; flex-direction: column; gap: 10px; width: min(100%, 300px); margin-top: 8px; }
 .gym-rt-hero-actions .btn { margin-top: 0; width: 100%; }
 
-.gym-rt-new { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
-.gym-rt-new .btn { min-width: 0; padding: 0 12px; }
+.gym-rt-new { display: flex; margin-bottom: 14px; }
+.gym-rt-new .btn { min-width: 0; min-height: 48px; }
 .gym-rt-hint { margin: 0 4px 12px; font-size: 15px; color: var(--text-2); }
 
 .gym-rt-list { display: flex; flex-direction: column; gap: 12px; }
@@ -94,7 +71,9 @@
 .gym-rt-card-last { display: inline-flex; align-items: center; gap: 6px; min-width: 0; font-size: 13px; color: var(--text-2); }
 .gym-rt-card-last .icon { color: var(--text-3); }
 .gym-rt-card-actions { display: flex; gap: 8px; margin-left: auto; }
-.gym-rt-card-actions .btn-primary { min-width: 84px; }
+/* Plain (the tab's one accent button is New routine); the play icon carries the meaning. */
+.gym-rt-card-actions .btn { min-width: 84px; }
+.gym-rt-card-actions .btn .icon { color: var(--accent); }
 .gym-rt-edit { width: 36px; padding: 0; }
 
 .gym-rt-folder { display: flex; align-items: center; gap: 2px; margin: 18px 0 8px; }
@@ -254,6 +233,11 @@
 .gym-re-ex-more { flex-shrink: 0; width: 44px; height: 44px; margin: -10px -8px -6px 0; }
 
 .input.gym-re-note { min-height: 42px; padding: 9px 12px; border-radius: 12px; font-size: 16px; line-height: 1.4; }
+
+.gym-re-extras { margin-top: -4px; }
+.gym-re-extras .disclosure-toggle { min-height: 40px; font-size: 14px; }
+.gym-re-extras .disclosure-summary { font-size: 13px; }
+.gym-re-extras .disclosure-body { gap: 8px; }
 
 .gym-re-rest { display: flex; align-items: center; gap: 8px; min-height: 44px; font-size: 15px; color: var(--text-2); }
 .gym-re-rest > .icon { color: var(--accent); }

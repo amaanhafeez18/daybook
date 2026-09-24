@@ -100,7 +100,11 @@ export function amountLabel(amount, unit, dp = 2) {
   return word ? `${fmtNum(amount, dp)} ${word}` : `×${fmtNum(amount, dp)}`
 }
 
-// '2 slices · 60 g', '250 ml', '×2', '150 g'; '' when there is no portion.
+// A unit that already says how much it weighs or holds: "serving (250 g)", "can, 355 ml", "bar (60g)".
+const UNIT_WITH_MASS = /\d\s*(fl\.?\s*oz|kg|ml|oz|g|l)\b/i
+
+// '2 slices · 60 g', '250 ml', '×2', '150 g'; '' when there is no portion. The grams aren't repeated
+// after a unit that carries them itself ('1 serving (250 g)', not '1 serving (250 g) · 250 g').
 export function portionText(entry) {
   if (!entry || typeof entry !== 'object') return ''
   const amount = toNum(entry.amount)
@@ -109,7 +113,7 @@ export function portionText(entry) {
   const parts = []
   if (amount !== null && amount > 0) parts.push(amountLabel(amount, unit))
   else if (unit && !isMassUnit(unit)) parts.push(unit)
-  if (grams !== null && grams > 0 && !(amount !== null && isMassUnit(unit))) parts.push(`${fmtGrams(grams)} g`)
+  if (grams !== null && grams > 0 && !(amount !== null && isMassUnit(unit)) && !(parts.length && UNIT_WITH_MASS.test(unit))) parts.push(`${fmtGrams(grams)} g`)
   return parts.join(' · ')
 }
 

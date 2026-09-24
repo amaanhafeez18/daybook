@@ -85,7 +85,7 @@ export default function InsightsView({ today, param, loaded }) {
       ) : (
         <>
           <section className="card food-ins-summary" aria-label="Summary">
-            {week.summary.map((line) => <p key={line}>{line}</p>)}
+            {week.summary.map((line, index) => <p key={line} className={index === 0 ? 'food-ins-headline' : 'food-ins-detail'}>{line}</p>)}
             {!isCurrent || week.complete ? null : <p className="food-ins-summary-note">Today isn’t counted in averages until it’s over.</p>}
           </section>
 
@@ -127,19 +127,20 @@ export default function InsightsView({ today, param, loaded }) {
                 ) : (
                   <>
                     <div className="food-stats is-inline">
-                      <StatTile label="Trend" value={fmtWeight(week.weight.trendKg, weightUnit)} sub={u} />
+                      <StatTile label="Trend" value={fmtWeight(week.weight.trendKg, weightUnit)} sub={`${u} · 7-day average`} />
                       <StatTile label="This week" value={isNum(week.weight.weeklyChangeKg) ? fmtWeightChange(week.weight.weeklyChangeKg, weightUnit) : '—'} sub={isNum(week.weight.weeklyChangePct) ? `${u} · ${fmtNum(week.weight.weeklyChangePct, 1)}%` : u} />
                       <StatTile label="Pace" value={isNum(week.weight.paceKgPerWeek) ? fmtWeightChange(week.weight.paceKgPerWeek, weightUnit, 2) : '—'} sub={`${u} a week`} />
                     </div>
                     {week.weight.lowWeighIns && <p className="food-chart-note"><Icon name="info" size={14} />Weigh in 3× a week for a reliable trend.</p>}
+                    <p className="food-chart-note">The trend averages the last 7 days; the pace is how fast it has moved over 4 weeks.</p>
                   </>
                 )}
               </Card>
 
               <Card title="Consistency" icon="calendarCheck">
                 <div className="food-stats is-inline">
-                  <StatTile label="Days logged" value={`${week.days.filter((day) => day.logged && !day.future).length}/${Math.max(1, Math.min(7, week.elapsedDays + (isCurrent ? 1 : 0)))}`} sub="this week" />
-                  <StatTile label="Streak" value={fmtInt(week.streak.current)} sub={week.streak.current === 1 ? 'day' : 'days'} />
+                  <StatTile label="Logged" value={`${week.days.filter((day) => day.logged && !day.future).length}/${Math.max(1, Math.min(7, week.elapsedDays + (isCurrent ? 1 : 0)))}`} sub="days this week" />
+                  <StatTile label="Streak" value={fmtInt(week.streak.current)} sub={week.streak.current === 1 ? 'day in a row' : 'days in a row'} />
                   <StatTile label="Longest" value={fmtInt(week.streak.longest)} sub={week.streak.longest === 1 ? 'day' : 'days'} />
                 </div>
               </Card>
@@ -218,7 +219,7 @@ function MacroSplitCard({ split }) {
               <li key={part.key}><i className={`is-${part.key}`} aria-hidden="true" />{part.label}<strong>{part.pct}%</strong></li>
             ))}
           </ul>
-          <p className="food-chart-note">Share of calories from entries with protein, carbs and fat ({Math.round(split.coverage * 100)}% of the week’s calories).</p>
+          <p className="food-chart-note">Where your calories came from, for the entries that have protein, carbs and fat ({Math.round(split.coverage * 100)}% of the week’s calories).</p>
         </>
       ) : (
         <p className="food-ins-empty">Add protein, carbs and fat to your entries (AI estimates include them) to see your split.</p>
