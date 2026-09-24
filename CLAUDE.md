@@ -35,6 +35,9 @@ Production: https://daybook-smoky-seven.vercel.app · Repo: github.com/amaanhafe
   - `_reminders.js` + `cron.js` (called every minute by Supabase pg_cron + pg_net with `CRON_SECRET`; `?dryRun=1&all=1&at=<ISO>` to test) + `push.js` (subscribe/test). `public/push-sw.js` is imported into the Workbox service worker.
 - **Data model quirks:** `classes.days` is either `["Mon",…]` + `day_details` or `[{day,time,room}]`; settings JSON keys: `appearance`, `theme` (accent), `displayName`, `showPrayerTimes`, `prayerMethod`, `prayerSchool`, `timeZone`, `notifications{…}` (incl. `gym`/`gymTime` workout reminder), `gym{schedule, routines, folders, exercises, exerciseMeta, prefs, active, closedId}`, `food{goals, profile, prefs, favorites}`, `assistantConfirm`, `assistantWeb`. Lists `gymSessions` (table `gym_sessions`) and `bodyWeights` (`body_weights`). Notification defaults exist in both `api/_reminders.js` and `src/lib/notifications.js` — keep them in sync.
 
+## Regions
+Supabase is in **us-west-2** (Oregon), so `vercel.json` pins the functions to **pdx1** (Portland): every API request makes several sequential database calls, so they must run next to the database. Keep the two together if either moves.
+
 ## Environment variables (Vercel: Production + Preview)
 `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (secret `sb_secret_…` key — the public key sees no rows because RLS is on), `JWT_SECRET`, `OPENAI_API_KEY`, `OPENAI_MODEL` (`gpt-5-mini`), `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `CRON_SECRET`. Optional: `ALLOW_SIGNUPS=false`, `ASSISTANT_DAILY_LIMIT`, `OPENAI_REASONING_EFFORT`, `OPENAI_WEB_MODEL` (web lookups; defaults to `OPENAI_MODEL`), `VAPID_SUBJECT`.
 

@@ -1,5 +1,8 @@
 {
   "devCommand": "vite --port $PORT",
+  "regions": [
+    "pdx1"
+  ],
   "functions": {
     "api/assistant.js": {
       "maxDuration": 120
