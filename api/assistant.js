@@ -179,6 +179,7 @@ function normalizeMessage(message) {
   const attachments = Array.isArray(message.attachments)
     ? message.attachments.filter((item) => item && ATTACHMENT_KINDS.includes(item.kind)).slice(0, MAX_ATTACHMENTS).map((item) => ({ kind: item.kind, name: cleanText(item.name, 120) || 'file' }))
     : []
+  const files = message.role === 'user' ? normalizeFiles(message.files) : []
   return {
     role: message.role === 'assistant' ? 'assistant' : 'user',
     content: typeof message.content === 'string' ? message.content : '',
@@ -186,6 +187,7 @@ function normalizeMessage(message) {
     ...(message.voice ? { voice: true } : {}),
     ...(Array.isArray(message.actions) ? { actions: normalizeActions(message.actions, 10) } : {}),
     ...(attachments.length ? { attachments } : {}),
+    ...(files.length ? { files } : {}),
     ...(proposal ? { proposal } : {}),
     ...(draft ? { draft } : {}),
     ...(choices.length ? { choices } : {}),
@@ -195,7 +197,7 @@ function normalizeMessage(message) {
 // What the app sees: no server-only staged tool calls or held-back drafts, a stale pending proposal
 // shows as expired and one stuck mid-run as interrupted.
 function publicMessage(message) {
-  const { draft, ...rest } = message
+  const { draft, files, ...rest } = message
   if (!rest.proposal) return rest
   const { staged, ...proposal } = rest.proposal
   if (proposal.status === 'pending' && Date.now() - Date.parse(proposal.createdAt) > PROPOSAL_TTL_MS) proposal.status = 'expired'
@@ -928,8 +930,11 @@ Food (snapshot.food: today's totals vs goals, what's remaining, meals, the last 
 - "How many calories do I have left?" / "what should I eat?": answer from snapshot.food (remaining calories and macros, weekly averages) with practical ideas that fit what's left (e.g. protein-heavy when protein is behind). No moralising.
 - Goals: food_set_goals for numbers they give; food_calculate_goals when they give their details or ask you to work goals out.
 
-Attachments (photos, PDFs and text files in the user's message; later turns only see "[Attached: …]", so pull out what matters while you can see them):
-- Before asking any question about an attachment, write out what you extracted (each item with its dates, times and details) in your reply: it is all that later turns will see.
+Attachments (photos, PDFs and text files in the user's message; the latest ones stay attached to that message for a few follow-up turns, older ones only show as "[Attached: …]"):
+- When the user answers a question about an attachment ("add it to my calendar"), use the attachment itself: it is still attached to their earlier message. Never ask them to type out what the attachment shows.
+- Before asking any question about an attachment, write out what you extracted (each item with its dates, times and details) in your reply.
+- Reading text that is printed in a screenshot, document or photo (names, rooms, addresses, emails, times) is just reading: answer questions like "who was it with?" or "what room?" from that text.
+- An appointment, booking, meeting or event confirmation (a screenshot or email with a date and time): propose it right away (create_event with the title, date, start time, and the location/with-whom in the details, or a timed task when it's something to do) instead of asking what to do; the Yes/No card is the confirmation.
 - A class timetable: call create_class (or update_class for a class already in the snapshot) for every class with its days, times and rooms right away. If the end date isn't shown, leave endDate out and say so in your reply ("There's no end date on it; tell me when the term ends and I'll add it"). Don't ask_choice in that turn.
 - A meal, food photo or nutrition label: estimate it and propose food_log (copy a label's per-serving numbers exactly).
 - A syllabus or course outline: list the deliverables, quizzes and exams with their due dates (short list), then ask_choice "Add all" / "Let me choose" / "None". On "Add all", propose a task for each with its date and a sensible time and reminder (e.g. 9:00 AM the day before an exam, or the due time).
@@ -4224,7 +4229,7 @@ async function readConversation(supabase, userId) {
 
 // → { updatedAt } when written, or { conflict: true } when the row changed (or appeared) since `seen`.
 async function writeConversation(supabase, userId, { exists, seen, messages, fields = {} }) {
-  const payload = { messages: messages.map(normalizeMessage).slice(-MAX_STORED_MESSAGES), updated_at: nowIso(), ...fields }
+  const payload = { messages: pruneFiles(messages.map(normalizeMessage).slice(-MAX_STORED_MESSAGES)), updated_at: nowIso(), ...fields }
   if (!exists) {
     const { data, error } = await supabase.from('assistant_conversations').insert({ id: newId(), user_id: userId, ...payload }).select('updated_at')
     if (error?.code === '23505') return { conflict: true } // created meanwhile by another request
@@ -4345,6 +4350,55 @@ function readAttachments(raw) {
   return list
 }
 
+// The latest message's attachments are kept (server-side only) for a few follow-up turns, so an
+// answer like "add it to my calendar" can still use the photo. Only one message keeps them.
+const CARRY_TTL_MS = 2 * 60 * 60 * 1000
+const CARRY_MESSAGES = 10 // later messages that can still see them (about 5 exchanges)
+
+// Stored attachment data (validated again on every read); anything malformed or oversized is dropped.
+function normalizeFiles(raw) {
+  if (!Array.isArray(raw)) return []
+  const list = []
+  let total = 0
+  for (const item of raw.slice(0, MAX_ATTACHMENTS)) {
+    if (!isPlainObject(item) || !ATTACHMENT_KINDS.includes(item.kind)) continue
+    const name = cleanText(item.name, 120) || 'file'
+    if (item.kind === 'text') {
+      if (typeof item.text !== 'string' || !item.text.trim()) continue
+      total += Buffer.byteLength(item.text, 'utf8')
+      list.push({ kind: 'text', name, text: item.text })
+      continue
+    }
+    const dataUrl = typeof item.dataUrl === 'string' ? item.dataUrl : ''
+    const valid = item.kind === 'image' ? /^data:image\/(jpeg|png|webp);base64,/i.test(dataUrl) : /^data:application\/pdf;base64,/i.test(dataUrl)
+    if (!valid) continue
+    total += base64Bytes(dataUrl)
+    list.push({ kind: item.kind, name, dataUrl })
+  }
+  return total <= MAX_ATTACHMENT_TOTAL_BYTES ? list : []
+}
+
+// Index of the message whose attachments are still visible, or -1.
+function carriedIndex(messages) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (!message.files?.length) continue
+    const fresh = Date.now() - Date.parse(message.createdAt) < CARRY_TTL_MS
+    return fresh && messages.length - 1 - index <= CARRY_MESSAGES ? index : -1
+  }
+  return -1
+}
+
+// Keeps attachment data only on the one message that can still use it.
+function pruneFiles(messages) {
+  const keep = carriedIndex(messages)
+  return messages.map((message, index) => {
+    if (!message.files || index === keep) return message
+    const { files, ...rest } = message
+    return rest
+  })
+}
+
 // Images at 'high' detail (the phone already downscaled them), PDFs at 'low', text inline.
 function attachmentPart(attachment) {
   if (attachment.kind === 'image') return imagePart(attachment.dataUrl, 'high')
@@ -4400,9 +4454,9 @@ function planNote(history, { superseding } = {}) {
 // Stored text plus what the model can no longer see (attachments, proposals, offered choices), with
 // "(sent Mon Sep 22)" on messages from an earlier day. A message's text only changes once (when its
 // proposal is settled or the day rolls over), so the history prefix stays cacheable.
-function historyContent(message, ctx) {
+function historyContent(message, ctx, { visible = false } = {}) {
   let content = message.content || ''
-  if (message.attachments?.length) content += `${content ? '\n' : ''}[Attached: ${message.attachments.map((item) => `${ATTACHMENT_WORDS[item.kind] || 'file'} "${item.name}"`).join(', ')}; no longer visible]`
+  if (message.attachments?.length) content += `${content ? '\n' : ''}[Attached: ${message.attachments.map((item) => `${ATTACHMENT_WORDS[item.kind] || 'file'} "${item.name}"`).join(', ')}; ${visible ? 'still attached below' : 'no longer visible'}]`
   if (message.role === 'assistant' && message.proposal?.actions?.length) {
     content += `${content ? '\n' : ''}[Proposed changes (${PROPOSAL_STATUS_WORDS[message.proposal.status] || message.proposal.status}): ${planActionsText(message.proposal.actions)}]`
   }
@@ -4553,7 +4607,7 @@ export default async function handler(req, res) {
       content,
       createdAt: startedIso,
       ...(spoken ? { voice: true } : {}),
-      ...(attachments.length ? { attachments: attachments.map(({ kind, name }) => ({ kind, name })) } : {}),
+      ...(attachments.length ? { attachments: attachments.map(({ kind, name }) => ({ kind, name })), files: attachments } : {}),
     })
     // Conversation writes: compare-and-swap against the version this request last read or wrote.
     let seen = record?.updated_at || null
@@ -4686,6 +4740,11 @@ export default async function handler(req, res) {
 
     const confirmMode = data.settings.assistantConfirm !== 'off'
     const instructions = buildInstructions(buildSnapshot(data, ctx, user.username), { confirmMode })
+    // The latest earlier attachment stays visible for follow-ups ("add it to my calendar"), unless this
+    // message brings new ones.
+    const modelHistory = turnHistory.slice(-MAX_MODEL_MESSAGES)
+    const carried = attachments.length ? -1 : carriedIndex([...modelHistory, { role: 'user' }])
+    if (carried >= 0) notes.push(`The user's earlier ${modelHistory[carried].files.map((item) => `${ATTACHMENT_WORDS[item.kind]} "${item.name}"`).join(', ')} is still attached to their earlier message: use it to act on this reply.`)
     const developerNote = [
       `Current local time: ${ctx.weekday} ${ctx.localDate} ${ctx.localTime} (${ctx.timeZone}).`,
       spoken ? 'The user is speaking by voice: reply in plain conversational sentences with no markdown, lists, or emoji, since the reply may be read aloud.' : '',
@@ -4694,12 +4753,15 @@ export default async function handler(req, res) {
       ...notes,
     ].filter(Boolean).join('\n')
     const input = [
-      ...turnHistory.slice(-MAX_MODEL_MESSAGES).map((item) => ({ role: item.role, content: historyContent(item, ctx) })),
+      ...modelHistory.map((item, index) => (index === carried
+        ? { role: 'user', content: [textPart(historyContent(item, ctx, { visible: true }) || 'See attached.'), ...item.files.map(attachmentPart)] }
+        : { role: item.role, content: historyContent(item, ctx) })),
       { role: 'developer', content: developerNote },
-      // Attachments stay in this message for every tool round of the turn (never stored).
+      // Attachments stay in this message for every tool round of the turn (stored server-side only, see pruneFiles).
       { role: 'user', content: attachments.length ? [textPart(text), ...attachments.map(attachmentPart)] : text },
     ]
-    const heavy = attachments.some((item) => item.kind === 'pdf') || attachments.filter((item) => item.kind === 'image').length >= 2
+    const visibleFiles = carried >= 0 ? modelHistory[carried].files : attachments
+    const heavy = visibleFiles.some((item) => item.kind === 'pdf') || visibleFiles.filter((item) => item.kind === 'image').length >= 2
 
     // Text from every model call is kept (and streamed) so nothing said before a tool call is lost.
     const replyParts = []
@@ -4719,7 +4781,7 @@ export default async function handler(req, res) {
       userId: user.id,
       onDelta,
       effort: heavy ? 'medium' : undefined,
-      maxOutputTokens: attachments.length ? ATTACHMENT_OUTPUT_TOKENS : undefined,
+      maxOutputTokens: visibleFiles.length ? ATTACHMENT_OUTPUT_TOKENS : undefined,
       deadline: startedAt + RESPONSE_DEADLINE_MS,
     }
 
