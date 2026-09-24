@@ -79,6 +79,18 @@ export default function SettingsPage({ user, onUserChange, onSignOut }) {
   async function signOut() {
     const ok = await confirmAction({ title: 'Log out?', message: 'Your data stays safe in your account.', confirmLabel: 'Log out', tone: 'default' })
     if (!ok) return
+    // Logging out clears this device's copy, so send edits still waiting to be saved first.
+    flushActive()
+    await Promise.race([flushAll().catch(() => {}), new Promise((resolve) => setTimeout(resolve, 6000))])
+    const { offline, saveError, pendingSaves } = getState()
+    if (offline || saveError || pendingSaves > 0) {
+      const anyway = await confirmAction({
+        title: 'Some changes aren’t saved yet',
+        message: 'They couldn’t reach the server (no connection?). Logging out now deletes them from this device.',
+        confirmLabel: 'Log out anyway',
+      })
+      if (!anyway) return
+    }
     // Stop this device's reminders while the token can still delete the server row.
     // disableNotifications swallows its own API error, then unsubscribes locally.
     await Promise.race([disableNotifications().catch(() => {}), new Promise((resolve) => setTimeout(resolve, 3000))])

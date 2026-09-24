@@ -786,9 +786,10 @@ async function loadFood(supabase, userId, ctx) {
 
 // Memories live in their own table. If it hasn't been created yet the assistant still works, just without memory.
 async function loadMemories(supabase, userId) {
-  const { data, error } = await supabase.from('assistant_memories').select('id, content, created_at').eq('user_id', userId).order('created_at', { ascending: true }).limit(300)
+  // The newest 300 (a new memory must never be the one left out), shown oldest first.
+  const { data, error } = await supabase.from('assistant_memories').select('id, content, created_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(300)
   if (error) return null
-  return data || []
+  return (data || []).reverse()
 }
 
 function buildSnapshot(data, ctx, username) {
@@ -2266,7 +2267,9 @@ async function executeGymTool(supabase, userId, name, args, data, ctx) {
     let to = args.to ? dateArg(args.to, 'end date') : null
     if (from && to && to < from) [from, to] = [to, from]
     const oldest = data.gym_sessions[data.gym_sessions.length - 1]?.date
-    let sessions = data.gymSessionsTruncated && (!oldest || !from || from <= oldest) && (from || args.exercise) ? await loadAllSessions(supabase, userId, data) : data.gym_sessions
+    // Only the newest sessions are loaded up front: anything reaching further back loads them all.
+    const olderNeeded = !oldest || Boolean(args.exercise) || (from ? from <= oldest : Boolean(to))
+    let sessions = data.gymSessionsTruncated && olderNeeded ? await loadAllSessions(supabase, userId, data) : data.gym_sessions
     const all = sessions
     if (from) sessions = sessions.filter((session) => session.date >= from)
     if (to) sessions = sessions.filter((session) => session.date <= to)

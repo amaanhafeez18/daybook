@@ -47,7 +47,13 @@ export async function removeRoutine(routine, today) {
     })
     if (!ok) return false
   }
-  const undo = deleteRoutine(routine.id, { replaceWithRest: inUse })
+  let undo
+  try {
+    undo = deleteRoutine(routine.id, { replaceWithRest: inUse })
+  } catch (error) {
+    toast(error.message, { tone: 'error' })
+    return false
+  }
   toast(inUse ? `Deleted ${name} · its days are now Rest` : `Deleted ${name}`, { action: { label: 'Undo', onClick: undo } })
   return true
 }
