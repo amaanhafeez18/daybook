@@ -1,6 +1,6 @@
 import { getState, newId, updateData } from './store.js'
 import { readPref, writePref } from './api.js'
-import { WEEKDAY_SHORT, compareTimes, diffDays, isISODate, nextBirthday, todayISO, weekdayIndex } from './dates.js'
+import { WEEKDAY_SHORT, compareTimes, diffDays, isISODate, nextBirthday, timeRangeMinutes, todayISO, weekdayIndex } from './dates.js'
 
 const nowIso = () => new Date().toISOString()
 const data = () => getState().data
@@ -171,6 +171,14 @@ export function classesOn(iso) {
     .filter((item) => !item.endDate || iso <= item.endDate)
     .flatMap((item) => classSchedule(item).filter((entry) => entry.day === day).map((entry) => ({ ...entry, id: item.id, name: item.name })))
     .sort((a, b) => compareTimes(a.time, b.time))
+}
+
+// Whether a class slot (its time text, e.g. "2:30 PM - 4:30 PM") is over at nowMinutes after midnight:
+// at its end time, or an hour after a start-only time. Without a readable time it never is.
+export function classOver(time, nowMinutes) {
+  const { start, end } = timeRangeMinutes(time)
+  if (start === null) return false
+  return nowMinutes >= (end !== null && end > start ? end : start + 60)
 }
 
 export function saveClass(item) {

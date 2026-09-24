@@ -8,7 +8,7 @@ import TaskRow from '../components/TaskRow.jsx'
 import TaskSheet from '../components/TaskSheet.jsx'
 import { readPref, writePref } from '../lib/api.js'
 import { useData } from '../lib/store.js'
-import { classesOn, compareTasks, createTask, deleteTaskForever, friendStatus, lastContactMap, logContact, updateTask } from '../lib/planner.js'
+import { classOver, classesOn, compareTasks, createTask, deleteTaskForever, friendStatus, lastContactMap, logContact, updateTask } from '../lib/planner.js'
 import { addDaysISO, compareTimes, dueSentence, formatDateLong, formatDue, formatTime, greeting, parseQuickAdd, todayISO } from '../lib/dates.js'
 import { dailyForecast, describeWeather, prayerSchedule, upcomingHours, useLocation, useNow, usePrayerTimes, useWeather } from '../lib/environment.js'
 import { useActiveWorkout } from '../lib/gym/state.js'
@@ -56,7 +56,7 @@ export default function TodayPage({ displayName, loaded }) {
       <div className="today-grid">
         <div className="today-main">
           {workout && <GymWidget today={today} loaded={loaded} />}
-          <TodayCard tasks={active} classes={classes} today={today} loaded={loaded} onOpen={openTask} onOpenClass={openClass} />
+          <TodayCard tasks={active} classes={classes} today={today} now={now} loaded={loaded} onOpen={openTask} onOpenClass={openClass} />
           <TomorrowCard tasks={active} classes={classes} tomorrow={tomorrow} loaded={loaded} onOpen={openTask} onOpenClass={openClass} onAdd={() => setSheet({ defaults: { date: tomorrow } })} />
           {!workout && <GymWidget today={today} loaded={loaded} />}
           <CardBoundary>
@@ -81,7 +81,7 @@ export default function TodayPage({ displayName, loaded }) {
 
 // ---- Today -------------------------------------------------------------------------------------
 
-function TodayCard({ tasks, classes, today, loaded, onOpen, onOpenClass }) {
+function TodayCard({ tasks, classes, today, now, loaded, onOpen, onOpenClass }) {
   const [showOverdue, setShowOverdue] = useState(false)
   const [showDone, setShowDone] = useState(false)
 
@@ -89,7 +89,9 @@ function TodayCard({ tasks, classes, today, loaded, onOpen, onOpenClass }) {
   const open = useMemo(() => todayTasks.filter((task) => !task.done), [todayTasks])
   const done = useMemo(() => todayTasks.filter((task) => task.done).sort(compareTasks), [todayTasks])
   const overdue = useMemo(() => tasks.filter((task) => !task.done && task.date && task.date < today).sort(compareTasks), [tasks, today])
-  const todayClasses = useMemo(() => classesOn(today), [classes, today]) // eslint-disable-line react-hooks/exhaustive-deps
+  const nowMinutes = now.getHours() * 60 + now.getMinutes()
+  // A class leaves the list once it's over.
+  const todayClasses = useMemo(() => classesOn(today).filter((item) => !classOver(item.time, nowMinutes)), [classes, today, nowMinutes]) // eslint-disable-line react-hooks/exhaustive-deps
   const recent = useRecentlyDone(open, done)
 
   // Open tasks and classes by time; a task ticked off here stays in place for a moment.
