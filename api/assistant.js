@@ -271,6 +271,7 @@ const TOOL_LABELS = {
   delete_friend: 'Removing someone from People',
   read_journal: 'Reading your journal',
   delete_journal_entry: 'Deleting a journal entry',
+  update_note: 'Updating a note',
   delete_note: 'Deleting a note',
   get_weather: 'Checking the weather',
   get_prayer_times: 'Checking prayer times',
@@ -283,9 +284,13 @@ const TOOL_LABELS = {
   gym_list_sessions: 'Looking through your workouts',
   gym_quick_log: 'Logging your workout',
   gym_log_workout: 'Logging your workout',
+  gym_edit_session: 'Updating your workout',
+  gym_duplicate_session: 'Logging your workout',
+  gym_stats: 'Adding up your training',
   gym_delete_session: 'Deleting a workout',
   gym_create_routine: 'Creating a routine',
   gym_edit_routine: 'Updating the routine',
+  gym_duplicate_routine: 'Copying the routine',
   gym_delete_routine: 'Deleting a routine',
   gym_set_schedule: 'Updating your gym schedule',
   gym_log_bodyweight: 'Logging your body weight',
@@ -317,7 +322,7 @@ const TOOL_LABELS = {
 }
 
 // Read-only tools: no action chip, no data refresh and never staged for confirmation.
-const LOOKUP_TOOLS = ['search', 'read_journal', 'get_weather', 'get_prayer_times', 'gym_get_schedule', 'gym_list_sessions', 'gym_exercise_records', 'person_history', 'web_lookup', ...FOOD_LOOKUP_TOOLS]
+const LOOKUP_TOOLS = ['search', 'read_journal', 'get_weather', 'get_prayer_times', 'gym_get_schedule', 'gym_list_sessions', 'gym_exercise_records', 'gym_stats', 'person_history', 'web_lookup', ...FOOD_LOOKUP_TOOLS]
 // Tools that only shape the reply (questions, card buttons): never staged, never shown as actions.
 const UI_TOOLS = ['ask_choice', 'offer_alternatives']
 const FOOD_TOOL_NAMES = new Set(FOOD_TOOL_DEFS.map((def) => def.name))
@@ -353,6 +358,38 @@ const GYM_DATE = { type: 'string', description: 'YYYY-MM-DD in the user\'s local
 const GYM_SET_TYPES = ['normal', 'warmup', 'drop', 'failure']
 const E1RM_FORMULA_IDS = ['brzycki', 'epley', 'lombardi', 'oconner', 'wathan']
 const GYM_EXERCISE_NAME = { type: 'string', description: 'Exercise name as in the library, e.g. "Bench Press (Barbell)", "Squat (Barbell)", "Lat Pulldown (Cable)", or a custom exercise.' }
+// Exercises with done sets, as gym_log_workout and gym_edit_session take them.
+const GYM_LOGGED_EXERCISES = {
+  type: 'array',
+  items: {
+    type: 'object',
+    properties: {
+      name: GYM_EXERCISE_NAME,
+      note: { type: 'string' },
+      unit: { type: 'string', enum: ['kg', 'lb'], description: 'Unit of this exercise\'s weights (overrides the workout unit).' },
+      sets: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            weight: { type: 'number', description: 'Weighted bodyweight: added weight; assisted: assistance.' },
+            reps: { type: 'integer', minimum: 1, description: 'Omit only if the routine has a fixed rep target for this exercise.' },
+            duration_sec: { type: 'integer', minimum: 1 },
+            distance_m: { type: 'number', description: 'Metres.' },
+            type: { type: 'string', enum: GYM_SET_TYPES },
+            rpe: { type: 'number', minimum: 6, maximum: 10, description: 'RPE 6–10 in half steps, when the user gives it (RIR 2 = RPE 8).' },
+            count: { type: 'integer', minimum: 1, maximum: 20, description: 'Repeat this set N times (3×8 = one entry with reps 8, count 3).' },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ['name', 'sets'],
+    additionalProperties: false,
+  },
+}
+const GYM_START_TIME = { type: 'string', description: 'HH:MM (24-hour, local) the workout started, when the user says.' }
+const GYM_BODYWEIGHT = { type: 'number', description: 'Body weight that day in the user\'s unit, when the user mentions it (otherwise the latest weigh-in is used).' }
 
 // A routine exercise's targets; `key` names the exercise field ('name' to add one, 'exercise' to change one).
 function gymTargetSchema(key) {
@@ -430,6 +467,7 @@ const tools = [
     birthday: { type: 'string', description: 'YYYY-MM-DD (use 2000 as the year if unknown).' },
     currentStatus: { type: 'string', description: 'What they are doing right now.' },
     facts: { type: 'string' },
+    photoUrl: { type: 'string', description: 'An https link to a photo of them (they can also add one from the phone in People).' },
   }, ['name']),
   tool('update_friend', 'Update what the user knows about a person. Use addFact to append a durable fact without losing old ones; use currentStatus for what they are up to now.', {
     friendId: FRIEND_REF,
@@ -440,6 +478,8 @@ const tools = [
     currentStatus: { type: 'string' },
     addFact: { type: 'string' },
     facts: { type: 'string', description: 'Replaces all facts. Prefer addFact.' },
+    photoUrl: { type: 'string', description: 'An https link to a photo, or "" to remove the photo.' },
+    reminderDays: { type: 'integer', minimum: 0, maximum: 365, description: 'How often to nudge a catch-up, in days (0 = never; omit to keep the relationship default).' },
   }, ['friendId']),
   tool('log_contact', 'Record that the user talked to or saw a person (today or an earlier day), with an optional note of what they talked about. A second log the same day adds the note to that day\'s log; mode "replace" instead rewrites the note on that day\'s existing catch-up (to correct it).', {
     friendId: FRIEND_REF,
@@ -455,7 +495,7 @@ const tools = [
     friendId: FRIEND_REF,
     date: { type: 'string', description: 'YYYY-MM-DD of the catch-up to remove.' },
   }, ['friendId', 'date']),
-  tool('create_class', 'Add a recurring class. schedules has one entry per weekday.', {
+  tool('create_class', 'Add a recurring class. schedules has one entry per meeting: a day can appear more than once (a lecture and a lab both on Thu, each with its own time and room).', {
     name: { type: 'string' },
     endDate: DATE,
     schedules: {
@@ -520,7 +560,7 @@ const tools = [
       additionalProperties: false,
     },
   }),
-  tool('update_class', 'Edit a class by id: rename, change its weekly schedule (replaces all days), or its end date.', {
+  tool('update_class', 'Edit a class by id: rename, change its weekly schedule (schedules replaces all meetings: one entry per meeting, a day may appear more than once), or its end date.', {
     classId: { type: 'string' },
     name: { type: 'string' },
     endDate: DATE,
@@ -541,6 +581,7 @@ const tools = [
   tool('delete_friend', 'Remove a person, their catch-up history and their open "Talk to …" reminders from People. Only when the user clearly asks to remove them.', { friendId: FRIEND_REF }, ['friendId']),
   tool('read_journal', 'Read the full journal entry for a date (the snapshot only shows the start of recent entries).', { date: DATE }, ['date']),
   tool('delete_journal_entry', 'Delete the journal entry for a date. Only when the user clearly asks.', { date: DATE }, ['date']),
+  tool('update_note', 'Rewrite a note by id (ids come from the snapshot or search); the whole new text.', { noteId: { type: 'string' }, text: { type: 'string' } }, ['noteId', 'text']),
   tool('delete_note', 'Delete a note by id (ids come from the snapshot or search).', { noteId: { type: 'string' } }, ['noteId']),
   tool('get_weather', 'Current weather and the forecast for the user\'s location (up to 7 days).', {
     days: { type: 'integer', minimum: 1, maximum: 7, description: 'Days of forecast including today (default 2).' },
@@ -587,38 +628,34 @@ const tools = [
     routine: { type: 'string', description: 'Routine name or id it belongs to, if any.' },
     name: { type: 'string', description: 'Workout name (default: the routine name).' },
     duration_min: { type: 'number', minimum: 1 },
+    start_time: GYM_START_TIME,
+    bodyweight: GYM_BODYWEIGHT,
     note: { type: 'string' },
     unit: { type: 'string', enum: ['kg', 'lb'], description: 'Unit of every weight below, when the user said one different from their setting.' },
     fill_from_routine: { type: 'boolean', description: 'Also log the routine\'s exercises not listed, with their planned sets ("rest as planned").' },
-    exercises: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          name: GYM_EXERCISE_NAME,
-          note: { type: 'string' },
-          unit: { type: 'string', enum: ['kg', 'lb'], description: 'Unit of this exercise\'s weights (overrides the workout unit).' },
-          sets: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                weight: { type: 'number', description: 'Weighted bodyweight: added weight; assisted: assistance.' },
-                reps: { type: 'integer', minimum: 1, description: 'Omit only if the routine has a fixed rep target for this exercise.' },
-                duration_sec: { type: 'integer', minimum: 1 },
-                distance_m: { type: 'number', description: 'Metres.' },
-                type: { type: 'string', enum: GYM_SET_TYPES },
-                count: { type: 'integer', minimum: 1, maximum: 20, description: 'Repeat this set N times (3×8 = one entry with reps 8, count 3).' },
-              },
-              additionalProperties: false,
-            },
-          },
-        },
-        required: ['name', 'sets'],
-        additionalProperties: false,
-      },
-    },
+    exercises: GYM_LOGGED_EXERCISES,
   }, ['date']),
+  tool('gym_edit_session', 'Change a logged workout in place (ids come from the snapshot\'s recentWorkouts or gym_list_sessions): its name, date (today or earlier), start time, duration, note or body weight; exercises replaces the listed exercise\'s sets (give all of its sets) or adds the exercise; remove_exercises drops exercises. Only include what changes.', {
+    session_id: { type: 'string' },
+    name: { type: 'string' },
+    date: GYM_DATE,
+    start_time: GYM_START_TIME,
+    duration_min: { type: 'number', minimum: 1 },
+    note: { type: 'string', description: '"" removes the note.' },
+    bodyweight: GYM_BODYWEIGHT,
+    unit: { type: 'string', enum: ['kg', 'lb'], description: 'Unit of every weight below, when the user said one different from their setting.' },
+    exercises: GYM_LOGGED_EXERCISES,
+    remove_exercises: { type: 'array', items: { type: 'string' }, description: 'Exercise names to remove from the workout.' },
+  }, ['session_id']),
+  tool('gym_duplicate_session', 'Log a copy of an earlier workout (same exercises and sets) on another day, today or earlier: "same as last Push, today".', {
+    session_id: { type: 'string' },
+    date: GYM_DATE,
+  }, ['session_id', 'date']),
+  tool('gym_stats', 'Training totals for a date range (default the last 4 weeks): workouts, workouts per week vs the goal, working sets, volume, minutes, sets per muscle, top exercises, streak and PRs. With exercise: that lift\'s sessions, best set, estimated 1RM, volume and its first vs latest best set in the range.', {
+    from: GYM_DATE,
+    to: GYM_DATE,
+    exercise: GYM_EXERCISE_NAME,
+  }),
   tool('gym_delete_session', 'Permanently delete a logged workout by id (ids come from the snapshot or gym_list_sessions). Only when the user clearly asks.', {
     session_id: { type: 'string' },
   }, ['session_id']),
@@ -628,7 +665,7 @@ const tools = [
     notes: { type: 'string' },
     exercises: { type: 'array', items: gymTargetSchema('name') },
   }, ['name']),
-  tool('gym_edit_routine', 'Change a routine: rename, colour, notes, add or remove exercises, or change sets/reps/weight/rest targets.', {
+  tool('gym_edit_routine', 'Change a routine: rename, colour, notes, add or remove exercises, change sets/reps/weight/rest targets, reorder exercises or set an exercise\'s note.', {
     name: { type: 'string', description: 'Routine name or id.' },
     changes: {
       type: 'object',
@@ -639,10 +676,25 @@ const tools = [
         add_exercises: { type: 'array', items: gymTargetSchema('name') },
         remove_exercises: { type: 'array', items: { type: 'string' } },
         set_targets: { type: 'array', items: gymTargetSchema('exercise') },
+        reorder: { type: 'array', items: { type: 'string' }, description: 'Exercise names in their new order; ones left out keep their order after these.' },
+        row_note: {
+          type: 'object',
+          properties: {
+            exercise: { type: 'string' },
+            note: { type: 'string', description: '"" removes the note.' },
+          },
+          required: ['exercise', 'note'],
+          additionalProperties: false,
+          description: 'A note on one exercise of the routine (shown when logging it).',
+        },
       },
       additionalProperties: false,
     },
   }, ['name', 'changes']),
+  tool('gym_duplicate_routine', 'Copy a routine (same exercises and targets) under a new name, e.g. to make a "Push B" from Push. The copy is not in the schedule until added.', {
+    name: { type: 'string', description: 'Routine to copy: name or id.' },
+    new_name: { type: 'string', description: 'Default: "<name> copy".' },
+  }, ['name']),
   tool('gym_delete_routine', 'Delete a routine. Its days in the current and future schedule become rest; logged workouts keep their name. Only when the user clearly asks.', {
     name: { type: 'string', description: 'Routine name or id.' },
   }, ['name']),
@@ -890,7 +942,10 @@ function buildSnapshot(data, ctx, username) {
       overdue: task.date && task.date < today ? true : undefined,
       reminderMinutes: Number.isInteger(task.reminder_minutes) ? task.reminder_minutes : undefined,
     })),
-    recentlyCompleted: activeTasks.filter((task) => task.done).sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 20).map((task) => compact({ id: task.id, text: task.text, date: task.date })),
+    recentlyCompleted: activeTasks.filter((task) => task.done)
+      .sort((a, b) => String(b.completed_at || b.date || '').localeCompare(String(a.completed_at || a.date || '')))
+      .slice(0, 25)
+      .map((task) => compact({ id: task.id, text: task.text, date: task.date, completedOn: task.completed_at ? localDateOf(task.completed_at, ctx.timeZone) : undefined })),
     calendar: data.events
       .filter((event) => event.date >= addDays(today, -7) && event.date <= addDays(today, 90))
       .sort((a, b) => a.date.localeCompare(b.date) || (a.time || '').localeCompare(b.time || ''))
@@ -920,6 +975,7 @@ function buildSnapshot(data, ctx, username) {
         facts: truncate(friend.facts || friend.note, FACTS_PREVIEW_CHARS),
         lastTalked: last,
         daysSinceTalked: last ? daysBetween(last, today) : undefined,
+        catchUpEveryDays: friend.reminder_days ?? undefined,
         lastTopic: lastTopic[friend.id] ? `${truncate(lastTopic[friend.id].note.replace(/\s+/g, ' '), 120)}${lastTopic[friend.id].date !== last ? ` (${lastTopic[friend.id].date})` : ''}` : undefined,
         catchUpDue: (() => {
           const interval = friend.reminder_days ?? (friend.relationship === 'close_friend' ? 10 : friend.relationship === 'acquaintance' ? null : 30)
@@ -952,6 +1008,7 @@ function buildSnapshot(data, ctx, username) {
       prayerSchool: Number(data.settings.prayerSchool || 0) === 1 ? 'Hanafi' : 'Standard',
       assistantConfirm: data.settings.assistantConfirm === 'off' ? 'off' : 'all',
       assistantWeb: webSetting(data.settings),
+      timeZone: data.settings.timeZone || ctx.timeZone,
       notifications: notificationPrefs(data.settings), // what the reminders actually use (defaults filled in)
     },
     gym: buildGymSnapshot(data, ctx),
@@ -985,7 +1042,7 @@ const DIRECT_RULES = `Making changes (the user turned confirmations off): tools 
 function buildInstructions(snapshot, { confirmMode = true } = {}) {
   return `You are Daybook, a personal assistant built into the user's planner: a calm, capable "Jarvis". You know their tasks, calendar, classes, the people in their life, their journal and notes, their gym plan and workouts, their food log and goals, and facts they've asked you to remember — all in the snapshot below. Think about how things connect (a friend's birthday next week, a task that clashes with a class, someone they haven't talked to in a while, a workout day when protein is behind) and use that to be genuinely helpful.
 
-What you can do (with tools): tasks (add, edit, reschedule, complete, reopen, archive, restore, bulk changes, delete forever); calendar events; people (add, update, remove, log catch-ups with what you talked about, look up and remove catch-ups); classes; journal (read, write, append, set the title or mood, delete); notes; memories; search older history; per-task reminders and notification preferences (reminder timing, morning summary, evening check-in, people reminders, quiet hours, workout reminder); every setting (appearance, accent colour, display name, prayer times card, method and Asr, and whether you ask before changes); the gym tracker (schedule: skip, shift, swap, move, realign, undo, rotation or weekly plan, deload weeks; log workouts with sets, a quick "I trained" or body weight; history and personal records; routines, custom exercises, per-exercise notes, rest and increments; gym settings); the food tracker (log food with your own calorie and macro estimates, look at a day or week, edit or delete entries, set or calculate goals, favourites, delete a weigh-in, display settings: kcal or kJ, the ring, nutrients shown, meal names, AI review); live weather and prayer times; and tap-to-answer questions (ask_choice). You cannot change the password or recovery question, log out, turn push notifications on or off, change the saved location, or add, remove or reorder food meals: point the user to Settings (or "Use my location" on Today, or Food settings) for those.
+What you can do (with tools): tasks (add, edit, reschedule, complete, reopen, archive, restore, bulk changes, delete forever); calendar events; people (add, update, remove, log catch-ups with what you talked about, look up and remove catch-ups); classes; journal (read, write, append, set the title or mood, delete); notes; memories; search older history; per-task reminders and notification preferences (reminder timing, morning summary, evening check-in, people reminders, quiet hours, workout reminder); every setting (appearance, accent colour, display name, prayer times card, method and Asr, and whether you ask before changes); the gym tracker (schedule: skip, shift, swap, move, realign, undo, rotation or weekly plan, deload weeks; log workouts with sets, a quick "I trained" or body weight; history and personal records; routines, custom exercises, per-exercise notes, rest and increments; gym settings); the food tracker (log food with your own calorie and macro estimates, look at a day or week, edit or delete entries, set or calculate goals, favourites, delete a weigh-in, display settings: kcal or kJ, the ring, nutrients shown, meal names, AI review); live weather and prayer times; and tap-to-answer questions (ask_choice). You cannot change the password or recovery question, log out, turn push notifications on or off, change the saved location, run the welcome tour, export CSV, or edit gym warm-up schemes, plates and bars: point the user to Settings (or "Use my location" on Today, Gym settings, Food settings) for those.
 
 ${confirmMode ? CONFIRM_RULES : DIRECT_RULES}
 
@@ -996,7 +1053,8 @@ How to act:
 - Multi-step requests ("plan my week", "set up my exam prep", "clear my Friday") are welcome: break them into concrete tasks/events with sensible dates and times and stage them all in one card, explaining your plan in a sentence.
 - There are no recurring tasks or events. For a weekly thing use a class (create_class); for something that repeats a few times, offer to create each occurrence (up to 8) in one card. The user's own birthday: remember it and add an all-day event on its next occurrence.
 - Refer to things by the exact id from the snapshot, the $n ref of something created (or staged) earlier in this turn, or (people, routines, exercises) a name: the server resolves names. Never invent ids.
-- Ask with choices, not open questions: when the answer is one of a few options (relationship, skip vs shift, move vs swap, which of two people, routines or exercises, missing reps from a range, a class end date, which items to add), call ask_choice with 2–5 short options ("Something else" last when useful). One question at a time; changes that depend on the answer wait for it. After ask_choice, write nothing else: the question is shown with the chips.
+- Questions, only when they earn their place. Before asking, check the snapshot, memories and the conversation: most answers are already there (their usual gym time, a friend's full name, which class a "lecture" is). Act with a sensible default and state it in one clause ("I put it at 9:00 AM") whenever a wrong guess is cheap to fix with the Yes/No card. Ask only when the answer changes what gets saved and can't be inferred: which of two people, an amount or reps you'd otherwise invent, a date that could be two different days, a destructive choice. Then ask exactly one question, the most useful one, with choices (ask_choice, 2–5 short options, "Something else" last when useful), never a list of questions and never an open "what would you like?". Changes that depend on the answer wait for it. After ask_choice, write nothing else: the question is shown with the chips.
+- Meaningful follow-ups: after doing something, offer the one next step that genuinely fits (a reminder for a new event, logging the catch-up after adding a person, saving a food to My foods, a rest day after a missed workout), as a short offer or an ask_choice, not a menu.
 - Only a result with ok:true means something happened. Never say anything was logged, added, saved or done unless a result says it succeeded (and never for a staged change). When a change fails, say plainly it wasn't saved and why in a few words, then offer a fallback (a note, trying again later, or doing it in the app); don't present its numbers as logged.
 - Never invent reps, weights, times, dates or amounts the user didn't give. Use defaults only from the time rules below, routine targets or typical food servings, and say which you used. If something essential is missing or ambiguous, ask instead of guessing.
 - Never show ids. Say dates naturally ("Friday, Sep 18", "tomorrow") and times in 12-hour format ("2:35 PM").
@@ -1025,12 +1083,21 @@ Gym (snapshot.gym: today's workout with weights in the user's unit, ↑ = progre
 - "Sick this week": ask with choices: shift the days / skip the workout days / make it a deload week.
 - Logging: "I hit push today, bench 35 for 3 sets" = gym_log_workout with routine "Push" and the sets (library names like "Bench Press (Barbell)"; repeated sets as one entry with count). Weights are in the user's gym unit; if they name another unit, pass unit. "60 a side" on a barbell = 2 × 60 + the bar. Missing reps: leave them out when the routine has a fixed rep target (the server fills it in and says so: repeat that); for a rep range ask with choices. "The rest as planned" = fill_from_routine. gym_quick_log when they only say they trained. If they did a different routine than planned in a rotation, offer gym_realign. Say which exercise you logged if the name was vague.
 - "I weigh 72.5" = gym_log_bodyweight in their unit (the same weight log the Food tab uses).
+- When they say when the workout started ("at 6", "this morning at 7:30") pass start_time to gym_log_workout; when they mention weighing that day ("weighed 80 before training") pass bodyweight.
+- Fixing a logged workout ("bench was actually 82.5", "add curls to yesterday's workout", "it took 70 min", "it started at 6pm", "rename it") = gym_edit_session with the id from snapshot.gym.recentWorkouts or gym_list_sessions. exercises replaces that exercise's whole set list (give every set), so read the workout first (gym_list_sessions) when only one set changes. remove_exercises drops an exercise; date moves the workout (today or earlier).
+- "Same as last Push" / "repeat Monday's workout today" = gym_duplicate_session with that workout's id and the date (today or earlier). To repeat it with changes, duplicate then gym_edit_session with "$1" as the id in the same turn.
+- "How's my training going?", "how much volume this month?", "sets per muscle this week", "how's my bench progressing?" = gym_stats (last 4 weeks by default; pass from/to for another range, exercise for one lift). Records and the next suggested weight are gym_exercise_records.
+- Routine tweaks: "put squats first" = gym_edit_routine reorder (the full order, or just the ones to move to the front); "note on bench: pause at the chest" = row_note; "make a copy of Push called Push B" = gym_duplicate_routine (then gym_edit_routine "$1" to change the copy in the same turn).
 
 Food (snapshot.food: today's totals vs goals, what's remaining, meals, the last 7 days as totals only, favourites, weight trend):
 - "What did I eat yesterday / on Monday?": last7Days has only the day's totals, so call food_day for that date to list the items.
 - food_log: split what they ate into items and estimate each generic or homemade item's calories and macros yourself (protein, carbs, fat; fibre and sugar when you can). Use a typical serving when no size is given and say what you assumed; My foods and their usual portions win. Named brands, packaged products and restaurant menu items follow the "Food memory" rules below (My foods first, then the web), not your own memory. Coffee-shop cup sizes: Tim Hortons Canada hot S 10 / M 14 / L 20 / XL 24 fl oz, a double-double = 2 cream + 2 sugar; Starbucks Tall 12 / Grande 16 / Venti 20 fl oz hot, 24 iced. Numbers the user gives (calories, grams, servings) are exact. Pick the meal from what they said, else from the time of day. Plain tea or black coffee is about 2–5 kcal; ask with choices when milk or sugar changes a lot.
 - "How many calories do I have left?" / "what should I eat?": answer from snapshot.food (remaining calories and macros, weekly averages) with practical ideas that fit what's left (e.g. protein-heavy when protein is behind). No moralising.
 - Goals: food_set_goals for numbers they give; food_calculate_goals when they give their details or ask you to work goals out.
+- "Same breakfast as yesterday" / "repeat Monday's lunch" / "I had that again": food_copy_entries (from_date + from_meal, or entry_ids from the snapshot or food_day; to_meal only when they said a different meal). Don't re-estimate food they already logged.
+- Profile details without a goal change ("my target is 75 kg", "I'm very active now", "I'm 29"): food_update_profile (weights in their unit). Recalculate goals (food_calculate_goals) only when they ask for new goals or agree to it; offer it once when the goals came from the calculator.
+- Meals: food_update_prefs with meals for the whole list in order (keep the ids from snapshot.food.prefs for meals that stay), or add_meal / remove_meal / rename_meal for one change. Removing a meal that has entries today needs move_to. 3–6 meals.
+- Saturated fat: pass sat_fat_g when a label, barcode or web lookup gives it (food_log, food_memory save, food_update_entry); never guess it for generic foods. To detach an entry from a saved food: food_update_entry with favorite_id null.
 
 Food memory, labels, barcodes and the web (snapshot.food.myFoods = "My foods": foods the user saved with exact numbers, where they came from and when):
 - Before estimating a food, check My foods (snapshot.food.myFoods; food_memory_find for anything not listed). When it's there, stage food_log with its saved_food_id and servings (the saved numbers are used exactly) and say where they're from in a few words ("using your saved label numbers from Sep 20"); the card offers "Look it up online" / "Estimate instead" for fresh numbers. If they tap one, do that for the same food (web_lookup, or your own estimate) and stage food_log (plus food_memory save with the saved id when the new numbers should replace the old).
@@ -1056,6 +1123,7 @@ Attachments (photos, PDFs and text files in the user's message; the latest ones 
 
 Destructive actions (deleting a person, class, journal entry, note, routine, workout, catch-up, food entry, exercise, or a task forever) need the user's own words asking for it; say it can't be undone, and prefer archiving tasks.
 Settings: say what changed in words the user knows ("Accent is now Forest", "I'll ask before making changes").
+Notes: save_note for a quick note; "change my note about X" = update_note with the whole new text (ids from snapshot.notes or search); delete_note only when asked.
 Memories: remember saves at once (no Yes/No card). Whenever the user shares a durable fact about themselves (preferences, family, routines and schedules, goals, health and diet, work, school and courses, how they like things done), save it with remember in the same turn, without asking, and mention it in a few words. Also save durable facts you learn from their attachments (e.g. their program or term dates). Don't save one-off chatter or things stored elsewhere (tasks, a person's facts). If a memory is wrong or outdated, forget it and remember the corrected version. Use memories and the conversation summary to stay consistent across conversations.
 Weather and prayer times: call get_weather / get_prayer_times. If the location is unknown, ask the user to tap "Use my location" on the Today screen.
 Before replacing a long journal entry, read it with read_journal.
@@ -1448,6 +1516,54 @@ function forgetSession(data, id) {
 function latestBodyWeightKg(data, onOrBefore) {
   return data.body_weights.find((entry) => entry.date <= onOrBefore)?.kg ?? null
 }
+
+// A logged workout by id: the loaded ones first, then the database. null when it isn't the user's.
+async function findSession(supabase, userId, data, id) {
+  const loaded = data.gym_sessions.find((item) => item.id === id) || data.gymAllSessions?.find((item) => item.id === id)
+  if (loaded) return loaded
+  const { data: row, error } = await supabase.from('gym_sessions').select('*').eq('user_id', userId).eq('id', id).maybeSingle()
+  if (error) throw isMissingTable(error) ? new Error(GYM_TABLES_MISSING) : error
+  return sessionFromRow(row)
+}
+
+// Writes every editable column of a session (never its id, owner or created_at).
+async function updateGymSession(supabase, userId, session) {
+  const { id, user_id: owner, created_at: created, ...patch } = sessionToRow(session, userId)
+  const { error } = await supabase.from('gym_sessions').update(patch).eq('id', id).eq('user_id', owner)
+  if (error) throw isMissingTable(error) ? new Error(GYM_TABLES_MISSING) : error
+}
+
+// A body weight given in the user's unit → kg, or null when it doesn't look like one.
+function bodyweightKgArg(value, unit) {
+  const weight = toFiniteNumber(value)
+  const kg = weight === null ? null : toKg(weight, unit)
+  return kg !== null && kg > 0 && kg <= 700 ? kg : null
+}
+
+// duration_min → seconds (at most a day), or null when not given / not positive.
+function durationSecArg(minutes) {
+  const value = toFiniteNumber(minutes)
+  return value !== null && value > 0 ? Math.round(Math.min(value, 24 * 60) * 60) : null
+}
+
+// startedAt/endedAt for a logged workout: the given start (HH:MM local), else for today a workout
+// that ends now, else noon on that day. endedAt only when the duration is known.
+function sessionTimes(date, today, startTime, durationSec, timeZone) {
+  const after = (iso) => (durationSec ? new Date(Date.parse(iso) + durationSec * 1000).toISOString() : null)
+  if (isTime(startTime)) {
+    const startedAt = zonedIso(date, startTime, timeZone)
+    return { startedAt, endedAt: after(startedAt) }
+  }
+  if (date === today) {
+    const now = Date.now()
+    return { startedAt: new Date(durationSec ? now - durationSec * 1000 : now).toISOString(), endedAt: durationSec ? new Date(now).toISOString() : null }
+  }
+  const startedAt = zonedIso(date, '12:00', timeZone)
+  return { startedAt, endedAt: after(startedAt) }
+}
+
+// "That start time hasn't come yet" for today, else ''.
+const futureStartText = (date, startTime, ctx) => (date === ctx.localDate && isTime(startTime) && isTime(ctx.localTime) && startTime > ctx.localTime ? `It’s ${time12(ctx.localTime)} now, so a workout today can’t start at ${time12(startTime)}.` : '')
 
 // ---- time
 
@@ -2049,7 +2165,7 @@ function loggedExercise(spec, gym, data, { unit: givenUnit, routine = null } = {
       reps: fields.includes('reps') && reps > 0 ? Math.round(reps) : null,
       durationSec: fields.includes('duration') && duration > 0 ? Math.round(duration) : null,
       distanceM: fields.includes('distance') && distance > 0 ? distance : null,
-      rpe: null,
+      rpe: (() => { const rpe = toFiniteNumber(raw.rpe); return rpe !== null && rpe >= 6 && rpe <= 10 ? Math.round(rpe * 2) / 2 : null })(),
       done: true,
     }
     const complete = fields.includes('reps') ? set.reps !== null
@@ -2149,7 +2265,9 @@ function buildGymSnapshot(data, ctx) {
     const bodyWeight = data.body_weights[0]
     return compact({
       setup: data.gymTablesMissing ? 'gym tables not created yet: logging workouts and body weight fails until the gym migration is run in Supabase' : undefined,
-      prefs: `${unit}, ${prefs.distanceUnit}, weeks start ${DAY_NAMES[prefs.firstWeekday]}, goal ${prefs.weeklyGoal} workouts/week, workout reminder ${reminder}`,
+      prefs: `${unit}, ${prefs.distanceUnit}, weeks start ${DAY_NAMES[prefs.firstWeekday]}, goal ${prefs.weeklyGoal} workouts/week, workout reminder ${reminder}, rest ${prefs.defaultRest}s (warm-ups ${prefs.warmupRest}s), 1RM formula ${prefs.e1rmFormula}, RPE column ${prefs.showRpe ? 'on' : 'off'}, progression suggestions ${prefs.progression ? 'on' : 'off'}`,
+      customExercises: gym.exercises.filter((entry) => !entry.hidden).slice(0, 40).map((entry) => `${entry.name} (${entry.primary || 'custom'}${entry.equipment ? `, ${entry.equipment}` : ''})`).join('; ') || undefined,
+      exerciseNotes: Object.entries(gym.exerciseMeta).filter(([, meta]) => meta?.note || meta?.restSec || meta?.increment).slice(0, 40).map(([id, meta]) => `${gymLib.exerciseById(id, gym.exercises)?.name || id}: ${[meta.note ? `note “${truncate(meta.note, 120)}”` : '', meta.restSec ? `rest ${meta.restSec}s` : '', meta.increment ? `+${meta.increment} kg` : ''].filter(Boolean).join(', ')}`).join('; ') || undefined,
       today: days.length ? todayText(days[0], gym, sessions) : undefined,
       next7: days.slice(1).map((day) => dayText(day, gym)),
       nextWorkout: next && days.length && next.date > days[days.length - 1].date ? `${slotName(next.shown, gym)} on ${dayTag(next.date)}` : undefined,
@@ -2173,6 +2291,14 @@ function buildGymSnapshot(data, ctx) {
 }
 
 // ---- tools
+
+// "Bench Press (Barbell) 80 kg × 8, 8, 7" for a logged exercise.
+function exerciseLine(exercise, gym) {
+  const tracking = trackingFor(exercise, gymLib.exerciseById(exercise.exerciseId, gym.exercises))
+  return `${exercise.name || 'Exercise'} ${setsText(exercise.sets.filter(gymStats.isWorking), tracking, gym.prefs) || 'no working sets'}`
+}
+
+const muscleLabel = (id) => gymLib.MUSCLES.find((muscle) => muscle.id === id)?.label || id
 
 async function executeGymTool(supabase, userId, name, args, data, ctx) {
   const today = ctx.localDate
@@ -2433,17 +2559,15 @@ async function executeGymTool(supabase, userId, name, args, data, ctx) {
       if (filled) notes.push(`${plural(filled, 'exercise')} from ${routine.name.trim() || 'the routine'} logged as planned`)
     }
     if (!rows.length) return fail('Nothing was logged: no exercises given. Use gym_quick_log if the user only says they trained.')
-    const durationMin = toFiniteNumber(args.duration_min)
-    const durationSec = durationMin && durationMin > 0 ? Math.round(Math.min(durationMin, 24 * 60) * 60) : null
-    let startedAt
-    let endedAt = null
-    if (date === today) {
-      const now = Date.now()
-      startedAt = new Date(durationSec ? now - durationSec * 1000 : now).toISOString()
-      if (durationSec) endedAt = new Date(now).toISOString()
-    } else {
-      startedAt = zonedIso(date, '12:00', ctx.timeZone)
-      if (durationSec) endedAt = new Date(Date.parse(startedAt) + durationSec * 1000).toISOString()
+    const durationSec = durationSecArg(args.duration_min)
+    if (args.start_time !== undefined && args.start_time !== '' && !isTime(args.start_time)) return fail('start_time must be HH:MM (24-hour).')
+    const tooEarly = futureStartText(date, args.start_time, ctx)
+    if (tooEarly) return fail(tooEarly)
+    const { startedAt, endedAt } = sessionTimes(date, today, args.start_time, durationSec, ctx.timeZone)
+    let bodyweightKg = latestBodyWeightKg(data, date)
+    if (args.bodyweight !== undefined && args.bodyweight !== null) {
+      bodyweightKg = bodyweightKgArg(args.bodyweight, unit)
+      if (bodyweightKg === null) return fail('That doesn’t look like a body weight.')
     }
     const day = resolve(date)
     const planned = routine
@@ -2460,7 +2584,7 @@ async function executeGymTool(supabase, userId, name, args, data, ctx) {
       exercises: rows,
       note: String(args.note || '').trim(),
       planned,
-      bodyweightKg: latestBodyWeightKg(data, date),
+      bodyweightKg,
       isDeload: day.deload === true,
       createdAt: nowIso(),
     }
@@ -2469,9 +2593,11 @@ async function executeGymTool(supabase, userId, name, args, data, ctx) {
     const prs = safeSessionPRs(history, session, gym.prefs.e1rmFormula)
     await insertGymRow(supabase, 'gym_sessions', sessionToRow(session, userId))
     rememberSession(data, session)
-    const summary = rows.map((row) => `${row.name} ${setsText(row.sets.filter(gymStats.isWorking), row.tracking, gym.prefs)}`).join('; ')
+    const summary = rows.map((row) => exerciseLine(row, gym)).join('; ')
     const prNote = prs.length ? ` New PRs — ${prTexts(prs, gym.prefs).join('; ')}.` : ''
     const logged = rows.length === 1 && session.name === rows[0].name ? `${summary} ${onWhen(date, today)}` : `${session.name} ${onWhen(date, today)}: ${summary}`
+    if (isTime(args.start_time)) notes.push(`started ${time12(args.start_time)}`)
+    if (args.bodyweight !== undefined && args.bodyweight !== null) notes.push(`body weight ${fmtKg(bodyweightKg, unit)}`)
     const said = notes.length ? ` (${notes.join('; ')})` : ''
     // An off-plan routine in a rotation: the Gym app offers to realign; so can the assistant.
     const offPlan = routine && date === today && day.planned?.kind === 'routine' && day.planned.routineId !== routine.id && sched.versionFor(gym.schedule, today)?.mode === 'rotation'
@@ -2479,16 +2605,230 @@ async function executeGymTool(supabase, userId, name, args, data, ctx) {
     return { ok: true, message: `Logged ${logged}${said}.${prNote}${warnings.length ? ` ${warnings.join(' ')}` : ''}`, id: session.id, ...(realignHint ? { hint: realignHint.trim() } : {}) }
   }
 
+  if (name === 'gym_edit_session') {
+    const id = String(args.session_id || '').trim()
+    if (!id) return fail('Say which workout (its id).')
+    if (data.gymTablesMissing) return fail(GYM_TABLES_MISSING)
+    const session = await findSession(supabase, userId, data, id)
+    if (!session) return fail('No logged workout with that id.')
+    const { gym } = data
+    if (args.unit !== undefined && !WEIGHT_UNITS.includes(args.unit)) return fail('unit must be kg or lb.')
+    if (args.start_time !== undefined && args.start_time !== '' && !isTime(args.start_time)) return fail('start_time must be HH:MM (24-hour).')
+    if (args.duration_min !== undefined && args.duration_min !== null && durationSecArg(args.duration_min) === null) return fail('duration_min must be a number of minutes.')
+    const routine = session.routineId ? gym.routines.find((item) => item.id === session.routineId) || null : null
+    const next = { ...session, exercises: session.exercises.map((exercise) => ({ ...exercise, sets: [...exercise.sets] })) }
+    const said = []
+    const warnings = []
+    const notes = []
+    if (args.date !== undefined && args.date !== '') {
+      const date = gymDate(args.date, today)
+      if (!date) return fail('The date must be YYYY-MM-DD.')
+      if (date > today) return fail('A workout can only be dated today or earlier.')
+      if (date !== session.date) {
+        next.date = date
+        said.push(`moved to ${gymWhen(date, today)}`)
+      }
+    }
+    if (args.name !== undefined) {
+      const label = String(args.name || '').trim().slice(0, 80)
+      if (!label) return fail('A workout needs a name.')
+      if (label !== session.name) {
+        next.name = label
+        said.push(`renamed to ${label}`)
+      }
+    }
+    if (args.note !== undefined && args.note !== null) {
+      next.note = String(args.note).trim()
+      said.push(next.note ? 'note updated' : 'note removed')
+    }
+    if (args.bodyweight !== undefined && args.bodyweight !== null) {
+      next.bodyweightKg = bodyweightKgArg(args.bodyweight, unit)
+      if (next.bodyweightKg === null) return fail('That doesn’t look like a body weight.')
+      said.push(`body weight ${fmtKg(next.bodyweightKg, unit)}`)
+    } else if (next.date !== session.date && session.bodyweightKg === null) next.bodyweightKg = latestBodyWeightKg(data, next.date)
+    // Exercises: a listed one gets these sets (keeping its rest, superset and id), a new one is added.
+    const problems = []
+    for (const spec of Array.isArray(args.exercises) ? args.exercises : []) {
+      if (!isPlainObject(spec)) continue
+      try {
+        const { row, warning, note } = loggedExercise(spec, gym, data, { unit: args.unit, routine })
+        const index = next.exercises.findIndex((exercise) => (exercise.exerciseId && exercise.exerciseId === row.exerciseId) || normText(exercise.name) === normText(row.name))
+        if (index >= 0) {
+          const current = next.exercises[index]
+          next.exercises[index] = { ...current, tracking: row.tracking, sets: row.sets, ...(spec.note !== undefined ? { note: row.note } : {}) }
+          said.push(`${row.name} now ${setsText(row.sets.filter(gymStats.isWorking), row.tracking, gym.prefs)}`)
+        } else {
+          next.exercises.push(row)
+          said.push(`added ${exerciseLine(row, gym)}`)
+        }
+        if (warning) warnings.push(warning)
+        if (note) notes.push(note)
+      } catch (error) {
+        problems.push(error.message)
+      }
+    }
+    for (const ref of Array.isArray(args.remove_exercises) ? args.remove_exercises : []) {
+      try {
+        const row = findRoutineRow(next, ref, gym, data)
+        next.exercises = next.exercises.filter((item) => item !== row)
+        said.push(`removed ${row.name}`)
+      } catch (error) {
+        problems.push(error.message)
+      }
+    }
+    if (problems.length) return fail(`Nothing was changed. ${problems.join(' ')}`)
+    if (session.exercises.length && !next.exercises.length) return fail('That would leave the workout with no exercises. Use gym_delete_session if the user wants it gone.')
+    // Time: a new start or duration (or date) recomputes startedAt/endedAt; the rest stays.
+    const startGiven = isTime(args.start_time)
+    const durationGiven = args.duration_min !== undefined && args.duration_min !== null
+    if (startGiven || durationGiven || next.date !== session.date) {
+      const durationSec = durationGiven ? durationSecArg(args.duration_min) : gymStats.sessionDurationSec(session)
+      const clock = startGiven ? args.start_time : clockIn(session.startedAt, ctx.timeZone)
+      const tooEarly = futureStartText(next.date, clock, ctx)
+      if (tooEarly) return fail(tooEarly)
+      const times = sessionTimes(next.date, today, isTime(clock) ? clock : null, durationSec, ctx.timeZone)
+      next.startedAt = times.startedAt
+      next.endedAt = times.endedAt
+      if (durationGiven) next.durationSec = durationSec
+      if (startGiven) said.push(`starts ${time12(args.start_time)}`)
+      if (durationGiven) said.push(`${Math.round(durationSec / 60)} min`)
+    }
+    if (!said.length) return fail('Nothing to change.')
+    await updateGymSession(supabase, userId, next)
+    rememberSession(data, next)
+    const label = session.name && normText(session.name) !== 'workout' ? session.name : 'the workout'
+    const extra = [...notes, ...warnings].length ? ` (${[...notes, ...warnings].join('; ')})` : ''
+    return { ok: true, message: `Updated ${label} from ${gymWhen(session.date, today)}: ${said.join('; ')}${extra}.` }
+  }
+
+  if (name === 'gym_duplicate_session') {
+    const id = String(args.session_id || '').trim()
+    if (!id) return fail('Say which workout to copy (its id).')
+    const date = gymDate(args.date, today)
+    if (!date) return fail('The date must be YYYY-MM-DD.')
+    if (date > today) return fail('A workout can only be logged for today or earlier.')
+    if (data.gymTablesMissing) return fail(GYM_TABLES_MISSING)
+    const source = await findSession(supabase, userId, data, id)
+    if (!source) return fail('No logged workout with that id.')
+    const { gym } = data
+    const durationSec = gymStats.sessionDurationSec(source)
+    // Same time of day as the original when that has already come round; else the usual default.
+    const clock = clockIn(source.startedAt, ctx.timeZone)
+    const keepClock = isTime(clock) && !futureStartText(date, clock, ctx)
+    const times = sessionTimes(date, today, keepClock ? clock : null, durationSec, ctx.timeZone)
+    const day = resolve(date)
+    const routine = source.routineId ? gym.routines.find((item) => item.id === source.routineId) || null : null
+    const session = {
+      id: newId(),
+      date,
+      name: source.name,
+      routineId: source.routineId ?? null,
+      startedAt: times.startedAt,
+      endedAt: times.endedAt,
+      durationSec: gymNum(source.durationSec) ?? durationSec ?? null,
+      exercises: source.exercises.map((exercise) => ({ ...exercise, id: newId(), sets: exercise.sets.map((set) => ({ ...set, id: newId() })) })),
+      note: source.note || '',
+      planned: routine ? { versionId: day.versionId, routineId: routine.id, cycleIndex: day.shown.kind === 'routine' && day.shown.routineId === routine.id ? day.cycleIndex : null } : null,
+      bodyweightKg: latestBodyWeightKg(data, date) ?? gymNum(source.bodyweightKg),
+      isDeload: day.deload === true,
+      createdAt: nowIso(),
+    }
+    const history = await loadAllSessions(supabase, userId, data)
+    const prs = safeSessionPRs(history, session, gym.prefs.e1rmFormula)
+    await insertGymRow(supabase, 'gym_sessions', sessionToRow(session, userId))
+    rememberSession(data, session)
+    const summary = session.exercises.map((exercise) => exerciseLine(exercise, gym)).join('; ') || 'no sets'
+    const prNote = prs.length ? ` New PRs — ${prTexts(prs, gym.prefs).join('; ')}.` : ''
+    return { ok: true, message: `Logged a copy of ${source.name || 'the workout'} from ${gymWhen(source.date, today)} ${onWhen(date, today)}: ${summary}.${prNote}`, id: session.id }
+  }
+
+  if (name === 'gym_stats') {
+    const { gym } = data
+    const { prefs } = gym
+    let to = args.to ? dateArg(args.to, 'end date') : today
+    let from = args.from ? dateArg(args.from, 'start date') : sched.addDays(to, -27)
+    if (to < from) [from, to] = [to, from]
+    if (data.gymTablesMissing) return { ok: true, workouts: 0, message: GYM_TABLES_MISSING }
+    const oldest = data.gym_sessions[data.gym_sessions.length - 1]?.date
+    const all = data.gymSessionsTruncated && (!oldest || from <= oldest || args.exercise) ? await loadAllSessions(supabase, userId, data) : data.gym_sessions
+    const sessions = all.filter((session) => session.date >= from && session.date <= to)
+    const range = `${from} to ${to}`
+    const lookup = (exerciseId) => gymLib.exerciseById(exerciseId, gym.exercises)
+    const volumeLookup = prefs.bodyweightInVolume ? lookup : null
+    const volumeText = (kg) => `${Math.round(fromKg(kg, unit)).toLocaleString('en-US')} ${unit}`
+    const weeks = (sched.daysBetween(from, to) + 1) / 7
+    if (args.exercise) {
+      let entry
+      try {
+        entry = resolveExercise(gym, data, args.exercise)
+      } catch (error) {
+        return fail(error.message)
+      }
+      const history = gymStats.exerciseHistory(sessions, entry.id)
+      if (!history.length) return { ok: true, exercise: entry.name, range, sessions: 0, message: `No sets of ${entry.name} between ${from} and ${to}.` }
+      const tracking = trackingFor(history[0].exercise, entry)
+      const working = history.flatMap(({ session, exercise }) => exercise.sets.filter(gymStats.isWorking).map((set) => ({ set, session })))
+      const volumeKg = working.reduce((total, { set, session }) => total + gymStats.setVolume(set, tracking, session.bodyweightKg, prefs.bodyweightInVolume && Boolean(entry.bwVolume)), 0)
+      const best = gymStats.bestSet({ tracking, sets: working.map(({ set }) => set) }, prefs.e1rmFormula)
+      const bestDate = best ? working.find(({ set }) => set === best)?.session.date : null
+      const bestE1rm = best && tracking === 'weight_reps' ? gymStats.e1rm(best.weightKg, best.reps, prefs.e1rmFormula) : null
+      const bestOf = ({ session, exercise }) => {
+        const top = gymStats.bestSet(exercise, prefs.e1rmFormula)
+        return top ? `${session.date}: ${setsText([top], tracking, prefs)}` : undefined
+      }
+      const prs = sessions.reduce((count, session) => count + safeSessionPRs(all, session, prefs.e1rmFormula).filter((pr) => pr.exerciseId === entry.id).length, 0)
+      return compact({
+        ok: true,
+        exercise: entry.name,
+        range,
+        units: `${unit}, ${prefs.distanceUnit}`,
+        sessions: history.length,
+        workingSets: working.length,
+        totalReps: fieldsOf(tracking).includes('reps') ? working.reduce((total, { set }) => total + (gymNum(set.reps) ?? 0), 0) : undefined,
+        volume: volumeKg > 0 ? volumeText(volumeKg) : undefined,
+        bestSet: best ? `${setsText([best], tracking, prefs)}${bestDate ? ` (${bestDate})` : ''}` : undefined,
+        estimated1RM: bestE1rm ? `${formatNumber(fromKg(bestE1rm, unit), 1)} ${unit} (${prefs.e1rmFormula})` : undefined,
+        first: history.length > 1 ? bestOf(history[history.length - 1]) : undefined,
+        latest: bestOf(history[0]),
+        prs: prs || undefined,
+      })
+    }
+    if (!sessions.length) return { ok: true, range, workouts: 0, message: `No logged workouts between ${from} and ${to}.` }
+    const workingSets = sessions.reduce((total, session) => total + gymStats.sessionWorkingSets(session), 0)
+    const volumeKg = sessions.reduce((total, session) => total + gymStats.sessionVolume(session, volumeLookup), 0)
+    const timed = sessions.map((session) => gymStats.sessionDurationSec(session)).filter((seconds) => seconds !== null)
+    const minutes = Math.round(timed.reduce((total, seconds) => total + seconds, 0) / 60)
+    const perWeek = Math.round((sessions.length / Math.max(weeks, 1 / 7)) * 10) / 10
+    const byMuscle = Object.entries(gymStats.weeklySetsByMuscle(sessions, from, to, lookup)).sort((a, b) => b[1] - a[1])
+    const prs = sessions.reduce((count, session) => count + safeSessionPRs(all, session, prefs.e1rmFormula).length, 0)
+    const weekCount = sched.daysBetween(sched.weekStart(from, prefs.firstWeekday), sched.weekStart(to, prefs.firstWeekday)) / 7 + 1
+    const weekly = weekCount <= 13 ? gymStats.weeklyCounts(sessions, to, prefs.firstWeekday, weekCount, volumeLookup) : []
+    const byRoutine = new Map()
+    for (const session of sessions) byRoutine.set(session.name || 'Workout', (byRoutine.get(session.name || 'Workout') || 0) + 1)
+    return compact({
+      ok: true,
+      range,
+      units: `${unit}, ${prefs.distanceUnit}`,
+      workouts: sessions.length,
+      perWeek: `${perWeek}/week (goal ${prefs.weeklyGoal})`,
+      byWorkout: [...byRoutine].sort((a, b) => b[1] - a[1]).map(([label, count]) => `${label} ×${count}`).join(', '),
+      workingSets,
+      volume: volumeKg > 0 ? volumeText(volumeKg) : undefined,
+      minutes: minutes ? `${minutes} min over ${plural(timed.length, 'timed workout')} (avg ${Math.round(minutes / timed.length)} min)` : undefined,
+      setsPerMuscle: byMuscle.length ? byMuscle.map(([muscle, count]) => `${muscleLabel(muscle)} ${formatNumber(count, 1)}`).join(', ') : undefined,
+      topExercises: gymStats.topExercises(sessions, 5).map((item) => `${item.name} ×${item.count}`).join(', ') || undefined,
+      weekly: weekly.length > 1 ? weekly.map((week) => `${week.weekStart}: ${plural(week.count, 'workout')}${week.volumeKg > 0 ? `, ${volumeText(week.volumeKg)}` : ''}${week.minutes ? `, ${week.minutes} min` : ''}`) : undefined,
+      prs: prs || undefined,
+      streak: `${plural(gymStats.streakWeeks(all, today, prefs.firstWeekday), 'week')}`,
+      thisWeek: `${gymStats.weekProgress(all, today, prefs.firstWeekday)}/${prefs.weeklyGoal}`,
+    })
+  }
+
   if (name === 'gym_delete_session') {
     const id = String(args.session_id || '').trim()
     if (!id) return fail('Say which workout (its id).')
     if (data.gymTablesMissing) return fail(GYM_TABLES_MISSING)
-    let session = data.gym_sessions.find((item) => item.id === id) || data.gymAllSessions?.find((item) => item.id === id)
-    if (!session) {
-      const { data: row, error } = await supabase.from('gym_sessions').select('*').eq('user_id', userId).eq('id', id).maybeSingle()
-      if (error) throw error
-      session = sessionFromRow(row)
-    }
+    const session = await findSession(supabase, userId, data, id)
     if (!session) return fail('No logged workout with that id.')
     const { error } = await supabase.from('gym_sessions').delete().eq('id', id).eq('user_id', userId)
     if (error) throw error
@@ -2562,12 +2902,61 @@ async function executeGymTool(supabase, userId, name, args, data, ctx) {
         next.exercises.push(row)
         said.push(`added ${planLine(row, gym, { targetsOnly: true })}`)
       }
+      const rowNotes = Array.isArray(changes.row_note) ? changes.row_note : changes.row_note ? [changes.row_note] : []
+      for (const spec of rowNotes.filter(isPlainObject)) {
+        const row = findRoutineRow(next, spec.exercise, gym, data)
+        const note = String(spec.note ?? '').trim().slice(0, 300)
+        next.exercises = next.exercises.map((item) => (item === row ? { ...item, note } : item))
+        said.push(note ? `${row.name} note “${truncate(note, 60)}”` : `${row.name} note removed`)
+      }
+      if (Array.isArray(changes.reorder) && changes.reorder.length) {
+        const ordered = []
+        for (const ref of changes.reorder) {
+          const row = findRoutineRow(next, ref, gym, data)
+          if (!ordered.includes(row)) ordered.push(row)
+        }
+        // The ones not listed keep their order, after the listed ones.
+        next.exercises = [...ordered, ...next.exercises.filter((row) => !ordered.includes(row))]
+        said.push(`order: ${next.exercises.map((row) => row.name).join(', ')}`)
+      }
       if (!said.length) throw new Error('Nothing to change.')
       next.exercises = tidySupersets(next.exercises)
       next.updatedAt = nowIso()
       return { gym: { routines: gym.routines.map((item) => (item.id === routine.id ? next : item)) } }
     })
     return { ok: true, message: `Updated ${routineName}: ${said.join('; ')}.` }
+  }
+
+  if (name === 'gym_duplicate_routine') {
+    let created = null
+    let sourceName = ''
+    await saveGym(supabase, userId, data, (gym) => {
+      const source = findRoutine(gym, args.name ?? args.routine_id ?? args.routine)
+      sourceName = source.name.trim() || 'Untitled routine'
+      const copyName = String(args.new_name || '').trim().slice(0, 60) || `${sourceName} copy`.slice(0, 60)
+      const clash = gym.routines.find((routine) => normText(routine.name) === normText(copyName))
+      if (clash) throw new Error(`There’s already a routine called ${clash.name}.`)
+      const now = nowIso()
+      // Fresh ids throughout; superset links are kept between the copied rows.
+      const supersets = new Map()
+      const supersetId = (old) => {
+        if (old == null) return null
+        if (!supersets.has(old)) supersets.set(old, newId())
+        return supersets.get(old)
+      }
+      created = {
+        ...source,
+        id: newId(),
+        name: copyName,
+        color: nextRoutineColor(gym.routines),
+        exercises: source.exercises.map((row) => ({ ...row, id: newId(), supersetId: supersetId(row.supersetId), sets: row.sets.map((set) => ({ ...set, id: newId() })) })),
+        createdAt: now,
+        updatedAt: now,
+      }
+      return { gym: { routines: [...gym.routines, created] } }
+    })
+    const list = created.exercises.length ? `: ${created.exercises.map((row) => planLine(row, data.gym, { targetsOnly: true })).join('; ')}` : ' (no exercises)'
+    return { ok: true, message: `Created ${created.name} as a copy of ${sourceName}${list}. It isn’t in the schedule yet.`, id: created.id }
   }
 
   if (name === 'gym_delete_routine') {
@@ -3264,6 +3653,7 @@ async function executeTool(supabase, userId, name, rawArgs, data, ctx, { refs = 
     const problem = checkDateTime(args)
     if (problem) return { ok: false, message: problem }
     if (args.time && !args.date) return { ok: false, message: 'A time needs a date. Pass the date too (e.g. today), or leave the time out.' }
+    if (args.priority !== undefined && args.priority !== null && args.priority !== '' && !['urgent', 'medium', 'low'].includes(args.priority)) return { ok: false, message: 'Priority is urgent, medium or low.' }
     const task = { id: newId(), user_id: userId, text, date: args.date || '', time: args.date ? (args.time || '') : '', details: args.details || '', priority: args.priority || 'medium', done: false, archived: false, calendar_event_id: null, created_at: nowIso(), ...(Number.isInteger(args.reminderMinutes) ? { reminder_minutes: args.reminderMinutes } : {}) }
     if (task.date) task.calendar_event_id = newId()
     const { error } = await supabase.from('tasks').insert(task)
@@ -3285,6 +3675,7 @@ async function executeTool(supabase, userId, name, rawArgs, data, ctx, { refs = 
     if (problem) return { ok: false, message: problem }
     if (args.text !== undefined && !String(args.text).trim()) return { ok: false, message: 'A task needs some text.' }
     if (args.priority !== undefined && args.priority !== null && !['urgent', 'medium', 'low'].includes(args.priority)) return { ok: false, message: 'Priority is urgent, medium or low.' }
+    for (const flag of ['done', 'archived']) if (args[flag] !== undefined && args[flag] !== null && typeof args[flag] !== 'boolean') return { ok: false, message: `${flag} must be true or false.` }
     const patch = {}
     for (const field of ['text', 'date', 'time', 'details', 'priority', 'done', 'archived']) {
       if (args[field] !== undefined && args[field] !== null) patch[field] = field === 'text' ? String(args[field]).trim() : args[field]
@@ -3296,6 +3687,7 @@ async function executeTool(supabase, userId, name, rawArgs, data, ctx, { refs = 
       delete patch.details
     }
     if (Number.isInteger(args.reminderMinutes)) patch.reminder_minutes = args.reminderMinutes
+    if (patch.done !== undefined && !!patch.done !== !!task.done) patch.completed_at = patch.done ? nowIso() : null
     else if (args.reminderMinutes === null && Number.isInteger(task.reminder_minutes)) patch.reminder_minutes = null
     // Like the app: a task without a date has no time.
     const nextDate = args.date !== undefined ? args.date : task.date
@@ -3305,7 +3697,12 @@ async function executeTool(supabase, userId, name, rawArgs, data, ctx, { refs = 
     }
     if (!Object.keys(patch).length) return keptMarker ? { ok: false, message: 'This is a catch-up reminder, so its details can’t be changed. Nothing else to change.' } : { ok: false, message: 'Nothing to change.' }
     const wasDone = !!task.done
-    const { error } = await supabase.from('tasks').update(patch).eq('id', task.id).eq('user_id', userId)
+    let { error } = await supabase.from('tasks').update(patch).eq('id', task.id).eq('user_id', userId)
+    // completed_at comes from a later migration: without the column, save the rest.
+    if (error && 'completed_at' in patch && isMissingColumn(error, 'completed_at')) {
+      delete patch.completed_at
+      ;({ error } = await supabase.from('tasks').update(patch).eq('id', task.id).eq('user_id', userId))
+    }
     if (error) throw error
     Object.assign(task, patch)
 
@@ -3372,6 +3769,8 @@ async function executeTool(supabase, userId, name, rawArgs, data, ctx, { refs = 
     const missing = ids.filter((id) => !data.tasks.some((task) => task.id === id))
     if (missing.length) return { ok: false, message: `No task with id ${missing.slice(0, 3).map((id) => `"${id}"`).join(', ')}.` }
     const change = {}
+    for (const flag of ['done', 'archived']) if (args[flag] !== undefined && args[flag] !== null && typeof args[flag] !== 'boolean') return { ok: false, message: `${flag} must be true or false.` }
+    if (args.priority !== undefined && args.priority !== null && !['urgent', 'medium', 'low'].includes(args.priority)) return { ok: false, message: 'Priority is urgent, medium or low.' }
     for (const field of ['date', 'time', 'priority', 'done', 'archived']) if (args[field] !== undefined && args[field] !== null) change[field] = args[field]
     if (!Object.keys(change).length) return { ok: false, message: 'Nothing to change.' }
     const problem = checkDateTime(change)
@@ -3425,9 +3824,13 @@ async function executeTool(supabase, userId, name, rawArgs, data, ctx, { refs = 
     const problem = checkDateTime(args, { dateRequired: true })
     if (problem) return { ok: false, message: problem }
     const patch = {}
-    for (const field of ['title', 'date', 'time']) if (args[field] !== undefined) patch[field] = args[field]
-    const { error } = await supabase.from('events').update(patch).eq('id', event.id).eq('user_id', userId)
-    if (error) throw error
+    if (args.title !== undefined && !String(args.title).trim()) return { ok: false, message: 'An event needs a title.' }
+    for (const field of ['title', 'date', 'time']) if (args[field] !== undefined) patch[field] = field === 'title' ? String(args[field]).trim() : args[field]
+    if (!Object.keys(patch).length && typeof args.details !== 'string') return { ok: false, message: 'Nothing to change.' }
+    if (Object.keys(patch).length) {
+      const { error } = await supabase.from('events').update(patch).eq('id', event.id).eq('user_id', userId)
+      if (error) throw error
+    }
     Object.assign(event, patch)
     if (event.task_id) {
       const taskPatch = {}
@@ -3475,7 +3878,8 @@ async function executeTool(supabase, userId, name, rawArgs, data, ctx, { refs = 
       console.error('similarFriends failed:', error)
     }
     const relationship = args.relationship || 'friend'
-    const friend = compact({ id: newId(), user_id: userId, name: friendName, relationship, organization: args.organization, birthday: args.birthday, current_status: args.currentStatus, facts: args.facts, reminder_days: reminderDaysFor(relationship), created_at: nowIso() })
+    if (args.photoUrl !== undefined && args.photoUrl !== '' && !/^https:\/\/\S{4,300}$/.test(String(args.photoUrl))) return { ok: false, message: 'A photo needs an https link.' }
+    const friend = compact({ id: newId(), user_id: userId, name: friendName, relationship, organization: args.organization, birthday: args.birthday, current_status: args.currentStatus, facts: args.facts, photo_url: args.photoUrl || undefined, reminder_days: reminderDaysFor(relationship), created_at: nowIso() })
     const { error } = await supabase.from('friends').insert(friend)
     if (error) throw error
     data.friends.push(friend)
@@ -3523,6 +3927,18 @@ async function executeTool(supabase, userId, name, rawArgs, data, ctx, { refs = 
       const existing = String(patch.facts ?? (friend.facts || friend.note) ?? '').trim() // older people keep notes in note
       patch.facts = existing ? `${existing}\n${args.addFact.trim()}` : args.addFact.trim()
       said.push(`new fact “${truncate(args.addFact.trim(), 80)}”`)
+    }
+    if (args.photoUrl !== undefined) {
+      const url = String(args.photoUrl ?? '').trim()
+      if (url && !/^https:\/\/\S{4,300}$/.test(url)) return { ok: false, message: 'A photo needs an https link.' }
+      patch.photo_url = url || null
+      said.push(url ? 'photo set' : 'photo removed')
+    }
+    if (args.reminderDays !== undefined && args.reminderDays !== null) {
+      const days = Number(args.reminderDays)
+      if (!Number.isInteger(days) || days < 0 || days > 365) return { ok: false, message: 'reminderDays is a whole number of days, 0 to 365.' }
+      patch.reminder_days = days || null
+      said.push(days ? `catch-up nudge every ${days} days` : 'catch-up nudges off')
     }
     if (!Object.keys(patch).length) return { ok: false, message: 'Nothing to change.' }
     const { error } = await supabase.from('friends').update(patch).eq('id', friend.id).eq('user_id', userId)
@@ -3658,7 +4074,7 @@ async function executeTool(supabase, userId, name, rawArgs, data, ctx, { refs = 
     const title = typeof args.title === 'string' ? args.title.trim() : ''
     if (!text && !title && args.mood === undefined) return { ok: false, message: 'Nothing to write: give a body, a title or a mood.' }
     const existing = data.journal_entries.find((entry) => entry.date === date)
-    if (existing && text && args.mode === 'replace' && String(existing.body || '').length > JOURNAL_PREVIEW_CHARS) {
+    if (existing && text && args.mode === 'replace' && String(existing.body || '').length > JOURNAL_PREVIEW_CHARS && !ctx.readJournal?.has(date)) {
       return { ok: false, message: 'That entry is longer than what I can see, so I can only add to it (mode "append").' }
     }
     // Only a new body changes the text; a title or mood can be set on its own (B8).
@@ -3708,13 +4124,14 @@ async function executeTool(supabase, userId, name, rawArgs, data, ctx, { refs = 
   }
 
   if (name === 'search') {
+    if (!['journal', 'notes', 'completed_tasks', 'archived_tasks', 'past_events'].includes(args.type)) return { ok: false, message: 'type must be journal, notes, completed_tasks, archived_tasks or past_events.' }
     const query = String(args.query || '').toLowerCase()
     const matches = (text) => !query || String(text || '').toLowerCase().includes(query)
     let items = []
     if (args.type === 'journal') items = data.journal_entries.filter((entry) => matches(`${entry.title} ${entry.body}`)).map((entry) => compact({ date: entry.date, title: entry.title, mood: entry.mood, text: truncate(entry.body, 1500) }))
     if (args.type === 'notes') items = data.voice_notes.filter((note) => matches(note.text)).map((note) => ({ id: note.id, date: localDateOf(note.created_at, ctx.timeZone), text: truncate(note.text, 1000) }))
-    if (args.type === 'completed_tasks') items = data.tasks.filter((task) => task.done && !task.archived && matches(task.text)).map((task) => compact({ id: task.id, text: task.text, date: task.date }))
-    if (args.type === 'archived_tasks') items = data.tasks.filter((task) => task.archived && matches(task.text)).map((task) => compact({ id: task.id, text: task.text, date: task.date }))
+    if (args.type === 'completed_tasks') items = data.tasks.filter((task) => task.done && !task.archived && (matches(task.text) || matches(task.details))).map((task) => compact({ id: task.id, text: task.text, date: task.date, completedOn: task.completed_at ? localDateOf(task.completed_at, ctx.timeZone) : undefined }))
+    if (args.type === 'archived_tasks') items = data.tasks.filter((task) => task.archived && (matches(task.text) || matches(task.details))).map((task) => compact({ id: task.id, text: task.text, date: task.date }))
     if (args.type === 'past_events') items = data.events.filter((event) => event.date < addDays(ctx.localDate, -7) && matches(event.title)).map((event) => compact({ id: event.id, title: event.title, date: event.date, time: event.time }))
     return { ok: true, items: items.slice(0, 40), total: items.length }
   }
@@ -3783,8 +4200,10 @@ async function executeTool(supabase, userId, name, rawArgs, data, ctx, { refs = 
   }
 
   if (name === 'read_journal') {
+    if (!isIsoDate(args.date)) return { ok: false, message: 'Say which day (YYYY-MM-DD, or today/yesterday).' }
     const entry = data.journal_entries.find((item) => item.date === args.date)
     if (!entry) return { ok: true, found: false, message: `No journal entry for ${args.date}.` }
+    ;(ctx.readJournal ||= new Set()).add(entry.date) // a replace of this entry is now informed (see write_journal)
     return { ok: true, found: true, entry: compact({ date: entry.date, title: entry.title, mood: entry.mood, text: truncate(entry.body, 12000) }) }
   }
 
@@ -3795,6 +4214,17 @@ async function executeTool(supabase, userId, name, rawArgs, data, ctx, { refs = 
     if (error) throw error
     data.journal_entries = data.journal_entries.filter((item) => item.id !== entry.id)
     return { ok: true, message: `Deleted your journal entry for ${args.date}.` }
+  }
+
+  if (name === 'update_note') {
+    const note = findOwned(data.voice_notes, args.noteId, 'note')
+    const text = String(args.text ?? '').trim()
+    if (!text) return { ok: false, message: 'A note needs some text (delete it to remove it).' }
+    if (text === String(note.text || '').trim()) return { ok: true, noop: true, message: 'The note already says that.' }
+    const { error } = await supabase.from('voice_notes').update({ text }).eq('id', note.id).eq('user_id', userId)
+    if (error) throw error
+    note.text = text
+    return { ok: true, message: `Updated the note: “${truncate(text, 80)}”.` }
   }
 
   if (name === 'delete_note') {
@@ -4129,6 +4559,8 @@ function describeAction(name, args, data, ctx, refs) {
     }
     case 'save_note':
       return { label: `Save a note: ${quoted(args.text, 100)}` }
+    case 'update_note':
+      return { label: `Update a note: ${quoted(args.text, 100)}` }
     case 'delete_note': {
       const note = data.voice_notes.find((item) => item.id === args.noteId)
       return note ? { label: `Delete the note ${quoted(note.text, 80)}`, detail: 'This can’t be undone.' } : null
@@ -5377,3 +5809,6 @@ export default async function handler(req, res) {
     return fail(status, error.message || 'Assistant request failed.')
   }
 }
+
+// For tests only (tests/assistant-tools.test.mjs): the tool catalogue and the pieces that run tools.
+export { tools as TOOL_DEFS, executeTool, stageTool, buildSnapshot, buildInstructions, LOOKUP_TOOLS, UI_TOOLS }

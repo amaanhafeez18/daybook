@@ -34,6 +34,8 @@ export function updateTask(id, patch) {
     if (task.id !== id) return task
     updated = { ...task, ...patch }
     if (!updated.date) updated.time = ''
+    // When it was ticked off (null again if reopened), for "what did I get done today?".
+    if (patch.done !== undefined && !!patch.done !== !!task.done) updated.completedAt = patch.done ? nowIso() : null
     return updated
   }))
   if (updated) syncTaskEvent(updated)

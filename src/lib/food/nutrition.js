@@ -1375,6 +1375,7 @@ const ITEM_LIMITS = {
   sodiumMg: [0, 50000, 0],
   alcoholG: [0, 1000, 1],
   caffeineMg: [0, 5000, 0],
+  satFatG: [0, 500, 1],
 }
 
 function clampField(value, field) {
@@ -1426,6 +1427,7 @@ export function clampEstimateItem(item) {
     extra: {
       alcoholG: clampField(pick(extra, 'alcoholG', 'alcohol_g') ?? pick(raw, 'alcoholG', 'alcohol_g'), 'alcoholG'),
       caffeineMg: clampField(pick(extra, 'caffeineMg', 'caffeine_mg') ?? pick(raw, 'caffeineMg', 'caffeine_mg'), 'caffeineMg'),
+      satFatG: clampField(pick(extra, 'satFatG', 'sat_fat_g') ?? pick(raw, 'satFatG', 'sat_fat_g'), 'satFatG'),
     },
     confidence: confidence === null ? 0.5 : round(clamp(confidence, 0, 1), 2),
     assumptions: strings(raw.assumptions, 3, 140),

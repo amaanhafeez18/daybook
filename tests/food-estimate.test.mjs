@@ -96,7 +96,7 @@ describe('toClientItems', () => {
     assert.equal(item.grams, 100)
     assert.equal(item.proteinG, 12.6)
     assert.equal(item.sodiumMg, 142)
-    assert.deepEqual(item.extra, { alcoholG: null, caffeineMg: 12 })
+    assert.deepEqual(item.extra, { alcoholG: null, caffeineMg: 12, satFatG: null })
     assert.equal(item.mealHint, 'breakfast')
     assert.deepEqual(item.assumptions, ['Cooked without oil'])
     assert.deepEqual(item.locked, [])

@@ -25,7 +25,7 @@ const TABLES = {
 // Columns each table accepts (matches supabase/schema.sql). Unknown fields are dropped
 // so a stray client field can never make a save fail.
 const COLUMNS = {
-  tasks: ['id', 'text', 'done', 'date', 'time', 'details', 'priority', 'archived', 'calendar_event_id', 'reminder_minutes', 'created_at'],
+  tasks: ['id', 'text', 'done', 'date', 'time', 'details', 'priority', 'archived', 'calendar_event_id', 'reminder_minutes', 'completed_at', 'created_at'],
   events: ['id', 'date', 'time', 'title', 'task_id', 'created_at'],
   friends: ['id', 'name', 'relationship', 'reminder_days', 'organization', 'note', 'photo_url', 'birthday', 'current_status', 'facts', 'created_at'],
   contact_logs: ['id', 'friend_id', 'date', 'note', 'created_at'],
@@ -48,6 +48,7 @@ const FIELD_TO_COLUMN = {
   reminderDays: 'reminder_days',
   dayDetails: 'day_details',
   reminderMinutes: 'reminder_minutes',
+  completedAt: 'completed_at',
   routineId: 'routine_id',
   startedAt: 'started_at',
   endedAt: 'ended_at',

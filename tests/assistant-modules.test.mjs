@@ -304,7 +304,7 @@ function baseData(overrides = {}) {
 
 describe('food tool definitions', () => {
   test('every tool is a non-strict function with a description; lookups are marked', () => {
-    assert.deepEqual(FOOD_TOOL_NAMES, ['food_log', 'food_day', 'food_week', 'food_update_entry', 'food_delete_entry', 'food_set_goals', 'food_calculate_goals', 'food_memory', 'food_memory_find', 'food_barcode_lookup', 'weight_delete'])
+    assert.deepEqual(FOOD_TOOL_NAMES, ['food_log', 'food_day', 'food_week', 'food_update_entry', 'food_delete_entry', 'food_copy_entries', 'food_set_goals', 'food_calculate_goals', 'food_update_profile', 'food_update_prefs', 'food_memory', 'food_memory_find', 'food_barcode_lookup', 'weight_delete'])
     for (const definition of FOOD_TOOL_DEFS) {
       assert.equal(definition.type, 'function')
       assert.equal(definition.strict, false)
@@ -313,7 +313,7 @@ describe('food tool definitions', () => {
     }
     assert.deepEqual(FOOD_LOOKUP_TOOLS, ['food_day', 'food_week', 'food_memory_find', 'food_barcode_lookup'])
     const log = FOOD_TOOL_DEFS[0].parameters.properties.items.items.properties
-    for (const key of ['name', 'amount', 'unit', 'grams', 'calories', 'protein_g', 'carbs_g', 'fat_g', 'fiber_g', 'sugar_g', 'sodium_mg', 'alcohol_g', 'caffeine_mg', 'brand']) assert.ok(log[key], key)
+    for (const key of ['name', 'amount', 'unit', 'grams', 'calories', 'protein_g', 'carbs_g', 'fat_g', 'sat_fat_g', 'fiber_g', 'sugar_g', 'sodium_mg', 'alcohol_g', 'caffeine_mg', 'brand']) assert.ok(log[key], key)
   })
 })
 
