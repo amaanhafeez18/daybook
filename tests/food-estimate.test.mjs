@@ -1,8 +1,7 @@
 import { afterEach, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  ESTIMATE_SCHEMA, ESTIMATE_SCHEMA_NAME, buildContent, buildInstructions, estimatePlan, lockedCaloriesFromText,
-  regionFromTimeZone, toClientItems, transcriptionVocabulary,
+  ESTIMATE_SCHEMA, ESTIMATE_SCHEMA_NAME, buildContent, buildInstructions, estimatePlan, lockedCaloriesFromText, regionFromTimeZone, toClientItems, transcriptionVocabulary, barcodeFromReply, favoritesForPrompt,
 } from '../api/_food-estimate.js'
 import { fastestEffort, filePart, httpError, imagePart, modelFromEnv, responsesJson, textPart } from '../api/_openai.js'
 
@@ -46,9 +45,9 @@ describe('estimate schema', () => {
   })
 
   test('has the research §4 shape', () => {
-    assert.deepEqual(Object.keys(ESTIMATE_SCHEMA.properties), ['items', 'clarify', 'not_food'])
+    assert.deepEqual(Object.keys(ESTIMATE_SCHEMA.properties), ['items', 'barcode', 'clarify', 'not_food'])
     const item = ESTIMATE_SCHEMA.properties.items.items
-    for (const key of ['name', 'brand', 'quantity', 'unit', 'grams', 'calories', 'protein_g', 'carbs_g', 'fat_g', 'fiber_g', 'sugar_g', 'sodium_mg', 'alcohol_g', 'caffeine_mg', 'confidence', 'assumptions', 'user_specified', 'options', 'meal_hint']) {
+    for (const key of ['name', 'brand', 'quantity', 'unit', 'grams', 'calories', 'protein_g', 'carbs_g', 'fat_g', 'fiber_g', 'sugar_g', 'sodium_mg', 'alcohol_g', 'caffeine_mg', 'confidence', 'assumptions', 'user_specified', 'options', 'meal_hint', 'basis', 'saved_food_id']) {
       assert.ok(key in item.properties, key)
     }
     assert.equal(item.properties.assumptions.maxItems, 3)
@@ -424,3 +423,44 @@ describe('_openai', () => {
     }
   })
 })
+
+// ---- saved foods and barcodes -------------------------------------------------------------------
+
+describe('saved foods in the estimate', () => {
+  const saved = [
+    { id: 'f-whey', name: 'Gold Standard Whey', brand: 'Optimum Nutrition', amount: 1, unit: 'scoop', grams: 31, calories: 120, proteinG: 24, carbsG: 3, fatG: 1.5, aliases: ['protein shake'], source: 'label', updatedAt: '2026-09-20T10:00:00Z' },
+    { id: 'f-yogurt', name: 'Greek yogurt', amount: 175, unit: 'g', calories: 100, proteinG: 17, carbsG: 6, fatG: 0, updatedAt: '2026-09-22T10:00:00Z' },
+  ]
+
+  test('matching saved foods get the first ids (S1…)', () => {
+    const ordered = favoritesForPrompt(saved, 'two scoops of my protein shake')
+    assert.equal(ordered[0].id, 'f-whey')
+    const parts = buildContent({ text: 'two scoops of my protein shake', favorites: saved })
+    assert.match(parts[0].text, /S1 — Gold Standard Whey \(Optimum Nutrition\)/)
+  })
+
+  test('saved_food_id maps back to the saved food with its source', () => {
+    const list = favoritesForPrompt(saved, 'two scoops of my protein shake')
+    const raw = { items: [{ name: 'Gold Standard Whey', brand: 'Optimum Nutrition', quantity: 2, unit: 'scoop', grams: 62, calories: 240, protein_g: 48, carbs_g: 6, fat_g: 3, fiber_g: null, sugar_g: null, sodium_mg: null, alcohol_g: null, caffeine_mg: null, confidence: 0.95, assumptions: [], user_specified: [], options: [], meal_hint: null, basis: 'saved', saved_food_id: 'S1' }], clarify: null, not_food: false, barcode: null }
+    const [item] = toClientItems(raw, 'two scoops of my protein shake', { saved: list })
+    assert.equal(item.basis, 'saved')
+    assert.equal(item.savedFoodId, 'f-whey')
+    assert.equal(item.source.type, 'saved')
+    assert.equal(item.source.savedSource, 'label')
+    assert.equal(item.calories, 240)
+  })
+
+  test('an unknown saved id falls back to an estimate', () => {
+    const raw = { items: [{ name: 'Mystery bar', brand: null, quantity: 1, unit: 'bar', grams: 50, calories: 200, protein_g: 10, carbs_g: 20, fat_g: 8, fiber_g: null, sugar_g: null, sodium_mg: null, alcohol_g: null, caffeine_mg: null, confidence: 0.6, assumptions: [], user_specified: [], options: [], meal_hint: null, basis: 'saved', saved_food_id: 'S9' }] }
+    const [item] = toClientItems(raw, 'a bar', { saved: [] })
+    assert.equal(item.basis, 'estimate')
+    assert.equal(item.savedFoodId, null)
+  })
+
+  test('barcode digits from a photo', () => {
+    assert.equal(barcodeFromReply({ barcode: '0 64200 11589 6' }), '064200115896')
+    assert.equal(barcodeFromReply({ barcode: '12345' }), null)
+    assert.equal(barcodeFromReply({}), null)
+  })
+})
+

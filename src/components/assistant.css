@@ -136,6 +136,9 @@
 .asst-proposal-actions .asst-proposal-no { min-width: 92px; }
 .asst-proposal-actions .btn:disabled { opacity: 0.45; }
 .asst-proposal.is-executing .asst-proposal-actions .btn-primary:disabled { opacity: 0.85; }
+.asst-proposal-alts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.asst-proposal-or { font-size: 14px; color: var(--text-2); }
+.asst-proposal-alts .asst-choice { min-height: 40px; padding: 7px 14px; font-size: 15px; background: var(--surface-2); }
 @keyframes check-pop { 0% { transform: scale(0.7); } 100% { transform: scale(1); } }
 
 /* ---- quick replies -------------------------------------------------------------------------- */

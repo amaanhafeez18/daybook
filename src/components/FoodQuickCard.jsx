@@ -7,15 +7,25 @@ import { formatSeconds, useRecorder } from '../lib/recorder.js'
 import { dayTotals } from '../lib/food/nutrition.js'
 import { addEntries, dayEntries, estimateFood, useFood, useFoodEntries } from '../lib/food/state.js'
 import { useStore } from '../lib/store.js'
-import EstimateReview, { canAutoLog, logEstimate, prepareEstimate, reviewTotals } from '../pages/food/EstimateReview.jsx'
+import EstimateReview, { BARCODE_HINT, barcodeDigits, canAutoLog, logEstimate, prepareEstimate, reviewTotals } from '../pages/food/EstimateReview.jsx'
+import { CameraChoice } from '../pages/food/QuickAddBar.jsx'
 import { Ring, ringState } from '../pages/food/ring.jsx'
 import PhotoInput from '../pages/food/PhotoInput.jsx'
 import { defaultMeal, energyNumber, isSubmitKey, mealIdFor, unitLabel } from '../pages/food/format.js'
 import './food-quick.css'
 
 // Today-page food card: today's total against the goal with a tiny ring, and one line to log
-// food by text, photo or voice. The AI estimate opens right here as an editable review with
-// Save / Cancel (or logs straight away when "auto-log if sure" is on).
+// food by text, photo (of the food or of a barcode), a barcode number or voice. The AI estimate
+// opens right here as an editable review with Save / Cancel (or logs straight away when
+// "auto-log if sure" is on); items with "Save to My foods" on are saved there on Save too.
+
+function statusText(request) {
+  if (request?.image && request.text === BARCODE_HINT) return 'Reading the barcode…'
+  if (request && barcodeDigits(request.text) && !request.image && !request.audio) return 'Looking up the barcode…'
+  if (request?.audio) return 'Listening and estimating…'
+  if (request?.image) return 'Looking at your photo…'
+  return 'Estimating…'
+}
 
 export default function FoodQuickCard({ today, loaded }) {
   const food = useFood()
@@ -33,6 +43,7 @@ export default function FoodQuickCard({ today, loaded }) {
   const [fixing, setFixing] = useState(false) // a "Fix" request in the review is running
   const controllerRef = useRef(null)
   const fileRef = useRef(null)
+  const photoMode = useRef('photo') // 'photo' | 'barcode': what the picked photo shows
 
   const totals = useMemo(() => dayTotals(dayEntries(entries, today, meals)), [entries, today, meals])
   const eaten = totals.calories
@@ -55,14 +66,14 @@ export default function FoodQuickCard({ today, loaded }) {
     controllerRef.current?.abort()
     const startMeal = defaultMeal(meals)
     if (offline || (typeof navigator !== 'undefined' && navigator.onLine === false)) {
-      if (next.text && !next.image && !next.audio) {
+      if (next.text && !next.image && !next.audio && !barcodeDigits(next.text)) {
         addEntries([{ name: next.text.slice(0, 120), meal: startMeal, date: today, source: 'ai_text' }], {
           toastLabel: `You’re offline — saved “${next.text.slice(0, 32)}” without calories. Estimate it on the Food page later.`,
         })
         setText('')
         setPhase('idle')
       } else {
-        setError('You’re offline — photos and voice need a connection.')
+        setError(next.image || next.audio ? 'You’re offline — photos and voice need a connection.' : 'You’re offline — barcode lookups need a connection.')
         setRequest(null)
         setPhase('error')
       }
@@ -111,17 +122,25 @@ export default function FoodQuickCard({ today, loaded }) {
     event?.preventDefault()
     const words = text.trim()
     if (!words || phase === 'estimating') return
-    run({ text: words, source: 'ai_text' })
+    run({ text: barcodeDigits(words) || words, source: 'ai_text' })
+  }
+
+  function pickPhoto(mode) {
+    photoMode.current = mode
+    fileRef.current?.click()
   }
 
   async function onPhoto(event) {
     const file = event.target.files?.[0]
     event.target.value = ''
     if (!file) return
+    const barcode = photoMode.current === 'barcode'
+    photoMode.current = 'photo'
     setPreparing(true)
     try {
-      const image = await imageToJpegDataUrl(file, { maxDim: 1280, quality: 0.72 })
-      run({ image, text: text.trim() || undefined, source: 'ai_photo' })
+      // Barcodes need the detail: a larger, sharper image.
+      const image = await imageToJpegDataUrl(file, barcode ? { maxDim: 1600, quality: 0.85 } : { maxDim: 1280, quality: 0.72 })
+      run({ image, text: barcode ? BARCODE_HINT : text.trim() || undefined, source: 'ai_photo' })
     } catch (err) {
       toast(err?.message || 'Couldn’t use that photo.', { tone: 'error' })
     } finally {
@@ -136,7 +155,7 @@ export default function FoodQuickCard({ today, loaded }) {
 
   function saveNameOnly() {
     const name = request?.text?.trim()
-    if (!name) return
+    if (!name || name === BARCODE_HINT || barcodeDigits(name)) return
     addEntries([{ name: name.slice(0, 120), meal, date: today, source: 'ai_text' }], { toastLabel: `Saved “${name.slice(0, 40)}” without calories` })
     finish()
   }
@@ -144,6 +163,7 @@ export default function FoodQuickCard({ today, loaded }) {
   const busy = phase === 'estimating'
   const reviewTotalsNow = review ? reviewTotals(review.items) : null
   const count = review?.items.length || 0
+  const namedRequest = !!request?.text?.trim() && request.text !== BARCODE_HINT && !barcodeDigits(request.text)
 
   let summary
   if (!loaded) summary = <span className="skeleton fq-skel" aria-hidden="true" />
@@ -196,16 +216,14 @@ export default function FoodQuickCard({ today, loaded }) {
                 submit()
               }
             }}
-            placeholder="What did you eat?"
-            aria-label="What did you eat?"
+            placeholder="Food or a barcode number"
+            aria-label="What did you eat? You can also type a barcode number."
             enterKeyHint="send"
             autoComplete="off"
             maxLength={1000}
             disabled={busy}
           />
-          <button type="button" className="fq-btn" onClick={() => fileRef.current?.click()} disabled={busy || preparing} aria-label="Add a photo of your food">
-            {preparing ? <span className="spinner" aria-hidden="true" /> : <Icon name="camera" size={20} />}
-          </button>
+          <CameraChoice buttonClass="fq-btn" iconSize={20} placement="down" disabled={busy} preparing={preparing} onPick={pickPhoto} />
           {text.trim() ? (
             <button type="submit" className="fq-send" disabled={busy} aria-label="Estimate">
               <Icon name="send" size={19} strokeWidth={2.2} />
@@ -223,7 +241,7 @@ export default function FoodQuickCard({ today, loaded }) {
         <div className="fq-panel" aria-busy="true">
           <p className="fq-status" role="status">
             <span className="spinner" aria-hidden="true" />
-            {request?.audio ? 'Listening and estimating…' : request?.image ? 'Looking at your photo…' : 'Estimating…'}
+            {statusText(request)}
             <button type="button" className="fq-link" onClick={finish}>Cancel</button>
           </p>
           <div className="food-est-skel" aria-hidden="true">
@@ -250,7 +268,7 @@ export default function FoodQuickCard({ today, loaded }) {
         <div className="fq-panel">
           <p className="fq-error" role="alert"><Icon name="alert" size={16} />{error}</p>
           <div className="fq-actions is-wrap">
-            {request?.text?.trim() && <Button variant="secondary" size="sm" icon="note" onClick={saveNameOnly}>Save without calories</Button>}
+            {namedRequest && <Button variant="secondary" size="sm" icon="note" onClick={saveNameOnly}>Save without calories</Button>}
             {request && <Button variant="secondary" size="sm" icon="refresh" onClick={() => run(request)}>Try again</Button>}
             <Button variant="ghost" size="sm" onClick={finish}>Dismiss</Button>
           </div>

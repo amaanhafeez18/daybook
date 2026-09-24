@@ -2,9 +2,7 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  ACTIVITY_LEVELS, KCAL_PER_G, KJ_PER_KCAL, MEALS_DEFAULT, amountText, calcBmr, calcGoals, clampEstimateItem, cleanEntry, dayTotals, energyToKcal,
-  entryCalories, entryMeal, entryTemplate, findFavorite, foodKey, formatEnergy, frequent, logStreak, macroCalories, mealForTime,
-  mealTotals, normalizeFood, recents, remaining, scaleEntry, sortDayEntries, suggestions, unitFor, weeklyInsights, weightSeries, weightTrend,
+  ACTIVITY_LEVELS, KCAL_PER_G, KJ_PER_KCAL, MEALS_DEFAULT, amountText, calcBmr, calcGoals, clampEstimateItem, cleanEntry, dayTotals, energyToKcal, entryCalories, entryMeal, entryTemplate, findFavorite, foodKey, formatEnergy, frequent, logStreak, macroCalories, mealForTime, mealTotals, normalizeFood, recents, remaining, scaleEntry, sortDayEntries, suggestions, unitFor, weeklyInsights, weightSeries, weightTrend, matchSavedFoods,
 } from '../src/lib/food/nutrition.js'
 
 const close = (actual, expected, tolerance = 1e-6) => {
@@ -682,9 +680,28 @@ describe('normalizeFood', () => {
     assert.notEqual(next.goals, food.goals)
   })
 
-  test('favorites are capped at 150', () => {
-    const favorites = Array.from({ length: 200 }, (_, i) => ({ id: `f${i}`, name: `Food ${i}` }))
-    assert.equal(normalizeFood({ favorites }).favorites.length, 150)
+  test('saved foods are capped at 400 and keep where their numbers came from', () => {
+    const favorites = Array.from({ length: 450 }, (_, i) => ({ id: `f${i}`, name: `Food ${i}` }))
+    assert.equal(normalizeFood({ favorites }).favorites.length, 400)
+    const [fav] = normalizeFood({ favorites: [{ id: 'x', name: 'Bar', source: 'label', sourceUrl: 'https://a.example/b', barcode: '0123456789012', verifiedAt: '2026-09-23T00:00:00Z' }] }).favorites
+    assert.equal(fav.source, 'label')
+    assert.equal(fav.sourceUrl, 'https://a.example/b')
+    assert.equal(fav.barcode, '0123456789012')
+    const [bad] = normalizeFood({ favorites: [{ id: 'y', name: 'Bar', source: 'hack', sourceUrl: 'javascript:alert(1)', barcode: 'abc' }] }).favorites
+    assert.equal(bad.source, null)
+    assert.equal(bad.sourceUrl, null)
+    assert.equal(bad.barcode, null)
+  })
+
+  test('matchSavedFoods finds foods by name, nickname or barcode', () => {
+    const favorites = [
+      { id: 'q', name: 'Protein bar', brand: 'Quest', aliases: ['quest bar'], updatedAt: '2026-09-20' },
+      { id: 'w', name: 'Gold Standard Whey', brand: 'Optimum Nutrition', aliases: ['protein shake'], barcode: '748927028669', updatedAt: '2026-09-21' },
+    ]
+    assert.equal(matchSavedFoods(favorites, 'had my quest protein bar')[0].food.id, 'q')
+    assert.equal(matchSavedFoods(favorites, 'protein shake after the gym')[0].food.id, 'w')
+    assert.equal(matchSavedFoods(favorites, '748927028669')[0].food.id, 'w')
+    assert.deepEqual(matchSavedFoods(favorites, 'a banana'), [])
   })
 })
 

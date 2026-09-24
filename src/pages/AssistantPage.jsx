@@ -853,6 +853,7 @@ const Message = memo(function Message({ message, isLast, busy, onRetry, onDecide
             busy={busy || !!message.streaming}
             question={choices.length > 0}
             onDecide={(decision) => onDecide(proposal.id, decision)}
+            onAlternative={onChoose}
           />
         )}
         {actions.length > 0 && (
@@ -890,7 +891,7 @@ const Message = memo(function Message({ message, isLast, busy, onRetry, onDecide
 
 // "I'll do:" with the server's labels, then Yes / No. Buttons work only on the newest message, and
 // not while a question with quick replies waits under it (the answer comes first).
-export function ProposalCard({ proposal, createdAt, isLast, busy, question = false, onDecide, now = Date.now() }) {
+export function ProposalCard({ proposal, createdAt, isLast, busy, question = false, onDecide, onAlternative, now = Date.now() }) {
   const actions = (Array.isArray(proposal.actions) ? proposal.actions : [])
     .map((action, index) => ({ action, index }))
     .filter(({ action }) => action && (action.label || action.detail))
@@ -906,6 +907,10 @@ export function ProposalCard({ proposal, createdAt, isLast, busy, question = fal
   const waiting = status === 'pending' && question
   const canDecide = status === 'pending' && isLast && !busy && !question
   const tone = status === 'done' ? 'is-done' : open ? 'is-open' : 'is-closed'
+  // Other ways to do it ("Look it up online", "Estimate instead"): a tap sends it as the reply.
+  const alternatives = canDecide && onAlternative && Array.isArray(proposal.alternatives)
+    ? proposal.alternatives.filter((item) => typeof item === 'string' && item.trim()).slice(0, 3)
+    : []
 
   return (
     <section className={`asst-proposal ${tone} is-${status}`} aria-label="Proposed changes">
@@ -942,6 +947,14 @@ export function ProposalCard({ proposal, createdAt, isLast, busy, question = fal
             {status === 'executing' ? 'Working…' : 'Yes, do it'}
           </button>
           <button type="button" className="btn btn-secondary asst-proposal-no" disabled={!canDecide} onClick={() => onDecide('no')}>No</button>
+        </div>
+      )}
+      {alternatives.length > 0 && (
+        <div className="asst-proposal-alts" role="group" aria-label="Or instead">
+          <span className="asst-proposal-or">or</span>
+          {alternatives.map((item) => (
+            <button key={item} type="button" className="asst-choice" onClick={() => onAlternative(item)}>{item}</button>
+          ))}
         </div>
       )}
     </section>

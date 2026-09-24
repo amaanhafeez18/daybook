@@ -4,12 +4,22 @@ import Sheet from '../../components/ui/Sheet.jsx'
 import { Button } from '../../components/ui/primitives.jsx'
 import { isISODate } from '../../lib/dates.js'
 import { addEntries, estimateFood, useFood } from '../../lib/food/state.js'
-import EstimateReview, { MealSelect, canAutoLog, logEstimate, prepareEstimate, reviewTotals } from './EstimateReview.jsx'
+import EstimateReview, { BARCODE_HINT, MealSelect, barcodeDigits, canAutoLog, logEstimate, prepareEstimate, reviewTotals } from './EstimateReview.jsx'
 import { dayLabel, defaultMeal, energyNumber, mealIdFor, openDatePicker, unitLabel } from './format.js'
 
 // The AI confirm card as a sheet: meal and day pickers, the review, and "Log N items · 297 kcal".
 // request: { key, text?, image?, audio?, mimeType?, source, meal?, date, replace? (a name-only
-// entry the estimate replaces) }. Nothing is saved until Log (or auto-log, when enabled).
+// entry the estimate replaces) }. Text of only digits is a barcode lookup; a photo with the text
+// 'barcode' is a photo of one. Nothing is saved until Log (or auto-log, when enabled); items with
+// "Save to My foods" on are saved there on Log too.
+
+function loadingText(request) {
+  if (request.image && request.text === BARCODE_HINT) return 'Reading the barcode…'
+  if (barcodeDigits(request.text) && !request.image && !request.audio) return 'Looking up the barcode…'
+  if (request.audio) return 'Listening and estimating…'
+  if (request.image) return 'Looking at your photo…'
+  return 'Estimating…'
+}
 
 export default function EstimateSheet({ request, onClose, onManual, today }) {
   const food = useFood()
@@ -80,6 +90,8 @@ export default function EstimateSheet({ request, onClose, onManual, today }) {
 
   const items = review?.items || []
   const totals = reviewTotals(items)
+  const shownText = shown?.text && shown.text !== BARCODE_HINT ? shown.text : ''
+  const isBarcode = !!shown && (shown.text === BARCODE_HINT || !!barcodeDigits(shown.text))
   const count = items.length
   const logLabel = count
     ? `Log ${count === 1 ? '1 item' : `${count} items`} · ${energyNumber(totals.calories, unit)} ${unitLabel(unit)}`
@@ -108,8 +120,8 @@ export default function EstimateSheet({ request, onClose, onManual, today }) {
 
           {phase === 'loading' && (
             <div aria-busy="true">
-              <p className="food-est-status" role="status"><span className="spinner" aria-hidden="true" />{shown.audio ? 'Listening and estimating…' : shown.image ? 'Looking at your photo…' : 'Estimating…'}</p>
-              {shown.text && <p className="food-rv-query">“{shown.text}”</p>}
+              <p className="food-est-status" role="status"><span className="spinner" aria-hidden="true" />{loadingText(shown)}</p>
+              {shownText && <p className="food-rv-query">“{shownText}”</p>}
               <div className="food-est-skel" aria-hidden="true">
                 <div className="food-est-skel-row"><span className="skeleton" /><span className="skeleton" /></div>
                 <div className="food-est-skel-row"><span className="skeleton" /><span className="skeleton" /></div>
@@ -125,11 +137,11 @@ export default function EstimateSheet({ request, onClose, onManual, today }) {
             <div className="food-est-error">
               <p className="food-rv-note" role="alert"><Icon name="alert" size={16} />{error.message}</p>
               <div className="food-est-error-actions">
-                {shown.text?.trim() && !shown.replace && (
+                {shownText.trim() && !shown.replace && !isBarcode && (
                   <Button variant="secondary" size="sm" icon="note" onClick={saveNameOnly}>Save without calories</Button>
                 )}
                 {onManual && (
-                  <Button variant="secondary" size="sm" icon="pencil" onClick={() => { onClose(); onManual({ name: shown.text?.trim() || '', meal, date }) }}>Enter manually</Button>
+                  <Button variant="secondary" size="sm" icon="pencil" onClick={() => { onClose(); onManual({ name: isBarcode ? '' : shownText.trim(), meal, date }) }}>Enter manually</Button>
                 )}
               </div>
             </div>

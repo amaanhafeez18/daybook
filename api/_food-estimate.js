@@ -1,7 +1,7 @@
 // Food estimator: the strict JSON schema, the prompt, the user message and the post-processing that
 // turns the model's reply into the app's EstimateItem shape. Pure (no network, no database), so it
 // can be unit-tested; api/food.js does the I/O.
-import { clampEstimateItem, mealForTime } from '../src/lib/food/nutrition.js'
+import { clampEstimateItem, matchSavedFoods, mealForTime } from '../src/lib/food/nutrition.js'
 import { fastestEffort, imagePart, textPart } from './_openai.js'
 
 export const ESTIMATE_SCHEMA_NAME = 'food_estimate'
@@ -39,7 +39,7 @@ const OPTION_SCHEMA = {
 const ITEM_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['name', 'brand', 'quantity', 'unit', 'grams', 'calories', 'protein_g', 'carbs_g', 'fat_g', 'fiber_g', 'sugar_g', 'sodium_mg', 'alcohol_g', 'caffeine_mg', 'confidence', 'assumptions', 'user_specified', 'options', 'meal_hint'],
+  required: ['name', 'brand', 'quantity', 'unit', 'grams', 'calories', 'protein_g', 'carbs_g', 'fat_g', 'fiber_g', 'sugar_g', 'sodium_mg', 'alcohol_g', 'caffeine_mg', 'confidence', 'assumptions', 'user_specified', 'options', 'meal_hint', 'basis', 'saved_food_id'],
   properties: {
     name: { type: 'string', description: 'Short food name without the quantity.' },
     brand: nullableString('Brand or chain, else null.'),
@@ -64,15 +64,18 @@ const ITEM_SCHEMA = {
     },
     options: { type: 'array', maxItems: 3, items: OPTION_SCHEMA, description: 'Alternative versions of this item, with full totals.' },
     meal_hint: { type: ['string', 'null'], enum: [...MEAL_IDS, null], description: 'Only when the user names the meal, else null.' },
+    basis: { type: 'string', enum: ['estimate', 'label', 'menu', 'saved'], description: 'Where the numbers come from: a saved food, a nutrition label in the photo, printed menu calories, or your estimate.' },
+    saved_food_id: nullableString('The id (S1, S2…) of the saved food whose numbers you used, else null.'),
   },
 }
 
 export const ESTIMATE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['items', 'clarify', 'not_food'],
+  required: ['items', 'clarify', 'not_food', 'barcode'],
   properties: {
     items: { type: 'array', items: ITEM_SCHEMA },
+    barcode: nullableString('The digits of a product barcode readable in the photo (8–14 digits, no spaces), else null.'),
     clarify: nullableString('One short question, only when something can’t be sensibly assumed; else null.'),
     not_food: { type: 'boolean', description: 'True only when the input contains no food or drink at all.' },
   },
@@ -105,6 +108,13 @@ Counting and portions
 - Cooking method not given: assume minimal added fat, say so, and add an option such as "Fried in 1 tsp oil" (≈ +40 kcal).
 - Reference values: large egg 50 g ≈ 72 kcal (P 6.3, F 4.8) · bread slice ≈ 30 g ≈ 77 kcal · 1 tsp sugar = 4 g = 16 kcal · 1 tbsp oil = 13.5 g ≈ 120 kcal · 1 tbsp butter = 14 g ≈ 100 kcal · 1 cup cooked white rice = 158 g ≈ 205 kcal · mixed nuts ≈ 6 kcal/g · 2% milk 240 ml ≈ 122 kcal · roti/chapati (medium, 40 g) ≈ 120 kcal · naan ≈ 90 g ≈ 260 kcal · medium banana 118 g ≈ 105 kcal · medium apple 180 g ≈ 95 kcal.
 - Units: cup 240 ml · tbsp 15 ml · tsp 5 ml · fl oz 29.6 ml · oz 28.35 g · lb 453.6 g.
+
+Saved foods (the user's "My foods": exact numbers they confirmed from labels, barcodes or the web)
+- The context lists saved foods as "S1 — name (brand) [also: aliases] — portion — nutrients". When what the user ate is one of them (same product, even if named loosely: "my protein bar", "the usual shake"), use its numbers exactly, scaled to the amount eaten (2 scoops = twice a 1-scoop saved food), set basis "saved" and saved_food_id to its id (e.g. "S3"), confidence 0.95, and no options.
+- Don't force a match: a different flavour, size or product is not the saved food.
+- A nutrition label in the photo: copy its per-serving numbers exactly (basis "label", confidence ≥ 0.95) and set quantity to the servings eaten (default 1).
+- Printed menu calories: basis "menu". Everything else: basis "estimate".
+- A barcode in the photo: put its digits in barcode (the app looks the product up) and still estimate the item as well as you can from the photo.
 
 User numbers are locked
 - Any number the user gives for calories, weight, volume, count or a macro is used exactly, and listed in user_specified ("calories", "grams", "quantity", "size", "brand", "protein_g", "carbs_g", "fat_g").
@@ -243,7 +253,7 @@ function portionText(food) {
   return parts.join(', ')
 }
 
-function favoriteLine(food) {
+function favoriteLine(food, index) {
   const name = str(food.name, 80)
   if (!name) return ''
   const brand = str(food.brand, 60)
@@ -255,15 +265,17 @@ function favoriteLine(food) {
     amount(food.fatG) !== null ? `F ${fmt(amount(food.fatG))}` : '',
   ].filter(Boolean).join(' · ')
   const portion = portionText(food)
-  return `- ${name}${brand ? ` (${brand})` : ''}${aliases.length ? ` [also: ${aliases.join(', ')}]` : ''}${portion ? ` — ${portion}` : ''}${numbers ? ` — ${numbers}` : ''}`
+  return `S${index + 1} — ${name}${brand ? ` (${brand})` : ''}${aliases.length ? ` [also: ${aliases.join(', ')}]` : ''}${portion ? ` — ${portion}` : ''}${numbers ? ` — ${numbers}` : ''}`
 }
 
-// Saved foods for the prompt: newest first, at most 50, malformed rows skipped.
-export function favoritesForPrompt(favorites) {
+// Saved foods for the prompt, in the order their ids (S1, S2…) are given: foods matching the text
+// first, then newest; at most 50, malformed rows skipped. api/food.js maps saved_food_id back with
+// the same list.
+export function favoritesForPrompt(favorites, text = '') {
   const list = (Array.isArray(favorites) ? favorites : []).filter((food) => isPlainObject(food) && typeof food.name === 'string' && food.name.trim())
-  return [...list]
-    .sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')))
-    .slice(0, MAX_FAVORITES)
+  const matched = typeof text === 'string' && text.trim() ? matchSavedFoods(list, text, { limit: 5, min: 0.5 }).map((hit) => hit.food) : []
+  const rest = list.filter((food) => !matched.includes(food)).sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')))
+  return [...matched, ...rest].slice(0, MAX_FAVORITES)
 }
 
 // A prompt for the transcription model so saved food names are spelled right.
@@ -315,7 +327,7 @@ export function buildContent({ text, image, previous, favorites, meal, date, tim
   else if (isTime(time)) context.push(`Meal (from the time): ${mealForTime(time)}`)
   const place = regionLabel(region)
   if (place) context.push(`Region: ${place}`)
-  const saved = favoritesForPrompt(favorites).map(favoriteLine).filter(Boolean)
+  const saved = favoritesForPrompt(favorites, text).map(favoriteLine).filter(Boolean)
   context.push(saved.length ? `Saved foods (name — portion — nutrients for that portion):\n${saved.join('\n')}` : 'Saved foods: none')
 
   const parts = [textPart(context.join('\n'))]
@@ -455,15 +467,39 @@ function safeClamp(item) {
 
 // The model's reply (or its items array) → EstimateItem[] for the app. `text` is what the user typed
 // or said, used to verify locked calories. Never throws on malformed input.
-export function toClientItems(raw, text = '') {
+// saved: the list passed to the prompt (favoritesForPrompt with the same text), to resolve S-ids.
+export function toClientItems(raw, text = '', { saved = [] } = {}) {
   const list = Array.isArray(raw) ? raw : Array.isArray(raw?.items) ? raw.items : []
-  const items = list.slice(0, MAX_ITEMS).map(toItem).filter(Boolean)
+  const rawItems = list.slice(0, MAX_ITEMS)
+  const items = rawItems.map(toItem).filter(Boolean)
   reconcileLockedCalories(items, lockedCaloriesFromText(text))
-  return items.map((item) => {
+  return items.map((item, index) => {
     // locked stays as EstimateItem field names (clampEstimateItem lowercases them).
     const clamped = { ...safeClamp(item), locked: item.locked }
     // The user's own number survives whatever the energy check decided.
     if (item.locked.includes('calories')) clamped.calories = item.calories
-    return clamped
+    return { ...clamped, ...sourceOf(rawItems[index], saved) }
   })
+}
+
+// basis / savedFoodId / source / barcode for one item of the model's reply.
+function sourceOf(rawItem, saved) {
+  const basis = ['estimate', 'label', 'menu', 'saved'].includes(rawItem?.basis) ? rawItem.basis : 'estimate'
+  const match = /^S(\d{1,3})$/i.exec(String(rawItem?.saved_food_id || '').trim())
+  const food = match ? saved[Number(match[1]) - 1] : null
+  if (basis === 'saved' && food) {
+    return {
+      basis: 'saved',
+      savedFoodId: String(food.id),
+      barcode: typeof food.barcode === 'string' ? food.barcode : null,
+      source: { type: 'saved', url: typeof food.sourceUrl === 'string' ? food.sourceUrl : undefined, savedAt: food.verifiedAt || food.updatedAt || undefined, savedSource: food.source || undefined },
+    }
+  }
+  return { basis: basis === 'saved' ? 'estimate' : basis, savedFoodId: null, barcode: null, source: basis === 'label' ? { type: 'label' } : null }
+}
+
+// The barcode the model read in the photo (8–14 digits), else null.
+export function barcodeFromReply(raw) {
+  const digits = String(raw?.barcode || '').replace(/[\s-]/g, '')
+  return /^\d{8,14}$/.test(digits) ? digits : null
 }

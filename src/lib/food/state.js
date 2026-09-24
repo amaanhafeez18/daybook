@@ -5,8 +5,8 @@ import { isISODate, nowTimeHHMM, todayISO } from '../dates.js'
 import { getGym, useGym } from '../gym/state.js'
 import { getState, newId, updateData, updateSettings, useStore } from '../store.js'
 import {
-  ENTRY_SOURCES, FAVORITES_MAX, GOAL_KEYS, cleanEntry, entryMeal, entryTemplate, foodKey, macroCalories, mealForTime, normalizeFood,
-  sortDayEntries,
+  ENTRY_SOURCES, FAVORITES_MAX, GOAL_KEYS, SAVED_SOURCES, cleanEntry, entryMeal, entryTemplate, foodKey, macroCalories, mealForTime, normalizeFood,
+  scaleEntry, sortDayEntries,
 } from './nutrition.js'
 
 // Client glue for the food tracker: tolerant reads of settings.food and the foodEntries list,
@@ -86,39 +86,189 @@ export function setGoals(goals) {
   }
 }
 
-// ---- favorites ---------------------------------------------------------------------------------
+// ---- favorites ("My foods") ----------------------------------------------------------------------
+// settings.food.favorites: saved foods with the numbers for their saved portion, plus where those
+// numbers came from (source 'label' | 'barcode' | 'web' | 'user' | 'estimate' | 'entry', sourceUrl,
+// barcode, verifiedAt). The estimate endpoint reuses them when the food is mentioned again.
 
-// Saves a template (name, portion, nutrients) from an entry, estimate item or favorite. One per
-// food: an existing favorite with the same name and brand (or the same id) is replaced, keeping its
-// id and aliases (options.aliases adds more). Newest first, at most 150. Returns the saved favorite.
-export function saveFavorite(entryLike, options) {
-  requireLoaded() // callers use the returned favorite, which updateFood wouldn't produce yet
-  const { aliases } = isPlainObject(options) ? options : {}
+const aliasList = (value) => (Array.isArray(value) ? value.filter((alias) => typeof alias === 'string') : [])
+
+// Trimmed, unique (ignoring case), not the name itself, at most 20.
+function cleanAliases(names, name) {
+  const seen = new Set([typeof name === 'string' ? name.trim().toLowerCase() : ''])
+  const out = []
+  for (const raw of names) {
+    const alias = raw.trim().slice(0, 60)
+    const key = alias.toLowerCase()
+    if (!alias || seen.has(key)) continue
+    seen.add(key)
+    out.push(alias)
+  }
+  return out.slice(0, 20)
+}
+
+// The where-from fields given in `raw` (only those present; invalid values become null).
+function savedMeta(raw) {
+  const out = {}
+  if (!isPlainObject(raw)) return out
+  if (raw.source !== undefined) out.source = SAVED_SOURCES.includes(raw.source) ? raw.source : null
+  if (raw.sourceUrl !== undefined) out.sourceUrl = typeof raw.sourceUrl === 'string' && /^https?:\/\//i.test(raw.sourceUrl.trim()) ? raw.sourceUrl.trim().slice(0, 300) : null
+  if (raw.barcode !== undefined) {
+    const digits = typeof raw.barcode === 'string' || isFiniteNumber(raw.barcode) ? String(raw.barcode).replace(/\D/g, '') : ''
+    out.barcode = /^\d{6,14}$/.test(digits) ? digits : null
+  }
+  if (raw.verifiedAt !== undefined) out.verifiedAt = typeof raw.verifiedAt === 'string' && raw.verifiedAt ? raw.verifiedAt : null
+  return out
+}
+
+// A food's numbers moved to a saved food's portion when the two compare (same unit with amounts,
+// or both by weight), so "2 bars" updates a food saved as "1 bar" at 1 bar; otherwise as it is.
+function atPortionOf(food, saved) {
+  if (!isPlainObject(saved)) return food
+  const amount = (item) => (isFiniteNumber(item.amount) && item.amount > 0 ? item.amount : null)
+  const grams = (item) => (isFiniteNumber(item.grams) && item.grams > 0 ? item.grams : null)
+  const unit = (item) => (typeof item.unit === 'string' ? item.unit.trim().toLowerCase() : '')
+  let factor = null
+  if (amount(food) && amount(saved) && unit(food) === unit(saved)) factor = amount(saved) / amount(food)
+  else if (!amount(food) && !amount(saved) && grams(food) && grams(saved)) factor = grams(saved) / grams(food)
+  if (!factor || Math.abs(factor - 1) < 0.001) return food
+  return { ...scaleEntry(food, factor), unit: food.unit ?? saved.unit }
+}
+
+// Puts a food into `list` (newest first) and returns { list, saved, previous }. It replaces the saved
+// food with options.id, else the one with the same name and brand (keeping its id, aliases and
+// where-from details unless options give new ones). options: { id, aliases, source, sourceUrl,
+// barcode, verifiedAt, keepName (keep the saved food's name; the given name becomes an alias),
+// samePortion (store the numbers at the saved food's portion when they compare) }.
+function upsertFavorite(list, entryLike, options) {
+  const opts = isPlainObject(options) ? options : {}
   if (!isPlainObject(entryLike)) throw new Error('Nothing to save.')
-  const template = entryTemplate(entryLike)
+  const wantId = validId(opts.id) ? opts.id : validId(entryLike.id) ? entryLike.id : null
+  const byId = wantId !== null ? list.findIndex((fav) => fav.id === wantId) : -1
+  const target = byId >= 0 ? list[byId] : null
+  let food = entryLike
+  const extraNames = []
+  if (target && opts.keepName && typeof target.name === 'string' && target.name) {
+    if (typeof food.name === 'string' && food.name.trim()) extraNames.push(food.name)
+    food = { ...food, name: target.name, brand: typeof food.brand === 'string' && food.brand.trim() ? food.brand : target.brand }
+  }
+  if (target && opts.samePortion) food = atPortionOf(food, target)
+  const template = entryTemplate(food)
   delete template.favoriteId
   const key = foodKey(template.name, template.brand)
   if (!key) throw new Error('Add a name to save this as a favorite.')
+  const index = byId >= 0 ? byId : list.findIndex((fav) => foodKey(fav.name, fav.brand) === key)
+  const previous = index >= 0 ? list[index] : null
+  const meta = savedMeta(opts)
+  if (!previous && meta.source === undefined) meta.source = 'entry'
+  const saved = {
+    ...(previous || {}),
+    ...template,
+    ...meta,
+    id: previous?.id || newId(),
+    meal: null,
+    aliases: cleanAliases([...(previous?.aliases || []), ...aliasList(entryLike.aliases), ...aliasList(opts.aliases), ...extraNames], template.name),
+    updatedAt: nowIso(),
+  }
+  const rest = list.filter((fav, i) => i !== index && foodKey(fav.name, fav.brand) !== key)
+  return { list: [saved, ...rest].slice(0, FAVORITES_MAX), saved, previous }
+}
+
+// Saves a template (name, portion, nutrients) from an entry, estimate item or favorite. One per
+// food: an existing favorite with the same name and brand (or the same id) is replaced, keeping its
+// id and aliases (options.aliases adds more) and where its numbers came from (unless options give
+// source, sourceUrl, barcode or verifiedAt). Newest first, at most FAVORITES_MAX. Returns the saved
+// favorite.
+export function saveFavorite(entryLike, options) {
+  requireLoaded() // callers use the returned favorite, which updateFood wouldn't produce yet
+  if (!isPlainObject(entryLike)) throw new Error('Nothing to save.')
+  const opts = isPlainObject(options) ? options : {}
   let saved = null
   updateFood((food) => {
-    const byId = validId(entryLike.id) ? food.favorites.findIndex((fav) => fav.id === entryLike.id) : -1
-    const index = byId >= 0 ? byId : food.favorites.findIndex((fav) => foodKey(fav.name, fav.brand) === key)
-    const previous = index >= 0 ? food.favorites[index] : null
-    const extraAliases = [...(Array.isArray(entryLike.aliases) ? entryLike.aliases : []), ...(Array.isArray(aliases) ? aliases : [])]
-    const names = [...(previous?.aliases || []), ...extraAliases]
-      .filter((alias) => typeof alias === 'string')
-      .map((alias) => alias.trim().slice(0, 60))
-    saved = {
-      ...template,
-      id: previous?.id || newId(),
-      meal: null,
-      aliases: [...new Set(names.filter(Boolean))].slice(0, 20),
-      updatedAt: nowIso(),
-    }
-    const rest = food.favorites.filter((fav, i) => i !== index && foodKey(fav.name, fav.brand) !== key)
-    return { favorites: [saved, ...rest].slice(0, FAVORITES_MAX) }
+    const result = upsertFavorite(food.favorites, entryLike, { ...opts, id: undefined })
+    saved = result.saved
+    return { favorites: result.list }
   })
   return saved
+}
+
+// Saves several foods to My foods in one settings write. requests: [{ food, id?, aliases?, source?,
+// sourceUrl?, barcode?, verifiedAt?, keepName?, samePortion? }] (see upsertFavorite; one without a
+// name is skipped). Returns an undo (undo.saved = the saved favorite or null, in request order)
+// that puts back what each one replaced, unless it has been changed again since.
+export function rememberFoods(requests) {
+  requireLoaded()
+  const input = Array.isArray(requests) ? requests : []
+  const done = []
+  if (input.length) {
+    updateFood((food) => {
+      let list = food.favorites
+      for (const request of input) {
+        let result = null
+        if (isPlainObject(request) && isPlainObject(request.food)) {
+          const { food: item, ...options } = request
+          try {
+            result = upsertFavorite(list, item, options)
+            list = result.list
+          } catch {
+            result = null // nothing to save it by (no name)
+          }
+        }
+        done.push(result)
+      }
+      return { favorites: list }
+    })
+  }
+  const undo = () => updateFood((food) => {
+    let list = food.favorites
+    let changed = false
+    for (const { saved, previous } of done.filter(Boolean).reverse()) {
+      const at = list.findIndex((fav) => fav.id === saved.id)
+      if (at < 0 || list[at].updatedAt !== saved.updatedAt) continue
+      list = previous ? replaceAt(list, at, previous) : list.filter((_, i) => i !== at)
+      changed = true
+    }
+    return changed ? { favorites: list } : null
+  })
+  return Object.assign(undo, { saved: done.map((result) => result?.saved ?? null) })
+}
+
+// Changes a saved food: patch is fields to change (name, brand, amount, unit, grams, nutrients,
+// extra, aliases, source, sourceUrl, barcode, verifiedAt) or (favorite) => fields. Throws when the
+// new name and brand belong to another saved food. Returns an undo (reverts only while the food is
+// still as this edit left it).
+export function updateFavorite(id, patch) {
+  requireLoaded()
+  const favorites = getFood().favorites
+  const index = favorites.findIndex((fav) => fav.id === id)
+  if (index < 0) throw new Error('That food isn’t in My foods any more.')
+  const previous = favorites[index]
+  const changes = typeof patch === 'function' ? patch(previous) : patch
+  if (!isPlainObject(changes)) return () => {}
+  const merged = { ...previous, ...changes }
+  const template = entryTemplate(merged)
+  delete template.favoriteId
+  const key = foodKey(template.name, template.brand)
+  if (!key) throw new Error('Add a name.')
+  const clash = favorites.find((fav, i) => i !== index && foodKey(fav.name, fav.brand) === key)
+  if (clash) throw new Error(`“${clash.name}${clash.brand ? ` (${clash.brand})` : ''}” is already in My foods.`)
+  const next = {
+    ...previous,
+    ...template,
+    ...savedMeta(changes),
+    id: previous.id,
+    aliases: changes.aliases !== undefined ? cleanAliases(aliasList(changes.aliases), template.name) : previous.aliases,
+    updatedAt: nowIso(),
+  }
+  if (Object.keys(next).every((field) => field === 'updatedAt' || sameJson(next[field] ?? null, previous[field] ?? null))) return () => {}
+  updateFood((food) => {
+    const at = food.favorites.findIndex((fav) => fav.id === id)
+    return at < 0 ? null : { favorites: replaceAt(food.favorites, at, next) }
+  })
+  return () => updateFood((food) => {
+    const at = food.favorites.findIndex((fav) => fav.id === id)
+    return at < 0 || food.favorites[at].updatedAt !== next.updatedAt ? null : { favorites: replaceAt(food.favorites, at, previous) }
+  })
 }
 
 // Returns an undo.
@@ -334,11 +484,22 @@ function localTimeZone() {
   }
 }
 
-// POST /api/food. previous: the items of an earlier estimate, for a "Fix" correction. Resolves to
-// { items: EstimateItem[], clarify, notFood, transcript? }; throws an Error with a friendly
-// message (and .status, .code) on failure, or the AbortError when `signal` aborts.
+function friendlyError(error, message) {
+  const friendly = new Error(message)
+  friendly.status = typeof error?.status === 'number' ? error.status : null
+  friendly.code = isPlainObject(error?.payload) && typeof error.payload.code === 'string' ? error.payload.code : null
+  return friendly
+}
+
+// POST /api/food. previous: the items of an earlier estimate, for a "Fix" correction. skipSaved:
+// estimate afresh instead of reusing My foods. Text of only 8–14 digits is looked up as a barcode
+// (so is a photo sent with the text 'barcode'). Resolves to { items: EstimateItem[], clarify,
+// notFood, transcript?, lookup? } — each item also carries basis ('estimate' | 'label' | 'menu' |
+// 'saved' | 'barcode' | 'web'), savedFoodId, source and barcode; lookup: { type: 'barcode',
+// barcode, found, url? }. Throws an Error with a friendly message (and .status, .code) on failure,
+// or the AbortError when `signal` aborts.
 export async function estimateFood(input) {
-  const { text, image, audio, mimeType, meal, date, previous, signal } = isPlainObject(input) ? input : {}
+  const { text, image, audio, mimeType, meal, date, previous, skipSaved, signal } = isPlainObject(input) ? input : {}
   const today = todayISO()
   const day = isISODate(date) ? date : today
   const body = { action: 'estimate', date: day }
@@ -353,6 +514,7 @@ export async function estimateFood(input) {
   if (day === today) body.time = nowTimeHHMM()
   if (typeof meal === 'string' && meal) body.meal = meal
   if (Array.isArray(previous) && previous.length) body.previous = previous.filter(isPlainObject).slice(0, 20)
+  if (skipSaved === true) body.skipSaved = true
   const timeZone = localTimeZone()
   if (timeZone) body.context = { timeZone }
 
@@ -361,10 +523,7 @@ export async function estimateFood(input) {
     response = await apiRequest('/api/food', { method: 'POST', body, signal })
   } catch (error) {
     if (error?.name === 'AbortError') throw error
-    const friendly = new Error(estimateErrorMessage(error))
-    friendly.status = typeof error?.status === 'number' ? error.status : null
-    friendly.code = isPlainObject(error?.payload) && typeof error.payload.code === 'string' ? error.payload.code : null
-    throw friendly
+    throw friendlyError(error, estimateErrorMessage(error))
   }
   const result = isPlainObject(response) ? response : {}
   return {
@@ -372,6 +531,65 @@ export async function estimateFood(input) {
     clarify: typeof result.clarify === 'string' && result.clarify.trim() ? result.clarify.trim() : null,
     notFood: result.notFood === true,
     ...(typeof result.transcript === 'string' ? { transcript: result.transcript } : {}),
+    ...(isPlainObject(result.lookup) ? { lookup: result.lookup } : {}),
+  }
+}
+
+// ---- web lookups -------------------------------------------------------------------------------
+
+// settings.assistantWeb, shared with the assistant: 'ask' (default: search only on a tap),
+// 'always' or 'off' (no web buttons at all).
+export const WEB_MODES = Object.freeze(['ask', 'always', 'off'])
+const WEB_OFF_TEXT = 'Web search is off in Settings.'
+const selectWeb = (state) => {
+  const value = state.data.settings?.assistantWeb
+  return WEB_MODES.includes(value) ? value : 'ask'
+}
+
+export function useWebSetting() {
+  return useStore(selectWeb)
+}
+
+export function getWebSetting() {
+  return selectWeb(getState())
+}
+
+export function setWebSetting(value) {
+  if (!WEB_MODES.includes(value) || getWebSetting() === value) return
+  updateSettings({ assistantWeb: value })
+}
+
+// POST /api/food { action: 'web' }: exact numbers for one food from the web (costs a little per
+// call, so only on an explicit tap). item: the estimate item it's for (portion and context).
+// Resolves to { items (one item, basis 'web'), webFound, message }; throws a friendly Error
+// (code 'web_off' when web search is turned off) or the AbortError.
+export async function webLookupFood(input) {
+  const { query, item, date, meal, signal } = isPlainObject(input) ? input : {}
+  const words = typeof query === 'string' ? query.trim().slice(0, 500) : ''
+  if (!words) throw new Error('Nothing to look up.')
+  if (getWebSetting() === 'off') {
+    const off = new Error(WEB_OFF_TEXT)
+    off.code = 'web_off'
+    throw off
+  }
+  const body = { action: 'web', query: words, date: isISODate(date) ? date : todayISO() }
+  if (isPlainObject(item)) body.item = Object.fromEntries(Object.entries(item).filter(([key]) => !key.startsWith('_')))
+  if (typeof meal === 'string' && meal) body.meal = meal
+
+  let response
+  try {
+    response = await apiRequest('/api/food', { method: 'POST', body, signal })
+  } catch (error) {
+    if (error?.name === 'AbortError') throw error
+    const code = isPlainObject(error?.payload) ? error.payload.code : null
+    throw friendlyError(error, code === 'web_off' ? WEB_OFF_TEXT : estimateErrorMessage(error))
+  }
+  const result = isPlainObject(response) ? response : {}
+  const items = Array.isArray(result.items) ? result.items.filter(isPlainObject) : []
+  return {
+    items,
+    webFound: result.webFound === true && items.length > 0,
+    message: typeof result.message === 'string' && result.message.trim() ? result.message.trim() : null,
   }
 }
 
@@ -411,6 +629,7 @@ export function itemsToEntries(items, options) {
     if (rowMeal) row.meal = rowMeal
     if (typeof time === 'string' && time) row.time = time
     if (validId(item.favoriteId)) row.favoriteId = item.favoriteId
+    else if (validId(item.savedFoodId)) row.favoriteId = item.savedFoodId
     return row
   })
 }

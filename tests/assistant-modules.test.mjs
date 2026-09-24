@@ -304,14 +304,14 @@ function baseData(overrides = {}) {
 
 describe('food tool definitions', () => {
   test('every tool is a non-strict function with a description; lookups are marked', () => {
-    assert.deepEqual(FOOD_TOOL_NAMES, ['food_log', 'food_day', 'food_week', 'food_update_entry', 'food_delete_entry', 'food_set_goals', 'food_calculate_goals', 'food_favorite', 'weight_delete'])
+    assert.deepEqual(FOOD_TOOL_NAMES, ['food_log', 'food_day', 'food_week', 'food_update_entry', 'food_delete_entry', 'food_set_goals', 'food_calculate_goals', 'food_memory', 'food_memory_find', 'food_barcode_lookup', 'weight_delete'])
     for (const definition of FOOD_TOOL_DEFS) {
       assert.equal(definition.type, 'function')
       assert.equal(definition.strict, false)
       assert.ok(definition.description.length > 40, definition.name)
       assert.equal(definition.parameters.type, 'object')
     }
-    assert.deepEqual(FOOD_LOOKUP_TOOLS, ['food_day', 'food_week'])
+    assert.deepEqual(FOOD_LOOKUP_TOOLS, ['food_day', 'food_week', 'food_memory_find', 'food_barcode_lookup'])
     const log = FOOD_TOOL_DEFS[0].parameters.properties.items.items.properties
     for (const key of ['name', 'amount', 'unit', 'grams', 'calories', 'protein_g', 'carbs_g', 'fat_g', 'fiber_g', 'sugar_g', 'sodium_mg', 'alcohol_g', 'caffeine_mg', 'brand']) assert.ok(log[key], key)
   })
@@ -403,6 +403,35 @@ describe('executeFoodTool', () => {
     const [row] = supabase.db.tables.food_entries
     assert.equal(row.calories, 300)
     assert.deepEqual(row.extra, { alcoholG: 28 })
+  })
+
+  test('food_log with saved_food_id uses the saved numbers exactly, scaled by servings', async () => {
+    const supabase = fakeSupabase()
+    const quest = { id: 'fav-quest', name: 'Quest bar cookies & cream', brand: 'Quest', amount: 1, unit: 'bar', grams: 60, calories: 200, proteinG: 21, carbsG: 21, fatG: 8, fiberG: 14, source: 'web' }
+    const data = baseData()
+    data.settings.food.favorites.push(quest)
+    const ctx = ctxAt('15:00')
+    // The model's own (wrong) numbers are ignored; 200 kcal stands although the macros suggest 240.
+    const args = { items: [{ name: 'Quest bar', saved_food_id: 'fav-quest', servings: 2, calories: 999 }] }
+    assert.equal(describeFoodAction('food_log', args, data, ctx), 'Log Quest bar cookies & cream (2 bars) from My foods · 400 kcal → Lunch today')
+    const result = await executeFoodTool(supabase, USER, 'food_log', args, data, ctx)
+    assert.equal(result.ok, true, result.message)
+    const [row] = supabase.db.tables.food_entries
+    assert.equal(row.calories, 400)
+    assert.equal(row.protein_g, 42)
+    assert.equal(row.grams, 120)
+    assert.equal(row.amount, 2)
+    assert.equal(row.favorite_id, 'fav-quest')
+    // Amount in the saved unit works too; an unknown id is refused.
+    assert.equal(describeFoodAction('food_log', { items: [{ name: 'Quest', saved_food_id: 'fav-quest', amount: 1, unit: 'bars' }] }, data, ctx), 'Log Quest bar cookies & cream (1 bar) from My foods · 200 kcal → Lunch today')
+    assert.equal(checkFoodTool('food_log', { items: [{ name: 'Quest', saved_food_id: 'nope' }] }, data, ctx).ok, false)
+  })
+
+  test('food_log keeps stated calories within 30% of the macros (fibre, sugar alcohols) and names the portion once', () => {
+    const data = baseData()
+    const ctx = ctxAt('15:00')
+    // 21·4 + 21·4 + 8·9 = 240 kcal from the macros; the published 200 kcal stands.
+    assert.equal(describeFoodAction('food_log', { items: [{ name: 'Quest bar (Cookies & Cream, 1 bar)', amount: 1, unit: 'bar', calories: 200, protein_g: 21, carbs_g: 21, fat_g: 8 }] }, data, ctx), 'Log Quest bar (Cookies & Cream, 1 bar) · 200 kcal → Lunch today')
   })
 
   test('food_log: meal names, past days without a time and bad input', async () => {
@@ -563,21 +592,21 @@ describe('executeFoodTool', () => {
   test('food_favorite saves from an entry or from numbers, and removes by name', async () => {
     const supabase = fakeSupabase({ tables: { food_entries: [foodRow('e1', USER, {})] } })
     const data = baseData(await loadFoodData(supabase, USER, ctxAt()))
-    const fromEntry = await executeFoodTool(supabase, USER, 'food_favorite', { action: 'save', entry_id: 'e1', name: 'Morning oats' }, data, ctxAt())
+    const fromEntry = await executeFoodTool(supabase, USER, 'food_memory', { action: 'save', entry_id: 'e1', name: 'Morning oats' }, data, ctxAt())
     assert.equal(fromEntry.ok, true, fromEntry.message)
     assert.equal(data.settings.food.favorites[0].name, 'Morning oats')
     assert.equal(data.settings.food.favorites[0].calories, 230)
     assert.equal(data.settings.food.favorites.length, 2)
 
-    const updated = await executeFoodTool(supabase, USER, 'food_favorite', { action: 'save', name: 'Protein shake', amount: 1, unit: 'scoop', calories: 130 }, data, ctxAt())
-    assert.match(updated.message, /^Updated favorite/)
+    const updated = await executeFoodTool(supabase, USER, 'food_memory', { action: 'save', name: 'Protein shake', amount: 1, unit: 'scoop', calories: 130 }, data, ctxAt())
+    assert.match(updated.message, /^Updated in My foods/)
     assert.equal(data.settings.food.favorites.length, 2)
     assert.equal(data.settings.food.favorites[0].id, 'fav1') // same favorite, moved to the top
 
-    const removed = await executeFoodTool(supabase, USER, 'food_favorite', { action: 'remove', name: 'protein shake' }, data, ctxAt())
+    const removed = await executeFoodTool(supabase, USER, 'food_memory', { action: 'remove', name: 'protein shake' }, data, ctxAt())
     assert.equal(removed.ok, true)
     assert.deepEqual(data.settings.food.favorites.map((fav) => fav.name), ['Morning oats'])
-    assert.equal((await executeFoodTool(supabase, USER, 'food_favorite', { action: 'save', name: 'Air' }, data, ctxAt())).ok, false)
+    assert.equal((await executeFoodTool(supabase, USER, 'food_memory', { action: 'save', name: 'Air' }, data, ctxAt())).ok, false)
   })
 
   test('weight_delete removes that day’s weigh-in', async () => {
@@ -664,8 +693,8 @@ describe('describeFoodAction', () => {
     assert.equal(describeFoodAction('food_update_entry', { id: 'e1', scale: 2 }, data, ctx), 'Update Oats (60 g) (Breakfast today): portion → 120 g, 230 → 460 kcal, P 16 g · C 80 g · F 8 g')
     assert.equal(describeFoodAction('food_update_entry', { id: '$1', changes: { calories: 10 } }, data, ctx), 'Update the food entry just logged')
     assert.equal(describeFoodAction('food_delete_entry', { id: 'e1' }, data, ctx), 'Delete Oats (60 g) · 230 kcal (Breakfast today)')
-    assert.equal(describeFoodAction('food_favorite', { action: 'save', name: 'Chai', amount: 1, unit: 'cup', calories: 90 }, data, ctx), 'Save favorite: Chai (1 cup) · 90 kcal')
-    assert.equal(describeFoodAction('food_favorite', { action: 'remove', name: 'protein shake' }, data, ctx), 'Remove favorite: Protein shake')
+    assert.equal(describeFoodAction('food_memory', { action: 'save', name: 'Chai', amount: 1, unit: 'cup', calories: 90 }, data, ctx), 'Save to My foods: Chai (1 cup) · 90 kcal (your numbers)')
+    assert.equal(describeFoodAction('food_memory', { action: 'remove', name: 'protein shake' }, data, ctx), 'Remove from My foods: Protein shake')
     assert.equal(describeFoodAction('weight_delete', { date: '2026-09-21' }, data, ctx), 'Delete weigh-in: 80.2 kg on Mon, Sep 21')
     assert.equal(describeFoodAction('food_day', { date: '2026-09-22' }, data, ctx), 'Look up food yesterday')
     assert.match(describeFoodAction('food_calculate_goals', { sex: 'female', age: 30, height_cm: 165, weight: 65, activity: 'light', goal: 'lose' }, data, ctx), /^Set daily goal: [\d,]+ kcal · P \d+ g · C \d+ g · F \d+ g · Fiber \d+ g \(lose ~0\.5 kg\/week\)$/)
