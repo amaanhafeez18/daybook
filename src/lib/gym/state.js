@@ -466,6 +466,7 @@ function scheduleRevert(before, after) {
 
 // Runs change(schedule, today); saves the result and returns its undo (null if change returned null).
 function applySchedule(change) {
+  requireLoaded() // updateGym would drop the change while still showing an undo
   const before = getGym().schedule
   const after = change(before, todayISO())
   if (!after) return null
@@ -572,6 +573,7 @@ export function saveRoutine(routine) {
 
 // replaceWithRest: its slots in the current and future schedule become Rest (copy-on-write).
 export function deleteRoutine(id, { replaceWithRest = false } = {}) {
+  requireLoaded()
   const gym = getGym()
   const index = gym.routines.findIndex((routine) => routine.id === id)
   const routine = gym.routines[index]
