@@ -8,6 +8,7 @@ import { resolveFriend, similarFriends } from './_people.js'
 import { FOOD_LOOKUP_TOOLS, FOOD_TOOL_DEFS, describeFoodAction, executeFoodTool, foodSnapshot, loadFoodData } from './_food-tools.js'
 import { UPLOAD_BUCKET } from './_uploads.js'
 import { WEB_SETTINGS, webAnswer, webNutrition, webSetting } from './_web.js'
+import { timeRangeMinutes } from '../src/lib/dates.js'
 // The gym modules are pure ESM shared with the app, so days, records and suggestions match the Gym page.
 import * as sched from '../src/lib/gym/schedule.js'
 import * as gymLib from '../src/lib/gym/library.js'
@@ -325,6 +326,10 @@ const isWriteTool = (name) => !UI_TOOLS.includes(name) && !LOOKUP_TOOLS.includes
 // Memory is saved at once, never behind a Yes/No card (it's low-risk and can be removed in the memory sheet).
 const INSTANT_TOOLS = new Set(['remember', 'forget'])
 // The user asking for a web search in their own words (or tapping "Search the web" / "Look it up online").
+// "no need to look it up online", "don't search the web": a refusal, never an approval.
+const WEB_DECLINE_RE = /\b(don'?t|do not|no need|without|never|instead of|rather than)\b[^.?!\n]{0,25}\b(search|look|google|check|online|web|internet)/i
+// After the app asked "Want me to search the web?": a typed yes in its usual forms.
+const WEB_YES_RE = /^\s*(yes|yeah|yep|sure|ok(ay)?|go ahead|please do|do it|search|look it up|google it)\b/i
 const WEB_REQUEST_RE = /\b(search|look(ed)?\s*(it|this|that|them)?\s*up|google|check|find|pull)\b[^.?!\n]{0,40}\b(online|on the web|on the internet|the web|web|internet)\b|\bsearch (the )?(web|internet|online)\b|\bgoogle (it|that|this)\b|\bsearch again\b/i
 // Results that show as action chips (and in the stored history): writes, plus failed lookups.
 const isActionResult = (result) => !UI_TOOLS.includes(result.tool) && (!LOOKUP_TOOLS.includes(result.tool) || !result.ok)
@@ -406,12 +411,14 @@ const tools = [
     title: { type: 'string' },
     date: DATE,
     time: TIME,
+    details: { type: 'string', description: 'Location, who it is with, booking reference, notes.' },
   }, ['title', 'date']),
   tool('update_event', 'Rename or reschedule a calendar event by id. Its linked task is updated too.', {
     eventId: { type: 'string' },
     title: { type: 'string' },
     date: DATE,
     time: TIME,
+    details: { type: 'string' },
   }, ['eventId']),
   tool('delete_event', 'Remove a calendar event by id. Its linked task is archived (restorable).', {
     eventId: { type: 'string' },
@@ -802,6 +809,52 @@ async function loadMemories(supabase, userId) {
   return (data || []).reverse()
 }
 
+// The next 7 days as one ordered timeline per day (classes, events, timed tasks), so "what's next",
+// "am I free Thursday at 3" and "how's my week" don't depend on the model lining things up itself.
+const clock12 = (minutes) => `${Math.floor(minutes / 60) % 12 || 12}:${String(minutes % 60).padStart(2, '0')} ${minutes >= 720 ? 'PM' : 'AM'}`
+const minutesOf = (time) => timeRangeMinutes(time).start
+
+function buildAgenda(data, ctx) {
+  const today = ctx.localDate
+  const now = minutesOf(ctx.localTime)
+  const days = []
+  for (let offset = 0; offset < 7; offset += 1) {
+    const date = addDays(today, offset)
+    const weekday = DAY_NAMES[new Date(`${date}T12:00:00Z`).getUTCDay()]
+    const items = []
+    for (const item of data.classes) {
+      if (item.end_date && item.end_date < date) continue
+      for (const day of item.days || []) {
+        const name = typeof day === 'string' ? day : day?.day
+        if (name !== weekday) continue
+        const time = typeof day === 'string' ? item.day_details?.[day]?.time || item.time || '' : day?.time || ''
+        const room = typeof day === 'string' ? item.day_details?.[day]?.room || item.room || '' : day?.room || ''
+        const range = timeRangeMinutes(time)
+        items.push({ start: range.start, end: range.end, text: `${time ? `${time} ` : ''}class ${item.name}${room ? ` (${room})` : ''}` })
+      }
+    }
+    for (const event of data.events) {
+      if (event.date !== date || event.task_id) continue // tasks with a time are listed as tasks
+      const start = minutesOf(event.time)
+      items.push({ start, end: null, text: `${start !== null ? `${clock12(start)} ` : 'all day '}event ${event.title}` })
+    }
+    for (const task of data.tasks) {
+      if (task.archived || task.done || task.date !== date || task.details?.startsWith('friend-reminder:')) continue
+      const start = minutesOf(task.time)
+      items.push({ start, end: null, text: `${start !== null ? `${clock12(start)} ` : 'no time '}task ${task.text}` })
+    }
+    items.sort((a, b) => (a.start ?? 1e9) - (b.start ?? 1e9))
+    const lines = items.map((item) => {
+      if (offset !== 0 || item.start === null || now === null) return item.text
+      const over = item.end !== null ? now >= item.end : now >= item.start + 60
+      const on = !over && now >= item.start
+      return over ? `${item.text} — done/passed` : on ? `${item.text} — now` : item.text
+    })
+    days.push(`${offset === 0 ? 'Today ' : offset === 1 ? 'Tomorrow ' : ''}${weekday} ${date}: ${lines.length ? lines.join(' · ') : 'nothing scheduled'}`)
+  }
+  return days
+}
+
 function buildSnapshot(data, ctx, username) {
   const today = ctx.localDate
   const lastContact = {}
@@ -825,6 +878,7 @@ function buildSnapshot(data, ctx, username) {
   return compact({
     user: compact({ username, displayName: data.settings.displayName }),
     upcomingDays,
+    agenda: buildAgenda(data, ctx), // the current time itself is in the developer note (cache-friendly)
     memories: (data.memories || []).map((memory) => ({ id: memory.id, fact: memory.content })),
     openTasks: openTasks.map((task) => compact({
       id: task.id,
@@ -836,7 +890,7 @@ function buildSnapshot(data, ctx, username) {
       overdue: task.date && task.date < today ? true : undefined,
       reminderMinutes: Number.isInteger(task.reminder_minutes) ? task.reminder_minutes : undefined,
     })),
-    recentlyCompleted: activeTasks.filter((task) => task.done).slice(0, 8).map((task) => compact({ id: task.id, text: task.text, date: task.date })),
+    recentlyCompleted: activeTasks.filter((task) => task.done).sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 20).map((task) => compact({ id: task.id, text: task.text, date: task.date })),
     calendar: data.events
       .filter((event) => event.date >= addDays(today, -7) && event.date <= addDays(today, 90))
       .sort((a, b) => a.date.localeCompare(b.date) || (a.time || '').localeCompare(b.time || ''))
@@ -873,9 +927,12 @@ function buildSnapshot(data, ctx, username) {
         })(),
         birthdayInDays: (() => {
           if (!isIsoDate(friend.birthday)) return undefined
-          let next = `${today.slice(0, 4)}${friend.birthday.slice(4)}`
-          if (!isIsoDate(next)) return undefined
-          if (next < today) next = `${Number(today.slice(0, 4)) + 1}${friend.birthday.slice(4)}`
+          const onYear = (year) => {
+            const date = `${year}${friend.birthday.slice(4)}`
+            return isIsoDate(date) ? date : `${year}-02-28` // a Feb 29 birthday in a non-leap year
+          }
+          let next = onYear(today.slice(0, 4))
+          if (next < today) next = onYear(Number(today.slice(0, 4)) + 1)
           const days = daysBetween(today, next)
           return days <= 30 ? days : undefined
         })(),
@@ -934,6 +991,10 @@ ${confirmMode ? CONFIRM_RULES : DIRECT_RULES}
 
 How to act:
 - Chat naturally. Answer questions from the snapshot directly; don't call tools just to read data you already have.
+- Events have a start time only (no end): assume about an hour unless the title says otherwise; classes show their full time range.
+- Be aware, like a good PA: snapshot.agenda is the next 7 days as an ordered timeline (classes, events, timed tasks; today's items marked "now" or "done/passed"). Use it for "what's next", "what's on today/Thursday", "am I free at 3", "how's my week looking", and to spot clashes (a new task or event overlapping a class or event: mention it and offer another time) and gaps (a free evening, a long break between classes). When someone asks to add something at a time that's taken, say what's there. Mention relevant context unprompted but briefly: an overdue task when they plan the day, a friend's birthday this week, a catch-up that's due, a workout planned today, protein far behind by the evening.
+- Multi-step requests ("plan my week", "set up my exam prep", "clear my Friday") are welcome: break them into concrete tasks/events with sensible dates and times and stage them all in one card, explaining your plan in a sentence.
+- There are no recurring tasks or events. For a weekly thing use a class (create_class); for something that repeats a few times, offer to create each occurrence (up to 8) in one card. The user's own birthday: remember it and add an all-day event on its next occurrence.
 - Refer to things by the exact id from the snapshot, the $n ref of something created (or staged) earlier in this turn, or (people, routines, exercises) a name: the server resolves names. Never invent ids.
 - Ask with choices, not open questions: when the answer is one of a few options (relationship, skip vs shift, move vs swap, which of two people, routines or exercises, missing reps from a range, a class end date, which items to add), call ask_choice with 2–5 short options ("Something else" last when useful). One question at a time; changes that depend on the answer wait for it. After ask_choice, write nothing else: the question is shown with the chips.
 - Only a result with ok:true means something happened. Never say anything was logged, added, saved or done unless a result says it succeeded (and never for a staged change). When a change fails, say plainly it wasn't saved and why in a few words, then offer a fallback (a note, trying again later, or doing it in the app); don't present its numbers as logged.
@@ -965,7 +1026,8 @@ Gym (snapshot.gym: today's workout with weights in the user's unit, ↑ = progre
 - Logging: "I hit push today, bench 35 for 3 sets" = gym_log_workout with routine "Push" and the sets (library names like "Bench Press (Barbell)"; repeated sets as one entry with count). Weights are in the user's gym unit; if they name another unit, pass unit. "60 a side" on a barbell = 2 × 60 + the bar. Missing reps: leave them out when the routine has a fixed rep target (the server fills it in and says so: repeat that); for a rep range ask with choices. "The rest as planned" = fill_from_routine. gym_quick_log when they only say they trained. If they did a different routine than planned in a rotation, offer gym_realign. Say which exercise you logged if the name was vague.
 - "I weigh 72.5" = gym_log_bodyweight in their unit (the same weight log the Food tab uses).
 
-Food (snapshot.food: today's totals vs goals, what's remaining, meals, the last 7 days, favourites, weight trend):
+Food (snapshot.food: today's totals vs goals, what's remaining, meals, the last 7 days as totals only, favourites, weight trend):
+- "What did I eat yesterday / on Monday?": last7Days has only the day's totals, so call food_day for that date to list the items.
 - food_log: split what they ate into items and estimate each generic or homemade item's calories and macros yourself (protein, carbs, fat; fibre and sugar when you can). Use a typical serving when no size is given and say what you assumed; My foods and their usual portions win. Named brands, packaged products and restaurant menu items follow the "Food memory" rules below (My foods first, then the web), not your own memory. Coffee-shop cup sizes: Tim Hortons Canada hot S 10 / M 14 / L 20 / XL 24 fl oz, a double-double = 2 cream + 2 sugar; Starbucks Tall 12 / Grande 16 / Venti 20 fl oz hot, 24 iced. Numbers the user gives (calories, grams, servings) are exact. Pick the meal from what they said, else from the time of day. Plain tea or black coffee is about 2–5 kcal; ask with choices when milk or sugar changes a lot.
 - "How many calories do I have left?" / "what should I eat?": answer from snapshot.food (remaining calories and macros, weekly averages) with practical ideas that fit what's left (e.g. protein-heavy when protein is behind). No moralising.
 - Goals: food_set_goals for numbers they give; food_calculate_goals when they give their details or ask you to work goals out.
@@ -3180,8 +3242,19 @@ function reminderFields(task, data, ctx) {
 
 const reminderText = (fields) => (fields.remindsAt ? ` Reminder: ${fields.remindsAt}.` : '') + (fields.reminderWarning ? ` Note: ${fields.reminderWarning}.` : '')
 
-async function executeTool(supabase, userId, name, args, data, ctx, { refs = {} } = {}) {
-  if (!isPlainObject(args)) return { ok: false, message: 'The tool arguments were not valid JSON.' }
+// "today" / "tomorrow" / "yesterday" as a date work for every tool, like the gym ones.
+function dateWords(args, ctx) {
+  if (!isPlainObject(args)) return args
+  const out = { ...args }
+  for (const key of ['date', 'week_start']) {
+    if (typeof out[key] === 'string' && /^(today|tomorrow|yesterday)$/i.test(out[key].trim())) out[key] = gymDate(out[key], ctx.localDate)
+  }
+  return out
+}
+
+async function executeTool(supabase, userId, name, rawArgs, data, ctx, { refs = {} } = {}) {
+  if (!isPlainObject(rawArgs)) return { ok: false, message: 'The tool arguments were not valid JSON.' }
+  const args = dateWords(rawArgs, ctx)
   if (FOOD_TOOL_NAMES.has(name)) return executeFoodTool(supabase, userId, name, args, data, ctx)
   if (name.startsWith('gym_')) return executeGymTool(supabase, userId, name, args, data, ctx)
 
@@ -3211,9 +3284,10 @@ async function executeTool(supabase, userId, name, args, data, ctx, { refs = {} 
     const problem = checkDateTime(args)
     if (problem) return { ok: false, message: problem }
     if (args.text !== undefined && !String(args.text).trim()) return { ok: false, message: 'A task needs some text.' }
+    if (args.priority !== undefined && args.priority !== null && !['urgent', 'medium', 'low'].includes(args.priority)) return { ok: false, message: 'Priority is urgent, medium or low.' }
     const patch = {}
     for (const field of ['text', 'date', 'time', 'details', 'priority', 'done', 'archived']) {
-      if (args[field] !== undefined && args[field] !== null) patch[field] = args[field]
+      if (args[field] !== undefined && args[field] !== null) patch[field] = field === 'text' ? String(args[field]).trim() : args[field]
     }
     // A catch-up reminder keeps its internal marker (like the app), or completing it would stop logging the catch-up.
     let keptMarker = false
@@ -3337,7 +3411,7 @@ async function executeTool(supabase, userId, name, args, data, ctx, { refs = {} 
     if (event.time && !isTime(event.time)) return { ok: false, message: 'Times must be 24-hour HH:MM.' }
     const { error } = await supabase.from('events').insert(event)
     if (error) throw error
-    const taskRow = { id: event.task_id, user_id: userId, text: event.title, date: event.date, time: event.time, details: '', priority: 'medium', done: false, archived: false, calendar_event_id: event.id, created_at: nowIso() }
+    const taskRow = { id: event.task_id, user_id: userId, text: event.title, date: event.date, time: event.time, details: typeof args.details === 'string' ? args.details.trim().slice(0, 2000) : '', priority: 'medium', done: false, archived: false, calendar_event_id: event.id, created_at: nowIso() }
     const { error: taskError } = await supabase.from('tasks').insert(taskRow)
     if (taskError) throw taskError
     data.events.push(event)
@@ -3360,6 +3434,7 @@ async function executeTool(supabase, userId, name, args, data, ctx, { refs = {} 
       if (patch.title !== undefined) taskPatch.text = patch.title
       if (patch.date !== undefined) taskPatch.date = patch.date
       if (patch.time !== undefined) taskPatch.time = patch.time
+      if (typeof args.details === 'string') taskPatch.details = args.details.trim().slice(0, 2000)
       if (Object.keys(taskPatch).length) {
         const { error: taskError } = await supabase.from('tasks').update(taskPatch).eq('id', event.task_id).eq('user_id', userId)
         // The event is already saved: report success with a warning, so the app still refreshes.
@@ -3588,7 +3663,7 @@ async function executeTool(supabase, userId, name, args, data, ctx, { refs = {} 
     }
     // Only a new body changes the text; a title or mood can be set on its own (B8).
     const body = !text ? existing?.body || '' : existing && args.mode !== 'replace' ? `${existing.body || ''}\n\n${text}`.trim() : text
-    const fields = { title: title || existing?.title || 'Untitled entry', body, mood: args.mood ?? existing?.mood ?? '' }
+    const fields = { title: title || existing?.title || '', body, mood: args.mood ?? existing?.mood ?? '' }
     if (existing) {
       const { error } = await supabase.from('journal_entries').update(fields).eq('id', existing.id).eq('user_id', userId)
       if (error) throw error
@@ -4146,7 +4221,7 @@ async function stageTool(supabase, userId, name, rawArgs, data, ctx, stage) {
   let args
   let described
   try {
-    args = replaceRefs(rawArgs, stage.simIds, true)
+    args = dateWords(replaceRefs(rawArgs, stage.simIds, true), ctx)
     described = describeAction(name, args, sim, ctx, stage.simIds)
   } catch (error) {
     return { ok: false, message: error.message || 'That change isn’t valid.' }
@@ -4282,8 +4357,10 @@ const proposalResults = (results) => results.map(({ label, tool: toolName, ok, m
 // 'summary' message at the start), so the model keeps the gist of everything said before.
 
 const SUMMARY_CHARS = 4000
-const FOLD_AT = MAX_STORED_MESSAGES - 4 // chat messages stored before folding kicks in
-const FOLD_COUNT = 20 // oldest messages folded each time
+// Folding starts as soon as messages fall out of the model's window (MAX_MODEL_MESSAGES), so nothing
+// is ever in neither the window nor the summary for long.
+const FOLD_AT = MAX_MODEL_MESSAGES + 8 // chat messages stored before folding kicks in
+const FOLD_COUNT = 8 // oldest messages folded each time
 
 const chatOnly = (messages) => messages.filter((message) => message.role !== 'summary')
 const summaryOf = (messages) => messages.find((message) => message.role === 'summary') || null
@@ -4467,8 +4544,8 @@ function readAttachments(raw, userId) {
 
 // The latest message's attachments are kept (server-side only) for a few follow-up turns, so an
 // answer like "add it to my calendar" can still use the photo. Only one message keeps them.
-const CARRY_TTL_MS = 2 * 60 * 60 * 1000
-const CARRY_MESSAGES = 10 // later messages that can still see them (about 5 exchanges)
+const CARRY_TTL_MS = 24 * 60 * 60 * 1000 // the files themselves stay in storage for 3 days
+const CARRY_MESSAGES = 20 // later messages that can still see them (about 10 exchanges)
 
 // Stored attachment data (validated again on every read); anything malformed or oversized is dropped.
 function normalizeFiles(raw) {
@@ -4498,23 +4575,68 @@ function normalizeFiles(raw) {
 }
 
 // Index of the message whose attachments are still visible, or -1.
-function carriedIndex(messages) {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
+// The recent messages whose attachments are still shown to the model (newest first, at most
+// CARRY_MAX_MESSAGES of them, each fresh and within the last CARRY_MESSAGES messages), so a
+// screenshot sent before a PDF is still there for "add that to my calendar".
+const CARRY_MAX_MESSAGES = 3
+function carriedIndexes(messages) {
+  const found = []
+  for (let index = messages.length - 1; index >= 0 && found.length < CARRY_MAX_MESSAGES; index -= 1) {
     const message = messages[index]
     if (!message.files?.length) continue
-    const fresh = Date.now() - Date.parse(message.createdAt) < CARRY_TTL_MS
-    return fresh && messages.length - 1 - index <= CARRY_MESSAGES ? index : -1
+    if (messages.length - 1 - index > CARRY_MESSAGES) break
+    if (Date.now() - Date.parse(message.createdAt) < CARRY_TTL_MS) found.push(index)
   }
-  return -1
+  return found
 }
 
-// Keeps attachment data only on the one message that can still use it.
+// The oldest carried message (or -1): folding never goes past it.
+function carriedIndex(messages) {
+  const indexes = carriedIndexes(messages)
+  return indexes.length ? indexes[indexes.length - 1] : -1
+}
+
+// Photos and small PDFs arrive inline (a data URL) and only uploaded files are kept on the saved
+// message, so a follow-up ("add it to my calendar") would have lost them. They're put in storage
+// here as they arrive; the current turn still reads the inline copy. Best effort: a failed upload
+// only means that file can't be carried to later messages.
+async function persistInline(supabase, userId, attachments) {
+  const inline = attachments.filter((item) => item.dataUrl && !item.path && (item.kind === 'image' || item.kind === 'pdf'))
+  if (!inline.length) return
+  try {
+    await ensureUploadBucket(supabase)
+  } catch (error) {
+    console.error('Upload bucket unavailable:', error.message || error)
+    return
+  }
+  await Promise.all(inline.map(async (item) => {
+    try {
+      const comma = item.dataUrl.indexOf(',')
+      const contentType = item.dataUrl.slice(5, item.dataUrl.indexOf(';')) || (item.kind === 'pdf' ? 'application/pdf' : 'image/jpeg')
+      const bytes = Buffer.from(item.dataUrl.slice(comma + 1), 'base64')
+      const safeName = String(item.name || (item.kind === 'pdf' ? 'document.pdf' : 'photo.jpg')).normalize('NFKD').replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '').slice(-80) || 'file'
+      const path = `${userId}/${new Date().toISOString().slice(0, 10)}/${randomUUID()}-${safeName}`
+      const { error } = await supabase.storage.from(UPLOAD_BUCKET).upload(path, bytes, { contentType, upsert: false })
+      if (error) throw error
+      item.path = path
+    } catch (error) {
+      console.error('Keeping an attachment for follow-ups failed:', error.message || error)
+    }
+  }))
+}
+
+// Keeps attachment data only on the messages that can still use it; a file that's in storage keeps
+// just its path (the inline copy would make the conversation row huge).
 function pruneFiles(messages) {
-  const keep = carriedIndex(messages)
+  const keep = new Set(carriedIndexes(messages))
   return messages.map((message, index) => {
-    if (!message.files || index === keep) return message
-    const { files, ...rest } = message
-    return rest
+    if (!message.files) return message
+    if (!keep.has(index)) {
+      const { files, ...rest } = message
+      return rest
+    }
+    const files = message.files.map((file) => (file.path && file.dataUrl ? (({ dataUrl, ...rest }) => rest)(file) : file))
+    return { ...message, files }
   })
 }
 
@@ -4757,6 +4879,7 @@ export default async function handler(req, res) {
     // Fresh signed URLs for uploaded files, fetched while the rest loads (awaited before the model call).
     const signing = attachments.length ? signAttachmentUrls(supabase, attachments) : Promise.resolve()
     signing.catch(() => {}) // awaited below; this only keeps an early reply from leaving it unhandled
+    const persisting = persistInline(supabase, user.id, attachments) // never rejects
     const confirm = isPlainObject(body.confirm) && ['yes', 'no'].includes(body.confirm.decision) ? body.confirm : null
     const pending = findPendingProposal(history)
 
@@ -4925,7 +5048,8 @@ export default async function handler(req, res) {
     // or said yes to the search the assistant asked about last turn.
     const webMode = webSetting(data.settings)
     const pendingWeb = [...history].reverse().find((message) => message.role === 'assistant')?.webQuery || ''
-    const webApproved = webMode === 'always' || (webMode === 'ask' && (WEB_REQUEST_RE.test(text) || (Boolean(pendingWeb) && parseDecision(text) === 'yes')))
+    const askedForWeb = WEB_REQUEST_RE.test(text) && !WEB_DECLINE_RE.test(text)
+    const webApproved = webMode === 'always' || (webMode === 'ask' && (askedForWeb || (Boolean(pendingWeb) && (parseDecision(text) === 'yes' || WEB_YES_RE.test(text)))))
     if (webMode === 'off') notes.push('Web search is turned off in Settings: don\'t call web_lookup; estimate or ask the user for the numbers.')
     else if (webMode === 'always') notes.push('Web searches are allowed without asking (the user\'s setting): call web_lookup whenever a food or fact needs it.')
     else if (webApproved) notes.push(pendingWeb && !WEB_REQUEST_RE.test(text) ? `The user approved the web search you asked about: "${pendingWeb}". Call web_lookup for it now, then finish their original request.` : 'The user just asked for a web search, so it is allowed this turn: call web_lookup now for the item or question from the conversation (don\'t ask again), then finish their original request.')
@@ -4941,17 +5065,23 @@ export default async function handler(req, res) {
     const folding = foldHistory(turnHistory, { userId: user.id, ctx, debug }).catch(() => turnHistory)
     const summaryText = summaryOf(turnHistory)?.content
     const modelHistory = chatOnly(turnHistory).slice(-MAX_MODEL_MESSAGES)
-    let carried = attachments.length ? -1 : carriedIndex([...modelHistory, { role: 'user' }])
-    // Uploaded files are read through fresh signed URLs; a carried one that has since expired is left out.
+    // Earlier photos and files still in their window stay visible (fresh signed URLs; one whose link
+    // has expired is left out).
+    const carried = new Set()
     await signing
-    if (carried >= 0) {
+    await persisting // so the saved message keeps a storage path for each photo or PDF
+    for (const index of carriedIndexes([...modelHistory, { role: 'user' }])) {
       try {
-        await signAttachmentUrls(supabase, modelHistory[carried].files)
+        await signAttachmentUrls(supabase, modelHistory[index].files)
+        carried.add(index)
       } catch {
-        carried = -1
+        // left out
       }
     }
-    if (carried >= 0) notes.push(`The user's earlier ${modelHistory[carried].files.map((item) => `${ATTACHMENT_WORDS[item.kind]} "${item.name}"`).join(', ')} is still attached to their earlier message: use it to act on this reply.`)
+    if (carried.size) {
+      const names = [...carried].sort((a, b) => a - b).flatMap((index) => modelHistory[index].files.map((item) => `${ATTACHMENT_WORDS[item.kind]} "${item.name}"`))
+      notes.push(`The user's earlier ${names.join(', ')} ${names.length === 1 ? 'is' : 'are'} still attached to their earlier messages: use them to act on this reply.`)
+    }
     const developerNote = [
       `Current local time: ${ctx.weekday} ${ctx.localDate} ${ctx.localTime} (${ctx.timeZone}).`,
       spoken ? 'The user is speaking by voice: reply in plain conversational sentences with no markdown, lists, or emoji, since the reply may be read aloud.' : '',
@@ -4961,14 +5091,14 @@ export default async function handler(req, res) {
     ].filter(Boolean).join('\n')
     const input = [
       ...(summaryText ? [{ role: 'developer', content: `Summary of the earlier conversation (those messages are no longer shown):\n${summaryText}` }] : []),
-      ...modelHistory.map((item, index) => (index === carried
+      ...modelHistory.map((item, index) => (carried.has(index)
         ? { role: 'user', content: [textPart(historyContent(item, ctx, { visible: true }) || 'See attached.'), ...item.files.map(attachmentPart)] }
         : { role: item.role, content: historyContent(item, ctx) })),
       { role: 'developer', content: developerNote },
       // Attachments stay in this message for every tool round of the turn (stored server-side only, see pruneFiles).
       { role: 'user', content: attachments.length ? [textPart(text), ...attachments.map(attachmentPart)] : text },
     ]
-    const visibleFiles = carried >= 0 ? modelHistory[carried].files : attachments
+    const visibleFiles = [...attachments, ...[...carried].flatMap((index) => modelHistory[index].files)]
     const heavy = visibleFiles.some((item) => item.kind === 'pdf') || visibleFiles.filter((item) => item.kind === 'image').length >= 2
 
     // Text from every model call is kept (and streamed) so nothing said before a tool call is lost.
