@@ -4,7 +4,7 @@
 // Files starting with "_" are not deployed as their own serverless functions.
 import { randomUUID } from 'crypto'
 import {
-  ACTIVITY_LEVELS, FAVORITES_MAX, SAVED_SOURCES, amountText, matchSavedFoods, calcGoals, clampEstimateItem, dayTotals, energyInUnit, entryCalories, entryMeal, entryTemplate,
+  ACTIVITY_LEVELS, FAVORITES_MAX, NUTRIENTS as NUTRIENT_KEYS, SAVED_SOURCES, amountText, matchSavedFoods, calcGoals, clampEstimateItem, dayTotals, energyInUnit, entryCalories, entryMeal, entryTemplate,
   findFavorite, foodKey, formatEnergy, logStreak, macroCalories, mealForTime, mealTotals, normalizeFood, recents, remaining,
   scaleEntry, weeklyInsights, weightTrend,
 } from '../src/lib/food/nutrition.js'
@@ -14,6 +14,9 @@ import { lookupBarcode, productItem } from './_web.js'
 const LOAD_DAYS = 60
 const LOAD_LIMIT = 3000
 const MAX_ITEMS = 20
+const MAX_COPY = 60
+const MEALS_MIN = 3
+const MEALS_MAX = 6
 const LB_PER_KG = 2.2046226218
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -328,8 +331,18 @@ function savedItem(fav, item) {
     name: fav.name, brand: fav.brand, amount: noPortion ? factor : scaled.amount, unit: noPortion ? 'serving' : fav.unit, grams: scaled.grams,
     calories: scaled.calories, protein_g: scaled.proteinG, carbs_g: scaled.carbsG, fat_g: scaled.fatG,
     fiber_g: scaled.fiberG, sugar_g: scaled.sugarG, sodium_mg: scaled.sodiumMg,
-    alcohol_g: scaled.extra?.alcoholG ?? null, caffeine_mg: scaled.extra?.caffeineMg ?? null,
+    alcohol_g: scaled.extra?.alcoholG ?? null, caffeine_mg: scaled.extra?.caffeineMg ?? null, sat_fat_g: scaled.extra?.satFatG ?? null,
   }
+}
+
+// The nutrients without a column (alcohol, caffeine, saturated fat) as a clamped item gives them,
+// nulls left out.
+function extrasOf(clamped) {
+  const extra = {}
+  if (clamped.extra.alcoholG !== null) extra.alcoholG = clamped.extra.alcoholG
+  if (clamped.extra.caffeineMg !== null) extra.caffeineMg = clamped.extra.caffeineMg
+  if (clamped.extra.satFatG !== null) extra.satFatG = clamped.extra.satFatG
+  return extra
 }
 
 function planLog(args, data, ctx) {
@@ -376,9 +389,7 @@ function planLog(args, data, ctx) {
     const locked = savedFood || item.user_calories === true || boozy || close ? ['calories'] : []
     const clamped = clampEstimateItem({ ...item, name: name || 'Quick add', locked, options: [], assumptions: [] })
     if (clamped.calories === null) return { error: `Estimate the calories for "${name || 'each item'}" (kcal for the amount eaten) and try again.` }
-    const extra = {}
-    if (clamped.extra.alcoholG !== null) extra.alcoholG = clamped.extra.alcoholG
-    if (clamped.extra.caffeineMg !== null) extra.caffeineMg = clamped.extra.caffeineMg
+    const extra = extrasOf(clamped)
     const favorite = savedFood || findFavorite(food.favorites, { name: clamped.name, brand: clamped.brand })
     rows.push({
       date, time, meal,
@@ -394,7 +405,7 @@ function planLog(args, data, ctx) {
 
 // Field names the update tool accepts (both the tool's snake_case and the app's camelCase).
 const TEXT_CHANGES = { name: ['name', 120], brand: ['brand', 80], unit: ['unit', 24], note: ['note', 1000] }
-const EXTRA_CHANGES = { alcohol_g: ['alcoholG', 1000, 1], caffeine_mg: ['caffeineMg', 5000, 0] }
+const EXTRA_CHANGES = { alcohol_g: ['alcoholG', 1000, 1], caffeine_mg: ['caffeineMg', 5000, 0], sat_fat_g: ['satFatG', 500, 1] }
 
 function planUpdate(args, data, ctx, entry) {
   const today = todayOf(ctx)
@@ -427,7 +438,7 @@ function planUpdate(args, data, ctx, entry) {
     }
     given.add(field)
   }
-  // Alcohol and caffeine live in extra.
+  // Alcohol, caffeine and saturated fat live in extra.
   for (const [arg, [key, max, digits]] of Object.entries(EXTRA_CHANGES)) {
     const raw = changes[arg] !== undefined ? changes[arg] : changes[key]
     if (raw === undefined) continue
@@ -459,6 +470,17 @@ function planUpdate(args, data, ctx, entry) {
     if (!meal) return { error: `Unknown meal "${changes.meal}". Use one of: ${meals.map((item) => item.id).join(', ')}.` }
     next.meal = meal
   }
+  // The link to My foods: null unlinks, an id links to that saved food.
+  let linked = null
+  if (changes.favorite_id !== undefined || changes.favoriteId !== undefined) {
+    const raw = changes.favorite_id !== undefined ? changes.favorite_id : changes.favoriteId
+    if (raw === null || raw === '') next.favoriteId = null
+    else {
+      linked = food.favorites.find((fav) => String(fav.id) === String(raw)) || null
+      if (!linked) return { error: `No saved food with id "${clean(String(raw), 60)}" in My foods (pass null to unlink).` }
+      next.favoriteId = String(linked.id)
+    }
+  }
   // New macros without new calories: calories follow the macros.
   if (scale === null && !given.has('calories') && [...given].some((field) => MACRO_FIELDS.has(field))) {
     const fromMacros = num(next.proteinG) !== null && num(next.carbsG) !== null && num(next.fatG) !== null ? macroCalories(next) : null
@@ -480,9 +502,10 @@ function planUpdate(args, data, ctx, entry) {
   if (!same(next.sugarG, entry.sugarG)) diff.push(`sugar ${next.sugarG === null ? '—' : `${round(next.sugarG, 1)} g`}`)
   if (!same(next.sodiumMg, entry.sodiumMg)) diff.push(`sodium ${next.sodiumMg === null ? '—' : `${round(next.sodiumMg, 0)} mg`}`)
   const extraOf = (row, key) => (isObj(row.extra) && num(row.extra[key]) !== null ? num(row.extra[key]) : null)
-  for (const [key, label, suffix] of [['alcoholG', 'alcohol', 'g'], ['caffeineMg', 'caffeine', 'mg']]) {
+  for (const [key, label, suffix] of [['alcoholG', 'alcohol', 'g'], ['caffeineMg', 'caffeine', 'mg'], ['satFatG', 'sat fat', 'g']]) {
     if (given.has(key) && !same(extraOf(next, key), extraOf(entry, key))) diff.push(`${label} ${extraOf(next, key) === null ? '—' : `${extraOf(next, key)} ${suffix}`}`)
   }
+  if (!same(next.favoriteId, entry.favoriteId)) diff.push(linked ? `linked to My foods: ${linked.name}` : 'unlinked from My foods')
   if (!same(next.meal, entry.meal)) diff.push(`move to ${mealName(next.meal, meals)}`)
   if (!same(next.date, entry.date)) diff.push(`date → ${dayLabel(next.date, today)}`)
   if (!same(next.time, entry.time)) diff.push(next.time ? `time → ${clock(next.time)}` : 'no time')
@@ -530,37 +553,38 @@ const ACTIVITY_ALIASES = {
   very: 'very', 'extremely active': 'very', extreme: 'very', 'extra active': 'very', athlete: 'very',
 }
 
-function planCalculate(args, data, ctx) {
+// The profile fields of food_calculate_goals / food_update_profile applied to the saved profile:
+// { profile, said } (said: what changed, in words, for labels) or { error }.
+function profileFromArgs(args, data, ctx) {
   const today = todayOf(ctx)
   const unit = unitOf(data)
   const saved = isObj(data?.settings?.food?.profile) ? data.settings.food.profile : {}
   const profile = { ...saved }
+  const said = []
   const year = Number(today.slice(0, 4))
   if (args.sex !== undefined && args.sex !== null && args.sex !== '') {
     const sex = String(args.sex).toLowerCase()
     if (!['male', 'female', 'm', 'f', 'man', 'woman'].includes(sex)) return { error: 'sex must be male or female (leave it out if they’d rather not say).' }
     profile.sex = ['male', 'm', 'man'].includes(sex) ? 'male' : 'female'
+    if (profile.sex !== saved.sex) said.push(profile.sex)
   }
   if (args.birth_year !== undefined || args.age !== undefined) {
     const birthYear = args.birth_year !== undefined ? num(args.birth_year) : num(args.age) === null ? null : year - num(args.age)
     if (birthYear === null || birthYear < year - 110 || birthYear > year - 10) return { error: 'That age or birth year doesn’t look right.' }
     profile.birthYear = Math.round(birthYear)
+    if (profile.birthYear !== saved.birthYear) said.push(`born ${profile.birthYear}`)
   }
   if (args.height_cm !== undefined) {
     const height = num(args.height_cm)
     if (height === null || height < 100 || height > 250) return { error: 'height_cm must be between 100 and 250 (1 in = 2.54 cm).' }
     profile.heightCm = round(height, 1)
-  }
-  let weightKg = null
-  if (args.weight !== undefined && args.weight !== null && args.weight !== '') {
-    const weight = num(args.weight)
-    weightKg = weight === null ? null : fromUnit(weight, unit)
-    if (weightKg === null || weightKg < 25 || weightKg > 400) return { error: `weight (in ${unit}) doesn’t look right.` }
+    if (profile.heightCm !== saved.heightCm) said.push(`height ${profile.heightCm} cm`)
   }
   if (args.activity !== undefined) {
     const activity = ACTIVITY_ALIASES[String(args.activity).toLowerCase().replace(/[-_]/g, ' ').trim()]
     if (!activity) return { error: `activity must be one of: ${ACTIVITY_LEVELS.map((level) => level.id).join(', ')}.` }
     profile.activity = activity
+    if (activity !== saved.activity) said.push(`activity ${activity}`)
   }
   if (args.goal !== undefined) {
     const goal = String(args.goal).toLowerCase()
@@ -569,12 +593,14 @@ function planCalculate(args, data, ctx) {
     // A pace saved for losing isn't meant for gaining: a new goal without a pace uses its default.
     if (mapped !== saved.goal && args.rate_per_week === undefined) delete profile.rateKgPerWeek
     profile.goal = mapped
+    if (mapped !== saved.goal) said.push(`goal ${mapped}`)
   }
   if (args.rate_per_week !== undefined && args.rate_per_week !== null) {
     const rate = num(args.rate_per_week)
     const kg = rate === null ? null : fromUnit(Math.abs(rate), unit)
     if (kg === null || kg > 1.5) return { error: `rate_per_week must be at most ${round(toUnit(1.5, unit), 1)} ${unit}.` }
     profile.rateKgPerWeek = round(kg, 3)
+    if (profile.rateKgPerWeek !== saved.rateKgPerWeek) said.push(`pace ${round(toUnit(kg, unit), 2)} ${unit}/week`)
   }
   if (args.target_weight !== undefined) {
     const target = num(args.target_weight)
@@ -584,12 +610,40 @@ function planCalculate(args, data, ctx) {
       if (kg === null || kg < 30 || kg > 400) return { error: `target_weight (in ${unit}) doesn’t look right.` }
       profile.targetKg = round(kg, 2)
     }
+    if ((profile.targetKg ?? null) !== (saved.targetKg ?? null)) said.push(profile.targetKg === null ? 'no target weight' : `target ${fmtWeight(profile.targetKg, unit)}`)
   }
   if (args.body_fat_pct !== undefined) {
     const fat = num(args.body_fat_pct)
     if (args.body_fat_pct === null || fat === 0) profile.bodyFatPct = null
     else if (fat === null || fat < 3 || fat > 60) return { error: 'body_fat_pct must be between 3 and 60.' }
     else profile.bodyFatPct = round(fat, 1)
+    if ((profile.bodyFatPct ?? null) !== (saved.bodyFatPct ?? null)) said.push(profile.bodyFatPct === null ? 'no body fat %' : `body fat ${profile.bodyFatPct}%`)
+  }
+  return { profile, said, unit }
+}
+
+const PROFILE_ARGS = ['sex', 'birth_year', 'age', 'height_cm', 'activity', 'goal', 'rate_per_week', 'target_weight', 'body_fat_pct']
+
+// food_update_profile: the profile fields only; goals are left alone.
+function planProfile(args, data, ctx) {
+  if (!PROFILE_ARGS.some((key) => args[key] !== undefined)) return { error: `Pass at least one of: ${PROFILE_ARGS.join(', ')}.` }
+  const parsed = profileFromArgs(args, data, ctx)
+  if (parsed.error) return parsed
+  if (!parsed.said.length) return { error: 'Their food profile already says that.' }
+  return parsed
+}
+
+function planCalculate(args, data, ctx) {
+  const today = todayOf(ctx)
+  const unit = unitOf(data)
+  const parsed = profileFromArgs(args, data, ctx)
+  if (parsed.error) return parsed
+  const { profile } = parsed
+  let weightKg = null
+  if (args.weight !== undefined && args.weight !== null && args.weight !== '') {
+    const weight = num(args.weight)
+    weightKg = weight === null ? null : fromUnit(weight, unit)
+    if (weightKg === null || weightKg < 25 || weightKg > 400) return { error: `weight (in ${unit}) doesn’t look right.` }
   }
   const latest = latestWeightKg(data, today)
   const weight = weightKg ?? latest?.kg ?? null
@@ -611,9 +665,7 @@ function paceText(result, unit) {
 
 function favoriteFromArgs(args) {
   const clamped = clampEstimateItem({ ...args, options: [], assumptions: [], locked: ['calories'] })
-  const extra = {}
-  if (clamped.extra.alcoholG !== null) extra.alcoholG = clamped.extra.alcoholG
-  if (clamped.extra.caffeineMg !== null) extra.caffeineMg = clamped.extra.caffeineMg
+  const extra = extrasOf(clamped)
   return {
     name: clean(args.name, 120), brand: clamped.brand, amount: clamped.amount, unit: clamped.unit, grams: clamped.grams,
     calories: clamped.calories, proteinG: clamped.proteinG, carbsG: clamped.carbsG, fatG: clamped.fatG,
@@ -671,6 +723,221 @@ function planWeightDelete(args, data, ctx) {
   return { date, rows }
 }
 
+// food_copy_entries: which logged entries to copy (by id, or a day/meal) and where to. Entries older
+// than the loaded window must be merged into data first (the runner does; the checker lets them pass).
+// → { sources, rows, fromDate, fromMeal, toDate, toMeal, byIds } or { error, unknownIds? }
+function planCopy(args, data, ctx) {
+  const today = todayOf(ctx)
+  const food = foodOf(data)
+  const { meals } = food.prefs
+  const toDate = args.to_date ? args.to_date : today
+  if (!isIsoDate(toDate)) return { error: 'to_date must be YYYY-MM-DD.' }
+  if (toDate > today) return { error: 'Food can only be logged for today or earlier.' }
+  let toMeal = null
+  if (args.to_meal) {
+    toMeal = resolveMeal(args.to_meal, meals)
+    if (!toMeal) return { error: `Unknown meal "${args.to_meal}". Use one of: ${meals.map((item) => item.id).join(', ')}.` }
+  }
+  const ids = Array.isArray(args.entry_ids) ? args.entry_ids.map((id) => String(id ?? '').trim()).filter(Boolean) : []
+  const byIds = ids.length > 0
+  let sources = []
+  let fromDate = null
+  let fromMeal = null
+  if (byIds) {
+    if (ids.length > MAX_COPY) return { error: `Copy at most ${MAX_COPY} entries at once.` }
+    const unknownIds = []
+    for (const id of [...new Set(ids)]) {
+      const entry = entriesOf(data).find((item) => String(item.id) === id)
+      if (entry) sources.push(entry)
+      else unknownIds.push(id)
+    }
+    if (unknownIds.length) return { error: `No food entry with id ${unknownIds.map((id) => `"${clean(id, 60)}"`).join(', ')}. Use ids from the snapshot or food_day.`, unknownIds }
+  } else {
+    fromDate = args.from_date ? args.from_date : addDays(toDate, -1)
+    if (!isIsoDate(fromDate)) return { error: 'from_date must be YYYY-MM-DD.' }
+    if (fromDate > today) return { error: 'There’s nothing logged in the future to copy.' }
+    if (args.from_meal) {
+      fromMeal = resolveMeal(args.from_meal, meals)
+      if (!fromMeal) return { error: `Unknown meal "${args.from_meal}". Use one of: ${meals.map((item) => item.id).join(', ')}.` }
+    }
+    if (fromDate === toDate && (!toMeal || !fromMeal || toMeal === fromMeal)) return { error: 'That would log the same entries twice on the same day. Pass entry_ids for the ones to repeat, or a different to_meal.' }
+    sources = entriesOf(data).filter((entry) => entry.date === fromDate && (!fromMeal || entryMeal(entry, meals) === fromMeal))
+    if (!sources.length) return { error: `Nothing logged ${fromMeal ? `for ${mealName(fromMeal, meals)} ` : ''}${onDay(fromDate, today)}.`, nothingFound: true, fromDate }
+    if (sources.length > MAX_COPY) return { error: `That's ${sources.length} entries; copy at most ${MAX_COPY} at once (pass entry_ids).` }
+  }
+  const rows = sources.map((entry) => ({
+    ...entry, date: toDate, meal: toMeal || entryMeal(entry, meals), source: 'copy', ai: null,
+    extra: isObj(entry.extra) ? { ...entry.extra } : {},
+  }))
+  return { sources, rows, fromDate, fromMeal, toDate, toMeal, byIds }
+}
+
+// "Copy 3 items from yesterday's Breakfast → Breakfast today · 540 kcal".
+function copyLabel(plan, data, ctx) {
+  const today = todayOf(ctx)
+  const food = foodOf(data)
+  const { meals } = food.prefs
+  const total = plan.rows.reduce((sum, row) => sum + entryCalories(row), 0)
+  const names = plan.sources.map((entry) => itemLabel(entry))
+  const what = names.length <= 3 ? names.join(', ') : `${names.length} items (${plan.sources.slice(0, 3).map((entry) => clean(entry.name, 40)).join(', ')}, …)`
+  let from
+  if (plan.byIds) {
+    const dates = [...new Set(plan.sources.map((entry) => entry.date))]
+    from = dates.length === 1 ? dayLabel(dates[0], today) : 'other days'
+  } else {
+    const day = dayLabel(plan.fromDate, today)
+    const relative = /^(today|yesterday|tomorrow)$/.test(day)
+    from = plan.fromMeal ? (relative ? `${day}’s ${mealName(plan.fromMeal, meals)}` : `${mealName(plan.fromMeal, meals)} on ${day}`) : day
+  }
+  const to = plan.toMeal ? `${mealName(plan.toMeal, meals)} ${dayLabel(plan.toDate, today)}` : `${dayLabel(plan.toDate, today)} (same meals)`
+  return `Copy ${what} from ${from} → ${to} · ${energy(total, food.prefs.energyUnit)}`
+}
+
+// ---- food display settings (settings.food.prefs, the same fields as the Food page's settings) ----
+
+const ENERGY_UNITS = ['kcal', 'kJ']
+const WEEK_STARTS = [1, 0, 6]
+const newMealId = () => `meal-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+const looseName = (value) => clean(String(value ?? ''), 40).toLowerCase().replace(/s$/, '')
+
+// A meal in `meals` by id, or by name/id ignoring case and a trailing s ("snack" finds "Snacks").
+function findMeal(meals, value) {
+  const wanted = clean(String(value ?? ''), 40)
+  if (!wanted) return null
+  return meals.find((meal) => meal.id === wanted) || meals.find((meal) => [meal.name, meal.id].some((text) => looseName(text) === looseName(wanted))) || null
+}
+
+// food_update_prefs → { changes, meals (the new list, or null when unchanged), moves, said } or
+// { error }. said is empty when nothing would change.
+function planPrefs(args, data, ctx) {
+  const today = todayOf(ctx)
+  const food = foodOf(data)
+  const changes = {}
+  const said = []
+  if (args.energy_unit !== undefined) {
+    if (!ENERGY_UNITS.includes(args.energy_unit)) return { error: 'The energy unit is kcal or kJ.' }
+    if (args.energy_unit !== food.prefs.energyUnit) said.push(`energy in ${args.energy_unit}`)
+    changes.energyUnit = args.energy_unit
+  }
+  if (args.ring !== undefined) {
+    if (!['remaining', 'eaten'].includes(args.ring)) return { error: 'The ring shows "remaining" or "eaten" calories.' }
+    if (args.ring !== food.prefs.ring) said.push(`the ring shows calories ${args.ring === 'eaten' ? 'eaten' : 'left'}`)
+    changes.ring = args.ring
+  }
+  if (args.week_start !== undefined) {
+    const start = Number(args.week_start)
+    if (!WEEK_STARTS.includes(start)) return { error: 'The food week starts on Monday (1), Sunday (0) or Saturday (6).' }
+    if (start !== food.prefs.weekStart) said.push(`weeks start on ${DAY_NAMES[start]}`)
+    changes.weekStart = start
+  }
+  if (args.nutrients !== undefined) {
+    const wanted = new Set((Array.isArray(args.nutrients) ? args.nutrients : []).map((item) => String(item ?? '').trim().toLowerCase()))
+    const unknown = [...wanted].filter((item) => !NUTRIENT_KEYS.includes(item))
+    if (!Array.isArray(args.nutrients) || unknown.length) return { error: `Nutrients shown can be: ${NUTRIENT_KEYS.join(', ')}.` }
+    changes.nutrients = NUTRIENT_KEYS.filter((item) => wanted.has(item))
+    if (changes.nutrients.join() !== food.prefs.nutrients.join()) said.push(changes.nutrients.length ? `nutrients shown: ${changes.nutrients.join(', ')}` : 'no extra nutrients shown')
+  }
+  if (args.ai_review !== undefined) {
+    if (!['always', 'autoHigh'].includes(args.ai_review)) return { error: 'AI review is "always" or "autoHigh".' }
+    if (args.ai_review !== food.prefs.aiReview) said.push(args.ai_review === 'autoHigh' ? 'confident AI estimates are logged straight away' : 'every AI estimate opens for review first')
+    changes.aiReview = args.ai_review
+  }
+  if (args.show_details !== undefined) {
+    changes.showDetails = args.show_details === true
+    if (changes.showDetails !== food.prefs.showDetails) said.push(`protein, carbs and fat ${changes.showDetails ? 'always shown' : 'shown on request'} when adding food`)
+  }
+
+  // Meals: the list can be replaced whole (`meals`), or edited with add_meal / remove_meal /
+  // rename_meal(s). Ids stay put so logged entries keep their meal.
+  const current = food.prefs.meals.map(({ id, name }) => ({ id, name }))
+  let meals = current.map((meal) => ({ ...meal }))
+  const wantsMeals = args.meals !== undefined
+  const wantsAdd = isObj(args.add_meal)
+  const wantsRemove = isObj(args.remove_meal)
+  const renames = [
+    ...(Array.isArray(args.rename_meals) ? args.rename_meals : args.rename_meals !== undefined ? [null] : []),
+    ...(args.rename_meal !== undefined ? [args.rename_meal] : []),
+  ]
+  const moves = [] // today's entries that must change meal: { entry, to }
+  const todays = entriesOf(data).filter((entry) => entry.date === today)
+  const inUse = (mealId) => todays.filter((entry) => entryMeal(entry, current) === mealId)
+
+  if (wantsMeals) {
+    const list = Array.isArray(args.meals) ? args.meals : null
+    if (!list) return { error: 'meals must be a list of meal names (in order), e.g. [{"name":"Breakfast"},{"name":"Lunch"},{"name":"Dinner"}].' }
+    const next = []
+    for (const raw of list) {
+      const item = typeof raw === 'string' ? { name: raw } : raw
+      if (!isObj(item)) continue
+      const name = clean(item.name, 40)
+      if (!name) return { error: 'Every meal needs a name.' }
+      const existing = (item.id !== undefined && item.id !== null && item.id !== '' ? current.find((meal) => meal.id === String(item.id)) : null)
+        || current.find((meal) => looseName(meal.name) === looseName(name) && !next.some((used) => used.id === meal.id))
+      const id = existing && !next.some((used) => used.id === existing.id) ? existing.id : newMealId()
+      next.push({ id, name })
+    }
+    if (next.length < MEALS_MIN || next.length > MEALS_MAX) return { error: `Keep between ${MEALS_MIN} and ${MEALS_MAX} meals (you passed ${next.length}).` }
+    meals = next
+  }
+  if (wantsAdd) {
+    const name = clean(args.add_meal.name, 40)
+    if (!name) return { error: 'add_meal needs a name.' }
+    if (meals.some((meal) => looseName(meal.name) === looseName(name))) return { error: `There’s already a meal called ${name}.` }
+    if (meals.length >= MEALS_MAX) return { error: `There are already ${MEALS_MAX} meals (the most the app shows); remove one first.` }
+    const position = num(args.add_meal.position)
+    const index = position !== null && position >= 1 ? Math.min(Math.round(position) - 1, meals.length) : meals.length
+    meals.splice(index, 0, { id: newMealId(), name })
+  }
+  if (wantsRemove) {
+    const target = findMeal(meals, args.remove_meal.name ?? args.remove_meal.meal)
+    if (!target) return { error: `There’s no meal called “${clean(String(args.remove_meal.name ?? args.remove_meal.meal ?? ''), 40)}”. The meals are ${meals.map((meal) => meal.name).join(', ')}.` }
+    meals = meals.filter((meal) => meal.id !== target.id)
+    if (meals.length < MEALS_MIN) return { error: `Keep at least ${MEALS_MIN} meals.` }
+    if (args.remove_meal.move_to !== undefined && args.remove_meal.move_to !== null && args.remove_meal.move_to !== '') {
+      const moveTo = findMeal(meals, args.remove_meal.move_to)
+      if (!moveTo) return { error: `move_to must be one of the remaining meals: ${meals.map((meal) => meal.name).join(', ')}.` }
+      for (const entry of inUse(target.id)) moves.push({ entry, to: moveTo.id })
+    }
+  }
+  for (const rename of renames) {
+    if (!isObj(rename)) return { error: 'Say which meal to rename and its new name.' }
+    const from = rename.meal !== undefined ? rename.meal : rename.name
+    const to = rename.new_name !== undefined ? rename.new_name : rename.meal !== undefined ? rename.name : undefined
+    const target = findMeal(meals, from)
+    if (!target) return { error: `There’s no meal called “${clean(String(from ?? ''), 40)}”. The meals are ${meals.map((meal) => meal.name).join(', ')}.` }
+    const name = clean(to, 40)
+    if (!name) return { error: 'A meal needs a name.' }
+    if (meals.some((meal) => meal.id !== target.id && looseName(meal.name) === looseName(name))) return { error: `There’s already a meal called ${name}.` }
+    target.name = name
+  }
+
+  // A meal that disappears while today's entries still sit in it needs a home for them.
+  const removed = current.filter((meal) => !meals.some((next) => next.id === meal.id))
+  for (const meal of removed) {
+    const entries = inUse(meal.id).filter((entry) => !moves.some((move) => move.entry === entry))
+    if (!entries.length) continue
+    const moveTo = wantsMeals && args.move_to ? findMeal(meals, args.move_to) : null
+    if (!moveTo) return { error: `${meal.name} has ${entries.length} ${entries.length === 1 ? 'entry' : 'entries'} today. Pass move_to (one of ${meals.map((next) => next.name).join(', ')}) to move ${entries.length === 1 ? 'it' : 'them'} first.` }
+    for (const entry of entries) moves.push({ entry, to: moveTo.id })
+  }
+  const names = meals.map((meal) => looseName(meal.name))
+  if (new Set(names).size !== names.length) return { error: 'Two meals can’t share a name.' }
+  const listChanged = meals.length !== current.length || meals.some((meal, index) => meal.id !== current[index].id)
+  if (listChanged) said.push(`meals: ${meals.map((meal) => meal.name).join(', ')}${moves.length ? ` (moving ${moves.length} of today’s entries to ${mealName(moves[0].to, meals)})` : ''}`)
+  else {
+    // Same meals, some renamed (through rename_meal(s) or the list).
+    for (const meal of meals) {
+      const was = current.find((item) => item.id === meal.id)
+      if (was.name !== meal.name) said.push(`${was.name} renamed to ${meal.name}`)
+    }
+  }
+  const mealsChanged = listChanged || meals.some((meal, index) => meal.name !== current[index].name)
+  if (!Object.keys(changes).length && !wantsMeals && !wantsAdd && !wantsRemove && !renames.length) return { error: 'Nothing to change.' }
+  return { changes, meals: mealsChanged ? meals : null, moves, said }
+}
+
+const capitalize = (value) => value.charAt(0).toUpperCase() + value.slice(1)
+
 // ---- tool definitions ---------------------------------------------------------------------------
 
 function tool(name, description, properties, required = []) {
@@ -686,6 +953,7 @@ const NUTRIENTS = {
   protein_g: { type: 'number' },
   carbs_g: { type: 'number', description: 'Total carbohydrate including fiber.' },
   fat_g: { type: 'number' },
+  sat_fat_g: { type: 'number', description: 'Saturated fat (g), when known (from a label or lookup).' },
   fiber_g: { type: 'number' },
   sugar_g: { type: 'number' },
   sodium_mg: { type: 'number' },
@@ -727,7 +995,7 @@ export const FOOD_TOOL_DEFS = [
   tool('food_week', 'Weekly nutrition insights: average calories vs goal, days on target, protein and fiber, macro split, top foods and biggest calorie sources, weight trend, and the change from the week before.', {
     week_start: { type: 'string', description: 'First day of the week, YYYY-MM-DD. Omit for the current week.' },
   }),
-  tool('food_update_entry', 'Change a logged food entry (id from the snapshot or food_day): portion, calories, macros, name, meal, time or date. For "it was two, not one" pass scale 2 instead of recomputing. New macros without calories recompute the calories.', {
+  tool('food_update_entry', 'Change a logged food entry (id from the snapshot or food_day): portion, calories, macros, name, brand, meal, time, date, or its link to My foods (favorite_id null unlinks). For "it was two, not one" pass scale 2 instead of recomputing. New macros without calories recompute the calories.', {
     id: { type: 'string', description: 'The entry id.' },
     changes: {
       type: 'object',
@@ -738,6 +1006,7 @@ export const FOOD_TOOL_DEFS = [
         time: { type: 'string', description: '24-hour HH:MM, or empty for none.' },
         date: { type: 'string', description: 'YYYY-MM-DD (today or earlier).' },
         note: { type: 'string' },
+        favorite_id: { type: ['string', 'null'], description: 'The My foods id this entry is linked to; null unlinks it.' },
       },
       additionalProperties: false,
     },
@@ -746,6 +1015,13 @@ export const FOOD_TOOL_DEFS = [
   tool('food_delete_entry', 'Delete a logged food entry (id from the snapshot or food_day). Only when the user asks to remove it.', {
     id: { type: 'string', description: 'The entry id.' },
   }, ['id']),
+  tool('food_copy_entries', 'Log the same food again by copying logged entries (same names and numbers) to another day or meal: "same breakfast as yesterday", "repeat Monday\'s lunch today", "I had that again". Pass entry_ids for specific entries, or from_date (default: the day before to_date) with an optional from_meal for a whole meal or day. Entries keep their meal unless to_meal is given.', {
+    entry_ids: { type: 'array', items: { type: 'string' }, maxItems: MAX_COPY, description: 'Ids of the entries to copy (from the snapshot or food_day).' },
+    from_date: { type: 'string', description: 'YYYY-MM-DD to copy from, when not using entry_ids (default: the day before to_date).' },
+    from_meal: MEAL_ARG,
+    to_date: { type: 'string', description: 'YYYY-MM-DD to copy to (default today; today or earlier).' },
+    to_meal: { type: 'string', description: 'Meal to put the copies in (default: each entry\'s own meal).' },
+  }),
   tool('food_set_goals', 'Set daily nutrition goals directly (calories in kcal, the rest in grams). Omitted goals stay as they are; 0 removes one. To work goals out from the user\'s body and aim, use food_calculate_goals.', {
     calories: { type: 'number' },
     protein: { type: 'number' },
@@ -764,6 +1040,46 @@ export const FOOD_TOOL_DEFS = [
     rate_per_week: { type: 'number', description: 'Pace in the user\'s unit per week (typical: lose 0.25–1 kg, gain 0.1–0.5 kg).' },
     target_weight: { type: 'number', description: 'Goal weight in the user\'s unit (0 removes it).' },
     body_fat_pct: { type: 'number', description: 'Body fat %, only if the user knows it.' },
+  }),
+  tool('food_update_profile', 'Update the user\'s food profile (body details and aim used by the goal calculator and the weight trend) without changing their daily goals: target weight, activity level, goal (maintain/lose/gain), pace, height, age, sex, body fat. Only include what changes. Weights in the user\'s unit; null (or 0) removes the target weight or body fat. To recalculate goals from the new details use food_calculate_goals instead.', {
+    sex: { type: 'string', enum: ['male', 'female'] },
+    birth_year: { type: 'integer' },
+    age: { type: 'integer', description: 'Alternative to birth_year.' },
+    height_cm: { type: 'number', description: 'Height in cm (1 in = 2.54 cm).' },
+    activity: { type: 'string', enum: ACTIVITY_LEVELS.map((level) => level.id), description: ACTIVITY_LEVELS.map((level) => `${level.id} = ${level.label} (${level.detail})`).join('; ') },
+    goal: { type: 'string', enum: ['maintain', 'lose', 'gain'] },
+    rate_per_week: { type: 'number', description: 'Pace in the user\'s unit per week.' },
+    target_weight: { type: ['number', 'null'], description: 'Goal weight in the user\'s unit (null or 0 removes it).' },
+    body_fat_pct: { type: ['number', 'null'], description: 'Body fat % (null or 0 removes it).' },
+  }),
+  tool('food_update_prefs', 'Change the Food tracker\'s settings (only include what changes): energy unit, what the ring shows, week start, nutrients shown, AI review, and the meals. Meals: `meals` replaces the whole list in order (3–6; existing meals are kept by id or name, new names are added), or use add_meal / remove_meal / rename_meal for one change. Removing a meal that has entries today needs move_to (the meal they go to). Goals use food_set_goals / food_calculate_goals; the body-weight unit is the gym unit (gym_update_prefs).', {
+    energy_unit: { type: 'string', enum: ENERGY_UNITS },
+    ring: { type: 'string', enum: ['remaining', 'eaten'], description: 'What the calorie ring shows: calories left or eaten.' },
+    week_start: { type: 'integer', enum: WEEK_STARTS, description: 'First day of the week for food insights: 1 Monday, 0 Sunday, 6 Saturday.' },
+    nutrients: { type: 'array', items: { type: 'string', enum: [...NUTRIENT_KEYS] }, description: 'Nutrients shown in the app (replaces the list).' },
+    ai_review: { type: 'string', enum: ['always', 'autoHigh'], description: 'always: every AI estimate opens for review first; autoHigh: logged straight away (with Undo) when every item is at least 80% sure.' },
+    show_details: { type: 'boolean', description: 'Always show protein, carbs and fat in the entry sheet.' },
+    meals: {
+      type: 'array',
+      minItems: MEALS_MIN,
+      maxItems: MEALS_MAX,
+      items: { type: 'object', properties: { id: { type: 'string', description: 'The existing meal\'s id, to keep it (a matching name also keeps it).' }, name: { type: 'string' } }, required: ['name'], additionalProperties: false },
+      description: 'The full meal list in order, e.g. Breakfast, Lunch, Pre-workout, Dinner, Snacks.',
+    },
+    move_to: { type: 'string', description: 'With meals: where today\'s entries of a removed meal go.' },
+    add_meal: { type: 'object', properties: { name: { type: 'string' }, position: { type: 'integer', description: '1 = first; omit to add at the end.' } }, required: ['name'], additionalProperties: false },
+    remove_meal: { type: 'object', properties: { name: { type: 'string', description: 'The meal\'s name or id.' }, move_to: { type: 'string', description: 'Meal to move today\'s entries to, if it has any.' } }, required: ['name'], additionalProperties: false },
+    rename_meal: { type: 'object', properties: { name: { type: 'string', description: 'The meal\'s current name or id.' }, new_name: { type: 'string' } }, required: ['name', 'new_name'], additionalProperties: false },
+    rename_meals: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { meal: { type: 'string', description: 'The meal\'s current name or id.' }, name: { type: 'string', description: 'New name.' } },
+        required: ['meal', 'name'],
+        additionalProperties: false,
+      },
+      description: 'Several renames at once.',
+    },
   }),
   tool('food_memory', 'The user\'s "My foods" memory: exact nutrition for foods they eat, reused next time. save = remember (or update) a food with its portion and nutrients for that portion — from a nutrition label, a barcode lookup, a web lookup, or numbers the user gave; saving the same name or id updates it (use this when they ask to change saved macros). remove = forget one. Save from a logged entry with entry_id, or give the numbers.', {
     action: { type: 'string', enum: ['save', 'remove'] },
@@ -795,8 +1111,11 @@ export const FOOD_TOOL_LABELS = {
   food_week: 'Looking at your week',
   food_update_entry: 'Updating your food log',
   food_delete_entry: 'Removing a food entry',
+  food_copy_entries: 'Copying your food log',
   food_set_goals: 'Setting your goals',
   food_calculate_goals: 'Working out your goals',
+  food_update_profile: 'Updating your food profile',
+  food_update_prefs: 'Updating food settings',
   food_memory: 'Updating My foods',
   food_memory_find: 'Checking My foods',
   food_barcode_lookup: 'Looking up the barcode',
@@ -920,6 +1239,7 @@ export function foodSnapshot(data, ctx) {
     loadError: data?.foodError || null,
     energyUnit: unit === 'kJ' ? 'user prefers kJ (numbers here are kcal; 1 kcal = 4.184 kJ)' : null,
     goals: compact({ calories: goals.calories, protein: goals.protein, carbs: goals.carbs, fat: goals.fat, fiber: goals.fiber, from: goals.calories ? goals.source : null }),
+    prefs: `meals: ${food.prefs.meals.map((meal) => `${meal.name} (${meal.id})`).join(', ')}; energy ${unit}; nutrients shown ${food.prefs.nutrients.join(', ')}; ring shows ${food.prefs.ring}; AI estimates ${food.prefs.aiReview === 'autoHigh' ? 'auto-log when sure' : 'always reviewed'}; week starts ${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][food.prefs.weekStart] || 'Mon'}`,
     today: compact({
       eatenKcal: round(totals.calories, 0),
       goalKcal: goals.calories,
@@ -985,6 +1305,24 @@ export function describeFoodAction(name, args, data, ctx) {
       if (!entry) return 'Delete a food entry'
       return `Delete ${itemLabel(entry)} · ${energy(entryCalories(entry), unit)} (${mealName(entry.meal, meals)} ${dayLabel(entry.date, today)})`
     }
+    if (name === 'food_copy_entries') {
+      const plan = planCopy(input, data, ctx)
+      if (plan.error) {
+        const to = `${input.to_meal ? `${mealName(resolveMeal(input.to_meal, meals), meals)} ` : ''}${dayLabel(input.to_date || today, today)}`
+        if (plan.unknownIds || plan.nothingFound) return `Copy food entries${plan.fromDate ? ` from ${dayLabel(plan.fromDate, today)}` : ''} → ${to}`
+        return `Copy food entries (${plan.error})`
+      }
+      return copyLabel(plan, data, ctx)
+    }
+    if (name === 'food_update_profile') {
+      const plan = planProfile(input, data, ctx)
+      return plan.error ? 'Update food profile' : `Update food profile: ${plan.said.join(', ')}`
+    }
+    if (name === 'food_update_prefs') {
+      const plan = planPrefs(input, data, ctx)
+      if (plan.error || !plan.said.length) return 'Update food settings'
+      return capitalize(plan.said.join(' · '))
+    }
     if (name === 'food_set_goals') {
       const plan = planGoals(input, data)
       if (plan.error) return 'Set daily goals'
@@ -1035,7 +1373,7 @@ function runMemoryFind(input, data) {
     foods: hits.map(({ food: fav, score }) => ({
       id: fav.id, name: fav.name, brand: fav.brand || null, portion: amountText(fav.amount, fav.unit) || null, grams: fav.grams ?? null,
       calories: fav.calories ?? null, protein_g: fav.proteinG ?? null, carbs_g: fav.carbsG ?? null, fat_g: fav.fatG ?? null,
-      fiber_g: fav.fiberG ?? null, sugar_g: fav.sugarG ?? null, sodium_mg: fav.sodiumMg ?? null,
+      fiber_g: fav.fiberG ?? null, sugar_g: fav.sugarG ?? null, sodium_mg: fav.sodiumMg ?? null, sat_fat_g: fav.extra?.satFatG ?? null,
       source: fav.source || null, source_url: fav.sourceUrl || null, barcode: fav.barcode || null,
       saved: String(fav.verifiedAt || fav.updatedAt || '').slice(0, 10) || null, aliases: fav.aliases, match: score,
     })),
@@ -1079,8 +1417,23 @@ export function checkFoodTool(name, args, data, ctx) {
     if (!entry) return { ok: true }
     return name === 'food_update_entry' ? result(planUpdate(input, data, ctx, entry)) : { ok: true }
   }
+  if (name === 'food_copy_entries') {
+    if (data?.foodMissing) return fail(FOOD_MISSING)
+    const plan = planCopy(input, data, ctx)
+    if (!plan.error) return { ok: true }
+    // Staged refs and entries older than the loaded window are checked when the call runs.
+    if (plan.unknownIds && plan.unknownIds.every(isRef)) return { ok: true }
+    if (plan.nothingFound && plan.fromDate < addDays(todayOf(ctx), -LOAD_DAYS)) return { ok: true }
+    return fail(plan.error)
+  }
   if (name === 'food_set_goals') return result(planGoals(input, data))
   if (name === 'food_calculate_goals') return result(planCalculate(input, data, ctx))
+  if (name === 'food_update_profile') return result(planProfile(input, data, ctx))
+  if (name === 'food_update_prefs') {
+    const plan = planPrefs(input, data, ctx)
+    if (plan.error) return fail(plan.error)
+    return plan.said.length ? { ok: true } : fail('Your food settings already look like that.')
+  }
   if (name === 'food_memory') {
     if (input.action === 'save' && input.entry_id && !findKnown(input.entry_id)) return isRef(input.entry_id) ? { ok: true } : fail('No food entry with that id.')
     return result(planFavorite(input, data, input.entry_id ? findKnown(input.entry_id) : null))
@@ -1268,6 +1621,34 @@ export async function executeFoodTool(supabase, userId, name, args, data, ctx) {
     return { ok: true, message: `Deleted ${itemLabel(entry)} (${energy(entryCalories(entry), unit)}) from ${mealName(entry.meal, food.prefs.meals)} ${dayLabel(entry.date, today)}. ${dayLine(data, entry.date, today)}` }
   }
 
+  if (name === 'food_copy_entries') {
+    if (data.foodMissing) return fail(FOOD_MISSING)
+    let plan = planCopy(input, data, ctx)
+    // Entries the snapshot didn't load (by id, or a day older than the window): fetch, then plan again.
+    if (plan.unknownIds) {
+      for (const id of plan.unknownIds) await findEntry(supabase, userId, data, id)
+      plan = planCopy(input, data, ctx)
+    } else if (plan.nothingFound && plan.fromDate < addDays(today, -LOAD_DAYS)) {
+      mergeEntries(data, await fetchEntries(supabase, userId, plan.fromDate, plan.fromDate))
+      plan = planCopy(input, data, ctx)
+    }
+    if (plan.error) return fail(plan.error)
+    const createdAt = nowIso()
+    const entries = plan.rows.map((row) => ({ ...row, id: randomUUID(), createdAt }))
+    try {
+      await tolerant((rows) => supabase.from('food_entries').insert(rows), entries.map((entry) => entryToRow(entry, userId)))
+    } catch (error) {
+      if (isMissingTable(error)) {
+        data.foodMissing = true
+        return fail(FOOD_MISSING)
+      }
+      throw error
+    }
+    data.foodEntries = [...entries, ...entriesOf(data)]
+    const label = copyLabel(plan, data, ctx).replace(/^Copy /, 'Copied ')
+    return { ok: true, message: `${label}. ${dayLine(data, plan.toDate, today)}`, id: entries[0].id, ids: entries.map((entry) => entry.id) }
+  }
+
   if (name === 'food_set_goals') {
     const plan = planGoals(input, data)
     if (plan.error) return fail(plan.error)
@@ -1297,6 +1678,36 @@ export async function executeFoodTool(supabase, userId, name, args, data, ctx) {
       pacePerWeek: result.pace === null ? null : `${signedWeight(result.pace, plan.unit)}/week`,
       warnings: result.warnings,
     }
+  }
+
+  if (name === 'food_update_profile') {
+    const plan = planProfile(input, data, ctx)
+    if (plan.error) return fail(plan.error)
+    await writeFood(supabase, userId, data, { profile: plan.profile })
+    const calculated = food.goals.calories && food.goals.source === 'calculator'
+    return { ok: true, message: `Updated their food profile: ${plan.said.join(', ')}. Daily goals unchanged${calculated ? ' (they were calculated from the old details; food_calculate_goals recalculates them)' : ''}.` }
+  }
+
+  if (name === 'food_update_prefs') {
+    const plan = planPrefs(input, data, ctx)
+    if (plan.error) return fail(plan.error)
+    if (!plan.said.length) return { ok: true, noop: true, message: 'Your food settings already look like that.' }
+    if (plan.moves.length) {
+      if (data.foodMissing) return fail(FOOD_MISSING)
+      const byTarget = new Map()
+      for (const { entry, to } of plan.moves) byTarget.set(to, [...(byTarget.get(to) || []), String(entry.id)])
+      for (const [to, ids] of byTarget) {
+        const { error } = await supabase.from('food_entries').update({ meal: to }).eq('user_id', userId).in('id', ids)
+        if (error) throw error
+      }
+      const moved = new Map(plan.moves.map(({ entry, to }) => [String(entry.id), to]))
+      data.foodEntries = entriesOf(data).map((entry) => (moved.has(String(entry.id)) ? { ...entry, meal: moved.get(String(entry.id)) } : entry))
+    }
+    // food merges one level deep, so prefs is written whole.
+    const rawPrefs = isObj(data?.settings?.food?.prefs) ? data.settings.food.prefs : {}
+    const prefs = { ...rawPrefs, ...plan.changes, ...(plan.meals ? { meals: plan.meals } : {}) }
+    await writeFood(supabase, userId, data, { prefs })
+    return { ok: true, message: `Updated your food settings: ${plan.said.join(', ')}.` }
   }
 
   if (name === 'food_memory') {
