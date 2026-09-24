@@ -7,7 +7,7 @@ import { apiRequest, readJson, writeJson } from './api.js'
 //   * Edits apply immediately and are saved as small diffs (only what changed), queued per list,
 //     retried when the connection comes back, and merged with server changes made elsewhere.
 
-export const LIST_KEYS = ['tasks', 'events', 'friends', 'contactLogs', 'classes', 'journalEntries', 'voiceNotes', 'gymSessions', 'bodyWeights', 'foodEntries']
+export const LIST_KEYS = ['tasks', 'events', 'friends', 'contactLogs', 'classes', 'journalEntries', 'voiceNotes', 'gymSessions', 'bodyWeights', 'foodEntries', 'attachments']
 const ALL_KEYS = [...LIST_KEYS, 'settings']
 const CACHE_PREFIX = 'daybook.data.'
 const SYNCED_PREFIX = 'daybook.synced.'
@@ -19,7 +19,7 @@ const SAVE_DELAY_MS = 350
 const RETRY_DELAYS_MS = [3000, 10000, 30000, 60000]
 
 function emptyData() {
-  return { tasks: [], events: [], friends: [], contactLogs: [], classes: [], journalEntries: [], voiceNotes: [], gymSessions: [], bodyWeights: [], foodEntries: [], settings: {} }
+  return { tasks: [], events: [], friends: [], contactLogs: [], classes: [], journalEntries: [], voiceNotes: [], gymSessions: [], bodyWeights: [], foodEntries: [], attachments: [], settings: {} }
 }
 
 function isValid(key, value) {

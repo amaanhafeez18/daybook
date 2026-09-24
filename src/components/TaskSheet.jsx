@@ -3,9 +3,11 @@ import Sheet from './ui/Sheet.jsx'
 import Disclosure from './ui/Disclosure.jsx'
 import { AutoTextarea, Button, Field, Segmented } from './ui/primitives.jsx'
 import { toast } from './ui/feedback.jsx'
+import AttachmentStrip from './AttachmentStrip.jsx'
 import { archiveTask, createTask, deleteTaskForever, isReminderMarker, restoreTask, setTaskDone, updateTask } from '../lib/planner.js'
 import { addDaysISO, dueSentence, formatTime, todayISO } from '../lib/dates.js'
 import { LEAD_OPTIONS, leadLabel, notificationPrefs } from '../lib/notifications.js'
+import { attachmentSummary, useAttachmentsFor } from '../lib/attachments.js'
 import { useData } from '../lib/store.js'
 import './tasks.css'
 
@@ -60,6 +62,7 @@ export default function TaskSheet({ open, onClose, task: taskProp = null, defaul
   const [form, setForm] = useState(EMPTY)
   const [error, setError] = useState('')
   const prefs = notificationPrefs(useData('settings'))
+  const attachments = useAttachmentsFor('task', task?.id)
   const words = NOUNS[noun] || NOUNS.task
 
   useEffect(() => {
@@ -80,11 +83,13 @@ export default function TaskSheet({ open, onClose, task: taskProp = null, defaul
     { id: addDaysISO(today, 7), label: 'Next week' },
   ]
 
-  // Priority, reminder and notes live behind "More options"; the summary says what's set there.
+  // Priority, reminder, notes and attached files live behind "More options"; the summary says
+  // what's set there.
   const extras = [
     form.priority !== 'medium' && (PRIORITIES.find((item) => item.id === form.priority)?.label || ''),
     form.date && shortReminder(reminderValue, Boolean(form.time)),
     form.details.trim() && 'Notes',
+    attachments.length > 0 && attachmentSummary(attachments),
   ].filter(Boolean)
   const hasExtras = extras.length > 0
 
@@ -197,6 +202,15 @@ export default function TaskSheet({ open, onClose, task: taskProp = null, defaul
           <Field label="Notes">
             {(id) => <AutoTextarea id={id} value={form.details} onChange={(event) => set('details')(event.target.value)} placeholder="Anything to remember (optional)" minRows={2} maxRows={8} />}
           </Field>
+          {/* Files are pinned to the saved task (a new one has no id yet). Adding and removing save straight away. */}
+          {task ? (
+            <div className="field ts-files">
+              <span className="field-label">Photos & files</span>
+              <AttachmentStrip targetType="task" targetId={task.id} label={`Photos and files on this ${words.title}`} />
+            </div>
+          ) : (
+            <p className="field-hint">Photos and PDFs can be added once the {words.title} is saved.</p>
+          )}
           {task && (
             <Button variant="secondary" icon="archive" className="ts-archive" onClick={archive}>Archive</Button>
           )}

@@ -2,9 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../components/ui/Icon.jsx'
 import Disclosure from '../components/ui/Disclosure.jsx'
 import { AutoTextarea, Button, EmptyState, Segmented } from '../components/ui/primitives.jsx'
-import { toast } from '../components/ui/feedback.jsx'
+import { confirmAction, toast } from '../components/ui/feedback.jsx'
+import AttachmentStrip from '../components/AttachmentStrip.jsx'
 import { getState, retryUnsaved, useData } from '../lib/store.js'
 import { MOODS, addNote, deleteJournalEntry, deleteNote, moodEmoji, saveJournalEntry } from '../lib/planner.js'
+import { attachmentSummary, useAttachmentsFor } from '../lib/attachments.js'
 import { addDaysISO, formatDateLong, formatDateShort, relativeDay, todayISO } from '../lib/dates.js'
 import '../components/journal.css'
 
@@ -268,11 +270,6 @@ function NotesList({ notes }) {
     toast('Note saved')
   }
 
-  function remove(note) {
-    const undo = deleteNote(note.id)
-    toast('Note deleted', { action: { label: 'Undo', onClick: undo } })
-  }
-
   return (
     <div className="notes">
       <form className="card note-composer" onSubmit={submit}>
@@ -303,17 +300,42 @@ function NotesList({ notes }) {
         <EmptyState icon="search" title="No matches">Try a different word.</EmptyState>
       ) : (
         <ul className="note-list">
-          {shown.map((note) => (
-            <li key={note.id} className="card note-card">
-              <p className="preserve-lines">{note.text}</p>
-              <footer>
-                <small>{note.createdAt ? new Date(note.createdAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''}</small>
-                <button type="button" className="icon-btn icon-btn-sm" onClick={() => remove(note)} aria-label="Delete note"><Icon name="trash" size={16} /></button>
-              </footer>
-            </li>
-          ))}
+          {shown.map((note) => <NoteCard key={note.id} note={note} />)}
         </ul>
       )}
     </div>
+  )
+}
+
+// A note with its photos and files: the strip shows once there are any; the paperclip adds one.
+function NoteCard({ note }) {
+  const strip = useRef(null)
+  const files = useAttachmentsFor('note', note.id)
+
+  async function remove() {
+    // Undo brings a note back, but not its files: the server deletes those with it. So ask first.
+    if (files.length) {
+      const ok = await confirmAction({ title: 'Delete this note?', message: `Its ${attachmentSummary(files)} will be deleted for good.`, confirmLabel: 'Delete' })
+      if (!ok) return
+      deleteNote(note.id)
+      toast('Note deleted')
+      return
+    }
+    const undo = deleteNote(note.id)
+    toast('Note deleted', { action: { label: 'Undo', onClick: undo } })
+  }
+
+  return (
+    <li className="card note-card">
+      <p className="preserve-lines">{note.text}</p>
+      <AttachmentStrip ref={strip} targetType="note" targetId={note.id} compact label="Photos and files on this note" />
+      <footer>
+        <small>{note.createdAt ? new Date(note.createdAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''}</small>
+        <span className="note-card-actions">
+          <button type="button" className="icon-btn icon-btn-sm" onClick={() => strip.current?.pick()} aria-label="Add a photo or PDF to this note" title="Add a photo or PDF"><Icon name="paperclip" size={16} /></button>
+          <button type="button" className="icon-btn icon-btn-sm" onClick={remove} aria-label="Delete note" title="Delete note"><Icon name="trash" size={16} /></button>
+        </span>
+      </footer>
+    </li>
   )
 }

@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
 import { getSupabase, readJsonBody, selectAll, verifyRequestToken, verifyTokenVersion } from './db.js'
 import { patchSettingsAtomic, saveSettings } from './_settings.js'
+import { ATTACHMENTS_MIGRATION, ownsPath, removeAttachments } from './_attachments.js'
 
 function isConfigError(error) {
   return /Missing SUPABASE_URL|Missing JWT_SECRET|SUPABASE_SERVICE_ROLE_KEY|Environment Variables/.test(error?.message || '')
@@ -19,7 +20,8 @@ const TABLES = {
   journalEntries: 'journal_entries',
   gymSessions: 'gym_sessions',
   bodyWeights: 'body_weights',
-  foodEntries: 'food_entries'
+  foodEntries: 'food_entries',
+  attachments: 'attachments'
 }
 
 // Columns each table accepts (matches supabase/schema.sql). Unknown fields are dropped
@@ -34,12 +36,16 @@ const COLUMNS = {
   journal_entries: ['id', 'date', 'title', 'body', 'mood', 'created_at'],
   gym_sessions: ['id', 'date', 'name', 'routine_id', 'started_at', 'ended_at', 'duration_sec', 'exercises', 'note', 'planned', 'bodyweight_kg', 'is_deload', 'created_at'],
   body_weights: ['id', 'date', 'kg', 'created_at'],
-  food_entries: ['id', 'date', 'time', 'meal', 'name', 'brand', 'amount', 'unit', 'grams', 'calories', 'protein_g', 'carbs_g', 'fat_g', 'fiber_g', 'sugar_g', 'sodium_mg', 'extra', 'note', 'source', 'favorite_id', 'ai', 'created_at']
+  food_entries: ['id', 'date', 'time', 'meal', 'name', 'brand', 'amount', 'unit', 'grams', 'calories', 'protein_g', 'carbs_g', 'fat_g', 'fiber_g', 'sugar_g', 'sodium_mg', 'extra', 'note', 'source', 'favorite_id', 'ai', 'created_at'],
+  // Rows are created by api/files.js (which copies the file); the app may edit the caption or delete.
+  attachments: ['id', 'target_type', 'target_id', 'path', 'name', 'kind', 'bytes', 'caption', 'created_at']
 }
 
 // camelCase client field -> snake_case column
 const FIELD_TO_COLUMN = {
   friendId: 'friend_id',
+  targetType: 'target_type',
+  targetId: 'target_id',
   photoUrl: 'photo_url',
   currentStatus: 'current_status',
   endDate: 'end_date',
@@ -120,7 +126,8 @@ const FOOD_MIGRATION = 'Food data can’t sync until the database is updated. Ru
 const OPTIONAL_TABLES = {
   gym_sessions: GYM_MIGRATION,
   body_weights: GYM_MIGRATION,
-  food_entries: FOOD_MIGRATION
+  food_entries: FOOD_MIGRATION,
+  attachments: ATTACHMENTS_MIGRATION
 }
 const warnedMissing = new Set()
 
@@ -289,14 +296,31 @@ async function replaceRows(supabase, tableName, userId, value) {
 // assistant) are never touched, so concurrent edits can't delete each other's work.
 // sessionCheck: the pending session check; the read-only owner lookup runs alongside it and nothing
 // is written unless it passes (null is returned when it doesn't).
+// Deleting a task, note or person also removes the files pinned to it; deleting attachment rows
+// removes their files. Never fails the main save (a missed cleanup only costs storage).
+const ATTACHMENT_OWNERS = { tasks: 'task', voice_notes: 'note', friends: 'friend' }
+async function cascadeAttachments(supabase, tableName, userId, ids) {
+  try {
+    if (tableName === 'attachments') await removeAttachments(supabase, userId, { ids })
+    else if (ATTACHMENT_OWNERS[tableName]) await removeAttachments(supabase, userId, { targetType: ATTACHMENT_OWNERS[tableName], targetIds: ids })
+  } catch (error) {
+    console.error('Attachment cleanup failed:', error.message || error)
+  }
+}
+
 async function patchRows(supabase, tableName, userId, upsert, remove, sessionCheck) {
-  const rows = toDbRows(upsert, tableName, userId)
+  let rows = toDbRows(upsert, tableName, userId)
+  // An attachment row must point at this user's own kept file; anything else is dropped.
+  if (tableName === 'attachments') rows = rows.filter((row) => ownsPath(row.path, userId) && row.path.startsWith(`${userId}/keep/`))
   const [valid, ownedIds] = await Promise.all([sessionCheck, rows.length ? ownedIdsFor(supabase, tableName, userId, rows.map((row) => row.id)) : null])
   if (!valid) return null
   let dropped = new Set()
   if (rows.length) dropped = await writeRows(supabase, tableName, rows, ownedIds)
   const ids = [...new Set((Array.isArray(remove) ? remove : []).map(String))]
-  if (ids.length) await deleteRows(supabase, tableName, userId, ids)
+  if (ids.length) {
+    await deleteRows(supabase, tableName, userId, ids)
+    await cascadeAttachments(supabase, tableName, userId, ids)
+  }
   return dropped
 }
 

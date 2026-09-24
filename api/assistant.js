@@ -7,6 +7,7 @@ import { mergeSettings, patchSettingsAtomic } from './_settings.js'
 import { resolveFriend, similarFriends } from './_people.js'
 import { FOOD_LOOKUP_TOOLS, FOOD_TOOL_DEFS, describeFoodAction, executeFoodTool, foodSnapshot, loadFoodData } from './_food-tools.js'
 import { UPLOAD_BUCKET } from './_uploads.js'
+import { keepFile, listAttachments, ownsPath as ownsAttachmentPath, removeAttachments } from './_attachments.js'
 import { WEB_SETTINGS, webAnswer, webNutrition, webSetting } from './_web.js'
 import { timeRangeMinutes } from '../src/lib/dates.js'
 // The gym modules are pure ESM shared with the app, so days, records and suggestions match the Gym page.
@@ -272,6 +273,7 @@ const TOOL_LABELS = {
   read_journal: 'Reading your journal',
   delete_journal_entry: 'Deleting a journal entry',
   update_note: 'Updating a note',
+  attach_file: 'Saving the file',
   delete_note: 'Deleting a note',
   get_weather: 'Checking the weather',
   get_prayer_times: 'Checking prayer times',
@@ -583,6 +585,12 @@ const tools = [
   tool('delete_journal_entry', 'Delete the journal entry for a date. Only when the user clearly asks.', { date: DATE }, ['date']),
   tool('update_note', 'Rewrite a note by id (ids come from the snapshot or search); the whole new text.', { noteId: { type: 'string' }, text: { type: 'string' } }, ['noteId', 'text']),
   tool('delete_note', 'Delete a note by id (ids come from the snapshot or search).', { noteId: { type: 'string' } }, ['noteId']),
+  tool('attach_file', 'Save a photo or file from this conversation onto a task, a note or a person, so it stays with it ("save this receipt to the expenses task", "attach it to Ali", "keep this with my note"). Works with something created earlier in this turn through its $n ref. file = the attachment\'s name as shown (omit when only one was sent).', {
+    target: { type: 'string', enum: ['task', 'note', 'person'] },
+    id: { type: 'string', description: 'The task or note id, a person\'s id or name, or a $n ref from this turn.' },
+    file: { type: 'string', description: 'Which attachment (its name), when several were sent.' },
+    caption: { type: 'string', description: 'Optional short caption.' },
+  }, ['target', 'id']),
   tool('get_weather', 'Current weather and the forecast for the user\'s location (up to 7 days).', {
     days: { type: 'integer', minimum: 1, maximum: 7, description: 'Days of forecast including today (default 2).' },
   }),
@@ -811,7 +819,7 @@ async function friendRows(supabase, userId) {
 
 async function loadData(supabase, userId) {
   const tables = ['tasks', 'events', 'friends', 'voice_notes', 'classes', 'journal_entries', 'settings']
-  const [results, openTasks, contactLogs, gymSessions, bodyWeights, memories] = await Promise.all([
+  const [results, openTasks, contactLogs, gymSessions, bodyWeights, memories, attachments] = await Promise.all([
     Promise.all(tables.map((table) => (table === 'friends' ? friendRows(supabase, userId) : supabase.from(table).select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(500)))),
     // Every open task, however old, so the assistant can see and edit it.
     supabase.from('tasks').select('*').eq('user_id', userId).eq('done', false).eq('archived', false).order('created_at', { ascending: false }).limit(1000),
@@ -822,6 +830,7 @@ async function loadData(supabase, userId) {
     optionalRows(supabase.from('gym_sessions').select('*').eq('user_id', userId).order('date', { ascending: false }).order('created_at', { ascending: false }).limit(GYM_SESSION_LIMIT)),
     optionalRows(supabase.from('body_weights').select('*').eq('user_id', userId).order('date', { ascending: false }).order('created_at', { ascending: false }).limit(BODY_WEIGHT_LIMIT)),
     loadMemories(supabase, userId), // null when the table is missing; never throws
+    listAttachments(supabase, userId).catch((error) => { console.error('Attachments failed to load:', error.message || error); return [] }),
   ])
   const data = {}
   tables.forEach((table, index) => {
@@ -839,6 +848,7 @@ async function loadData(supabase, userId) {
   data.gymSessionsTruncated = (gymSessions || []).length >= GYM_SESSION_LIMIT
   data.body_weights = (bodyWeights || []).map(bodyWeightFromRow).filter(Boolean)
   data.memories = memories
+  data.attachments = attachments
   return data
 }
 
@@ -909,6 +919,10 @@ function buildAgenda(data, ctx) {
 
 function buildSnapshot(data, ctx, username) {
   const today = ctx.localDate
+  const filesOn = (type, id) => {
+    const names = (data.attachments || []).filter((item) => item.targetType === type && item.targetId === String(id)).map((item) => item.name)
+    return names.length ? names.slice(0, 6) : undefined
+  }
   const lastContact = {}
   const lastTopic = {}
   for (const log of data.contact_logs) {
@@ -941,6 +955,7 @@ function buildSnapshot(data, ctx, username) {
       details: task.details?.startsWith('friend-reminder:') ? '' : truncate(task.details, 200),
       overdue: task.date && task.date < today ? true : undefined,
       reminderMinutes: Number.isInteger(task.reminder_minutes) ? task.reminder_minutes : undefined,
+      files: filesOn('task', task.id),
     })),
     recentlyCompleted: activeTasks.filter((task) => task.done)
       .sort((a, b) => String(b.completed_at || b.date || '').localeCompare(String(a.completed_at || a.date || '')))
@@ -976,6 +991,7 @@ function buildSnapshot(data, ctx, username) {
         lastTalked: last,
         daysSinceTalked: last ? daysBetween(last, today) : undefined,
         catchUpEveryDays: friend.reminder_days ?? undefined,
+        files: filesOn('friend', friend.id),
         lastTopic: lastTopic[friend.id] ? `${truncate(lastTopic[friend.id].note.replace(/\s+/g, ' '), 120)}${lastTopic[friend.id].date !== last ? ` (${lastTopic[friend.id].date})` : ''}` : undefined,
         catchUpDue: (() => {
           const interval = friend.reminder_days ?? (friend.relationship === 'close_friend' ? 10 : friend.relationship === 'acquaintance' ? null : 30)
@@ -998,7 +1014,7 @@ function buildSnapshot(data, ctx, username) {
       .sort((a, b) => b.date.localeCompare(a.date))
       .slice(0, 5)
       .map((entry) => compact({ date: entry.date, title: entry.title, mood: entry.mood, text: truncate(entry.body, JOURNAL_PREVIEW_CHARS) })),
-    notes: data.voice_notes.slice(0, 10).map((note) => compact({ id: note.id, date: localDateOf(note.created_at, ctx.timeZone), text: truncate(note.text, 300) })),
+    notes: data.voice_notes.slice(0, 10).map((note) => compact({ id: note.id, date: localDateOf(note.created_at, ctx.timeZone), text: truncate(note.text, 300), files: filesOn('note', note.id) })),
     settings: {
       appearance: data.settings.appearance || (data.settings.darkMode ? 'dark' : 'system'),
       accent: data.settings.theme || 'sunset',
@@ -1120,6 +1136,7 @@ Attachments (photos, PDFs and text files in the user's message; the latest ones 
 - A syllabus or course outline: list the deliverables, quizzes and exams with their due dates (short list), then ask_choice "Add all" / "Let me choose" / "None". On "Add all", propose a task for each with its date and a sensible time and reminder (e.g. 9:00 AM the day before an exam, or the due time).
 - A receipt, flyer, ticket or invitation with a date: propose calendar events or tasks for it.
 - Anything else: summarise it briefly and ask what to do with it (ask_choice with a few likely actions).
+- "Save this photo to the dentist task" / "attach it to my note" / "keep this with Ali" = attach_file (target task, note or person; id from the snapshot, a name for people, or the $n ref of something created in the same turn; file = its name when several were sent). When the task, note or person is new, stage create_task / save_note / create_friend AND attach_file with id "$1" in the SAME response (the card runs both; there is no second round before the user confirms). The file then shows on that task, note or person in the app. Offer it when a photo clearly belongs somewhere (a receipt for an expense task, a business card for a person). Files already on something are listed as files in the snapshot.
 
 Destructive actions (deleting a person, class, journal entry, note, routine, workout, catch-up, food entry, exercise, or a task forever) need the user's own words asking for it; say it can't be undone, and prefer archiving tasks.
 Settings: say what changed in words the user knows ("Accent is now Forest", "I'll ask before making changes").
@@ -3631,6 +3648,24 @@ function reminderFields(task, data, ctx) {
 
 const reminderText = (fields) => (fields.remindsAt ? ` Reminder: ${fields.remindsAt}.` : '') + (fields.reminderWarning ? ` Note: ${fields.reminderWarning}.` : '')
 
+// The photo or file an attach_file call means: pinned on a staged call (path/name/kind/bytes came
+// with the proposal), else this turn's files by name, or the only one sent.
+function pickTurnFile(args, ctx, userId) {
+  if (typeof args.path === 'string' && args.path && (!userId || ownsAttachmentPath(args.path, userId))) {
+    return { path: args.path, name: String(args.name || 'photo.jpg'), kind: args.kind === 'pdf' ? 'pdf' : 'image', bytes: args.bytes ?? null }
+  }
+  const files = Array.isArray(ctx?.turnFiles) ? ctx.turnFiles : []
+  const wanted = String(args.file || '').trim().toLowerCase()
+  let file = null
+  if (wanted) file = files.find((item) => item.name.toLowerCase() === wanted) || files.find((item) => item.name.toLowerCase().includes(wanted)) || null
+  else if (files.length === 1) file = files[0]
+  if (!file) {
+    return { problem: files.length ? `Say which file: ${files.map((item) => `"${item.name}"`).join(', ')}.` : 'There is no photo or file in this conversation to save. Ask the user to attach one first.' }
+  }
+  if (!file.path) return { problem: `“${file.name}” couldn’t be stored. Ask the user to attach it again.` }
+  return { path: file.path, name: file.name, kind: file.kind, bytes: file.bytes ?? null }
+}
+
 // "today" / "tomorrow" / "yesterday" as a date work for every tool, like the gym ones.
 function dateWords(args, ctx) {
   if (!isPlainObject(args)) return args
@@ -3801,6 +3836,7 @@ async function executeTool(supabase, userId, name, rawArgs, data, ctx, { refs = 
     if (error) throw error
     data.tasks = data.tasks.filter((item) => item.id !== task.id)
     data.events = data.events.filter((event) => event.task_id !== task.id)
+    await removeAttachments(supabase, userId, { targetType: 'task', targetIds: [task.id] }).catch(() => {})
     return { ok: true, message: `Deleted the task "${task.text}" for good.` }
   }
 
@@ -4203,6 +4239,7 @@ async function executeTool(supabase, userId, name, rawArgs, data, ctx, { refs = 
         archived = ids.length
       }
     }
+    await removeAttachments(supabase, userId, { targetType: 'friend', targetIds: [friend.id] }).catch(() => {})
     return { ok: true, message: `Removed ${friend.name} from People, with their catch-up history.${archived ? ` Archived the reminder to talk to them.` : ''}` }
   }
 
@@ -4234,11 +4271,45 @@ async function executeTool(supabase, userId, name, rawArgs, data, ctx, { refs = 
     return { ok: true, message: `Updated the note: “${truncate(text, 80)}”.` }
   }
 
+  if (name === 'attach_file') {
+    const targetType = { task: 'task', note: 'note', person: 'friend' }[args.target]
+    if (!targetType) return { ok: false, message: 'target must be task, note or person.' }
+    const file = pickTurnFile(args, ctx, userId)
+    if (file.problem) return { ok: false, message: file.problem }
+    let targetId
+    let label
+    if (targetType === 'task') {
+      const task = findOwned(data.tasks, args.id, 'task')
+      targetId = task.id
+      label = `the task “${task.text}”`
+    } else if (targetType === 'note') {
+      const note = findOwned(data.voice_notes, args.id, 'note')
+      targetId = note.id
+      label = `the note “${truncate(note.text, 40)}”`
+    } else {
+      const { friend } = findFriend(data, args.id, refs)
+      targetId = friend.id
+      label = friend.name
+    }
+    try {
+      // Staging (dry run) must not copy the file: the copy happens when the user says yes.
+      const row = supabase.dryRun
+        ? { id: newId(), targetType, targetId, path: file.path, name: file.name, kind: file.kind, bytes: file.bytes ?? null, caption: null, createdAt: nowIso() }
+        : await keepFile(supabase, userId, { fromPath: file.path, name: file.name, kind: file.kind, bytes: file.bytes, targetType, targetId, caption: args.caption })
+      data.attachments = [row, ...(data.attachments || [])]
+      return { ok: true, message: `Saved “${row.name}” to ${label}. It shows on it in the app.`, id: row.id }
+    } catch (error) {
+      if (error.code === 'attachments_missing' || error.status === 410 || error.status === 400) return { ok: false, message: error.message }
+      throw error
+    }
+  }
+
   if (name === 'delete_note') {
     const note = findOwned(data.voice_notes, args.noteId, 'note')
     const { error } = await supabase.from('voice_notes').delete().eq('id', note.id).eq('user_id', userId)
     if (error) throw error
     data.voice_notes = data.voice_notes.filter((item) => item.id !== note.id)
+    await removeAttachments(supabase, userId, { targetType: 'note', targetIds: [note.id] }).catch(() => {})
     return { ok: true, message: 'Deleted the note.' }
   }
 
@@ -4568,6 +4639,16 @@ function describeAction(name, args, data, ctx, refs) {
       return { label: `Save a note: ${quoted(args.text, 100)}` }
     case 'update_note':
       return { label: `Update a note: ${quoted(args.text, 100)}` }
+    case 'attach_file': {
+      const file = pickTurnFile(args, ctx, args.userId || data.userId || '')
+      if (file.problem) return null
+      const targetType = { task: 'task', note: 'note', person: 'friend' }[args.target]
+      let what = args.target || 'it'
+      if (targetType === 'task') what = task(args.id) ? `the task ${quoted(task(args.id).text, 60)}` : 'a task'
+      else if (targetType === 'note') { const note = data.voice_notes.find((item) => item.id === args.id); what = note ? `the note ${quoted(note.text, 40)}` : 'a note' }
+      else if (targetType === 'friend') { const found = person(args.id); what = found.friend.name }
+      return { label: `Save “${file.name}” to ${what}`, pin: { path: file.path, name: file.name, kind: file.kind, bytes: file.bytes } }
+    }
     case 'delete_note': {
       const note = data.voice_notes.find((item) => item.id === args.noteId)
       return note ? { label: `Delete the note ${quoted(note.text, 80)}`, detail: 'This can’t be undone.' } : null
@@ -4677,7 +4758,8 @@ async function stageTool(supabase, userId, name, rawArgs, data, ctx, stage) {
   if (result.id !== undefined && result.id !== null) stage.simIds[ref] = String(result.id)
   const { label, detail } = finishLabel(name, described, result, sim, ctx)
   // A person matched by name is pinned to the one the label shows, so Yes does what the card says.
-  const pinned = described?.pin && Object.values(described.pin).every((id) => data.friends.some((friend) => friend.id === id))
+  // (attach_file pins the resolved file's path instead, so the Yes tap can find it next request.)
+  const pinned = described?.pin && (name === 'attach_file' || Object.values(described.pin).every((id) => data.friends.some((friend) => friend.id === id)))
   stage.list.push({ tool: name, args: pinned ? { ...rawArgs, ...described.pin } : rawArgs, ref, label, detail, key })
   return compact({
     ok: true,
@@ -5517,6 +5599,7 @@ export default async function handler(req, res) {
         // left out
       }
     }
+    ctx.turnFiles = [...attachments, ...[...carried].flatMap((index) => modelHistory[index].files)].filter((item) => item.kind === 'image' || item.kind === 'pdf')
     if (carried.size) {
       const names = [...carried].sort((a, b) => a - b).flatMap((index) => modelHistory[index].files.map((item) => `${ATTACHMENT_WORDS[item.kind]} "${item.name}"`))
       notes.push(`The user's earlier ${names.join(', ')} ${names.length === 1 ? 'is' : 'are'} still attached to their earlier messages: use them to act on this reply.`)
@@ -5525,7 +5608,7 @@ export default async function handler(req, res) {
       `Current local time: ${ctx.weekday} ${ctx.localDate} ${ctx.localTime} (${ctx.timeZone}).`,
       spoken ? 'The user is speaking by voice: reply in plain conversational sentences with no markdown, lists, or emoji, since the reply may be read aloud.' : '',
       ctx.pushEnabled === false ? 'Push notifications are off on this phone: when you set a reminder, mention that it won’t ping here until they turn notifications on in Settings.' : '',
-      attachments.length ? `The user attached ${attachments.map((item) => `${ATTACHMENT_WORDS[item.kind]} "${item.name}"`).join(', ')}.` : '',
+      attachments.length ? `The user attached ${attachments.map((item) => `${ATTACHMENT_WORDS[item.kind]} "${item.name}"`).join(', ')}. If they want it saved to a task, note or person, call attach_file; when that thing is being created in this same response, use id "$1" (the ref of the create call) in the SAME response — there is no later round before the user confirms.` : '',
       ...notes,
     ].filter(Boolean).join('\n')
     const input = [
@@ -5616,6 +5699,9 @@ export default async function handler(req, res) {
       }
     }
     let cutShort = false // stopped after actions were saved or staged; the reply says what happened
+    // A photo/file sent with "save/attach it to …": the model often stages the task first and attaches in
+    // a second round, so that round must run until attach_file has been staged.
+    const wantsAttach = attachments.length > 0 && /\b(save|attach|keep|add|put|store|pin)\b/i.test(text)
     let timedOut = false // out of time before anything was done
     for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
       const calls = (response.output || []).filter((item) => item.type === 'function_call')
@@ -5676,7 +5762,7 @@ export default async function handler(req, res) {
       if (choice) break
       // All staged cleanly and the model already asked whether to go ahead: the card shows the rest,
       // so the reply needs no second model call.
-      if (roundStaged && /\?\s*$/.test(responseText(response))) {
+      if (roundStaged && /\?\s*$/.test(responseText(response)) && !(wantsAttach && !stage.list.some((item) => item.tool === 'attach_file'))) {
         debug.push({ step: 'openai.followup_skipped', reason: 'reply already written' })
         break
       }
@@ -5701,7 +5787,9 @@ export default async function handler(req, res) {
         cutShort = true
         break
       }
-      replyParts.push(responseText(response))
+      // A later round that only re-asks "Shall I go ahead?" after an earlier part already did adds nothing.
+      const partText = responseText(response)
+      if (!(/\?\s*$/.test(partText) && replyParts.some((part) => /\?\s*$/.test(part)) && /go ahead|shall i|should i|want me to/i.test(partText))) replyParts.push(partText)
     }
 
     // A proposal card and quick-reply chips can't share a turn: the card's Yes / No would answer a

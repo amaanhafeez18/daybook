@@ -1,0 +1,214 @@
+/* =========================================================================================
+   Attachments (AttachmentStrip, prefix att-): the row of thumbnails on a task, a note or a
+   person, the upload tiles and the full-screen viewer. Loaded with the pages that use it, so it
+   may come before or after App.css / glass.css / apple.css: rules that meet theirs use a heavier
+   selector rather than relying on order.
+   ========================================================================================= */
+
+.att-strip { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+
+/* One horizontal row; the strip scrolls, never the page. The 4px side bleed keeps the tiles'
+   focus rings and pressed scale from being clipped. */
+.att-list {
+  display: flex;
+  gap: 8px;
+  margin: 0 -4px;
+  padding: 3px 4px 4px;
+  list-style: none;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
+}
+.att-list::-webkit-scrollbar { display: none; }
+.att-list > li { flex-shrink: 0; scroll-snap-align: start; }
+
+/* ---- tiles --------------------------------------------------------------------------------- */
+
+.att-tile, .att-add {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 76px;
+  height: 76px;
+  padding: 0;
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--surface-2);
+  color: var(--text-2);
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.15s var(--ease, ease), opacity 0.15s;
+}
+.att-strip.is-compact .att-tile, .att-strip.is-compact .att-add { width: 60px; height: 60px; border-radius: 12px; }
+button.att-tile:active, .att-add:active { transform: scale(0.96); }
+.att-tile:focus-visible, .att-add:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.att-tile.is-image img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.att-tile.is-loading {
+  background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-3) 50%, var(--surface-2) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+.att-tile.is-broken { color: var(--text-3); }
+
+/* PDFs: a wider card with the file icon and up to two lines of the name. */
+.att-tile.is-pdf {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-end;
+  width: 120px;
+  padding: 8px 9px;
+  background: var(--danger-soft);
+  color: var(--text);
+  text-align: left;
+}
+.att-strip.is-compact .att-tile.is-pdf { width: 104px; padding: 6px 8px; }
+.att-tile.is-pdf .att-tile-icon { position: absolute; top: 8px; left: 9px; color: var(--danger); }
+.att-tile-name {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.att-strip.is-compact .att-tile-name { -webkit-line-clamp: 1; font-size: 11px; }
+
+/* "Add": a dashed tile in the accent. */
+.att-add {
+  gap: 1px;
+  grid-auto-flow: row;
+  align-content: center;
+  border: 1.5px dashed var(--border-strong);
+  background: transparent;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+.att-strip.is-compact .att-add span { display: none; }
+@media (hover: hover) {
+  .att-add:hover { background: var(--accent-soft); border-color: var(--accent); }
+}
+
+/* A file on its way up: dimmed, with the progress ring (a spinning arc while it's being prepared). */
+.att-tile.is-uploading { cursor: default; }
+.att-veil {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.42);
+  color: #fff;
+}
+.att-ring { display: block; width: 26px; height: 26px; transform: rotate(-90deg); }
+.att-ring circle { fill: none; stroke: currentColor; stroke-width: 2.5; }
+.att-ring-track { opacity: 0.28; }
+.att-ring-bar { stroke-linecap: round; transition: stroke-dashoffset 0.2s linear; }
+.att-ring.is-spinning { animation: spin 0.9s linear infinite; }
+
+/* The picker lives on <body> (see AttachmentStrip): out of sight, never focused. */
+.att-input { position: fixed; top: 0; left: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+
+/* ---- viewer --------------------------------------------------------------------------------
+   Above the sheet it was opened from (same layer as sheets; it's added later in the DOM), below
+   toasts. Dark in both appearances, like every photo viewer. */
+
+html.has-att-viewer { overflow: hidden; }
+
+.att-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  background: rgba(8, 9, 12, 0.96);
+  color: #fff;
+  animation: fade-in 0.18s ease;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.att-viewer-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: calc(8px + var(--safe-top, 0px)) 10px 8px;
+}
+.att-viewer-btn {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s, transform 0.15s var(--ease, ease);
+}
+.att-viewer-btn:active { transform: scale(0.94); background: rgba(255, 255, 255, 0.2); }
+.att-viewer-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.att-viewer-btn.is-danger { color: #FF8A80; }
+@media (hover: hover) {
+  .att-viewer-btn:hover { background: rgba(255, 255, 255, 0.18); }
+}
+.att-viewer-title { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; text-align: center; line-height: 1.25; }
+.att-viewer-title strong { max-width: 100%; font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.att-viewer-title small { font-size: 12px; color: rgba(255, 255, 255, 0.7); font-variant-numeric: tabular-nums; }
+
+.att-viewer-stage {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding: 8px 12px;
+  overflow: hidden;
+}
+.att-viewer-stage img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+  animation: fade-in 0.2s ease;
+  -webkit-user-drag: none;
+}
+.att-viewer-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 8px 10px calc(10px + var(--safe-bottom, 0px));
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.75);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A PDF: its name and size, and the button that opens it in the browser. */
+.att-viewer-pdf {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: min(100%, 320px);
+  padding: 24px 20px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.08);
+  text-align: center;
+}
+.att-viewer-pdf-icon { display: grid; place-items: center; width: 56px; height: 56px; margin-bottom: 4px; border-radius: 16px; background: rgba(255, 138, 128, 0.18); color: #FF8A80; }
+.att-viewer-pdf strong { max-width: 100%; font-size: 16px; overflow-wrap: anywhere; }
+.att-viewer-pdf small { color: rgba(255, 255, 255, 0.7); }
+.att-viewer .btn.att-viewer-open { margin-top: 10px; min-height: 44px; }
+.att-viewer-note { display: inline-flex; align-items: center; gap: 8px; font-size: 15px; color: rgba(255, 255, 255, 0.8); }
+.att-viewer-note.is-stack { flex-direction: column; gap: 10px; text-align: center; }
+.att-viewer-note .spinner { width: 18px; height: 18px; }
+.att-viewer .btn.btn-secondary { background: rgba(255, 255, 255, 0.14); border-color: transparent; color: #fff; }
+
+@media (prefers-reduced-motion: reduce) {
+  .att-tile, .att-add, .att-viewer, .att-viewer-stage img, .att-viewer-btn, .att-ring-bar { animation: none; transition: none; }
+}

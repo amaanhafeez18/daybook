@@ -299,6 +299,7 @@ function buildTables() {
       { id: 'm1', user_id: USER, content: 'User works at Acme and finishes at 5 PM', created_at: '2026-09-01T00:00:00Z' },
       { id: 'm2', user_id: USER, content: 'User is studying computer science', created_at: '2026-09-02T00:00:00Z' },
     ],
+    attachments: [],
     food_entries: [
       foodRow('fe1', TODAY, 'breakfast', 'Oats', 300, { protein: 10, carbs: 54, fat: 6 }),
       foodRow('fe2', YESTERDAY, 'lunch', 'Chicken rice', 650, { protein: 45, carbs: 70, fat: 15 }),
@@ -1144,7 +1145,7 @@ const CASES = [
 
 // Tools the harness leaves out on purpose: network (web_lookup is handled by the request handler, not
 // executeTool; food_barcode_lookup calls Open Food Facts) and UI-only tools.
-const SKIPPED = ['web_lookup', 'food_barcode_lookup', 'ask_choice', 'offer_alternatives']
+const SKIPPED = ['web_lookup', 'food_barcode_lookup', 'ask_choice', 'offer_alternatives', 'attach_file'] // attach_file needs storage: tests/attachments.test.mjs
 
 // ---- running -----------------------------------------------------------------------------------------
 

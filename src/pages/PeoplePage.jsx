@@ -3,7 +3,9 @@ import Icon from '../components/ui/Icon.jsx'
 import Sheet from '../components/ui/Sheet.jsx'
 import Disclosure from '../components/ui/Disclosure.jsx'
 import { AutoTextarea, Avatar, Button, EmptyState, Field, IconButton, Segmented, Skeleton } from '../components/ui/primitives.jsx'
-import { toast } from '../components/ui/feedback.jsx'
+import { confirmAction, toast } from '../components/ui/feedback.jsx'
+import AttachmentStrip from '../components/AttachmentStrip.jsx'
+import { attachmentSummary, useAttachmentsFor } from '../lib/attachments.js'
 import { useData, useStore } from '../lib/store.js'
 import {
   CONTACT_NOTE_MAX, RELATIONSHIPS, addFriend, contactTopic, friendStatus, lastCatchUpMap, lastContactMap, logContact, relationshipLabel,
@@ -488,6 +490,7 @@ function PersonSheet({ friendId, onClose, onCatchUp }) {
   }, [editing])
 
   const friend = friends.find((item) => item.id === (friendId || shownId)) || null
+  const files = useAttachmentsFor('friend', friend?.id) // photos and PDFs pinned to the person
   const logs = useMemo(() => (friend ? contactLogs.filter((log) => (log.friendId || log.friend_id) === friend.id).sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || '').localeCompare(a.createdAt || '')) : []), [contactLogs, friend])
   const status = friend ? friendStatus(friend, lastContactMap(logs), today) : null
   // "Last time" is the latest day's catch-up; if that day somehow has two, the one with a note
@@ -527,8 +530,17 @@ function PersonSheet({ friendId, onClose, onCatchUp }) {
     setEditing(false)
   }
 
-  function remove() {
+  async function remove() {
     const name = friend.name
+    // Undo brings the person back, but not their files: the server deletes those with them. So ask first.
+    if (files.length) {
+      const ok = await confirmAction({ title: `Remove ${name}?`, message: `Their ${attachmentSummary(files)} will be deleted for good, along with their catch-ups.`, confirmLabel: 'Remove' })
+      if (!ok) return
+      removeFriend(friend.id)
+      onClose()
+      toast(`Removed ${name}`)
+      return
+    }
     const undo = removeFriend(friend.id)
     onClose()
     toast(`Removed ${name}`, { action: { label: 'Undo', onClick: undo } })
@@ -574,7 +586,7 @@ function PersonSheet({ friendId, onClose, onCatchUp }) {
             title={friend.name}
             items={[
               { icon: 'calendar', label: 'Log an earlier catch-up', onClick: () => onCatchUp(friend.id, 'earlier') },
-              { icon: 'camera', label: (friend.photoUrl || '').trim() ? 'Change photo' : 'Add photo', onClick: heroPicker.open },
+              { icon: 'camera', label: (friend.photoUrl || '').trim() ? 'Change profile photo' : 'Add profile photo', onClick: heroPicker.open },
               { icon: 'trash', label: 'Remove person', danger: true, onClick: remove },
             ]}
           />
@@ -615,6 +627,11 @@ function PersonSheet({ friendId, onClose, onCatchUp }) {
               <p className="preserve-lines">{friend.facts || friend.note}</p>
             </section>
           )}
+
+          <section className="detail-block ppl-files">
+            <h3>Photos & files</h3>
+            <AttachmentStrip targetType="friend" targetId={friend.id} label={`Photos and files for ${friend.name}`} />
+          </section>
 
           {latest && (
             <section className="detail-block">

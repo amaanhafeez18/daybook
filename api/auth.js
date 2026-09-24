@@ -17,7 +17,7 @@ const LEGACY_SHARED_ANSWER = 'me'
 const WIPE_TABLES = [
   'tasks', 'events', 'friends', 'contact_logs', 'classes', 'journal_entries', 'voice_notes',
   'gym_sessions', 'body_weights', 'food_entries', 'assistant_memories', 'assistant_conversations',
-  'notification_log', 'settings',
+  'notification_log', 'attachments', 'settings',
 ]
 const WIPE_LIMIT = 5 // attempts per user per hour
 
