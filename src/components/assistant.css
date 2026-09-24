@@ -1,6 +1,6 @@
 /* =========================================================================================
    Assistant additions: attachments in the composer and in sent messages, the proposal card
-   ("I'll do: … Yes / No"), quick-reply choices, pending chips, deep links and starter prompts.
+   ("I'll do: … Yes / No"), quick-reply choices, pending chips, deep links, starter prompts and the composer.
    Loaded with the lazy AssistantPage chunk (after App.css / glass.css / apple.css), but rules
    that meet one of theirs use a heavier selector rather than rely on that order.
    ========================================================================================= */
@@ -200,8 +200,9 @@
 .asst-sent-files li.is-pdf .icon { color: var(--danger); }
 .asst-sent-files li span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* ---- composer: attach button, preview strip ---------------------------------------------------- */
+/* ---- composer: one glass capsule — "+" · message · mic / send / stop ---------------------------- */
 
+/* The file inputs live outside .shell (see AssistantPage): invisible and never focused. */
 .asst-file-input {
   position: fixed;
   top: 0;
@@ -212,7 +213,7 @@
   pointer-events: none;
 }
 
-/* The preview strip makes the composer taller: keep the newest message clear of it. */
+/* The attachment tray makes the composer taller: keep the newest message clear of it. */
 .assistant:has(.composer.has-attachments) .chat-end {
   scroll-margin-bottom: calc(var(--nav-h) + var(--safe-bottom) + 170px + var(--gymw-pill-space, 0px));
 }
@@ -220,15 +221,54 @@
   .assistant:has(.composer.has-attachments) .chat-end { scroll-margin-bottom: 176px; }
 }
 
-.composer.asst-composer { padding-left: 6px; }
-.composer.asst-composer .composer-input { flex: 1 1 0; min-width: 0; width: auto; }
-.composer.asst-composer.has-attachments { flex-wrap: wrap; row-gap: 2px; border-radius: 26px; }
-.composer.asst-composer.is-recording.has-attachments { padding-left: 6px; }
+.asst-composer-wrap { position: relative; }
+
+/* A column: the tray (when there is one) above a row of buttons and the field. One line of text is
+   44px tall, like the buttons, so the empty bar is a capsule. */
+.composer.asst-composer,
+.composer.asst-composer.is-recording {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  padding: 5px;
+  border-radius: 27px;
+}
+.composer.asst-composer.has-attachments { border-radius: 24px; }
+.composer.asst-composer:focus-within { border-color: color-mix(in srgb, var(--accent) 45%, var(--glass-border, var(--border))); }
+.asst-row { display: flex; align-items: flex-end; gap: 4px; min-width: 0; }
+.composer.asst-composer.is-recording .asst-row { align-items: center; }
+.composer.asst-composer.is-recording .recorder { padding: 0 4px; }
+.composer.asst-composer .composer-input {
+  flex: 1 1 0;
+  min-width: 0;
+  width: auto;
+  padding: 11px 6px !important;
+  line-height: 22px;
+}
 
 /* "0:12 / 0:40": the voice note's limit when attachments leave less than the usual two minutes. */
 .asst-rec-limit { color: var(--text-3); font-weight: 500; }
 
-.asst-attach-btn, .asst-mic-mini {
+/* Problems (a file too big, an upload that failed) sit on glass above the bar, readable over the chat. */
+.composer-error.asst-notice {
+  margin: 0 4px 8px;
+  padding: 9px 14px;
+  border-radius: 16px;
+  background: var(--glass-bg-strong, var(--surface));
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border, var(--border));
+  box-shadow: var(--glass-highlight, none), var(--glass-shadow, var(--shadow-md));
+  color: var(--danger);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.35;
+  animation: rise 0.2s var(--ease);
+}
+
+/* ---- buttons in the bar -------------------------------------------------------------------------- */
+
+.asst-plus, .asst-icon-btn {
   flex-shrink: 0;
   display: grid;
   place-items: center;
@@ -236,41 +276,143 @@
   height: 44px;
   border-radius: 50%;
   color: var(--text-2);
+  -webkit-tap-highlight-color: transparent;
   transition: transform 0.35s var(--spring, ease), background 0.2s, color 0.2s, opacity 0.2s;
 }
-.asst-mic-mini { color: var(--accent); }
-.asst-attach-btn:active, .asst-mic-mini:active:not(:disabled) { transform: scale(0.9); background: var(--surface-2); transition-duration: 0.1s; }
-.asst-mic-mini:disabled { opacity: 0.4; }
+.asst-plus { color: var(--text); }
+.asst-plus-disc {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  transition: transform 0.35s var(--spring, ease), background 0.2s, color 0.2s;
+}
+/* Open: the + turns into an × on the accent colour. */
+.asst-plus.is-open .asst-plus-disc { transform: rotate(45deg); background: var(--accent); color: var(--on-accent); }
+.asst-plus:active .asst-plus-disc { transform: scale(0.88); transition-duration: 0.1s; }
+.asst-plus.is-open:active .asst-plus-disc { transform: rotate(45deg) scale(0.88); }
+.asst-icon-btn.is-mic { color: var(--accent); }
+.asst-icon-btn:active:not(:disabled) { transform: scale(0.9); background: var(--surface-2); transition-duration: 0.1s; }
+.asst-icon-btn:disabled { opacity: 0.4; }
 @media (hover: hover) {
-  .asst-attach-btn:hover, .asst-mic-mini:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+  .asst-plus:hover .asst-plus-disc { background: var(--surface-3, var(--surface-2)); }
+  .asst-plus.is-open:hover .asst-plus-disc { background: var(--accent); }
+  .asst-icon-btn:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+  .asst-icon-btn.is-mic:hover:not(:disabled) { color: var(--accent); }
 }
 
-.asst-strip {
-  flex: 1 0 100%;
+/* ---- the "+" menu ----------------------------------------------------------------------------------- */
+
+.asst-menu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: min(290px, 100%);
+  padding: 6px;
+  border-radius: 24px;
+  background: var(--glass-bg-strong, var(--surface));
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border, var(--border));
+  box-shadow: var(--glass-highlight, none), var(--glass-shadow, var(--shadow-md));
+  transform-origin: 27px 100%;
+  animation: asst-menu-in 0.3s var(--spring, ease);
+}
+@keyframes asst-menu-in { from { opacity: 0; transform: translateY(8px) scale(0.9); } }
+.asst-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 54px;
+  padding: 6px 12px 6px 8px;
+  border-radius: 18px;
+  color: var(--text);
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s;
+}
+.asst-menu-item:active { background: var(--surface-2); }
+.asst-menu-item:focus-visible { outline: none; background: var(--surface-2); box-shadow: inset 0 0 0 2px var(--accent); }
+@media (hover: hover) {
+  .asst-menu-item:hover { background: var(--surface-2); }
+}
+.asst-menu-icon {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.asst-menu-icon.is-camera { background: var(--surface-2); color: var(--text); }
+.asst-menu-icon.is-files { background: var(--danger-soft); color: var(--danger); }
+.asst-menu-text { min-width: 0; display: flex; flex-direction: column; gap: 1px; line-height: 1.25; }
+.asst-menu-text strong { font-size: 16px; font-weight: 600; }
+.asst-menu-text small { font-size: 13px; color: var(--text-2); }
+
+/* ---- attachment tray ---------------------------------------------------------------------------- */
+
+.asst-tray {
   display: flex;
   gap: 8px;
   margin: 0;
-  padding: 4px 4px 2px;
+  padding: 6px 4px 4px;
+  list-style: none;
   overflow-x: auto;
   overscroll-behavior-x: contain;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
 }
-.asst-strip::-webkit-scrollbar { display: none; }
+.asst-tray::-webkit-scrollbar { display: none; }
 
-.asst-tile {
+.asst-tray-item {
   position: relative;
   flex-shrink: 0;
-  height: 64px;
-  border-radius: 14px;
-  background: var(--surface-2);
+  height: 56px;
   animation: rise 0.2s var(--ease);
 }
-.asst-tile.is-photo { width: 64px; }
-.asst-tile.is-photo img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 14px; }
-.asst-tile-wait { display: grid; place-items: center; width: 100%; height: 100%; color: var(--text-2); }
-.asst-tile-file { display: flex; align-items: center; gap: 10px; height: 100%; min-width: 150px; max-width: 220px; padding: 0 34px 0 10px; }
-.asst-tile-icon {
+.asst-tray-item.is-photo { width: 56px; }
+.asst-tray-body {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 100%;
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--surface-2);
+  color: var(--text);
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+.asst-tray-item.is-photo .asst-tray-body { display: block; }
+.asst-tray-item.is-photo img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.asst-tray-item.is-file .asst-tray-body { min-width: 160px; max-width: 220px; padding: 0 36px 0 10px; }
+.asst-tray-item.is-error .asst-tray-body { box-shadow: inset 0 0 0 2px var(--danger); }
+button.asst-tray-body:active { opacity: 0.8; }
+
+/* Photos: a dimmed veil with the progress ring while uploading, or the retry arrow after a failure. */
+.asst-veil {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.42);
+  color: #fff;
+}
+.asst-tray-item.is-error .asst-veil { background: color-mix(in srgb, var(--danger) 60%, rgba(0, 0, 0, 0.4)); }
+
+/* Files: icon (or ring), name and status. */
+.asst-chip-icon {
   flex-shrink: 0;
   display: grid;
   place-items: center;
@@ -280,15 +422,18 @@
   background: var(--accent-soft);
   color: var(--accent);
 }
-.asst-tile-icon.is-pdf { background: var(--danger-soft); color: var(--danger); }
-.asst-tile-text { min-width: 0; display: flex; flex-direction: column; gap: 1px; line-height: 1.25; }
-.asst-tile-text strong { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.asst-tile-text small { font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.asst-chip-icon.is-pdf { background: var(--danger-soft); color: var(--danger); }
+.asst-tray-item.is-error .asst-chip-icon { background: var(--danger); color: #fff; }
+.asst-chip-text { min-width: 0; display: flex; flex-direction: column; gap: 1px; line-height: 1.25; }
+.asst-chip-text strong { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asst-chip-text small { font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.asst-tray-item.is-error .asst-chip-text small { color: var(--danger); font-weight: 600; }
 
-.asst-tile-remove {
+.asst-tray-remove {
   position: absolute;
   top: 4px;
   right: 4px;
+  z-index: 1;
   display: grid;
   place-items: center;
   width: 22px;
@@ -298,7 +443,16 @@
   color: #fff;
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
+  -webkit-tap-highlight-color: transparent;
 }
-/* A bigger invisible hit area around the small × . */
-.asst-tile-remove::before { content: ''; position: absolute; inset: -10px; }
-.asst-tile-remove:active { transform: scale(0.9); }
+.asst-tray-item.is-file .asst-tray-remove { top: 50%; right: 7px; margin-top: -11px; background: var(--surface-3, var(--surface-2)); color: var(--text-2); }
+/* A bigger invisible hit area around the small ×. */
+.asst-tray-remove::before { content: ''; position: absolute; inset: -10px; }
+.asst-tray-remove:active { transform: scale(0.9); }
+
+/* Upload progress ring (also a spinning arc while a file is being prepared). */
+.asst-ring { display: block; width: 24px; height: 24px; transform: rotate(-90deg); }
+.asst-ring circle { fill: none; stroke: currentColor; stroke-width: 2.5; }
+.asst-ring-track { opacity: 0.28; }
+.asst-ring-bar { stroke-linecap: round; transition: stroke-dashoffset 0.2s linear; }
+.asst-ring.is-spinning { animation: spin 0.9s linear infinite; }

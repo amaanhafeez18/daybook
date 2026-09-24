@@ -1,4 +1,5 @@
 import { getSupabase } from './db.js'
+import { removeOldUploads } from './_uploads.js'
 import { combineReminders, dueNotifications, groupDue, pushConfigured, sendToUser } from './_reminders.js'
 
 // Called every minute by the Supabase scheduler (pg_cron + pg_net), see
@@ -106,6 +107,8 @@ export default async function handler(req, res) {
     // Occasional clean-up of old log rows.
     if (!dryRun && new Date(now).getUTCMinutes() === 0) {
       await supabase.from('notification_log').delete().lt('sent_at', new Date(now - 45 * 86400000).toISOString())
+      // Assistant attachments are only needed for a few follow-up messages.
+      await removeOldUploads(supabase, 3, now).catch((error) => console.error('Upload cleanup failed:', error.message))
     }
 
     return sendJson(res, 200, { ok: true, users: userIds.length, notifications: report })

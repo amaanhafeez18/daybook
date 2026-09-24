@@ -1,4 +1,4 @@
-import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import Icon from '../components/ui/Icon.jsx'
 import Sheet from '../components/ui/Sheet.jsx'
@@ -7,7 +7,10 @@ import { confirmAction, toast } from '../components/ui/feedback.jsx'
 import { SESSION_EXPIRED_EVENT, apiRequest, getToken, readJson, readPref, writeJson, writePref } from '../lib/api.js'
 import { refresh, useData } from '../lib/store.js'
 import { nowTimeHHMM, toISO, todayISO } from '../lib/dates.js'
-import { MAX_ATTACHMENT_BYTES, attachmentAccept, attachmentKind, readAttachment, totalBytes } from '../lib/media.js'
+import {
+  MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES, MAX_UPLOAD_TOTAL, attachmentKind, fileAccept, formatBytes, inlineAttachment, photoAccept,
+  prepareAttachment, revokePreview, uploadAttachment,
+} from '../lib/media.js'
 import { formatSeconds, useRecorder } from '../lib/recorder.js'
 import { pushSupport } from '../lib/notifications.js'
 import { useGym, useGymSessions, useToday } from '../lib/gym/state.js'
@@ -15,7 +18,6 @@ import { resolveDay } from '../lib/gym/schedule.js'
 import '../components/assistant.css'
 
 const CHAT_CACHE = 'daybook.chat'
-const MAX_ATTACHMENTS = 6
 const PROPOSAL_TTL_MS = 30 * 60 * 1000
 // A confirmed run takes seconds; one still "executing" after this was cut off (timeout, crash).
 const EXECUTING_STALE_MS = 3 * 60 * 1000
@@ -53,6 +55,13 @@ const FALLBACK_SUGGESTIONS = [
   { icon: 'journal', text: 'Help me write today’s journal' },
 ]
 const TIMETABLE_PROMPT = 'Add the classes from this timetable'
+// Where the "+" menu picks from. Each opens its own file input (rendered outside .shell).
+const ATTACH_SOURCES = [
+  { id: 'camera', icon: 'camera', label: 'Camera', hint: 'Take a photo' },
+  { id: 'photos', icon: 'image', label: 'Photos', hint: `Choose up to ${MAX_ATTACHMENTS}` },
+  { id: 'files', icon: 'fileText', label: 'Files', hint: `PDFs up to ${formatBytes(MAX_UPLOAD_TOTAL)}, or text files` },
+]
+const TOO_MANY = `You can attach up to ${MAX_ATTACHMENTS} files to one message.`
 
 let messageId = 0
 const nextId = () => `m${Date.now()}-${++messageId}`
@@ -70,8 +79,11 @@ export default function AssistantPage({ displayName }) {
   const [busy, setBusy] = useState(false)
   const [confirmingId, setConfirmingId] = useState(null) // the proposal this device is carrying out
   const [speak, setSpeak] = useState(() => readPref('speakReplies', false))
+  // Composer attachments: { id, kind, name, status: 'preparing' | 'uploading' | 'ready' | 'error',
+  // progress (0…1), bytes, previewUrl?, prepared? (kept to retry), path | dataUrl | text, error? }.
   const [attachments, setAttachmentState] = useState([])
   const [attachError, setAttachError] = useState('')
+  const [attachMenu, setAttachMenu] = useState(null) // the "+" menu: null, or { keyboard } while open
   // Screen readers hear the finished reply once, not every streamed token.
   const [announcement, setAnnouncement] = useState('')
   const endRef = useRef(null)
@@ -80,10 +92,16 @@ export default function AssistantPage({ displayName }) {
   const followRef = useRef(true) // keep the newest message in view unless the user scrolled up
   const jumpRef = useRef(true) // next scroll is instant (first render, loaded history)
   const mountedRef = useRef(false)
-  const fileInputRef = useRef(null)
+  const cameraInputRef = useRef(null)
+  const photosInputRef = useRef(null)
+  const filesInputRef = useRef(null)
   const attachmentsRef = useRef([]) // mirror of `attachments`, read by async file processing
-  const timetableRef = useRef(false) // the file picker was opened from the timetable hint
+  const uploadsRef = useRef(new Map()) // attachment id → AbortController of its upload
+  const previewsRef = useRef(new Set()) // photo preview URLs made on this visit (freed on leaving)
+  const storageRef = useRef(null) // false once the server says uploads aren't available (then inline)
+  const timetableRef = useRef(false) // the picker was opened from the timetable hint
   const pushRef = useRef(null) // push on this device: true / false / null (unknown)
+  const inputRefs = { camera: cameraInputRef, photos: photosInputRef, files: filesInputRef }
 
   const setAttachments = useCallback((next) => {
     const value = typeof next === 'function' ? next(attachmentsRef.current) : next
@@ -94,6 +112,8 @@ export default function AssistantPage({ displayName }) {
   // Server history (source of truth) and memories.
   useEffect(() => {
     mountedRef.current = true
+    const uploads = uploadsRef.current
+    const previews = previewsRef.current
     apiRequest('/api/assistant')
       .then((response) => {
         const history = (response.messages || []).map((message) => ({ ...message, id: nextId() }))
@@ -109,6 +129,10 @@ export default function AssistantPage({ displayName }) {
       mountedRef.current = false
       abortRef.current?.abort()
       window.speechSynthesis?.cancel()
+      for (const controller of uploads.values()) controller.abort()
+      uploads.clear()
+      for (const url of previews) revokePreview(url)
+      previews.clear()
     }
   }, [])
 
@@ -207,7 +231,8 @@ export default function AssistantPage({ displayName }) {
     if (!['pending', 'cancelled', 'superseded', 'expired'].includes(status)) refresh().catch(() => {})
   }
 
-  async function send(payload, shownText, { restore = [], restoreText = '' } = {}) {
+  // `shown`: how the attachments look in the sent message (photo previews), when known.
+  async function send(payload, shownText, { restore = [], restoreText = '', shown } = {}) {
     if (busyRef.current) return
     busyRef.current = true
     window.speechSynthesis?.cancel()
@@ -217,9 +242,7 @@ export default function AssistantPage({ displayName }) {
     const hasAudio = !!payload.audio
     const isVoice = hasAudio || !!payload.spoken
     const confirm = payload.confirm || null
-    const shownAttachments = Array.isArray(payload.attachments)
-      ? payload.attachments.map(({ kind, name, dataUrl }) => ({ kind, name, ...(kind === 'image' && dataUrl ? { thumb: dataUrl } : {}) }))
-      : []
+    const shownAttachments = Array.isArray(shown) ? shown : Array.isArray(payload.attachments) ? payload.attachments.map(shownAttachment) : []
     setBusy(true)
     setConfirmingId(confirm?.proposalId || null)
     setAnnouncement('')
@@ -335,8 +358,8 @@ export default function AssistantPage({ displayName }) {
       // Once a voice message is transcribed, a retry sends the text instead of the audio again
       // (with the same attachments).
       const retry = transcript
-        ? { payload: { message: transcript, spoken: true, ...(payload.attachments ? { attachments: payload.attachments } : {}) }, shownText: transcript, userId }
-        : { payload, shownText, userId }
+        ? { payload: { message: transcript, spoken: true, ...(payload.attachments ? { attachments: payload.attachments } : {}) }, shownText: transcript, userId, shown: shownAttachments }
+        : { payload, shownText, userId, shown: shownAttachments }
       setMessages((current) => current
         .filter((message) => message.id !== replyId && !(message.id === userId && hasAudio && message.pending))
         .concat({ id: nextId(), role: 'assistant', error: error.message, retry }))
@@ -354,8 +377,15 @@ export default function AssistantPage({ displayName }) {
     const fromComposer = preset == null
     const message = (preset ?? text).trim()
     const pending = fromComposer ? attachmentsRef.current : []
-    if (pending.some((item) => item.status === 'loading')) {
-      setAttachError('Still preparing your attachment — one moment.')
+    if (pending.some(inFlight)) {
+      setAttachError('Still uploading — it’ll be ready in a moment.')
+      return
+    }
+    const failed = pending.filter((item) => item.status === 'error')
+    if (failed.length) {
+      setAttachError(failed.length === 1
+        ? `“${failed[0].name}” didn’t upload. Tap it to try again, or remove it.`
+        : `${failed.length} files didn’t upload. Tap them to try again, or remove them.`)
       return
     }
     const ready = pending.filter((item) => item.status === 'ready')
@@ -366,12 +396,13 @@ export default function AssistantPage({ displayName }) {
     if (fromComposer) {
       setText('')
       setAttachments([])
+      setAttachMenu(null)
     }
     setAttachError('')
     send(
       { ...(message ? { message } : {}), ...(choice ? { choice } : {}), ...(ready.length ? { attachments: ready.map(attachmentPayload) } : {}) },
       message,
-      { restore: ready, restoreText: fromComposer ? message : '' },
+      { restore: ready, restoreText: fromComposer ? message : '', shown: ready.map(shownAttachment) },
     )
   }
 
@@ -389,17 +420,34 @@ export default function AssistantPage({ displayName }) {
     }
     if (ready.length) setAttachments((current) => current.filter((item) => item.status !== 'ready'))
     setAttachError('')
-    send(payload, 'Voice message', { restore: ready })
+    send(payload, 'Voice message', { restore: ready, shown: ready.map(shownAttachment) })
   }
 
-  function openFilePicker(fromTimetable = false) {
-    timetableRef.current = fromTimetable === true
+  // The "+" menu. `keyboard`: opened with the keyboard, so focus moves into it.
+  function toggleAttachMenu(event) {
+    timetableRef.current = false
     setAttachError('')
+    setAttachMenu((open) => (open ? null : { keyboard: event?.detail === 0 }))
+  }
+
+  // The timetable hint opens the same menu; whatever gets picked gets the timetable prompt.
+  function openTimetablePicker(event) {
+    timetableRef.current = true
+    setAttachError('')
+    setAttachMenu({ keyboard: event?.detail === 0 })
+  }
+
+  const closeAttachMenu = useCallback(() => setAttachMenu(null), [])
+
+  // Runs inside the tap on a menu item, so iOS lets it open the picker.
+  function pickFrom(source) {
+    setAttachMenu(null)
     if (attachmentsRef.current.length >= MAX_ATTACHMENTS) {
-      setAttachError(`You can attach up to ${MAX_ATTACHMENTS} files to one message.`)
+      timetableRef.current = false
+      setAttachError(TOO_MANY)
       return
     }
-    fileInputRef.current?.click()
+    inputRefs[source]?.current?.click()
   }
 
   function onFilesChosen(event) {
@@ -412,7 +460,17 @@ export default function AssistantPage({ displayName }) {
     addFiles(files, fromTimetable)
   }
 
-  // Picked or pasted files: checked, then prepared one by one behind a spinner tile.
+  const hasAttachment = (id) => attachmentsRef.current.some((item) => item.id === id)
+  const patchAttachment = (id, patch) => setAttachments((current) => current.map((item) => (item.id === id ? { ...item, ...patch } : item)))
+  const dropAttachment = (id) => setAttachments((current) => current.filter((item) => item.id !== id))
+  function failAttachment(id, message) {
+    patchAttachment(id, { status: 'error', progress: 0, error: message })
+    setAttachError(message)
+  }
+
+  // Picked or pasted files: checked, then prepared one at a time (decoding several large photos at
+  // once can run an iPhone out of memory). Each photo or PDF starts uploading as soon as it's ready,
+  // so sending is instant.
   async function addFiles(files, fromTimetable = false) {
     if (!files.length) return
     setAttachError('')
@@ -420,38 +478,119 @@ export default function AssistantPage({ displayName }) {
     const supported = files.filter((file) => attachmentKind(file))
     if (supported.length < files.length) setAttachError('Only photos, PDFs and text files can be attached.')
     const room = MAX_ATTACHMENTS - attachmentsRef.current.length
-    if (supported.length > room) setAttachError(`You can attach up to ${MAX_ATTACHMENTS} files to one message.`)
+    if (supported.length > room) setAttachError(TOO_MANY)
     const accepted = supported.slice(0, Math.max(0, room))
     if (!accepted.length) return
     if (fromTimetable) setText((current) => (current.trim() ? current : TIMETABLE_PROMPT))
 
-    const placeholders = accepted.map((file) => ({ id: nextId(), status: 'loading', kind: attachmentKind(file), name: file.name || 'file' }))
+    const placeholders = accepted.map((file) => ({ id: nextId(), status: 'preparing', progress: 0, kind: attachmentKind(file), name: file.name || 'file' }))
     setAttachments((current) => [...current, ...placeholders])
-    // One at a time: decoding several large photos at once can run an iPhone out of memory.
     for (const [index, file] of accepted.entries()) {
       const { id } = placeholders[index]
+      let prepared
       try {
-        const item = await readAttachment(file)
-        if (!mountedRef.current) return
-        if (!attachmentsRef.current.some((attachment) => attachment.id === id)) continue // removed meanwhile
-        const others = attachmentsRef.current.filter((attachment) => attachment.status === 'ready')
-        if (totalBytes([...others, item]) > MAX_ATTACHMENT_BYTES) {
-          setAttachments((current) => current.filter((attachment) => attachment.id !== id))
-          setAttachError(`That’s too much for one message — attachments can add up to ${formatBytes(MAX_ATTACHMENT_BYTES)}.`)
-          continue
-        }
-        setAttachments((current) => current.map((attachment) => (attachment.id === id ? { ...item, id, status: 'ready' } : attachment)))
+        prepared = await prepareAttachment(file)
       } catch (error) {
         if (!mountedRef.current) return
-        setAttachments((current) => current.filter((attachment) => attachment.id !== id))
+        dropAttachment(id)
         setAttachError(error?.message || 'Couldn’t read that file.')
+        continue
       }
+      if (!mountedRef.current || !hasAttachment(id)) { // left the page, or removed meanwhile
+        revokePreview(prepared.previewUrl)
+        if (!mountedRef.current) return
+        continue
+      }
+      const others = attachmentsRef.current.filter((item) => item.id !== id)
+      // Text goes inside the request; photos and PDFs go to storage.
+      const isText = prepared.kind === 'text'
+      const limit = isText ? MAX_ATTACHMENT_BYTES : MAX_UPLOAD_TOTAL
+      if (sumBytes(others, isText ? inlineBytes : uploadBytes) + prepared.bytes > limit) {
+        revokePreview(prepared.previewUrl)
+        dropAttachment(id)
+        setAttachError(`That’s too much for one message — attachments can add up to ${formatBytes(limit)}.`)
+        continue
+      }
+      if (isText) {
+        patchAttachment(id, { status: 'ready', progress: 1, name: prepared.name, text: prepared.text, bytes: prepared.bytes })
+        continue
+      }
+      if (prepared.previewUrl) previewsRef.current.add(prepared.previewUrl)
+      patchAttachment(id, { name: prepared.name, bytes: prepared.bytes, previewUrl: prepared.previewUrl, prepared })
+      startUpload(id, prepared)
     }
   }
 
+  // Uploads one prepared photo or PDF to storage. When storage isn't available (or the upload
+  // itself fails) it goes inside the message instead, as before, if it's small enough.
+  async function startUpload(id, prepared) {
+    uploadsRef.current.get(id)?.abort()
+    const controller = new AbortController()
+    uploadsRef.current.set(id, controller)
+    const current = () => mountedRef.current && uploadsRef.current.get(id) === controller && hasAttachment(id)
+    patchAttachment(id, { status: 'uploading', progress: 0, error: '', path: undefined, dataUrl: undefined })
+    try {
+      if (storageRef.current === false) throw Object.assign(new Error('Uploads aren’t available.'), { fallback: true, code: 'storage_unavailable' })
+      let shown = 0
+      const result = await uploadAttachment(prepared, {
+        signal: controller.signal,
+        onProgress: (value) => {
+          const step = Math.floor(value * 50) / 50 // re-render every 2%, not on every progress event
+          if (step <= shown || !current()) return
+          shown = step
+          patchAttachment(id, { progress: step })
+        },
+      })
+      storageRef.current = true
+      if (current()) patchAttachment(id, { status: 'ready', progress: 1, path: result.path })
+    } catch (error) {
+      if (error?.name === 'AbortError' || !current()) return
+      if (!error?.fallback) {
+        failAttachment(id, error?.message || 'Couldn’t upload that file.')
+        return
+      }
+      const noStorage = error.code === 'storage_unavailable'
+      if (noStorage) storageRef.current = false
+      const uploadFailed = `Couldn’t upload “${prepared.name}”. Check your connection, then tap it to try again.`
+      try {
+        const inline = await inlineAttachment(prepared)
+        if (!current()) return
+        const others = attachmentsRef.current.filter((item) => item.id !== id)
+        if (sumBytes(others, inlineBytes) + inline.bytes > MAX_ATTACHMENT_BYTES) {
+          failAttachment(id, noStorage
+            ? `Big uploads aren’t available right now, so attachments can add up to ${formatBytes(MAX_ATTACHMENT_BYTES)}. Send “${prepared.name}” in its own message.`
+            : uploadFailed)
+          return
+        }
+        patchAttachment(id, { status: 'ready', progress: 1, dataUrl: inline.dataUrl })
+      } catch (inlineError) {
+        if (!current()) return
+        failAttachment(id, noStorage ? inlineError?.message || uploadFailed : uploadFailed)
+      }
+    } finally {
+      if (uploadsRef.current.get(id) === controller) uploadsRef.current.delete(id)
+    }
+  }
+
+  function retryAttachment(id) {
+    const item = attachmentsRef.current.find((attachment) => attachment.id === id)
+    if (!item?.prepared || item.status !== 'error') return
+    setAttachError('')
+    storageRef.current = null // ask the server again
+    startUpload(id, item.prepared)
+  }
+
+  // Removing a file cancels its upload.
   function removeAttachment(id) {
     setAttachError('')
-    setAttachments((current) => current.filter((item) => item.id !== id))
+    uploadsRef.current.get(id)?.abort()
+    uploadsRef.current.delete(id)
+    const item = attachmentsRef.current.find((attachment) => attachment.id === id)
+    if (item?.previewUrl) {
+      revokePreview(item.previewUrl)
+      previewsRef.current.delete(item.previewUrl)
+    }
+    dropAttachment(id)
   }
 
   function retry(message) {
@@ -462,7 +601,7 @@ export default function AssistantPage({ displayName }) {
       const failedId = message.retry.userId ?? (previous?.role === 'user' && previous.content === message.retry.shownText ? previous.id : null)
       return current.filter((item, position) => position !== index && item.id !== failedId)
     })
-    send(message.retry.payload, message.retry.shownText)
+    send(message.retry.payload, message.retry.shownText, { shown: message.retry.shown })
   }
 
   function decide(proposalId, decision) {
@@ -525,7 +664,7 @@ export default function AssistantPage({ displayName }) {
       <p className="sr-only" aria-live="polite" aria-atomic="true">{announcement}</p>
       <div className="chat">
         {empty ? (
-          <Welcome displayName={displayName} busy={busy} onAsk={(prompt) => submitText(null, prompt)} onTimetable={() => openFilePicker(true)} />
+          <Welcome displayName={displayName} busy={busy} onAsk={(prompt) => submitText(null, prompt)} onTimetable={openTimetablePicker} />
         ) : messages.map((message, index) => {
           const isLast = index === lastIndex
           // Only a card this device is running spins; any other "executing" one was cut off.
@@ -548,16 +687,11 @@ export default function AssistantPage({ displayName }) {
 
       {/* Outside .shell, so a focused picker never counts as "typing" (which hides the tab bar). */}
       {createPortal(
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          accept={attachmentAccept}
-          className="asst-file-input"
-          onChange={onFilesChosen}
-          tabIndex={-1}
-          aria-hidden="true"
-        />,
+        <>
+          <input ref={cameraInputRef} type="file" accept={photoAccept} capture="environment" className="asst-file-input" onChange={onFilesChosen} tabIndex={-1} aria-hidden="true" />
+          <input ref={photosInputRef} type="file" accept={photoAccept} multiple className="asst-file-input" onChange={onFilesChosen} tabIndex={-1} aria-hidden="true" />
+          <input ref={filesInputRef} type="file" accept={fileAccept} multiple className="asst-file-input" onChange={onFilesChosen} tabIndex={-1} aria-hidden="true" />
+        </>,
         document.body,
       )}
 
@@ -568,9 +702,13 @@ export default function AssistantPage({ displayName }) {
           busy={busy}
           attachments={attachments}
           notice={attachError}
+          menu={attachMenu}
           onSubmit={submitText}
-          onAttach={() => openFilePicker(false)}
+          onToggleMenu={toggleAttachMenu}
+          onCloseMenu={closeAttachMenu}
+          onPick={pickFrom}
           onRemoveAttachment={removeAttachment}
+          onRetryAttachment={retryAttachment}
           onPasteFiles={(files) => addFiles(files)}
           onAudio={sendAudio}
           onNotice={setAttachError}
@@ -907,129 +1045,254 @@ function inline(text) {
 
 // ---- composer ----------------------------------------------------------------------------------
 
-function Composer({ text, setText, busy, attachments, notice, onSubmit, onAttach, onRemoveAttachment, onPasteFiles, onAudio, onNotice, onStop }) {
+// iMessage-style bar: "+" (camera, photos, files) · the message · mic, send or stop. Attachments wait
+// in a tray above the field, each with its upload progress.
+function Composer({
+  text, setText, busy, attachments, notice, menu, onSubmit, onToggleMenu, onCloseMenu, onPick,
+  onRemoveAttachment, onRetryAttachment, onPasteFiles, onAudio, onNotice, onStop,
+}) {
   // Attachments and the voice note travel in one request: the recording stops before it would overflow.
   const voiceSeconds = useMemo(() => voiceBudgetSeconds(attachments), [attachments])
   const [voiceLimit, setVoiceLimit] = useState(MAX_VOICE_SECONDS) // fixed when a recording starts
   const recorder = useRecorder({ onAudio, maxSeconds: voiceLimit })
+  const plusRef = useRef(null)
+  const menuId = useId()
   const hasText = text.trim().length > 0
-  const loading = attachments.some((item) => item.status === 'loading')
+  const uploading = attachments.some(inFlight)
   const readyCount = attachments.filter((item) => item.status === 'ready').length
   const hasAttachments = attachments.length > 0
   const error = recorder.error || notice
-  const strip = hasAttachments && <AttachmentStrip items={attachments} onRemove={onRemoveAttachment} />
+  const tray = hasAttachments && <AttachmentTray items={attachments} onRemove={onRemoveAttachment} onRetry={onRetryAttachment} />
   const capped = voiceLimit < MAX_VOICE_SECONDS
 
   function startRecording() {
+    if (uploading) {
+      onNotice?.('Wait for the uploads to finish, then record your voice message.')
+      return
+    }
+    if (attachments.some((item) => item.status === 'error')) {
+      onNotice?.('A file didn’t upload — tap it to try again, or remove it first.')
+      return
+    }
     if (voiceSeconds < MIN_VOICE_SECONDS) {
       onNotice?.('These attachments leave no room for a voice note. Type your message, or remove an attachment first.')
       return
     }
+    onCloseMenu?.()
     setVoiceLimit(voiceSeconds)
     recorder.start()
   }
 
   if (recorder.recording) {
     return (
-      <div className={`composer is-recording asst-composer ${hasAttachments ? 'has-attachments' : ''}`}>
-        {strip}
-        <button type="button" className="icon-btn" onClick={() => recorder.stop(true)} aria-label="Cancel recording"><Icon name="close" /></button>
-        <div className="recorder" aria-label={`Recording, ${formatSeconds(recorder.seconds)}${capped ? ` of ${formatSeconds(voiceLimit)}` : ''}`}>
-          <span className="rec-dot" aria-hidden="true" />
-          <span className="rec-time">{formatSeconds(recorder.seconds)}{capped && <span className="asst-rec-limit"> / {formatSeconds(voiceLimit)}</span>}</span>
-          <span className="waveform" aria-hidden="true">
-            {recorder.levels.map((level, index) => <i key={index} style={{ transform: `scaleY(${level})` }} />)}
-          </span>
+      <div className="asst-composer-wrap">
+        <div className={`composer asst-composer is-recording ${hasAttachments ? 'has-attachments' : ''}`}>
+          {tray}
+          <div className="asst-row">
+            <button type="button" className="asst-icon-btn" onClick={() => recorder.stop(true)} aria-label="Cancel recording"><Icon name="close" size={20} /></button>
+            <div className="recorder" aria-label={`Recording, ${formatSeconds(recorder.seconds)}${capped ? ` of ${formatSeconds(voiceLimit)}` : ''}`}>
+              <span className="rec-dot" aria-hidden="true" />
+              <span className="rec-time">{formatSeconds(recorder.seconds)}{capped && <span className="asst-rec-limit"> / {formatSeconds(voiceLimit)}</span>}</span>
+              <span className="waveform" aria-hidden="true">
+                {recorder.levels.map((level, index) => <i key={index} style={{ transform: `scaleY(${level})` }} />)}
+              </span>
+            </div>
+            <button type="button" className="send-btn" onClick={() => recorder.stop(false)} aria-label={readyCount ? 'Send voice message with attachments' : 'Send voice message'}>
+              <Icon name="send" size={20} strokeWidth={2.4} />
+            </button>
+          </div>
         </div>
-        <button type="button" className="send-btn" onClick={() => recorder.stop(false)} aria-label={readyCount ? 'Send voice message with attachments' : 'Send voice message'}>
-          <Icon name="send" size={20} strokeWidth={2.2} />
-        </button>
       </div>
     )
   }
 
   return (
-    <>
-      {error && <p className="composer-error" role="alert">{error}</p>}
+    <div className="asst-composer-wrap">
+      {error && <p className="composer-error asst-notice" role="alert">{error}</p>}
+      {menu && <AttachMenu id={menuId} focusFirst={!!menu.keyboard} anchorRef={plusRef} onClose={onCloseMenu} onPick={onPick} />}
       <form className={`composer asst-composer ${hasAttachments ? 'has-attachments' : ''}`} onSubmit={onSubmit}>
-        {strip}
-        <button type="button" className="asst-attach-btn" onClick={onAttach} aria-label="Attach a photo or file" title="Attach a photo or file">
-          <Icon name="paperclip" size={21} />
-        </button>
-        <AutoTextarea
-          className="composer-input"
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          onPaste={(event) => {
-            // A pasted screenshot becomes an attachment; anything with text pastes as text.
-            const files = Array.from(event.clipboardData?.files || [])
-            if (!files.length || !onPasteFiles || event.clipboardData.getData('text/plain')) return
-            event.preventDefault()
-            onPasteFiles(files)
-          }}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && window.matchMedia('(pointer: fine)').matches) {
+        {tray}
+        <div className="asst-row">
+          <button
+            ref={plusRef}
+            type="button"
+            className={`asst-plus ${menu ? 'is-open' : ''}`}
+            onClick={onToggleMenu}
+            aria-label="Add photos or files"
+            aria-haspopup="menu"
+            aria-expanded={!!menu}
+            aria-controls={menu ? menuId : undefined}
+          >
+            <span className="asst-plus-disc" aria-hidden="true"><Icon name="plus" size={20} strokeWidth={2.2} /></span>
+          </button>
+          <AutoTextarea
+            className="composer-input"
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            onPaste={(event) => {
+              // A pasted screenshot becomes an attachment; anything with text pastes as text.
+              const files = Array.from(event.clipboardData?.files || [])
+              if (!files.length || !onPasteFiles || event.clipboardData.getData('text/plain')) return
               event.preventDefault()
-              onSubmit(event)
-            }
-          }}
-          placeholder={hasAttachments ? 'Add a message…' : 'Message Daybook…'}
-          aria-label="Message"
-          minRows={1}
-          maxRows={6}
-          maxLength={4000}
-        />
-        {busy ? (
-          <button type="button" className="send-btn is-stop" onClick={onStop} aria-label="Stop"><span className="stop-square" /></button>
-        ) : hasText || hasAttachments ? (
-          <>
-            {!hasText && recorder.supported && (
-              <button type="button" className="asst-mic-mini" onClick={startRecording} disabled={loading} aria-label="Record a voice message to send with the attachments">
-                <Icon name="mic" size={21} />
+              onPasteFiles(files)
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && window.matchMedia('(pointer: fine)').matches) {
+                event.preventDefault()
+                onSubmit(event)
+              }
+            }}
+            placeholder="Ask anything…"
+            aria-label="Message"
+            minRows={1}
+            maxRows={6}
+            maxLength={4000}
+          />
+          {busy ? (
+            <button type="button" className="send-btn is-stop" onClick={onStop} aria-label="Stop"><span className="stop-square" /></button>
+          ) : hasText || hasAttachments ? (
+            <>
+              {!hasText && recorder.supported && (
+                <button type="button" className="asst-icon-btn is-mic" onClick={startRecording} disabled={uploading} aria-label="Record a voice message to send with the attachments">
+                  <Icon name="mic" size={21} />
+                </button>
+              )}
+              <button type="submit" className="send-btn" aria-label={uploading ? 'Waiting for uploads to finish' : 'Send'} disabled={uploading}>
+                {uploading ? <span className="spinner" aria-hidden="true" /> : <Icon name="send" size={20} strokeWidth={2.4} />}
               </button>
-            )}
-            <button type="submit" className="send-btn" aria-label={loading ? 'Preparing attachments' : 'Send'} disabled={loading}>
-              {loading ? <span className="spinner" aria-hidden="true" /> : <Icon name="send" size={20} strokeWidth={2.2} />}
-            </button>
-          </>
-        ) : recorder.supported ? (
-          <button type="button" className="send-btn is-mic" onClick={startRecording} aria-label="Record a voice message"><Icon name="mic" size={20} /></button>
-        ) : (
-          <button type="submit" className="send-btn" aria-label="Send" disabled><Icon name="send" size={20} strokeWidth={2.2} /></button>
-        )}
+            </>
+          ) : recorder.supported ? (
+            <button type="button" className="send-btn is-mic" onClick={startRecording} aria-label="Record a voice message"><Icon name="mic" size={20} /></button>
+          ) : (
+            <button type="submit" className="send-btn" aria-label="Send" disabled><Icon name="send" size={20} strokeWidth={2.4} /></button>
+          )}
+        </div>
       </form>
-    </>
+    </div>
   )
 }
 
-function AttachmentStrip({ items, onRemove }) {
+// The "+" menu: Camera, Photos, Files. Closes on a tap outside, Escape or a choice.
+function AttachMenu({ id, focusFirst, anchorRef, onClose, onPick }) {
+  const menuRef = useRef(null)
+  const items = () => Array.from(menuRef.current?.querySelectorAll('[role="menuitem"]') || [])
+
+  useEffect(() => {
+    if (focusFirst) items()[0]?.focus({ preventScroll: true })
+    const onPointerDown = (event) => {
+      if (menuRef.current?.contains(event.target) || anchorRef.current?.contains(event.target)) return
+      onClose()
+    }
+    const onKeyDown = (event) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return
+      event.preventDefault()
+      onClose()
+      anchorRef.current?.focus({ preventScroll: true })
+    }
+    document.addEventListener('pointerdown', onPointerDown, true)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [focusFirst, anchorRef, onClose])
+
+  function onMenuKeyDown(event) {
+    if (event.key === 'Tab') {
+      onClose()
+      return
+    }
+    const list = items()
+    const index = list.indexOf(document.activeElement)
+    const next = { ArrowDown: index + 1, ArrowUp: index - 1, Home: 0, End: list.length - 1 }[event.key]
+    if (next === undefined || !list.length) return
+    event.preventDefault()
+    list[(next + list.length) % list.length]?.focus()
+  }
+
   return (
-    <ul className="asst-strip" aria-label="Attachments">
-      {items.map((item) => {
-        const loading = item.status === 'loading'
-        const photo = item.kind === 'image'
-        return (
-          <li key={item.id} className={`asst-tile ${photo ? 'is-photo' : 'is-file'} ${loading ? 'is-loading' : ''}`}>
-            {photo ? (
-              loading ? <span className="asst-tile-wait" role="status" aria-label={`Preparing ${item.name}`}><span className="spinner" /></span> : <img src={item.dataUrl} alt={item.name} />
-            ) : (
-              <span className="asst-tile-file">
-                <span className={`asst-tile-icon is-${item.kind}`} aria-hidden="true">
-                  {loading ? <span className="spinner" /> : <Icon name={kindIcon(item.kind)} size={18} />}
-                </span>
-                <span className="asst-tile-text">
-                  <strong>{item.name}</strong>
-                  <small>{loading ? 'Preparing…' : `${kindName(item.kind)} · ${formatBytes(item.bytes)}`}</small>
-                </span>
-              </span>
-            )}
-            <button type="button" className="asst-tile-remove" onClick={() => onRemove(item.id)} aria-label={`Remove ${item.name}`}>
-              <Icon name="close" size={12} strokeWidth={3} />
-            </button>
-          </li>
-        )
-      })}
+    <div ref={menuRef} id={id} className="asst-menu" role="menu" aria-label="Add to your message" onKeyDown={onMenuKeyDown}>
+      {ATTACH_SOURCES.map((source) => (
+        <button key={source.id} type="button" role="menuitem" className="asst-menu-item" onClick={() => onPick(source.id)}>
+          <span className={`asst-menu-icon is-${source.id}`} aria-hidden="true"><Icon name={source.icon} size={20} /></span>
+          <span className="asst-menu-text">
+            <strong>{source.label}</strong>
+            <small>{source.hint}</small>
+          </span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function AttachmentTray({ items, onRemove, onRetry }) {
+  return (
+    <ul className="asst-tray" aria-label="Attachments">
+      {items.map((item) => <TrayItem key={item.id} item={item} onRemove={onRemove} onRetry={onRetry} />)}
     </ul>
+  )
+}
+
+// A photo thumbnail or a file chip, with its upload progress, an × and (after a failed upload) retry.
+function TrayItem({ item, onRemove, onRetry }) {
+  const photo = item.kind === 'image'
+  const failed = item.status === 'error'
+  const working = inFlight(item)
+  const percent = Math.round((Number(item.progress) || 0) * 100)
+  const status = item.status === 'preparing' ? 'Preparing…'
+    : item.status === 'uploading' ? `Uploading… ${percent}%`
+      : failed ? 'Didn’t upload · Tap to retry'
+        : `${kindName(item.kind)} · ${formatBytes(item.bytes)}`
+  const preview = item.previewUrl || item.dataUrl
+  const ring = <ProgressRing value={item.status === 'uploading' ? item.progress : undefined} />
+  const content = photo ? (
+    <>
+      {preview ? <img src={preview} alt="" /> : null}
+      {(working || failed) && <span className="asst-veil" aria-hidden="true">{failed ? <Icon name="refresh" size={20} strokeWidth={2.2} /> : ring}</span>}
+    </>
+  ) : (
+    <>
+      <span className={`asst-chip-icon is-${item.kind}`} aria-hidden="true">
+        {working ? ring : <Icon name={failed ? 'refresh' : kindIcon(item.kind)} size={18} />}
+      </span>
+      <span className="asst-chip-text" aria-hidden="true">
+        <strong>{item.name}</strong>
+        <small>{status}</small>
+      </span>
+    </>
+  )
+
+  return (
+    <li className={`asst-tray-item ${photo ? 'is-photo' : 'is-file'} is-${item.status}`}>
+      {failed ? (
+        <button type="button" className="asst-tray-body" onClick={() => onRetry(item.id)} aria-label={`${item.name} didn’t upload. Try again`} title={item.error || undefined}>
+          {content}
+        </button>
+      ) : (
+        <span className="asst-tray-body">
+          {content}
+          <span className="sr-only">{`${item.name}, ${photo && item.status === 'ready' ? 'photo' : status}`}</span>
+        </span>
+      )}
+      <button type="button" className="asst-tray-remove" onClick={() => onRemove(item.id)} aria-label={`${working ? 'Cancel' : 'Remove'} ${item.name}`}>
+        <Icon name="close" size={12} strokeWidth={3} />
+      </button>
+    </li>
+  )
+}
+
+const RING_RADIUS = 9
+const RING_LENGTH = 2 * Math.PI * RING_RADIUS
+
+// Upload progress (0…1), or a spinning arc while the size isn't known yet.
+function ProgressRing({ value }) {
+  const known = Number.isFinite(value)
+  const shown = known ? Math.max(0.04, Math.min(1, value)) : 0.28
+  return (
+    <svg className={`asst-ring ${known ? '' : 'is-spinning'}`} viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false">
+      <circle className="asst-ring-track" cx="12" cy="12" r={RING_RADIUS} />
+      <circle className="asst-ring-bar" cx="12" cy="12" r={RING_RADIUS} strokeDasharray={RING_LENGTH} strokeDashoffset={RING_LENGTH * (1 - shown)} />
+    </svg>
   )
 }
 
@@ -1070,10 +1333,25 @@ function MemorySheet({ open, onClose, memories, setMemories, enabled }) {
 
 // ---- helpers -----------------------------------------------------------------------------------
 
-// What goes to the server for one prepared attachment.
-function attachmentPayload({ kind, name, dataUrl, text }) {
-  return kind === 'text' ? { kind, name, text } : { kind, name, dataUrl }
+// What goes to the server for one attachment: text inline, photos and PDFs by their storage path
+// (or, when uploads aren't available, as a data URL).
+function attachmentPayload({ kind, name, text, path, dataUrl }) {
+  if (kind === 'text') return { kind, name, text }
+  return path ? { kind, name, path } : { kind, name, dataUrl }
 }
+
+// How an attachment shows in the sent message: photos keep their preview (this visit only).
+function shownAttachment({ kind, name, previewUrl, dataUrl }) {
+  const thumb = kind === 'image' ? previewUrl || dataUrl : ''
+  return { kind, name, ...(thumb ? { thumb } : {}) }
+}
+
+// Still being prepared or uploaded.
+const inFlight = (item) => item?.status === 'preparing' || item?.status === 'uploading'
+// Bytes an attachment adds to the chat request itself, and to storage.
+const inlineBytes = (item) => (item.kind === 'text' || item.dataUrl ? Number(item.bytes) || 0 : 0)
+const uploadBytes = (item) => (item.kind !== 'text' && !item.dataUrl ? Number(item.bytes) || 0 : 0)
+const sumBytes = (items, bytesOf) => items.reduce((sum, item) => sum + bytesOf(item), 0)
 
 // The shape kept in localStorage: no photos or file contents, and no in-flight states.
 function cacheMessage({ role, content, voice, actions, proposal, choices, attachments, createdAt }) {
@@ -1156,11 +1434,15 @@ function jsonBytes(value) {
 // Size of the request for this payload, in bytes.
 export const requestBytes = (payload) => jsonBytes(payload) + REQUEST_OVERHEAD_BYTES
 
-// Seconds of voice note that still fit in one request next to these attachments.
+const PATH_ALLOWANCE_BYTES = 300 // an uploaded file's storage path, not known until it has uploaded
+
+// Seconds of voice note that still fit in one request next to these attachments. Uploaded files
+// only add their path; ones still being prepared are counted once ready, failed ones don't go.
 export function voiceBudgetSeconds(attachments) {
   let used = REQUEST_OVERHEAD_BYTES
   for (const item of Array.isArray(attachments) ? attachments : []) {
-    if (item && item.status !== 'loading') used += jsonBytes(attachmentPayload(item)) + 1
+    if (!item || ['preparing', 'loading', 'error'].includes(item.status)) continue
+    used += jsonBytes(attachmentPayload(item)) + (item.kind === 'text' || item.dataUrl ? 1 : PATH_ALLOWANCE_BYTES)
   }
   const room = MAX_REQUEST_BYTES - used
   return Math.max(0, Math.min(MAX_VOICE_SECONDS, Math.floor(room / VOICE_BYTES_PER_SECOND)))
@@ -1191,13 +1473,6 @@ function deepLinks(actions) {
 
 const kindIcon = (kind) => (kind === 'image' ? 'image' : kind === 'pdf' ? 'fileText' : 'file')
 const kindName = (kind) => (kind === 'image' ? 'Photo' : kind === 'pdf' ? 'PDF' : 'Text')
-
-function formatBytes(bytes) {
-  const value = Number(bytes) || 0
-  if (value < 1000) return `${value} B`
-  if (value < 1_000_000) return `${Math.round(value / 1000)} KB`
-  return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, '')} MB`
-}
 
 // true / false for this device, null when it can't be told (no push support, dev build).
 async function devicePushStatus() {

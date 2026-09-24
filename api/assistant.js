@@ -1,11 +1,12 @@
 import { randomUUID } from 'crypto'
-import { getSupabase, readJsonBody, selectAll, verifyRequestToken, verifyTokenVersion } from './db.js'
+import { getSupabase, readJsonBody, selectAll, underLimit, verifyRequestToken, verifyTokenVersion } from './db.js'
 // Namespace import: reminderPreview is optional, so an older _reminders.js can't break this file.
 import * as reminderModule from './_reminders.js'
-import { DEFAULT_MODEL, filePart, imagePart, isReasoningModel, supportsVerbosity, textPart, transcribeAudio } from './_openai.js'
+import { DEFAULT_MODEL, filePart, imagePart, isReasoningModel, responsesJson, supportsVerbosity, textPart, transcribeAudio } from './_openai.js'
 import { mergeSettings, patchSettingsAtomic } from './_settings.js'
 import { resolveFriend, similarFriends } from './_people.js'
 import { FOOD_LOOKUP_TOOLS, FOOD_TOOL_DEFS, describeFoodAction, executeFoodTool, foodSnapshot, loadFoodData } from './_food-tools.js'
+import { UPLOAD_BUCKET } from './_uploads.js'
 // The gym modules are pure ESM shared with the app, so days, records and suggestions match the Gym page.
 import * as sched from '../src/lib/gym/schedule.js'
 import * as gymLib from '../src/lib/gym/library.js'
@@ -21,14 +22,14 @@ const REASONING_EFFORT = process.env.OPENAI_REASONING_EFFORT || 'low'
 const IS_REASONING_MODEL = isReasoningModel(OPENAI_MODEL)
 const SUPPORTS_VERBOSITY = supportsVerbosity(OPENAI_MODEL)
 
-const MAX_STORED_MESSAGES = 40 // kept in the database and shown in the chat
-const MAX_MODEL_MESSAGES = 20 // sent to the model each turn; durable facts live in memories
+const MAX_STORED_MESSAGES = 60 // kept in the database and shown in the chat; older ones are folded into a summary
+const MAX_MODEL_MESSAGES = 30 // sent to the model each turn (about 15 exchanges); older context lives in the summary and memories
 const MAX_TOOL_ROUNDS = 6
 const FOLLOWUP_BUDGET_MS = 80000 // no new model round after this (vercel.json maxDuration: 120)
 const RESPONSE_DEADLINE_MS = 110000 // a model call still running then is aborted, so the reply gets out
 const MAX_MESSAGE_CHARS = 4000
 // Attachments (photos, PDFs, text files). The phone downscales photos; Vercel caps bodies at 4.5 MB.
-const MAX_ATTACHMENTS = 6
+const MAX_ATTACHMENTS = 10
 const MAX_ATTACHMENT_TOTAL_BYTES = 4_200_000
 const MAX_ATTACHMENT_TEXT_CHARS = 60_000
 const ATTACHMENT_OUTPUT_TOKENS = 8000
@@ -181,8 +182,8 @@ function normalizeMessage(message) {
     : []
   const files = message.role === 'user' ? normalizeFiles(message.files) : []
   return {
-    role: message.role === 'assistant' ? 'assistant' : 'user',
-    content: typeof message.content === 'string' ? message.content : '',
+    role: message.role === 'assistant' ? 'assistant' : message.role === 'summary' ? 'summary' : 'user',
+    content: typeof message.content === 'string' ? (message.role === 'summary' ? truncate(message.content, SUMMARY_CHARS) : message.content) : '',
     createdAt: message.createdAt || nowIso(),
     ...(message.voice ? { voice: true } : {}),
     ...(Array.isArray(message.actions) ? { actions: normalizeActions(message.actions, 10) } : {}),
@@ -306,6 +307,8 @@ const LOOKUP_TOOLS = ['search', 'read_journal', 'get_weather', 'get_prayer_times
 const FOOD_TOOL_NAMES = new Set(FOOD_TOOL_DEFS.map((def) => def.name))
 // Everything else except ask_choice changes data, so it is staged when confirmations are on.
 const isWriteTool = (name) => name !== 'ask_choice' && !LOOKUP_TOOLS.includes(name)
+// Memory is saved at once, never behind a Yes/No card (it's low-risk and can be removed in the memory sheet).
+const INSTANT_TOOLS = new Set(['remember', 'forget'])
 // Results that show as action chips (and in the stored history): writes, plus failed lookups.
 const isActionResult = (result) => result.tool !== 'ask_choice' && (!LOOKUP_TOOLS.includes(result.tool) || !result.ok)
 
@@ -943,7 +946,7 @@ Attachments (photos, PDFs and text files in the user's message; the latest ones 
 
 Destructive actions (deleting a person, class, journal entry, note, routine, workout, catch-up, food entry, exercise, or a task forever) need the user's own words asking for it; say it can't be undone, and prefer archiving tasks.
 Settings: say what changed in words the user knows ("Accent is now Forest", "I'll ask before making changes").
-Memories: when the user shares a durable fact about themselves (preferences, family, routines, goals, health, work, school), save it with remember and mention it briefly. Don't save one-off chatter or things stored elsewhere (tasks, a person's facts). If a memory is wrong, forget it and remember the corrected version.
+Memories: remember saves at once (no Yes/No card). Whenever the user shares a durable fact about themselves (preferences, family, routines and schedules, goals, health and diet, work, school and courses, how they like things done), save it with remember in the same turn, without asking, and mention it in a few words. Also save durable facts you learn from their attachments (e.g. their program or term dates). Don't save one-off chatter or things stored elsewhere (tasks, a person's facts). If a memory is wrong or outdated, forget it and remember the corrected version. Use memories and the conversation summary to stay consistent across conversations.
 Weather and prayer times: call get_weather / get_prayer_times. If the location is unknown, ask the user to tap "Use my location" on the Today screen.
 Before replacing a long journal entry, read it with read_journal.
 
@@ -4221,6 +4224,58 @@ const proposalResults = (results) => results.map(({ label, tool: toolName, ok, m
 // still running, a retry after the phone dropped the connection, a second device) can't silently
 // overwrite each other. On a clash the stored history is read again and this turn merged into it.
 
+// ---- long conversations: the oldest messages are folded into one running summary (a hidden
+// 'summary' message at the start), so the model keeps the gist of everything said before.
+
+const SUMMARY_CHARS = 4000
+const FOLD_AT = MAX_STORED_MESSAGES - 4 // chat messages stored before folding kicks in
+const FOLD_COUNT = 20 // oldest messages folded each time
+
+const chatOnly = (messages) => messages.filter((message) => message.role !== 'summary')
+const summaryOf = (messages) => messages.find((message) => message.role === 'summary') || null
+
+// The summary (if any) first, then the newest chat messages.
+function capHistory(messages) {
+  const summary = summaryOf(messages)
+  return [...(summary ? [summary] : []), ...chatOnly(messages).slice(-MAX_STORED_MESSAGES)]
+}
+
+const SUMMARY_SCHEMA = { type: 'object', additionalProperties: false, required: ['summary'], properties: { summary: { type: 'string' } } }
+
+async function foldHistory(history, { userId, ctx, debug }) {
+  const chat = chatOnly(history)
+  if (chat.length < FOLD_AT) return history
+  // Never fold a message something still depends on: a pending plan, held-back changes, or files still in use.
+  let count = FOLD_COUNT
+  const busy = chat.findIndex((message) => message.proposal?.status === 'pending' || message.draft)
+  if (busy >= 0) count = Math.min(count, busy)
+  const carried = carriedIndex(chat)
+  if (carried >= 0) count = Math.min(count, carried)
+  if (count < 4) return history
+  const old = chat.slice(0, count)
+  const transcript = old.map((message) => `${message.role === 'user' ? 'User' : 'Assistant'} (${String(message.createdAt).slice(0, 10)}): ${historyContent(message, ctx)}`).join('\n').slice(-30000)
+  try {
+    const result = await responsesJson({
+      model: OPENAI_MODEL,
+      instructions: `You maintain a running summary of a personal assistant chat so the assistant stays consistent later. Merge the previous summary with the new messages into one summary of at most ${SUMMARY_CHARS - 500} characters: what the user asked for and why, decisions and preferences they stated, things that were done or declined (with dates), open questions or follow-ups, and anything they may refer back to. Plain sentences or short bullet lines, no headings. Use absolute dates (YYYY-MM-DD). Drop small talk.`,
+      content: `Previous summary:\n${summaryOf(history)?.content || '(none)'}\n\nNew messages to fold in:\n${transcript}`,
+      schema: SUMMARY_SCHEMA,
+      name: 'conversation_summary',
+      effort: 'minimal',
+      maxOutputTokens: 3000,
+      userId,
+      debug,
+    })
+    const content = truncate(String(result?.summary || '').trim(), SUMMARY_CHARS)
+    if (!content) return history
+    debug.push({ step: 'history.folded', messages: count })
+    return [{ role: 'summary', content, createdAt: old[old.length - 1].createdAt }, ...chat.slice(count)]
+  } catch (error) {
+    debug.push({ step: 'history.fold_failed', message: error?.message || String(error) })
+    return history
+  }
+}
+
 async function readConversation(supabase, userId) {
   const { data, error } = await supabase.from('assistant_conversations').select('messages, updated_at').eq('user_id', userId).maybeSingle()
   if (error) throw error
@@ -4229,7 +4284,7 @@ async function readConversation(supabase, userId) {
 
 // → { updatedAt } when written, or { conflict: true } when the row changed (or appeared) since `seen`.
 async function writeConversation(supabase, userId, { exists, seen, messages, fields = {} }) {
-  const payload = { messages: pruneFiles(messages.map(normalizeMessage).slice(-MAX_STORED_MESSAGES)), updated_at: nowIso(), ...fields }
+  const payload = { messages: pruneFiles(capHistory(messages.map(normalizeMessage))), updated_at: nowIso(), ...fields }
   if (!exists) {
     const { data, error } = await supabase.from('assistant_conversations').insert({ id: newId(), user_id: userId, ...payload }).select('updated_at')
     if (error?.code === '23505') return { conflict: true } // created meanwhile by another request
@@ -4321,7 +4376,7 @@ function base64Bytes(dataUrl) {
 }
 
 // body.attachments → [{ kind, name, dataUrl | text }], validated. Throws an error with an HTTP status.
-function readAttachments(raw) {
+function readAttachments(raw, userId) {
   if (raw === undefined || raw === null) return []
   if (!Array.isArray(raw)) throw httpError(400, 'Attachments must be a list.')
   if (raw.length > MAX_ATTACHMENTS) throw httpError(413, `Up to ${MAX_ATTACHMENTS} files per message.`)
@@ -4336,6 +4391,12 @@ function readAttachments(raw) {
       if (!text.trim()) throw httpError(400, `${name} is empty.`)
       total += Buffer.byteLength(text, 'utf8')
       list.push({ kind: 'text', name, text })
+      continue
+    }
+    // Uploaded straight to storage (see handleUpload): only the path travels through this function.
+    if (typeof item.path === 'string' && item.path) {
+      if (!ownsUploadPath(item.path, userId)) throw httpError(400, `${name} couldn’t be found. Attach it again.`)
+      list.push({ kind: item.kind, name, path: item.path })
       continue
     }
     const dataUrl = typeof item.dataUrl === 'string' ? item.dataUrl : ''
@@ -4369,6 +4430,10 @@ function normalizeFiles(raw) {
       list.push({ kind: 'text', name, text: item.text })
       continue
     }
+    if (typeof item.path === 'string' && /^[0-9a-f-]{36}\/[\w.-]+\/[\w.-]+$/i.test(item.path)) {
+      list.push({ kind: item.kind, name, path: item.path })
+      continue
+    }
     const dataUrl = typeof item.dataUrl === 'string' ? item.dataUrl : ''
     const valid = item.kind === 'image' ? /^data:image\/(jpeg|png|webp);base64,/i.test(dataUrl) : /^data:application\/pdf;base64,/i.test(dataUrl)
     if (!valid) continue
@@ -4399,9 +4464,65 @@ function pruneFiles(messages) {
   })
 }
 
+// ---- direct uploads (photos and PDFs up to 50 MB go from the phone straight to Supabase Storage,
+// around Vercel's 4.5 MB request limit; the model reads them through short-lived signed URLs)
+
+const UPLOAD_MAX_BYTES = { image: 15 * 1024 * 1024, pdf: 50 * 1024 * 1024 }
+const UPLOAD_TYPES = { 'image/jpeg': 'image', 'image/png': 'image', 'image/webp': 'image', 'application/pdf': 'pdf' }
+const SIGNED_URL_SECONDS = 2 * 60 * 60
+let bucketReady = false
+
+const ownsUploadPath = (path, userId) => typeof path === 'string' && path.startsWith(`${userId}/`) && !path.includes('..') && path.length < 300
+
+async function ensureUploadBucket(supabase) {
+  if (bucketReady) return
+  const { data, error } = await supabase.storage.getBucket(UPLOAD_BUCKET)
+  if (!data || error) {
+    const made = await supabase.storage.createBucket(UPLOAD_BUCKET, { public: false, fileSizeLimit: UPLOAD_MAX_BYTES.pdf })
+    if (made.error && !/exists/i.test(made.error.message || '')) throw made.error
+  }
+  bucketReady = true
+}
+
+// POST { action: 'upload', name, type, size } → { path, uploadUrl } for a direct PUT from the phone.
+async function handleUpload(supabase, userId, body) {
+  const kind = UPLOAD_TYPES[String(body.type || '').toLowerCase()]
+  const size = Number(body.size)
+  if (!kind) return { status: 400, body: { error: 'Only photos (JPEG, PNG, WebP) and PDFs can be uploaded.' } }
+  if (!Number.isFinite(size) || size <= 0) return { status: 400, body: { error: 'That file is empty.' } }
+  if (size > UPLOAD_MAX_BYTES[kind]) return { status: 413, body: { error: kind === 'pdf' ? 'PDFs can be up to 50 MB.' : 'Photos can be up to 15 MB.' } }
+  if (!(await underLimit(supabase, `upload:${userId}`, 200, 86400))) return { status: 429, body: { error: 'Too many uploads today. Try again tomorrow.' } }
+  const safeName = String(body.name || (kind === 'pdf' ? 'document.pdf' : 'photo.jpg')).normalize('NFKD').replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '').slice(-80) || 'file'
+  const path = `${userId}/${new Date().toISOString().slice(0, 10)}/${randomUUID()}-${safeName}`
+  try {
+    await ensureUploadBucket(supabase)
+    const { data, error } = await supabase.storage.from(UPLOAD_BUCKET).createSignedUploadUrl(path)
+    if (error || !data?.signedUrl) throw error || new Error('No upload URL')
+    return { status: 200, body: { path, uploadUrl: data.signedUrl } }
+  } catch (error) {
+    console.error('Upload URL failed:', error?.message || error)
+    return { status: 503, body: { error: 'Uploads aren’t available right now.', code: 'storage_unavailable' } }
+  }
+}
+
+// Gives every uploaded attachment a fresh signed URL the model can fetch (mutates the list).
+async function signAttachmentUrls(supabase, list) {
+  const uploaded = list.filter((item) => item.path && !item.url)
+  if (!uploaded.length) return
+  const { data, error } = await supabase.storage.from(UPLOAD_BUCKET).createSignedUrls(uploaded.map((item) => item.path), SIGNED_URL_SECONDS)
+  if (error) throw httpError(503, 'Couldn’t open the attached files. Please attach them again.')
+  uploaded.forEach((item, index) => {
+    const url = data?.[index]?.signedUrl
+    if (!url) throw httpError(410, `${item.name} is no longer available. Please attach it again.`)
+    item.url = url
+  })
+}
+
 // Images at 'high' detail (the phone already downscaled them), PDFs at 'low', text inline.
 function attachmentPart(attachment) {
-  if (attachment.kind === 'image') return imagePart(attachment.dataUrl, 'high')
+  if (attachment.kind === 'image') return imagePart(attachment.url || attachment.dataUrl, 'high')
+  // With a URL, OpenAI takes the name from the link and rejects a separate filename.
+  if (attachment.kind === 'pdf' && attachment.url) return { type: 'input_file', file_url: attachment.url }
   if (attachment.kind === 'pdf') return filePart(attachment.name, attachment.dataUrl, 'low')
   return textPart(`<file name="${attachment.name}">\n${attachment.text}\n</file>`)
 }
@@ -4520,7 +4641,7 @@ export default async function handler(req, res) {
     const supabase = getSupabase()
 
     // For a new message, start loading the planner data while the session and conversation load.
-    const dataPromise = req.method === 'POST' ? loadData(supabase, user.id) : null
+    const dataPromise = req.method === 'POST' && req.query?.upload !== '1' ? loadData(supabase, user.id) : null
     dataPromise?.catch(() => {}) // errors surface where it is awaited below
     const [account, conversation] = await Promise.all([
       verifyTokenVersion(supabase, user),
@@ -4530,11 +4651,11 @@ export default async function handler(req, res) {
     // If the history can't be read, stop: saving later would overwrite it with this one exchange.
     if (conversation.error) return fail(503, 'Couldn’t load your conversation. Please try again.')
     const record = conversation.data
-    const history = Array.isArray(record?.messages) ? record.messages.map(normalizeMessage).slice(-MAX_STORED_MESSAGES) : []
+    const history = Array.isArray(record?.messages) ? capHistory(record.messages.map(normalizeMessage)) : []
 
     if (req.method === 'GET') {
       const memories = await loadMemories(supabase, user.id)
-      return sendJson(res, 200, { messages: history.map(publicMessage), memories: memories || [], memoryEnabled: memories !== null })
+      return sendJson(res, 200, { messages: chatOnly(history).map(publicMessage), memories: memories || [], memoryEnabled: memories !== null })
     }
 
     if (req.method === 'DELETE') {
@@ -4553,6 +4674,10 @@ export default async function handler(req, res) {
     if (req.method !== 'POST') return sendJson(res, 405, { error: 'Unsupported method.' })
 
     const body = await readJsonBody(req)
+    if (body.action === 'upload') {
+      const upload = await handleUpload(supabase, user.id, body)
+      return sendJson(res, upload.status, upload.body)
+    }
 
     // body.stream: reply as newline-delimited JSON events (status, transcript, delta, action, staged,
     // proposal, choices, done) so the app can show progress and text as it arrives. Without it, one JSON response.
@@ -4574,7 +4699,7 @@ export default async function handler(req, res) {
     // A tapped quick-reply chip is the user's message.
     const rawText = typeof body.message === 'string' && body.message.trim() ? body.message : typeof body.choice === 'string' ? body.choice : ''
     if (rawText.length > MAX_MESSAGE_CHARS) return fail(413, `Messages can be up to ${MAX_MESSAGE_CHARS} characters.`)
-    const attachments = readAttachments(body.attachments)
+    const attachments = readAttachments(body.attachments, user.id)
     const confirm = isPlainObject(body.confirm) && ['yes', 'no'].includes(body.confirm.decision) ? body.confirm : null
     const pending = findPendingProposal(history)
 
@@ -4742,8 +4867,19 @@ export default async function handler(req, res) {
     const instructions = buildInstructions(buildSnapshot(data, ctx, user.username), { confirmMode })
     // The latest earlier attachment stays visible for follow-ups ("add it to my calendar"), unless this
     // message brings new ones.
-    const modelHistory = turnHistory.slice(-MAX_MODEL_MESSAGES)
-    const carried = attachments.length ? -1 : carriedIndex([...modelHistory, { role: 'user' }])
+    turnHistory = await foldHistory(turnHistory, { userId: user.id, ctx, debug })
+    const summaryText = summaryOf(turnHistory)?.content
+    const modelHistory = chatOnly(turnHistory).slice(-MAX_MODEL_MESSAGES)
+    let carried = attachments.length ? -1 : carriedIndex([...modelHistory, { role: 'user' }])
+    // Uploaded files are read through fresh signed URLs; a carried one that has since expired is left out.
+    await signAttachmentUrls(supabase, attachments)
+    if (carried >= 0) {
+      try {
+        await signAttachmentUrls(supabase, modelHistory[carried].files)
+      } catch {
+        carried = -1
+      }
+    }
     if (carried >= 0) notes.push(`The user's earlier ${modelHistory[carried].files.map((item) => `${ATTACHMENT_WORDS[item.kind]} "${item.name}"`).join(', ')} is still attached to their earlier message: use it to act on this reply.`)
     const developerNote = [
       `Current local time: ${ctx.weekday} ${ctx.localDate} ${ctx.localTime} (${ctx.timeZone}).`,
@@ -4753,6 +4889,7 @@ export default async function handler(req, res) {
       ...notes,
     ].filter(Boolean).join('\n')
     const input = [
+      ...(summaryText ? [{ role: 'developer', content: `Summary of the earlier conversation (those messages are no longer shown):\n${summaryText}` }] : []),
       ...modelHistory.map((item, index) => (index === carried
         ? { role: 'user', content: [textPart(historyContent(item, ctx, { visible: true }) || 'See attached.'), ...item.files.map(attachmentPart)] }
         : { role: item.role, content: historyContent(item, ctx) })),
@@ -4814,7 +4951,7 @@ export default async function handler(req, res) {
           roundStaged = false
           result = readChoice(args)
           if (result.ok) choice = result.choice // shown once the turn ends (see below)
-        } else if (confirmMode && isWriteTool(call.name)) {
+        } else if (confirmMode && isWriteTool(call.name) && !INSTANT_TOOLS.has(call.name)) {
           emit({ type: 'status', text: 'Getting that ready…' })
           result = await stageTool(supabase, user.id, call.name, args, data, ctx, stage)
           // A refused call's message is meant for the model (it fixes the call or asks): the app hides it.
