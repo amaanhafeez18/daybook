@@ -8,7 +8,7 @@ import TaskRow from '../components/TaskRow.jsx'
 import TaskSheet from '../components/TaskSheet.jsx'
 import { readPref, writePref } from '../lib/api.js'
 import { useData } from '../lib/store.js'
-import { classOver, classesOn, compareTasks, createTask, deleteTaskForever, friendStatus, lastContactMap, logContact, updateTask } from '../lib/planner.js'
+import { classOver, classesOn, compareTasks, createTask, deleteTaskForever, friendStatus, lastContactMap, updateTask } from '../lib/planner.js'
 import { addDaysISO, compareTimes, dueSentence, formatDateLong, formatDue, formatTime, greeting, parseQuickAdd, todayISO } from '../lib/dates.js'
 import { dailyForecast, describeWeather, prayerSchedule, upcomingHours, useLocation, useNow, usePrayerTimes, useWeather } from '../lib/environment.js'
 import { useActiveWorkout } from '../lib/gym/state.js'
@@ -16,6 +16,8 @@ import '../components/today.css'
 
 // The food card (AI estimate, review, recorder) loads as its own chunk so the first bundle stays small.
 const FoodQuickCard = lazy(() => import('../components/FoodQuickCard.jsx'))
+// "Talked" asks what you talked about with the People page's own sheet (loaded when first needed).
+const CatchUpSheet = lazy(() => import('./PeoplePage.jsx').then((module) => ({ default: module.CatchUpSheet })))
 
 const OVERDUE_SHOWN = 8
 const TOMORROW_SHOWN = 5
@@ -559,6 +561,9 @@ function PrayerCard({ coords, method, school }) {
 
 // Only what needs attention soon: birthdays within 3 days and the 2 most overdue catch-ups.
 function PeopleCard({ friends, contactLogs, today }) {
+  const [talkedTo, setTalkedTo] = useState(null)
+  const [sheetKey, setSheetKey] = useState(0)
+  const [sheetUsed, setSheetUsed] = useState(false)
   const lastById = useMemo(() => lastContactMap(contactLogs), [contactLogs])
   const people = useMemo(() => friends.map((friend) => ({ friend, status: friendStatus(friend, lastById, today) })), [friends, lastById, today])
   const birthdays = people
@@ -570,14 +575,24 @@ function PeopleCard({ friends, contactLogs, today }) {
     .sort((a, b) => (b.status.daysSince ?? 9999) - (a.status.daysSince ?? 9999))
     .slice(0, 2)
 
-  if (!birthdays.length && !catchUp.length) return null
+  // The sheet stays mounted after the first use so it can animate closed, even once the person is
+  // no longer due and the card has nothing left to show.
+  const sheet = sheetUsed && (
+    <Suspense fallback={null}>
+      <CatchUpSheet key={sheetKey} request={talkedTo} onClose={() => setTalkedTo(null)} />
+    </Suspense>
+  )
+  if (!birthdays.length && !catchUp.length) return sheet || null
 
+  // Asks what you talked about (saved with the catch-up itself); Skip still logs it.
   function markTalked(friend) {
-    const undo = logContact(friend.id)
-    toast(`Logged a catch-up with ${friend.name}`, { action: { label: 'Undo', onClick: undo } })
+    setSheetUsed(true)
+    setSheetKey((key) => key + 1)
+    setTalkedTo({ friendId: friend.id, mode: 'today' })
   }
 
   return (
+    <>
     <Card title="Your people" icon="people" action={<a className="link-btn" href="#/people">All people</a>}>
       <ul className="people-mini">
         {birthdays.map(({ friend, status }) => (
@@ -604,6 +619,8 @@ function PeopleCard({ friends, contactLogs, today }) {
         ))}
       </ul>
     </Card>
+    {sheet}
+    </>
   )
 }
 

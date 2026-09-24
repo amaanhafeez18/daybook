@@ -1,0 +1,581 @@
+/* First-run welcome tour (components/welcome/). Full screen on phones, a centred card on wide
+   screens. Colours come from the app's tokens, so it follows light/dark and every accent theme. */
+
+html.has-welcome { overflow: hidden; }
+
+.wl {
+  --wl-ease: var(--ios-sheet, cubic-bezier(0.32, 0.72, 0, 1));
+  --wl-spring: var(--spring, cubic-bezier(0.34, 1.56, 0.64, 1));
+  --wl-card: var(--card-bg, var(--surface));
+  position: fixed;
+  inset: 0;
+  z-index: 65; /* over sheets (60), under toasts (70) */
+  display: flex;
+  justify-content: center;
+  background: var(--bg);
+  color: var(--text);
+  animation: wl-in 0.5s var(--wl-ease) both;
+}
+.wl.is-closing { animation: wl-out 0.26s ease forwards; pointer-events: none; }
+@keyframes wl-in { from { opacity: 0; transform: translateY(24px) scale(0.98); } }
+@keyframes wl-out { to { opacity: 0; transform: scale(0.97); } }
+
+.wl-card {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  padding-top: var(--safe-top, env(safe-area-inset-top, 0px));
+  background: var(--bg);
+}
+/* A soft glow of the accent colour behind the top of every screen. */
+.wl-card::before {
+  content: '';
+  position: absolute;
+  inset: -20% -30% auto;
+  height: 70%;
+  z-index: -1;
+  background: radial-gradient(closest-side, var(--accent-soft), transparent), radial-gradient(40% 50% at 80% 30%, var(--accent-soft), transparent);
+  pointer-events: none;
+}
+
+/* ---- top bar: back · progress · skip ---- */
+.wl-top {
+  display: grid;
+  grid-template-columns: 48px 1fr 64px;
+  align-items: center;
+  gap: 8px;
+  padding: 4px max(8px, env(safe-area-inset-right, 0px)) 0 max(8px, env(safe-area-inset-left, 0px));
+  min-height: 52px;
+}
+.wl-icon-btn, .wl-skip {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--text);
+  transition: opacity 0.2s, background 0.15s;
+}
+.wl-icon-btn:disabled { opacity: 0; pointer-events: none; }
+.wl-skip { justify-self: end; padding: 0 12px; font-size: 16px; font-weight: 600; color: var(--text-2); }
+.wl-icon-btn:active, .wl-skip:active { background: var(--accent-soft); }
+.wl-progress { display: flex; gap: 5px; }
+.wl-progress span {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border-strong);
+  overflow: hidden;
+}
+.wl-progress span::after {
+  content: '';
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.45s var(--wl-ease);
+}
+.wl-progress span.is-on::after { transform: scaleX(1); }
+
+/* ---- slides ---- */
+.wl-viewport { position: relative; flex: 1; min-height: 0; overflow: hidden; touch-action: pan-y; }
+.wl-track { display: flex; height: 100%; transition: transform 0.55s var(--wl-ease); will-change: transform; }
+.wl-track.is-dragging { transition: none; }
+.wl-slide {
+  flex: 0 0 100%;
+  min-width: 0;
+  height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+  padding: 8px max(24px, env(safe-area-inset-right, 0px)) 12px max(24px, env(safe-area-inset-left, 0px));
+  transition: opacity 0.4s ease;
+}
+.wl-slide:not(.is-active) { opacity: 0.35; }
+.wl-slide-inner { margin-block: auto; display: flex; flex-direction: column; width: 100%; max-width: 420px; margin-inline: auto; }
+.wl-visual { display: grid; place-items: center; min-height: 200px; margin-bottom: 20px; }
+.wl-title {
+  margin: 0;
+  font-family: var(--font-display, var(--font));
+  font-size: clamp(26px, 7.4vw, 31px);
+  line-height: 1.12;
+  font-weight: 750;
+  letter-spacing: -0.025em;
+  text-align: center;
+  text-wrap: balance;
+}
+.wl-body {
+  margin: 10px auto 0;
+  max-width: 34ch;
+  font-size: 16px;
+  line-height: 1.45;
+  color: var(--text-2);
+  text-align: center;
+  text-wrap: pretty;
+}
+/* The visual and text of the screen arriving ease in, the visual with a little spring. */
+.wl-slide.is-active .wl-visual { animation: wl-pop 0.7s var(--wl-spring) both; }
+.wl-slide.is-active .wl-title, .wl-slide.is-active .wl-body { animation: wl-rise 0.5s var(--wl-ease) 0.06s both; }
+@keyframes wl-pop { from { opacity: 0; transform: scale(0.9) translateY(10px); } }
+@keyframes wl-rise { from { opacity: 0; transform: translateY(10px); } }
+
+/* ---- footer ---- */
+.wl-foot {
+  display: grid;
+  gap: 2px;
+  padding: 10px max(24px, env(safe-area-inset-right, 0px)) calc(10px + var(--safe-bottom, env(safe-area-inset-bottom, 0px))) max(24px, env(safe-area-inset-left, 0px));
+}
+.wl-foot > * { width: 100%; max-width: 420px; justify-self: center; }
+.wl-primary {
+  min-height: 54px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  box-shadow: 0 10px 24px -12px var(--accent), var(--shadow-sm);
+  transition: transform 0.2s var(--wl-spring), filter 0.15s, opacity 0.15s;
+}
+.wl-primary:active:not(:disabled) { transform: scale(0.97); }
+.wl-primary:disabled { opacity: 0.7; }
+.wl-primary .icon { transition: transform 0.25s var(--wl-spring); }
+.wl-primary:active .icon { transform: translateX(3px); }
+.wl-secondary, .wl-foot-note {
+  min-height: 44px;
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+}
+.wl-secondary { border-radius: 999px; color: var(--accent); font-weight: 600; }
+.wl-secondary:active { background: var(--accent-soft); }
+.wl-foot-note { color: var(--text-3); font-size: 14px; }
+
+/* ---- form bits ---- */
+.wl-form { display: flex; flex-direction: column; gap: 10px; margin-top: 22px; text-align: left; }
+.wl-label { font-size: 15px; font-weight: 650; color: var(--text); }
+.wl-label small { margin-left: 4px; font-size: 13px; font-weight: 500; color: var(--text-3); }
+.wl-card:focus { outline: none; }
+.wl-label + .wl-input { margin-top: -2px; }
+.wl-input {
+  width: 100%;
+  min-height: 50px;
+  padding: 0 16px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--wl-card);
+  color: var(--text);
+  font-size: 16px; /* 16px or iOS zooms in */
+  box-shadow: var(--shadow-sm);
+}
+.wl-input::placeholder { color: var(--text-3); }
+.wl-input:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+.wl-input + .wl-label { margin-top: 10px; }
+
+.wl-picks { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.wl-pick {
+  position: relative;
+  min-height: 60px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 16px;
+  border: 1.5px solid var(--border);
+  background: var(--wl-card);
+  color: var(--text);
+  text-align: left;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.2;
+  transition: border-color 0.15s, background 0.15s, transform 0.2s var(--wl-spring);
+}
+.wl-pick:active { transform: scale(0.97); }
+.wl-pick[aria-pressed='true'] { border-color: var(--accent); background: var(--accent-soft); }
+.wl-pick-icon {
+  position: relative;
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.wl-pick[aria-pressed='true'] .wl-pick-icon { background: var(--accent); color: var(--on-accent); }
+.wl-pick-check {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 17px;
+  height: 17px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--success);
+  color: #fff;
+  box-shadow: 0 0 0 2px var(--wl-card);
+  transform: scale(0);
+  transition: transform 0.25s var(--wl-spring);
+}
+.wl-pick[aria-pressed='true'] .wl-pick-check { transform: scale(1); }
+
+.wl-add { position: relative; display: flex; align-items: center; }
+.wl-add .wl-input { padding-right: 58px; }
+.wl-add-btn {
+  position: absolute;
+  right: 3px;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  background: var(--accent);
+  color: var(--on-accent);
+  transition: opacity 0.15s, transform 0.2s var(--wl-spring);
+}
+.wl-add-btn:disabled { opacity: 0.3; }
+.wl-add-btn:active:not(:disabled) { transform: scale(0.92); }
+.wl-ideas { display: flex; flex-wrap: wrap; gap: 8px; }
+.wl-idea {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 13px 0 11px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--wl-card);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  transition: transform 0.2s var(--wl-spring), background 0.15s;
+}
+.wl-idea .icon { color: var(--accent); }
+.wl-idea:active { transform: scale(0.95); background: var(--accent-soft); }
+.wl-added {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 44px;
+  margin: 0;
+  font-size: 15px;
+  color: var(--text);
+  animation: wl-rise 0.35s var(--wl-ease) both;
+}
+.wl-notify-on { margin-top: 16px; justify-content: center; }
+.wl-link { min-height: 44px; padding: 0 6px; color: var(--accent); font-weight: 650; font-size: 15px; }
+.wl-tick {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--success);
+  color: #fff;
+}
+
+.wl-panel {
+  margin: 18px 0 0;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--wl-card);
+  border: 1px solid var(--border);
+  font-size: 15px;
+  line-height: 1.4;
+  color: var(--text-2);
+  text-align: left;
+}
+.wl-panel strong { color: var(--text); font-weight: 650; }
+.wl-panel.is-error { color: var(--danger); background: var(--danger-soft); border-color: transparent; }
+.wl-steps { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 10px; }
+.wl-steps li { display: flex; align-items: flex-start; gap: 10px; color: var(--text); }
+.wl-step-n {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+}
+.wl-kbd {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px 1px 6px;
+  border-radius: 8px;
+  background: var(--surface-2, var(--bg));
+  font-weight: 600;
+  white-space: nowrap;
+  vertical-align: -3px;
+}
+.wl-kbd svg { color: var(--info, var(--accent)); }
+
+.wl-where { list-style: none; margin: 20px 0 0; padding: 2px 14px; display: grid; border-radius: 18px; background: var(--wl-card); border: 1px solid var(--border); text-align: left; }
+.wl-where li { display: flex; align-items: center; gap: 12px; min-height: 58px; padding: 8px 0; }
+.wl-where li + li { border-top: 1px solid var(--border); }
+
+/* ---- shared mock-up parts ---- */
+.wl-badge {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.wl-row-text { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
+.wl-row-text strong { font-size: 15px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wl-where .wl-row-text strong { white-space: normal; }
+.wl-row-text small { font-size: 13px; color: var(--text-2); }
+.wl-face {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #5B9BD5;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  border: 2px solid var(--wl-card);
+}
+.wl-face.is-2 { background: #E0708C; }
+.wl-face.is-3 { background: #7BAF6E; }
+
+/* Welcome: the brand mark with a few things orbiting it. */
+.wl-hero { position: relative; width: 300px; max-width: 100%; height: 250px; display: grid; place-items: center; }
+.wl-hero-ring { position: absolute; width: 150px; height: 150px; border-radius: 50%; border: 1.5px solid var(--accent-soft); background: radial-gradient(closest-side, var(--accent-soft), transparent); }
+.wl-hero-ring.is-outer { width: 236px; height: 236px; background: none; border-style: dashed; opacity: 0.8; }
+.wl-hero-mark { position: relative; filter: drop-shadow(0 14px 24px rgba(20, 30, 50, 0.25)); }
+.wl-hero-mark .brand-mark { display: block; border-radius: 26px; }
+.wl-float {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: var(--wl-card);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-md);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  animation: wl-bob 5s ease-in-out infinite;
+}
+.wl-float .icon { color: var(--accent); }
+.wl-float.is-a { top: 18px; left: 0; }
+.wl-float.is-b { top: 34px; right: -4px; animation-delay: -1.5s; }
+.wl-float.is-c { bottom: 22px; left: 8px; animation-delay: -3s; }
+.wl-float.is-d { bottom: 40px; right: 18px; width: 44px; height: 44px; padding: 0; justify-content: center; background: var(--accent); color: var(--on-accent); border-color: transparent; animation-delay: -2.2s; }
+.wl-float.is-d .icon { color: inherit; }
+@keyframes wl-bob { 50% { transform: translateY(-7px); } }
+
+/* Today: a card like the real one. */
+.wl-phone {
+  width: 100%;
+  max-width: 330px;
+  padding: 14px;
+  border-radius: 24px;
+  background: var(--wl-card);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  text-align: left;
+}
+.wl-today-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 2px 2px 10px; }
+.wl-today-head > span:first-child { display: flex; flex-direction: column; min-width: 0; }
+.wl-today-head small { font-size: 12px; font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent); }
+.wl-today-head strong { font-size: 19px; font-weight: 750; letter-spacing: -0.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wl-weather { flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px; padding: 4px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--text); font-size: 13px; font-weight: 650; }
+.wl-weather .icon { color: var(--warning); }
+.wl-rows { list-style: none; margin: 0; padding: 0; display: grid; }
+.wl-row { display: flex; align-items: center; gap: 11px; min-height: 46px; padding: 3px 2px; }
+.wl-row + .wl-row { border-top: 1px solid var(--border); }
+.wl-row.is-fresh { animation: wl-fresh 0.6s var(--wl-spring) both; }
+.wl-row.is-fresh .wl-row-text strong { color: var(--accent); }
+.wl-row.is-done .wl-row-text strong { color: var(--text-3); text-decoration: line-through; }
+@keyframes wl-fresh { from { opacity: 0; transform: translateY(-8px) scale(0.96); } }
+.wl-check {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  margin: 0 5px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong);
+  color: var(--on-accent);
+}
+.wl-row.is-done .wl-check { background: var(--accent); border-color: var(--accent); }
+
+/* Assistant: a short chat with the confirm card. */
+.wl-chat { width: 100%; max-width: 330px; display: flex; flex-direction: column; gap: 8px; text-align: left; }
+.wl-bubble { max-width: 82%; padding: 10px 14px; border-radius: 20px; font-size: 15px; line-height: 1.35; }
+.wl-bubble.is-me { align-self: flex-end; background: var(--accent); color: var(--on-accent); border-bottom-right-radius: 6px; }
+.wl-bubble.is-ai { align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; background: var(--wl-card); border: 1px solid var(--border); border-bottom-left-radius: 6px; }
+.wl-ai-mark { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 7px; background: var(--accent-soft); color: var(--accent); }
+.wl-proposal { display: grid; gap: 10px; padding: 12px; border-radius: 18px; background: var(--wl-card); border: 1px solid var(--border); box-shadow: var(--shadow-md); }
+.wl-proposal-row { display: flex; align-items: center; gap: 10px; }
+.wl-proposal-row .wl-row-text small { white-space: normal; }
+.wl-proposal-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.wl-proposal-actions span { min-height: 36px; display: grid; place-items: center; border-radius: 999px; background: var(--surface-2, var(--bg)); font-size: 14px; font-weight: 650; }
+.wl-proposal-actions .is-yes { background: var(--accent); color: var(--on-accent); }
+.wl-composer { display: flex; align-items: center; justify-content: space-between; min-height: 44px; margin-top: 4px; padding: 0 6px 0 16px; border-radius: 999px; background: var(--wl-card); border: 1px solid var(--border); color: var(--text-3); font-size: 15px; }
+.wl-mic { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 50%; background: var(--accent-soft); color: var(--accent); }
+.wl-slide.is-active .wl-chat > * { animation: wl-rise 0.45s var(--wl-ease) both; }
+.wl-slide.is-active .wl-chat > :nth-child(2) { animation-delay: 0.35s; }
+.wl-slide.is-active .wl-chat > :nth-child(3) { animation-delay: 0.65s; }
+.wl-slide.is-active .wl-chat > :nth-child(4) { animation-delay: 0.9s; }
+
+/* More: a tile per picked extra. */
+.wl-tiles { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; text-align: left; }
+.wl-tile {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: 2px;
+  padding: 12px;
+  border-radius: 20px;
+  background: var(--wl-card);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.wl-tile strong { font-size: 15px; font-weight: 700; }
+.wl-tile small { font-size: 13px; line-height: 1.3; color: var(--text-2); }
+.wl-tile-art { height: 48px; display: flex; align-items: center; margin-bottom: 4px; }
+/* An odd one out (or a single pick) takes the full width, art beside the words. */
+.wl-tile:last-child:nth-child(odd) { grid-column: 1 / -1; grid-template-columns: auto minmax(0, 1fr); column-gap: 14px; align-items: center; }
+.wl-tile:last-child:nth-child(odd) .wl-tile-art { grid-row: span 2; margin: 0; }
+.wl-tile:last-child:nth-child(odd) strong { align-self: end; }
+.wl-tile:last-child:nth-child(odd) small { align-self: start; }
+.wl-slide.is-active .wl-tile { animation: wl-pop 0.6s var(--wl-spring) both; }
+.wl-slide.is-active .wl-tile:nth-child(2) { animation-delay: 0.08s; }
+.wl-slide.is-active .wl-tile:nth-child(3) { animation-delay: 0.16s; }
+.wl-slide.is-active .wl-tile:nth-child(4) { animation-delay: 0.24s; }
+.wl-slide.is-active .wl-tile:nth-child(5) { animation-delay: 0.32s; }
+.wl-art-week { display: flex; gap: 4px; }
+.wl-art-week > span { display: grid; gap: 3px; justify-items: center; }
+.wl-art-week small { font-size: 10px; font-weight: 700; color: var(--text-3); }
+.wl-art-week i { width: 15px; height: 11px; border-radius: 4px; background: var(--surface-2, var(--border)); }
+.wl-art-week i.is-on { background: var(--accent); }
+.wl-art-faces { display: flex; align-items: center; }
+.wl-art-faces .wl-face + .wl-face { margin-left: -8px; }
+.wl-art-faces em { margin-left: 8px; padding: 3px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 12px; font-style: normal; font-weight: 700; }
+.wl-art-streak { display: flex; gap: 3px; }
+.wl-art-streak span { width: 17px; height: 17px; display: grid; place-items: center; border-radius: 50%; background: var(--surface-2, var(--border)); color: var(--text-3); font-size: 10px; font-weight: 700; }
+.wl-art-streak span.is-on { background: var(--accent); color: var(--on-accent); }
+.wl-art-ring { position: relative; width: 54px; height: 54px; display: grid; place-items: center; }
+.wl-art-ring svg { position: absolute; inset: 0; transform: rotate(-90deg); }
+.wl-art-ring circle { fill: none; stroke: var(--surface-2, var(--border)); stroke-width: 4; }
+.wl-art-ring circle.is-fill { stroke: var(--accent); stroke-linecap: round; stroke-dasharray: 62 100; }
+.wl-slide.is-active .wl-art-ring circle.is-fill { animation: wl-ring 1s var(--wl-ease) 0.3s both; }
+@keyframes wl-ring { from { stroke-dasharray: 0 100; } }
+.wl-art-ring small { position: relative; font-size: 10px; line-height: 1.1; font-weight: 700; text-align: center; }
+.wl-art-moods { display: flex; gap: 4px; }
+.wl-art-moods span { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; font-size: 17px; opacity: 0.45; }
+.wl-art-moods span.is-on { opacity: 1; background: var(--accent-soft); transform: scale(1.12); }
+
+/* Notifications: two lock-screen banners. */
+.wl-notes { width: 100%; max-width: 330px; display: grid; gap: 8px; text-align: left; }
+.wl-note { display: flex; align-items: center; gap: 10px; padding: 11px 12px; border-radius: 20px; background: var(--wl-card); border: 1px solid var(--border); box-shadow: var(--shadow-md); font-size: 14px; line-height: 1.3; color: var(--text); }
+.wl-note .brand-mark { flex-shrink: 0; border-radius: 9px; }
+.wl-note.is-2 { margin-inline: 10px; opacity: 0.92; }
+.wl-note-text { flex: 1; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.wl-note-text > span { display: flex; justify-content: space-between; gap: 8px; }
+.wl-note-text strong { font-weight: 650; }
+.wl-note-text small { color: var(--text-3); font-size: 12px; }
+.wl-slide.is-active .wl-note { animation: wl-drop 0.6s var(--wl-spring) both; }
+.wl-slide.is-active .wl-note.is-2 { animation-delay: 0.25s; }
+@keyframes wl-drop { from { opacity: 0; transform: translateY(-18px) scale(0.96); } }
+
+/* Done: a check with a little burst. */
+.wl-done { position: relative; width: 140px; height: 140px; display: grid; place-items: center; }
+.wl-done-badge { width: 96px; height: 96px; display: grid; place-items: center; border-radius: 50%; background: var(--accent); color: var(--on-accent); box-shadow: 0 16px 36px -14px var(--accent); }
+.wl-done i {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  margin: -4px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.6;
+  transform: rotate(calc(var(--i) * 45deg)) translateY(-64px);
+}
+.wl-done i:nth-child(even) { width: 6px; height: 6px; margin: -3px; background: var(--success); }
+.wl-slide.is-active .wl-done i { animation: wl-burst 0.8s var(--wl-ease) 0.15s both; }
+@keyframes wl-burst { from { opacity: 0; transform: rotate(calc(var(--i) * 45deg)) translateY(-30px) scale(0.4); } }
+
+/* ---- wide screens: a centred card over the app ---- */
+@media (min-width: 700px) and (min-height: 560px) {
+  .wl {
+    align-items: center;
+    padding: 24px;
+    background: var(--overlay);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+    backdrop-filter: blur(18px) saturate(140%);
+  }
+  .wl-card {
+    width: min(460px, 100%);
+    height: min(800px, 100%);
+    padding-top: 6px;
+    border-radius: 32px;
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-lg);
+  }
+  .wl-foot { padding-bottom: 14px; }
+  .wl-icon-btn:hover:not(:disabled), .wl-skip:hover, .wl-secondary:hover { background: var(--accent-soft); }
+  .wl-primary:hover:not(:disabled) { filter: brightness(1.06); }
+  .wl-pick:hover, .wl-idea:hover { border-color: var(--accent); }
+}
+
+/* Short phones (iPhone SE): tighter visuals so each screen fits without much scrolling. */
+@media (max-height: 700px) {
+  .wl-visual { min-height: 0; margin-bottom: 12px; }
+  .wl-hero { height: 200px; transform: scale(0.88); }
+  .wl-title { font-size: 25px; }
+  .wl-body { font-size: 15px; margin-top: 8px; }
+  .wl-form { margin-top: 14px; }
+  .wl-row { min-height: 42px; }
+  .wl-row:nth-child(n + 4) { display: none; }
+  .wl-foot-note { min-height: 28px; }
+  .wl-done { height: 112px; transform: scale(0.8); }
+  .wl-where li { min-height: 52px; padding: 6px 0; }
+}
+/* Shorter still (small Android phones, 360×640): two rows on the Today card, so its task box and
+   ideas stay above the button. */
+@media (max-height: 660px) {
+  .wl-row:nth-child(n + 3) { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wl, .wl.is-closing, .wl-float, .wl-slide.is-active *, .wl-row.is-fresh, .wl-added { animation: none !important; }
+  .wl-track, .wl-slide, .wl-progress span::after { transition: none; }
+}

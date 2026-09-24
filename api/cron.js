@@ -12,6 +12,15 @@ function missingTable(error) {
   return error.code === 'PGRST205' || error.code === '42P01' || /Could not find the table/i.test(error.message || '')
 }
 
+// Only the columns reminders use: this runs every minute, and whole rows would carry each person's
+// photo. A database without relationship / reminder_days yet falls back to '*'.
+async function friendsFor(supabase, userId) {
+  const query = (columns) => supabase.from('friends').select(columns).eq('user_id', userId).limit(1000)
+  const result = await query('id, name, birthday, relationship, reminder_days')
+  if (!result.error || !['42703', 'PGRST204'].includes(result.error.code)) return result
+  return query('*')
+}
+
 function sendJson(res, statusCode, payload) {
   res.statusCode = statusCode
   res.setHeader('Content-Type', 'application/json')
@@ -52,8 +61,7 @@ export default async function handler(req, res) {
           supabase.from('settings').select('value').eq('user_id', userId).order('created_at', { ascending: false }).limit(1),
           // Open tasks, plus recent done ones for the evening check-in's "3 of 4 done today".
           supabase.from('tasks').select('*').eq('user_id', userId).eq('archived', false).or(`done.eq.false,date.gte.${gymFrom}`).limit(1000),
-          // '*' so databases without relationship / reminder_days still work.
-          supabase.from('friends').select('*').eq('user_id', userId).limit(1000),
+          friendsFor(supabase, userId),
           supabase.from('classes').select('*').eq('user_id', userId).limit(200),
           supabase.from('contact_logs').select('friend_id, date').eq('user_id', userId).order('date', { ascending: false }).limit(1000),
           supabase.from('gym_sessions').select('id, date, routine_id').eq('user_id', userId).gte('date', gymFrom).order('date', { ascending: false }).limit(50),

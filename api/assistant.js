@@ -741,10 +741,19 @@ const tools = [
   })]),
 ]
 
+// People without their photo (a data URL the assistant never uses: it would only slow each message
+// down). A database missing one of these columns falls back to '*'.
+const FRIEND_COLUMNS = 'id, name, relationship, reminder_days, organization, note, birthday, current_status, facts, created_at'
+async function friendRows(supabase, userId) {
+  const query = (columns) => supabase.from('friends').select(columns).eq('user_id', userId).order('created_at', { ascending: false }).limit(500)
+  const result = await query(FRIEND_COLUMNS)
+  return result.error && ['42703', 'PGRST204'].includes(result.error.code) ? query('*') : result
+}
+
 async function loadData(supabase, userId) {
   const tables = ['tasks', 'events', 'friends', 'voice_notes', 'classes', 'journal_entries', 'settings']
   const [results, openTasks, contactLogs, gymSessions, bodyWeights, memories] = await Promise.all([
-    Promise.all(tables.map((table) => supabase.from(table).select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(500))),
+    Promise.all(tables.map((table) => (table === 'friends' ? friendRows(supabase, userId) : supabase.from(table).select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(500)))),
     // Every open task, however old, so the assistant can see and edit it.
     supabase.from('tasks').select('*').eq('user_id', userId).eq('done', false).eq('archived', false).order('created_at', { ascending: false }).limit(1000),
     // All of them: the last catch-up per person must be right. '*' so the optional note column
