@@ -6,7 +6,7 @@ import { toast } from '../../components/ui/feedback.jsx'
 import { AutoTextarea, Field } from '../../components/ui/primitives.jsx'
 import { formatDateShort, formatTime, isISODate, nowTimeHHMM } from '../../lib/dates.js'
 import { isBackfillWorkout, sessionVolume, sessionWorkingSets } from '../../lib/gym/stats.js'
-import { discardActive, finishActive, latestBodyWeight, newGymId, routineById, useBodyWeights, useGym, useGymSessions, useToday } from '../../lib/gym/state.js'
+import { discardActive, finishActive, latestBodyWeight, newGymId, routineById, updateActive, useBodyWeights, useGym, useGymSessions, useToday } from '../../lib/gym/state.js'
 import { formatVolume } from '../../lib/gym/units.js'
 import { navigate } from '../../lib/router.js'
 import { fillFromPlaceholder, missingKeys, normalizeSupersets, setTypeOf, trackingOf, volumeLookup, workoutPlaceholders } from './ExerciseLog.jsx'
@@ -197,6 +197,9 @@ export default function FinishSheet({ open, onClose, workout, onFinished }) {
     const value = event.target.value
     setForm((previous) => ({ ...previous, [key]: value }))
     if (errors[key]) setErrors((previous) => ({ ...previous, [key]: undefined }))
+    // The name and note live on the workout too (as the header's name field does), so "Keep
+    // logging" and then finishing later, or a reload, doesn't lose what was typed here.
+    if (key === 'name' || key === 'note') updateActive((current) => (current[key] === value ? current : { ...current, [key]: value }))
   }
 
   function choose(mark) {

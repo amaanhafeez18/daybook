@@ -68,7 +68,11 @@ function JournalEditor() {
   const [saveState, setSaveState] = useState('idle') // idle | pending | saved
   const timer = useRef(null)
   const pending = useRef(null)
-  const baseId = useRef(null) // id of the entry the draft was loaded from
+  const baseId = useRef(entry?.id || null) // id of the entry the draft was loaded from
+  // Remounts "Mood & title" (so it can open by itself) when an entry for the shown day comes from
+  // elsewhere — not when this editor's own autosave creates it: that would drop focus (and the
+  // keyboard) out of the title field mid-word.
+  const [extrasKey, setExtrasKey] = useState(0)
 
   // Show the entry for the selected date. Also picks up the entry when data arrives (or changes on
   // another device) — but never while the user has unsaved typing.
@@ -77,6 +81,7 @@ function JournalEditor() {
     const dateChanged = shownDate.current !== date
     shownDate.current = date
     if (!dateChanged && pending.current) return
+    if (!dateChanged && entry?.id && entry.id !== baseId.current) setExtrasKey((key) => key + 1)
     baseId.current = entry?.id || null
     setDraft({ title: entry?.title || '', body: entry?.body || '', mood: entry?.mood || '' })
     if (dateChanged) setSaveState('idle')
@@ -164,8 +169,8 @@ function JournalEditor() {
           <button type="button" className="icon-btn" onClick={() => goTo(addDaysISO(date, 1))} aria-label="Next day" disabled={date >= today}><Icon name="chevronRight" /></button>
         </div>
 
-        {/* Keyed by the day (and its entry), so a day that already has a mood or title opens it by itself. */}
-        <Disclosure key={`${date}:${entry?.id || ''}`} id="journal-extras" label="Mood & title" summary={extrasSummary} hasValues={extrasSet} className="journal-extras">
+        {/* Keyed by the day (and by entries arriving from elsewhere), so a day that already has a mood or title opens it by itself. */}
+        <Disclosure key={`${date}:${extrasKey}`} id="journal-extras" label="Mood & title" summary={extrasSummary} hasValues={extrasSet} className="journal-extras">
           <div className="mood-picker" role="radiogroup" aria-label="Mood">
             {MOODS.map((item) => (
               <button

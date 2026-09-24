@@ -9,7 +9,7 @@ import { deleteFavorite, rememberFoods, updateFavorite, useFood } from '../../li
 import { DetailTop, MigrationNote, SwipeRow } from './common.jsx'
 import { FoodGlyph, fmtSavedDay, hostOf, safeUrl } from './EstimateReview.jsx'
 import { quickLog } from './QuickAddBar.jsx'
-import { defaultMeal, energyNumber, entryName, fmtGrams, isNum, portionText, toNum, unitLabel } from './format.js'
+import { defaultMeal, energyNumber, energyText, entryName, fmtGrams, isNum, kcalFromText, portionText, toNum, unitLabel } from './format.js'
 
 // #/food/foods: "My foods" (settings.food.favorites) — foods saved with their exact numbers from a
 // nutrition label, a barcode, the web, a starred entry or typed in, which the estimate reuses when
@@ -127,8 +127,9 @@ function SavedRow({ item, unit, onEdit, onDelete, onLog }) {
   const portion = portionText(item)
   const badge = savedBadge(item)
   const day = fmtSavedDay(item.verifiedAt || item.updatedAt)
+  // Unknown macros read as '—', not as 0 g.
   const macros = [item.proteinG, item.carbsG, item.fatG].some(isNum)
-    ? `P ${fmtGrams(item.proteinG ?? 0)} · C ${fmtGrams(item.carbsG ?? 0)} · F ${fmtGrams(item.fatG ?? 0)}`
+    ? `P ${fmtGrams(item.proteinG)} · C ${fmtGrams(item.carbsG)} · F ${fmtGrams(item.fatG)}`
     : null
   return (
     <SwipeRow className="food-row" onDelete={onDelete}>
@@ -165,14 +166,13 @@ const numText = (value, dp = 1) => (isNum(value) ? String(Math.round(value * 10 
 const str = (value) => (typeof value === 'string' ? value : '')
 
 function formFrom(food, unit) {
-  const kcal = toNum(food?.calories)
   return {
     name: str(food?.name),
     brand: str(food?.brand),
     amount: numText(toNum(food?.amount), 2),
     unit: str(food?.unit),
     grams: numText(toNum(food?.grams)),
-    calories: kcal === null ? '' : String(Math.round(energyInUnit(kcal, unit))),
+    calories: energyText(toNum(food?.calories), unit),
     proteinG: numText(toNum(food?.proteinG)),
     carbsG: numText(toNum(food?.carbsG)),
     fatG: numText(toNum(food?.fatG)),
@@ -256,14 +256,14 @@ function SavedFoodSheet({ open, food, unit, onClose }) {
 
   function save() {
     if (!name || invalid || badBarcode) return
-    const typedKcal = number('calories')
     const values = {
       name,
       brand: form.brand.trim() || null,
       amount: number('amount'),
       unit: form.unit.trim() || null,
       grams: number('grams'),
-      calories: typedKcal === null ? null : Math.round(energyToKcal(typedKcal, unit) * 10) / 10,
+      // An untouched calories field keeps the stored kcal exactly (no kJ rounding drift).
+      calories: kcalFromText(form.calories, unit, editing ? toNum(food.calories) : null),
       proteinG: number('proteinG'),
       carbsG: number('carbsG'),
       fatG: number('fatG'),

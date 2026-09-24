@@ -247,7 +247,9 @@ const TIME_PREFIX = '(?:(?:at|by|around)\\s+|@\\s*)?'
 // "until 5pm", "from 3 to 5pm", "table for 8pm".
 const GUARD_WORDS = 'the|a|an|my|your|his|her|our|their|its|of|every|each|until|till|til|since|after|before|from|last|per|than|about|re|regarding'
 const GUARD_DATE = new RegExp(`(?:^|\\s)(?:${GUARD_WORDS})[\\s,;:–—-]*$`, 'i')
-const GUARD_TIME = new RegExp(`(?:^|\\s)(?:${GUARD_WORDS}|for|to|and|or|-)[\\s,;:–—-]*$`, 'i')
+// A time glued to a dash after another time is the end of a range ("3-5pm", "5pm-6pm"): the
+// title keeps the whole range rather than losing its start to a task at the end time.
+const GUARD_TIME = new RegExp(`(?:(?:^|\\s)(?:${GUARD_WORDS}|for|to|and|or|-)[\\s,;:–—-]*|(?:\\d|[ap]\\.?m\\.?)\\s*[-–—]\\s*)$`, 'i')
 
 const countValue = (word) => {
   const key = String(word).toLowerCase()
@@ -413,7 +415,8 @@ function parseOnce(text, now, allowWeak) {
   }
   if (!matched.length) return null
 
-  const title = text.slice(lo, hi).replace(/^[\s,;:–—-]+|[\s,;:–—-]+$/g, '')
+  // Trailing "(" / "[" (and leading ")" / "]") belonged to the bracketed phrase just removed.
+  const title = text.slice(lo, hi).replace(/^[\s,;:)\]–—-]+|[\s,;:(\[–—-]+$/g, '')
   if (!/[\p{L}\p{N}]/u.test(title)) return null
 
   let date = ''

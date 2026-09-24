@@ -99,7 +99,10 @@ export default function TaskSheet({ open, onClose, task: taskProp = null, defaul
     if (task) {
       // Keep the internal reminder marker if the user didn't add notes of their own.
       if (isReminderMarker(task.details) && !fields.details) fields.details = task.details
-      onSaved?.(updateTask(task.id, fields))
+      // Saved first, on its own line: `onSaved?.(updateTask(…))` would skip the update entirely
+      // whenever there is no onSaved (optional calls don't evaluate their arguments).
+      const saved = updateTask(task.id, fields)
+      onSaved?.(saved)
     } else {
       const created = createTask(fields)
       // A dated task may land out of sight (another day, group or page): say where it went.

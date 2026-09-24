@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Icon from '../../components/ui/Icon.jsx'
 import { IconButton } from '../../components/ui/primitives.jsx'
+import { clickEndsGesture } from '../../lib/food/gesture.js'
 import { useStore } from '../../lib/store.js'
 import { goBack } from '../gym/common.jsx'
 
@@ -82,7 +83,11 @@ export function SwipeRow({ as: Tag = 'li', className = '', onDelete, deleteLabel
   const rowRef = useRef(null)
   const slideRef = useRef(null)
   const drag = useRef(null)
-  const suppress = useRef(false)
+  // A swipe or press-and-hold just happened: { x, y, at } of its release. The click a mouse (or a
+  // held touch) sends for the same gesture is ignored; a touch swipe sends none, and the next real
+  // tap (e.g. on the Delete it revealed) must still work, so only a click at that spot, within a
+  // moment, counts as the gesture's own (clickEndsGesture).
+  const gesture = useRef(null)
   const longTimer = useRef(null)
   const endTimer = useRef(null)
   const [open, setOpen] = useState(false)
@@ -117,7 +122,7 @@ export function SwipeRow({ as: Tag = 'li', className = '', onDelete, deleteLabel
   }
 
   const onPointerDown = (event) => {
-    suppress.current = false
+    gesture.current = null
     if (event.pointerType === 'mouse' && event.button !== 0) return
     if (event.target.closest?.('.food-swipe-delete')) return
     drag.current = { id: event.pointerId, x: event.clientX, y: event.clientY, base: open ? -OPEN_X : 0, offset: null, active: false, width: rowRef.current?.offsetWidth || 320 }
@@ -125,8 +130,9 @@ export function SwipeRow({ as: Tag = 'li', className = '', onDelete, deleteLabel
     if (onLongPress && !open) {
       longTimer.current = setTimeout(() => {
         if (drag.current && !drag.current.active) {
+          const { x, y } = drag.current
           drag.current = null
-          suppress.current = true
+          gesture.current = { x, y, at: null } // stamped when the press is released
           onLongPress()
         }
       }, LONG_PRESS_MS)
@@ -163,12 +169,16 @@ export function SwipeRow({ as: Tag = 'li', className = '', onDelete, deleteLabel
     if (slideRef.current) slideRef.current.style.transform = `translateX(${d.offset}px)`
   }
 
-  const finish = (cancelled) => {
+  const finish = (cancelled, event) => {
     clearTimeout(longTimer.current)
+    const at = Number.isFinite(event?.timeStamp) ? event.timeStamp : performance.now()
     const d = drag.current
     drag.current = null
-    if (!d?.active) return
-    suppress.current = true
+    if (!d?.active) {
+      if (gesture.current && gesture.current.at === null) gesture.current = { ...gesture.current, at } // a press-and-hold released
+      return
+    }
+    gesture.current = { x: event?.clientX ?? d.x, y: event?.clientY ?? d.y, at }
     const offset = cancelled ? d.base : d.offset ?? d.base
     if (!cancelled && offset < -d.width * 0.55) {
       if (slideRef.current) {
@@ -185,8 +195,9 @@ export function SwipeRow({ as: Tag = 'li', className = '', onDelete, deleteLabel
   }
 
   const onClickCapture = (event) => {
-    if (suppress.current) {
-      suppress.current = false
+    const mark = gesture.current
+    gesture.current = null
+    if (clickEndsGesture(mark, event)) {
       event.preventDefault()
       event.stopPropagation()
       return
@@ -204,8 +215,8 @@ export function SwipeRow({ as: Tag = 'li', className = '', onDelete, deleteLabel
       className={`food-swipe${open ? ' is-open' : ''} ${className}`}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
-      onPointerUp={() => finish(false)}
-      onPointerCancel={() => finish(true)}
+      onPointerUp={(event) => finish(false, event)}
+      onPointerCancel={(event) => finish(true, event)}
       onClickCapture={onClickCapture}
       onContextMenu={onLongPress ? (event) => {
         event.preventDefault()

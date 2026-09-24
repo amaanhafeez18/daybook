@@ -741,7 +741,33 @@ describe('portion units', () => {
 })
 
 // Display helpers shared by the Food page (pure module).
-import { portionText } from '../src/pages/food/format.js'
+import { energyText, kcalFromText, portionText } from '../src/pages/food/format.js'
+
+describe('energy fields', () => {
+  test('energyText shows a whole number in the display unit', () => {
+    assert.equal(energyText(100, 'kcal'), '100')
+    assert.equal(energyText(100, 'kJ'), '418')
+    assert.equal(energyText(269.5, 'kcal'), '270')
+    assert.equal(energyText(null, 'kJ'), '')
+  })
+
+  test('kcalFromText converts typed values to 0.1 kcal', () => {
+    assert.equal(kcalFromText('95', 'kcal'), 95)
+    assert.equal(kcalFromText(' 1,5 ', 'kcal'), 1.5)
+    assert.equal(kcalFromText('418', 'kJ'), 99.9)
+    assert.equal(kcalFromText('', 'kcal'), null)
+    assert.equal(kcalFromText('abc', 'kcal', 100), null)
+  })
+
+  test('an untouched field keeps the stored kcal (no kJ round-trip drift)', () => {
+    for (const kcal of [100, 95, 269.5, 1.4]) assert.equal(kcalFromText(energyText(kcal, 'kJ'), 'kJ', kcal), kcal, `${kcal} kcal`)
+    assert.equal(kcalFromText('100', 'kcal', 100), 100)
+    // Edited text is what was typed, even when it is close to the stored value.
+    assert.equal(kcalFromText('419', 'kJ', 100), 100.1)
+    assert.equal(kcalFromText('101', 'kcal', 100), 101)
+    assert.equal(kcalFromText('418', 'kJ', null), 99.9)
+  })
+})
 
 describe('portionText', () => {
   test('amount with unit, then grams', () => {

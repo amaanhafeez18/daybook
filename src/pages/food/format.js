@@ -1,4 +1,4 @@
-import { energyInUnit, entryMeal, mealForTime, unitFor } from '../../lib/food/nutrition.js'
+import { energyInUnit, energyToKcal, entryMeal, mealForTime, unitFor } from '../../lib/food/nutrition.js'
 import { nowTimeHHMM, parseISO, diffDays } from '../../lib/dates.js'
 import { LB } from '../../lib/gym/units.js'
 
@@ -45,6 +45,23 @@ export function energyNumber(kcal, unit) {
 export function fmtEnergy(kcal, unit) {
   const value = energyInUnit(kcal, unit)
   return value === null ? '—' : `${fmtInt(value)} ${unitLabel(unit)}`
+}
+
+// A stored kcal value as it is typed into a form: a whole number in the display unit ('' without one).
+export function energyText(kcal, unit) {
+  const value = energyInUnit(kcal, unit)
+  return value === null ? '' : String(Math.round(value))
+}
+
+// The kcal a typed energy value stands for (to 0.1 kcal); null when the field is blank or not a
+// number. With `original` (the stored kcal the field was filled from), text that still reads as
+// that value keeps it exactly: in kJ, 100 kcal shows as 418 kJ, which would otherwise come back as
+// 99.9 kcal every time the entry is opened and saved untouched.
+export function kcalFromText(text, unit, original = null) {
+  const typed = toNum(text)
+  if (typed === null) return null
+  if (isNum(original) && String(text).trim() === energyText(original, unit)) return original
+  return Math.round(energyToKcal(typed, unit) * 10) / 10
 }
 
 // Grams: whole numbers from 10 g, one decimal below.
