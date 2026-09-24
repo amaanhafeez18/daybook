@@ -18,6 +18,10 @@ import { resolveDay } from '../lib/gym/schedule.js'
 import '../components/assistant.css'
 
 const CHAT_CACHE = 'daybook.chat'
+// After this long without a message the page opens on the start screen (prompts) instead of in the
+// middle of the old conversation; "Continue chat" brings it back and nothing is deleted.
+const START_AFTER_MS = 3 * 60 * 60 * 1000
+const lastMessageAt = (list) => Date.parse(list[list.length - 1]?.createdAt || '') || 0
 const PROPOSAL_TTL_MS = 30 * 60 * 1000
 // A confirmed run takes seconds; one still "executing" after this was cut off (timeout, crash).
 const EXECUTING_STALE_MS = 3 * 60 * 1000
@@ -78,6 +82,11 @@ export default function AssistantPage({ displayName }) {
     return (Array.isArray(cached) ? cached : []).filter((message) => message && typeof message === 'object').map((message) => ({ ...message, id: nextId() }))
   })
   const [memories, setMemories] = useState([])
+  // The start screen (prompts) shows for an empty chat, when the last message is old, or on request.
+  const [startOpen, setStartOpen] = useState(() => {
+    const cached = readJson(CHAT_CACHE, [])
+    return !Array.isArray(cached) || !cached.length || Date.now() - lastMessageAt(cached) > START_AFTER_MS
+  })
   const [memoryEnabled, setMemoryEnabled] = useState(true)
   const [memoryOpen, setMemoryOpen] = useState(false)
   const [text, setText] = useState('')
@@ -164,12 +173,17 @@ export default function AssistantPage({ displayName }) {
 
   // While a reply streams in, jump rather than restart a smooth scroll on every token.
   useEffect(() => {
-    if (!followRef.current) return
+    // The start screen reads from the top; the chat follows its newest message.
+    if (startOpen) {
+      window.scrollTo({ top: 0 })
+      return undefined
+    }
+    if (!followRef.current) return undefined
     const behavior = jumpRef.current || busy ? 'auto' : 'smooth'
     jumpRef.current = false
     const frame = requestAnimationFrame(() => endRef.current?.scrollIntoView({ block: 'end', behavior }))
     return () => cancelAnimationFrame(frame)
-  }, [messages, busy])
+  }, [messages, busy, startOpen])
 
   // Cache the finished conversation so it shows instantly next time (no photos: names only).
   useEffect(() => {
@@ -382,6 +396,7 @@ export default function AssistantPage({ displayName }) {
   function submitText(event, preset) {
     event?.preventDefault()
     if (busyRef.current) return
+    setStartOpen(false)
     const fromComposer = preset == null
     const message = (preset ?? text).trim()
     const pending = fromComposer ? attachmentsRef.current : []
@@ -416,6 +431,7 @@ export default function AssistantPage({ displayName }) {
 
   // A finished voice recording, sent together with any photos or files waiting in the composer.
   async function sendAudio(audio, mimeType) {
+    setStartOpen(false)
     if (busyRef.current) throw new Error('Wait for the reply to finish, then send your voice message.')
     const ready = attachmentsRef.current.filter((item) => item.status === 'ready')
     const payload = { audio, mimeType, ...(ready.length ? { attachments: ready.map(attachmentPayload) } : {}) }
@@ -691,8 +707,17 @@ export default function AssistantPage({ displayName }) {
 
       <p className="sr-only" aria-live="polite" aria-atomic="true">{announcement}</p>
       <div className="chat">
-        {empty ? (
-          <Welcome displayName={displayName} busy={busy} onAsk={(prompt) => submitText(null, prompt)} onTimetable={openTimetablePicker} />
+        {empty || startOpen ? (
+          <Welcome
+            displayName={displayName}
+            busy={busy}
+            onAsk={(prompt) => submitText(null, prompt)}
+            onTimetable={openTimetablePicker}
+            messageCount={messages.length}
+            lastAt={empty ? 0 : lastMessageAt(messages)}
+            onContinue={() => { jumpRef.current = true; setStartOpen(false) }}
+            onNewChat={newChat}
+          />
         ) : messages.map((message, index) => {
           const isLast = index === lastIndex
           // Only a card this device is running spins; any other "executing" one was cut off.
@@ -724,6 +749,14 @@ export default function AssistantPage({ displayName }) {
       )}
 
       <div className="composer-dock">
+        {!empty && !startOpen && !showAskHint && (
+          <div className="asst-dock-row">
+            <button type="button" className="asst-start-btn" onClick={() => setStartOpen(true)} title="Back to the start screen with ready-made prompts">
+              <Icon name="sparkles" size={15} strokeWidth={2.2} />
+              <span>Prompts</span>
+            </button>
+          </div>
+        )}
         {showAskHint && (
           <div className="asst-tip" role="note">
             <button type="button" className="asst-tip-text" onClick={() => { dismissAskHint(); submitText(null, ASK_HINT_PROMPT) }} disabled={busy}>
@@ -760,11 +793,25 @@ export default function AssistantPage({ displayName }) {
 
 // ---- welcome and starter prompts ---------------------------------------------------------------
 
-function Welcome({ displayName, busy, onAsk, onTimetable }) {
+function Welcome({ displayName, busy, onAsk, onTimetable, messageCount = 0, lastAt = 0, onContinue, onNewChat }) {
   const suggestions = useSuggestions()
   const firstName = String(displayName || '').trim().split(/\s+/)[0]
+  const hasChat = messageCount > 0
   return (
     <div className="chat-welcome">
+      {hasChat && (
+        <div className="asst-resume">
+          <button type="button" className="asst-resume-main" onClick={onContinue}>
+            <Icon name="message" size={18} />
+            <span className="asst-resume-text">
+              <strong>Continue chat</strong>
+              <small>{messageCount} {messageCount === 1 ? 'message' : 'messages'}{lastAt ? ` · last ${agoText(lastAt)}` : ''}</small>
+            </span>
+            <Icon name="chevronRight" size={16} />
+          </button>
+          <button type="button" className="asst-resume-new" onClick={onNewChat} disabled={busy}>Start fresh</button>
+        </div>
+      )}
       <span className="assistant-avatar assistant-avatar-lg" aria-hidden="true"><Icon name="sparkles" size={30} /></span>
       <h2>{firstName ? `Hi ${firstName}, how can I help?` : 'How can I help?'}</h2>
       <p>Ask in plain words, type or talk: “move the dentist to Friday at 3”, “what’s on today?”, “had coffee with Ali”. I check with you before changing anything.</p>
@@ -782,6 +829,17 @@ function Welcome({ displayName, busy, onAsk, onTimetable }) {
       </button>
     </div>
   )
+}
+
+// "just now" / "35 min ago" / "3 h ago" / "yesterday" / "3 days ago", for the Continue chat line.
+function agoText(timestamp) {
+  const minutes = Math.max(0, Math.round((Date.now() - timestamp) / 60000))
+  if (minutes < 2) return 'just now'
+  if (minutes < 60) return `${minutes} min ago`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `${hours} h ago`
+  const days = Math.round(hours / 24)
+  return days === 1 ? 'yesterday' : `${days} days ago`
 }
 
 function useSuggestions() {
