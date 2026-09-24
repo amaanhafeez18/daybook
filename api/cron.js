@@ -1,6 +1,7 @@
 import { getSupabase } from './db.js'
 import { removeOldUploads } from './_uploads.js'
-import { combineReminders, dueNotifications, groupDue, pushConfigured, sendToUser } from './_reminders.js'
+import { combineReminders, dueNotifications, groupDue, localDateFor, notificationPrefs, pushConfigured, sendToUser } from './_reminders.js'
+import { fetchPrayerDay, savedLocation } from './_prayer.js'
 
 // Called every minute by the Supabase scheduler (pg_cron + pg_net), see
 // supabase/migrations/2026-09-24-notifications.sql. Protected by CRON_SECRET.
@@ -73,13 +74,25 @@ export default async function handler(req, res) {
         const gymMissing = gym.error && missingTable(gym.error)
         if (gym.error && !gymMissing) console.error('Gym sessions failed:', userId, gym.error.message)
 
+        const userSettings = settings.data?.[0]?.value || {}
+        // Prayer reminders need today's times for the saved location (cached per day in _prayer.js).
+        let prayerTimings = null
+        const location = savedLocation(userSettings)
+        if (notificationPrefs(userSettings).prayer && location) {
+          try {
+            prayerTimings = (await fetchPrayerDay(location, localDateFor(userSettings, now), userSettings)).times24h
+          } catch (error) {
+            console.error('Prayer times failed:', userId, error.message || error) // retried next minute
+          }
+        }
         const due = dueNotifications({
-          settings: settings.data?.[0]?.value || {},
+          settings: userSettings,
           tasks: tasks.data || [],
           friends: friends.data || [],
           contactLogs: logs.error ? null : (logs.data || []),
           classes: classes.data || [],
           gymSessions: gym.error ? (gymMissing ? [] : null) : (gym.data || []),
+          prayerTimings,
         }, now)
 
         for (const group of groupDue(due)) {

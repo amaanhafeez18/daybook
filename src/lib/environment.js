@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { readPref, writePref } from './api.js'
+import { getState, updateSettings, useStore } from './store.js'
 import { WEEKDAY_SHORT, todayISO, weekdayIndex } from './dates.js'
 
 const WEATHER_TTL_MS = 30 * 60 * 1000
@@ -29,9 +30,24 @@ export function useNow(intervalMs = 60000) {
 // Uses the last known position straight away and refreshes it quietly when permission is
 // already granted. Never shows the browser prompt unless the user taps the button.
 
+// The server needs the location too (prayer-time reminders), so it's kept in settings as well.
+function syncLocationToSettings({ lat, lon }) {
+  const { hydrated, data } = getState()
+  if (!hydrated) return // settings not in yet; the mount effect below tries again once they are
+  const saved = data.settings?.location
+  if (saved && Math.abs(saved.lat - lat) < 0.01 && Math.abs(saved.lon - lon) < 0.01) return
+  updateSettings({ location: { lat, lon } })
+}
+
 export function useLocation() {
   const [coords, setCoords] = useState(() => readPref('location', null))
   const [status, setStatus] = useState(() => (typeof navigator !== 'undefined' && navigator.geolocation ? 'idle' : 'unsupported'))
+  const hydrated = useStore((state) => state.hydrated)
+
+  // A location saved on this device before settings knew about it still reaches the server.
+  useEffect(() => {
+    if (hydrated && coords) syncLocationToSettings(coords)
+  }, [hydrated, coords])
 
   // `quiet` refreshes (on launch) don't surface a timeout/unavailable error; the user didn't ask.
   const request = useCallback((maxAge, quiet = false) => {
@@ -41,6 +57,7 @@ export function useLocation() {
       (position) => {
         const next = { lat: Number(position.coords.latitude.toFixed(3)), lon: Number(position.coords.longitude.toFixed(3)), savedAt: Date.now() }
         writePref('location', next)
+        syncLocationToSettings(next)
         setCoords(next)
         setStatus('granted')
       },

@@ -12,6 +12,9 @@ export const DEFAULT_NOTIFICATIONS = {
   people: true,
   gym: false, // workout reminder on gym days (a routine planned, not rest/skipped/shifted/done)
   gymTime: '17:00', // local time of the workout reminder
+  prayer: false, // prayer-time reminders (need the saved location)
+  prayerLead: 0, // minutes before each prayer
+  prayers: ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'],
   quietHours: false,
   quietStart: '22:00',
   quietEnd: '07:00',

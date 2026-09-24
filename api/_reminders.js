@@ -19,6 +19,9 @@ export const DEFAULT_NOTIFICATIONS = {
   people: true, // catch-ups and birthdays (in the summary, plus "Talk to…" task reminders)
   gym: false, // workout reminder on days the gym plan shows a routine (not rest, skipped, shifted or done)
   gymTime: '17:00', // local time of the workout reminder
+  prayer: false, // prayer-time reminders (needs settings.location; times from api/_prayer.js)
+  prayerLead: 0, // minutes before each prayer; 0 = at the time
+  prayers: ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'], // which prayers
   quietHours: false,
   quietStart: '22:00',
   quietEnd: '07:00',
@@ -32,6 +35,13 @@ const LATE_ALLDAY_DELAY_MS = 60 * 1000
 // LATE_ALLDAY_DELAY_MS ago holds back the others for up to this long, so they go out together.
 const LATE_ALLDAY_HOLD_MS = 5 * 60 * 1000
 export const LATE_ALLDAY_BATCH = 'late-allday'
+
+export const PRAYER_NAMES = ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha']
+
+// The user's local calendar date at `now` (for the day's prayer times).
+export function localDateFor(settings, now = Date.now()) {
+  return localNow(now, safeZone(settings?.timeZone || 'UTC')).date
+}
 
 export function notificationPrefs(settings) {
   return { ...DEFAULT_NOTIFICATIONS, ...(settings?.notifications || {}) }
@@ -442,7 +452,9 @@ function taskUrl(task) {
 // contactLogs: [{ friend_id, date }], or null when unavailable (falls back to "Talk to…" tasks).
 // gymSessions: gym session rows with at least { date } from the last few days, or null when
 // unavailable (gym reminders then wait for a later run within SEND_WINDOW_MS).
-export function dueNotifications({ settings, tasks, friends, contactLogs = null, classes, gymSessions = null }, now = Date.now()) {
+// prayerTimings: today's { Fajr: 'HH:MM', … } for the user's location (api/_prayer.js), or null when
+// unknown; prayer reminders ignore quiet hours (Fajr is early by nature).
+export function dueNotifications({ settings, tasks, friends, contactLogs = null, classes, gymSessions = null, prayerTimings = null }, now = Date.now()) {
   const prefs = notificationPrefs(settings)
   const timeZone = safeZone(settings?.timeZone || 'UTC')
   const today = localNow(now, timeZone).date
@@ -547,7 +559,26 @@ export function dueNotifications({ settings, tasks, friends, contactLogs = null,
     candidates.push(workoutReminder(workout, today, time, timeZone))
   }
 
-  const scheduled = candidates.map((item) => ({ ...item, fireAt: outsideQuietHours(item.fireAt, prefs, timeZone) }))
+  // Prayer reminders
+  if (prefs.prayer && isObject(prayerTimings)) {
+    const wanted = Array.isArray(prefs.prayers) && prefs.prayers.length ? prefs.prayers : PRAYER_NAMES
+    const lead = Number.isFinite(Number(prefs.prayerLead)) ? Math.min(120, Math.max(0, Math.round(Number(prefs.prayerLead)))) : 0
+    for (const name of PRAYER_NAMES) {
+      if (!wanted.includes(name) || !isTime(prayerTimings[name])) continue
+      const at = zonedToUtc(today, prayerTimings[name], timeZone)
+      candidates.push({
+        key: `prayer:${today}:${name}`,
+        fireAt: at - lead * 60000,
+        title: lead ? `${name} in ${lead} min` : `Time for ${name}`,
+        body: `${name} at ${formatTime(prayerTimings[name])}`,
+        url: '/#/today',
+        tag: `prayer-${name}`,
+        noQuiet: true,
+      })
+    }
+  }
+
+  const scheduled = candidates.map((item) => ({ ...item, fireAt: item.noQuiet ? item.fireAt : outsideQuietHours(item.fireAt, prefs, timeZone) }))
   // A late all-day reminder for a task added under a minute ago holds back the due ones for a little
   // while, so tasks added together are reminded together (api/cron.js sends a batch as one).
   const waiting = scheduled.some((item) => item.batch && item.fireAt > now && item.fireAt - now <= LATE_ALLDAY_DELAY_MS)

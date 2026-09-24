@@ -28,6 +28,8 @@ const WEB_HINTS = {
 
 const APPEARANCE_OPTIONS = APPEARANCES.map((item) => ({ ...item, icon: item.id === 'light' ? 'sun' : item.id === 'dark' ? 'moon' : 'settings' }))
 const ASR_OPTIONS = [{ id: 0, label: 'Standard' }, { id: 1, label: 'Hanafi' }]
+const PRAYER_NAMES = ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha']
+const PRAYER_LEADS = [{ value: 0, label: 'At the time' }, { value: 5, label: '5 minutes before' }, { value: 10, label: '10 minutes before' }, { value: 15, label: '15 minutes before' }, { value: 30, label: '30 minutes before' }]
 
 // #/settings/<id> opens Settings scrolled to that section (e.g. the prayer card's "Method" link).
 // 'security' is the Change password row inside Account & security.
@@ -554,6 +556,13 @@ function NotificationSettings({ settings }) {
   // The server only sends workout reminders once a gym schedule exists.
   const gymVersions = settings.gym?.schedule?.versions
   const hasGymPlan = Array.isArray(gymVersions) && gymVersions.length > 0
+  const hasLocation = Number.isFinite(Number(settings.location?.lat)) && Number.isFinite(Number(settings.location?.lon))
+  const prayers = Array.isArray(prefs.prayers) && prefs.prayers.length ? prefs.prayers : PRAYER_NAMES
+  const prayerLead = PRAYER_LEADS.some((option) => option.value === Number(prefs.prayerLead)) ? Number(prefs.prayerLead) : 0
+  const togglePrayer = (name) => {
+    const next = prayers.includes(name) ? prayers.filter((item) => item !== name) : PRAYER_NAMES.filter((item) => prayers.includes(item) || item === name)
+    if (next.length) set({ prayers: next })
+  }
   const allDayValue = prefs.allDayTime ? prefs.allDayMode : 'off'
   // The assistant can store any lead; show it rather than a wrong option.
   const leadOptions = LEAD_OPTIONS.filter((option) => option.value !== 1440)
@@ -610,6 +619,37 @@ function NotificationSettings({ settings }) {
         )}
       </div>
       <p className="set-footnote">Tasks with a time also get a reminder 15 minutes before, and people a nudge when a catch-up is due. Change these under Advanced.</p>
+
+      <div className="card set-list">
+        <div className="set-row is-switch">
+          <Switch label="Prayer reminders" description="Fajr, Dhuhr, Asr, Maghrib and Isha for your location" checked={!!prefs.prayer} onChange={(prayer) => set({ prayer })} />
+        </div>
+        {prefs.prayer && (
+          <>
+            {!hasLocation && (
+              <div className="set-row">
+                <span className="set-hint">Needs your location: tap “Use my location” on Today.</span>
+                <button type="button" className="link-btn" onClick={() => navigate('today')}>Today</button>
+              </div>
+            )}
+            <div className="set-row">
+              <label htmlFor="pref-prayer-lead">Remind me</label>
+              <select id="pref-prayer-lead" className="input" value={prayerLead} onChange={(event) => set({ prayerLead: Number(event.target.value) })}>
+                {PRAYER_LEADS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            </div>
+            <div className="set-row is-stacked">
+              <span className="set-label">Which prayers</span>
+              <div className="chip-row" role="group" aria-label="Which prayers">
+                {PRAYER_NAMES.map((name) => (
+                  <button key={name} type="button" className={`chip ${prayers.includes(name) ? 'is-active' : ''}`} aria-pressed={prayers.includes(name)} onClick={() => togglePrayer(name)}>{name}</button>
+                ))}
+              </div>
+            </div>
+            {prefs.quietHours && <p className="set-hint">Prayer reminders come even during quiet hours.</p>}
+          </>
+        )}
+      </div>
 
       <Disclosure id="settings-notifications-advanced" label="Advanced" summary={advanced.join(' · ')} hasValues={advancedCustom} className="set-disclosure">
         <div className="card set-list">
