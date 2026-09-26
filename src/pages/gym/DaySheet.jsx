@@ -99,7 +99,8 @@ function summarize(row, unit, distanceUnit) {
   } else if (isNum(first.durationSec) && first.durationSec > 0) {
     target = formatDuration(first.durationSec)
   } else if (isNum(first.distanceM) && first.distanceM > 0) {
-    target = formatDistance(first.distanceM, distanceUnit === 'mi' ? 'mi' : 'km')
+    // Carries (weight + distance) are short: metres or yards, like the Today tab and the log.
+    target = formatDistance(first.distanceM, row.tracking === 'weight_distance' ? (distanceUnit === 'mi' ? 'yd' : 'm') : distanceUnit === 'mi' ? 'mi' : 'km')
   }
   let text = target ? `${list.length} × ${target}` : `${list.length} set${list.length === 1 ? '' : 's'}`
   if (isNum(first.weightKg) && first.weightKg > 0) text += ` @ ${formatWeight(first.weightKg, unit)}`

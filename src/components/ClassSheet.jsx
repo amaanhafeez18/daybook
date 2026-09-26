@@ -5,7 +5,7 @@ import Disclosure from './ui/Disclosure.jsx'
 import { Button, Field } from './ui/primitives.jsx'
 import { toast } from './ui/feedback.jsx'
 import { classSchedule, deleteClass, saveClass } from '../lib/planner.js'
-import { formatDateShort, formatTime, timeToMinutes } from '../lib/dates.js'
+import { formatDateShort, formatTime, timeRangeMinutes } from '../lib/dates.js'
 import './class-sheet.css'
 
 // Add a class (item = {}) or edit one (item = the class record); item = null closes the sheet.
@@ -24,8 +24,8 @@ function toHHMM(minutes) {
 // may not be able to show; it is saved unchanged unless that day's times are edited.
 function splitRange(text) {
   const raw = String(text || '').trim()
-  const [start, end] = raw.split(/\s*[-–]\s*/)
-  return { start: toHHMM(timeToMinutes(start)), end: toHHMM(timeToMinutes(end)), raw }
+  const { start, end } = timeRangeMinutes(raw) // the same reader Today and the calendar use
+  return { start: toHHMM(start), end: toHHMM(end), raw }
 }
 
 let keyCounter = 0

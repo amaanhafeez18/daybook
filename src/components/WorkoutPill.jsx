@@ -15,7 +15,7 @@ import './gym-widget.css'
 
 // Gym views (#/gym/<view>) that show the pill; the others are the tab views, the workout itself
 // and the routine editor. A missing or unknown view is the Today tab, as in GymPage.
-const GYM_PILL_VIEWS = new Set(['session', 'exercise', 'stats'])
+const GYM_PILL_VIEWS = new Set(['session', 'exercise', 'stats', 'exercises'])
 const EDITING_CLASS = 'gym-editing'
 // Longer than this reads as a forgotten workout rather than a running clock.
 const LIVE_LIMIT_SEC = 6 * 60 * 60

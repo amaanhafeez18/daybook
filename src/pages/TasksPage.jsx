@@ -5,7 +5,7 @@ import { Button, EmptyState, Segmented, Skeleton } from '../components/ui/primit
 import { confirmAction, toast } from '../components/ui/feedback.jsx'
 import TaskRow from '../components/TaskRow.jsx'
 import TaskSheet from '../components/TaskSheet.jsx'
-import { useData } from '../lib/store.js'
+import { useData, useStore } from '../lib/store.js'
 import { archiveCompletedTasks, archiveTask, compareTasks, createTask, deleteTaskForever, restoreTask, unarchiveTasks, updateTask } from '../lib/planner.js'
 import { addDaysISO, dueSentence, formatDateShort, formatDue, parseQuickAdd, toISO } from '../lib/dates.js'
 import { useNow } from '../lib/environment.js'
@@ -72,6 +72,9 @@ export default function TasksPage({ loaded }) {
   }, [open, today, tomorrow, weekEnd])
 
   // ---- #/tasks/<id> -------------------------------------------------------------------------------
+  // A reminder tapped on a phone that hasn't synced since the task was made elsewhere: the cache
+  // doesn't have it yet, so "deleted" is only said once the server has answered this session.
+  const synced = useStore((state) => state.lastSyncedAt)
   useEffect(() => {
     const onHash = () => {
       const id = linkedTaskId()
@@ -89,11 +92,11 @@ export default function TasksPage({ loaded }) {
     if (task) {
       setSheet({ task, completeFirst: !task.done })
       setLinkedId(null)
-    } else if (loaded) {
+    } else if (synced) {
       toast('That task isn’t here any more — it may have been deleted.')
       setLinkedId(null)
     }
-  }, [linkedId, tasks, loaded])
+  }, [linkedId, tasks, synced])
 
   // ---- actions --------------------------------------------------------------------------------------
   function moveToToday(list) {

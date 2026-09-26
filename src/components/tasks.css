@@ -246,3 +246,7 @@
 .icon-btn.tk-arch-delete { position: relative; flex-shrink: 0; width: 40px; height: 40px; color: var(--text-2); }
 .icon-btn.tk-arch-delete::after { content: ''; position: absolute; inset: -4px; border-radius: 50%; }
 .tk-arch-more { display: flex; justify-content: center; padding: 6px 0; }
+
+/* The quick-add chips (30 px) keep their size; their touch targets are 44 px. */
+.tk-dock-chips .chip { position: relative; }
+.tk-dock-chips .chip::after { content: ''; position: absolute; inset: -7px 0; }
