@@ -2,6 +2,8 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 're
 import { createPortal } from 'react-dom'
 import Icon from '../ui/Icon.jsx'
 import { getState, updateSettings } from '../../lib/store.js'
+import { AREA_IDS, areaOn } from '../../lib/areas.js'
+import { accountIsEmpty } from './rules.js'
 import { createTask, deleteTaskForever } from '../../lib/planner.js'
 import { dueSentence, parseQuickAdd, todayISO } from '../../lib/dates.js'
 import { currentSubscription, enableNotifications, pushSupport } from '../../lib/notifications.js'
@@ -45,7 +47,12 @@ export default function WelcomeFlow({ user, onClose }) {
   // Their display name, or the username when it reads as a name ("Sarah", not "sk_2004"), so the
   // greetings in the tour don't address them by a login handle.
   const [name, setName] = useState(() => getState().data.settings?.displayName || (NAME_LIKE.test(user?.username || '') ? user.username : ''))
-  const [picks, setPicks] = useState(() => new Set(['tasks']))
+  // A new account starts with just tasks picked; the tour reopened from Settings starts from what
+  // is on now, so skipping through it changes nothing.
+  const [picks, setPicks] = useState(() => {
+    const { data } = getState()
+    return new Set(['tasks', ...AREA_IDS.filter((id) => !accountIsEmpty(data) && areaOn(data.settings, id))])
+  })
   const [added, setAdded] = useState([]) // tasks made on the Today screen, newest first
   const [draft, setDraft] = useState('')
   const [push, setPush] = useState(initialPush)
@@ -78,9 +85,21 @@ export default function WelcomeFlow({ user, onClose }) {
     updateSettings({ displayName: next })
   }
 
+  // The picks decide which areas show (lib/areas.js): People, Journal, Gym and Food that weren't
+  // picked stay out of the way until switched on in Settings → What you use. Only once the picks
+  // screen was seen; Skip on the first screen leaves everything on.
+  function saveAreas() {
+    if (index === 0) return
+    const current = getState().data.settings || {}
+    const next = Object.fromEntries(AREA_IDS.map((id) => [id, picks.has(id)]))
+    if (AREA_IDS.every((id) => areaOn(current, id) === next[id] && (current.areas?.[id] !== undefined || next[id]))) return
+    updateSettings({ areas: next })
+  }
+
   function finish(route) {
     if (closing) return
     saveName()
+    saveAreas()
     if (route) window.location.hash = `#/${route}`
     setClosing(true)
     closeTimer.current = setTimeout(onClose, reducedMotion() ? 0 : 260)
@@ -339,7 +358,7 @@ export default function WelcomeFlow({ user, onClose }) {
     },
     more: {
       title: 'Built around your routine',
-      body: 'What you picked each has a home of its own.',
+      body: picks.has('gym') || picks.has('food') ? 'Gym and Food have a space of their own, Health: switch at the top any time.' : 'What you picked each has a home of its own.',
       visual: <ExtrasVisual picks={picks} />,
       primary: { label: 'Continue', onClick: () => go(index + 1), next: true },
     },
@@ -469,12 +488,13 @@ function PushStatus({ state, error }) {
 }
 
 function WhereThings({ picks, wide }) {
-  const extras = [['journal', 'Journal'], ['gym', 'Gym'], ['food', 'Food']].filter(([id]) => picks.has(id)).map(([, label]) => label)
+  const health = [['gym', 'Gym'], ['food', 'Food']].filter(([id]) => picks.has(id)).map(([, label]) => label)
   const rows = [
-    { icon: 'tasks', title: 'Tasks, Calendar & People', text: `In the ${wide ? 'sidebar' : 'tab bar'}, with Today and the Assistant.` },
-    extras.length > 0 && { icon: picks.has('gym') ? 'dumbbell' : picks.has('food') ? 'utensils' : 'journal', title: extras.join(', ').replace(/, ([^,]*)$/, ' & $1'), text: wide ? 'Also in the sidebar.' : extras.length > 1 ? 'The icons at the top right.' : 'Its icon at the top right.' },
+    { icon: 'tasks', title: picks.has('people') ? 'Today, Tasks, Calendar & People' : 'Today, Tasks & Calendar', text: `In the ${wide ? 'sidebar' : 'tab bar'}, with the Assistant.` },
+    health.length > 0 && { icon: picks.has('gym') ? 'dumbbell' : 'utensils', title: health.join(' & '), text: wide ? 'Under Health in the sidebar.' : 'Tap Health at the top to switch; Plan brings you back.' },
+    picks.has('journal') && { icon: 'journal', title: 'Journal', text: wide ? 'In the sidebar.' : 'The book icon at the top right.' },
     picks.has('classes') && { icon: 'graduation', title: 'Classes', text: 'Add your timetable in Settings, or just tell the assistant.' },
-    { icon: 'settings', title: 'Settings', text: wide ? 'At the foot of the sidebar: themes, notifications and more.' : 'Tap your picture, top left: themes, notifications and more.' },
+    { icon: 'settings', title: 'Settings', text: `${wide ? 'At the foot of the sidebar' : 'Tap your picture, top left'}: themes, notifications and what you use.` },
   ].filter(Boolean)
   return (
     <ul className="wl-where">

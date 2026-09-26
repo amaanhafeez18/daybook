@@ -1,10 +1,9 @@
-import { Component, Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../components/ui/Icon.jsx'
 import Disclosure from '../components/ui/Disclosure.jsx'
 import { Avatar, Button, Card, Skeleton } from '../components/ui/primitives.jsx'
 import { toast } from '../components/ui/feedback.jsx'
 import ClassSheet from '../components/ClassSheet.jsx'
-import GymWidget from '../components/GymWidget.jsx'
 import TaskRow from '../components/TaskRow.jsx'
 import TaskSheet from '../components/TaskSheet.jsx'
 import { readPref, writePref } from '../lib/api.js'
@@ -12,11 +11,12 @@ import { useData } from '../lib/store.js'
 import { classOver, classesOn, compareTasks, createTask, deleteTaskForever, friendStatus, lastContactMap, updateTask } from '../lib/planner.js'
 import { addDaysISO, compareTimes, dueSentence, formatDateLong, formatDue, formatTime, greeting, parseQuickAdd, todayISO } from '../lib/dates.js'
 import { dailyForecast, describeWeather, prayerSchedule, upcomingHours, useLocation, useNow, usePrayerTimes, useWeather } from '../lib/environment.js'
-import { useActiveWorkout } from '../lib/gym/state.js'
+import CardBoundary, { CardSkeleton } from '../components/CardBoundary.jsx'
+import { useAreas } from '../lib/areas.js'
 import '../components/today.css'
 
-// The food card (AI estimate, review, recorder) loads as its own chunk so the first bundle stays small.
-const FoodQuickCard = lazy(() => import('../components/FoodQuickCard.jsx'))
+// The Health glance (gym + food state) loads as its own chunk so the first bundle stays small.
+const HealthGlance = lazy(() => import('../components/HealthGlance.jsx'))
 // "Talked" asks what you talked about with the People page's own sheet (loaded when first needed).
 const CatchUpSheet = lazy(() => import('./PeoplePage.jsx').then((module) => ({ default: module.CatchUpSheet })))
 
@@ -25,9 +25,10 @@ const TOMORROW_SHOWN = 5
 const PEOPLE_SHOWN = 3
 const DONE_LINGER_MS = 1600
 
-// Phones, top to bottom: [running workout], Today, Tomorrow, Gym, Food, Weather, Prayer, People.
-// From 1000px the first four form the main column and the rest the side column. Weather, Prayer
-// and People are one line each; their details open on a tap (remembered per device).
+// Phones, top to bottom: Today, Tomorrow, Health (one line each for the gym and food; the full
+// cards live on Health → Today), Weather, Prayer, People. From 1000px the first three form the
+// main column and the rest the side column. Weather, Prayer and People are one line each; their
+// details open on a tap (remembered per device). Areas turned off (lib/areas.js) don't appear.
 export default function TodayPage({ displayName, loaded }) {
   const tasks = useData('tasks')
   const friends = useData('friends')
@@ -38,7 +39,7 @@ export default function TodayPage({ displayName, loaded }) {
   const today = todayISO()
   const tomorrow = addDaysISO(today, 1)
   const location = useLocation()
-  const workout = useActiveWorkout()
+  const areas = useAreas()
   // null = closed; { task } edits a task; { defaults } adds one.
   const [sheet, setSheet] = useState(null)
   const [classSheet, setClassSheet] = useState(null)
@@ -60,21 +61,21 @@ export default function TodayPage({ displayName, loaded }) {
 
       <div className="today-grid">
         <div className="today-main">
-          {workout && <GymWidget today={today} loaded={loaded} />}
           <TodayCard tasks={active} classes={classes} today={today} now={now} loaded={loaded} onOpen={openTask} onOpenClass={openClass} />
           <TomorrowCard tasks={active} classes={classes} tomorrow={tomorrow} loaded={loaded} onOpen={openTask} onOpenClass={openClass} onAdd={() => setSheet({ defaults: { date: tomorrow } })} />
-          {!workout && <GymWidget today={today} loaded={loaded} />}
-          <CardBoundary>
-            <Suspense fallback={<FoodSkeleton />}>
-              <FoodQuickCard today={today} loaded={loaded} />
-            </Suspense>
-          </CardBoundary>
+          {(areas.gym || areas.food) && (
+            <CardBoundary>
+              <Suspense fallback={<CardSkeleton />}>
+                <HealthGlance today={today} areas={areas} loaded={loaded} />
+              </Suspense>
+            </CardBoundary>
+          )}
         </div>
 
         <div className="today-side">
           <WeatherCard location={location} today={today} />
           {settings?.showPrayerTimes !== false && <PrayerCard coords={location.coords} method={settings?.prayerMethod || 'auto'} school={settings?.prayerSchool || 0} />}
-          {loaded && <PeopleCard friends={friends} contactLogs={contactLogs} today={today} />}
+          {loaded && areas.people && <PeopleCard friends={friends} contactLogs={contactLogs} today={today} />}
         </div>
       </div>
 
@@ -343,37 +344,6 @@ function TomorrowCard({ tasks, classes, tomorrow, loaded, onOpen, onOpenClass, o
       )}
     </Card>
   )
-}
-
-// ---- Food --------------------------------------------------------------------------------------
-
-function FoodSkeleton() {
-  return (
-    <section className="card td-food-skel" aria-hidden="true">
-      <span className="skeleton td-skel-title" />
-      <span className="skeleton td-skel-pill" />
-    </section>
-  )
-}
-
-// A card that fails (or whose chunk can't load offline) disappears instead of taking Today with it.
-class CardBoundary extends Component {
-  constructor(props) {
-    super(props)
-    this.state = { failed: false }
-  }
-
-  static getDerivedStateFromError() {
-    return { failed: true }
-  }
-
-  componentDidCatch(error) {
-    console.error('Today card crashed:', error)
-  }
-
-  render() {
-    return this.state.failed ? null : this.props.children
-  }
 }
 
 // ---- Weather -----------------------------------------------------------------------------------

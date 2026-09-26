@@ -542,6 +542,11 @@ const tools = [
     prayerMethod: { type: 'string', enum: PRAYER_METHOD_IDS },
     prayerSchool: { type: 'integer', enum: [0, 1] },
     darkMode: { type: 'boolean', description: 'Deprecated; prefer appearance.' },
+    areas: {
+      type: 'object',
+      description: 'Which optional areas show in the app (true = on): people, journal, gym, food. Off hides the area from the tab bar and Today (Gym and Food form the Health space); nothing is deleted. Partial update.',
+      properties: { people: { type: 'boolean' }, journal: { type: 'boolean' }, gym: { type: 'boolean' }, food: { type: 'boolean' } },
+    },
     notifications: {
       type: 'object',
       description: 'Push-notification preferences (partial update). taskLead: minutes before timed tasks (0 at time, -1 off). allDayTime HH:MM or "" for no reminder on tasks without a time; allDayMode "day" or "before". dailySummary/overdue/people/quietHours booleans with dailySummaryTime, overdueTime, quietStart, quietEnd as HH:MM (dailySummary = the morning summary of the day; overdue = the evening check-in: a recap of today and a look at tomorrow; both come every day while on). gym/gymTime: workout reminder on planned workout days. prayer: prayer-time reminders (need the saved location; they ignore quiet hours), prayerLead minutes before (0 = at the time), prayers = which of Fajr, Dhuhr, Asr, Maghrib, Isha.',
@@ -1029,6 +1034,8 @@ function buildSnapshot(data, ctx, username) {
       assistantConfirm: data.settings.assistantConfirm === 'off' ? 'off' : 'all',
       assistantWeb: webSetting(data.settings),
       timeZone: data.settings.timeZone || ctx.timeZone,
+      // Optional areas switched off in Settings → What you use: hidden from the app, data kept.
+      areasOff: AREA_KEYS.filter((key) => data.settings.areas?.[key] === false),
       notifications: notificationPrefs(data.settings), // what the reminders actually use (defaults filled in)
     },
     gym: buildGymSnapshot(data, ctx),
@@ -1062,7 +1069,7 @@ const DIRECT_RULES = `Making changes (the user turned confirmations off): tools 
 function buildInstructions(snapshot, { confirmMode = true } = {}) {
   return `You are Daybook, a personal assistant built into the user's planner: a calm, capable "Jarvis". You know their tasks, calendar, classes, the people in their life, their journal and notes, their gym plan and workouts, their food log and goals, and facts they've asked you to remember — all in the snapshot below. Think about how things connect (a friend's birthday next week, a task that clashes with a class, someone they haven't talked to in a while, a workout day when protein is behind) and use that to be genuinely helpful.
 
-What you can do (with tools): tasks (add, edit, reschedule, complete, reopen, archive, restore, bulk changes, delete forever); calendar events; people (add, update, remove, log catch-ups with what you talked about, look up and remove catch-ups); classes; journal (read, write, append, set the title or mood, delete); notes; memories; search older history; per-task reminders and notification preferences (reminder timing, morning summary, evening check-in, people reminders, quiet hours, workout reminder, prayer reminders: on/off, minutes before, which prayers); every setting (appearance, accent colour, display name, prayer times card, method and Asr, and whether you ask before changes); the gym tracker (schedule: skip, shift, swap, move, realign, undo, rotation or weekly plan, deload weeks; log workouts with sets, a quick "I trained" or body weight; history and personal records; routines, custom exercises, per-exercise notes, rest and increments; gym settings); the food tracker (log food with your own calorie and macro estimates, look at a day or week, edit or delete entries, set or calculate goals, favourites, delete a weigh-in, display settings: kcal or kJ, the ring, nutrients shown, meal names, AI review); live weather and prayer times; and tap-to-answer questions (ask_choice). You cannot change the password or recovery question, log out, turn push notifications on or off, change the saved location, run the welcome tour, export CSV, or edit gym warm-up schemes, plates and bars: point the user to Settings (or "Use my location" on Today, Gym settings, Food settings) for those.
+What you can do (with tools): tasks (add, edit, reschedule, complete, reopen, archive, restore, bulk changes, delete forever); calendar events; people (add, update, remove, log catch-ups with what you talked about, look up and remove catch-ups); classes; journal (read, write, append, set the title or mood, delete); notes; memories; search older history; per-task reminders and notification preferences (reminder timing, morning summary, evening check-in, people reminders, quiet hours, workout reminder, prayer reminders: on/off, minutes before, which prayers); every setting (appearance, accent colour, display name, what they use (areas: people, journal, gym, food shown or hidden; settings.areasOff lists the hidden ones: if they ask for one of those, say it's turned off and offer to turn it on), prayer times card, method and Asr, and whether you ask before changes); the gym tracker (schedule: skip, shift, swap, move, realign, undo, rotation or weekly plan, deload weeks; log workouts with sets, a quick "I trained" or body weight; history and personal records; routines, custom exercises, per-exercise notes, rest and increments; gym settings); the food tracker (log food with your own calorie and macro estimates, look at a day or week, edit or delete entries, set or calculate goals, favourites, delete a weigh-in, display settings: kcal or kJ, the ring, nutrients shown, meal names, AI review); live weather and prayer times; and tap-to-answer questions (ask_choice). You cannot change the password or recovery question, log out, turn push notifications on or off, change the saved location, run the welcome tour, export CSV, or edit gym warm-up schemes, plates and bars: point the user to Settings (or "Use my location" on Today, Gym settings, Food settings) for those.
 
 ${confirmMode ? CONFIRM_RULES : DIRECT_RULES}
 
@@ -3463,6 +3470,7 @@ const NOTE_COLUMN_WARNING = 'the note wasn’t saved: the database needs the 202
 // ---- settings
 
 const PRAYER_METHOD_NAMES = { auto: 'automatic', 1: 'Karachi', 2: 'ISNA', 3: 'Muslim World League', 4: 'Umm al-Qura', 5: 'Egypt', 7: 'Tehran', 8: 'Gulf', 9: 'Kuwait', 10: 'Qatar', 11: 'Singapore', 12: 'France', 13: 'Turkey', 15: 'Moonsighting Committee', 16: 'Dubai', 17: 'Malaysia', 20: 'Indonesia' }
+const AREA_KEYS = ['people', 'journal', 'gym', 'food']
 const NOTIFICATION_KEYS = ['taskLead', 'allDayTime', 'allDayMode', 'dailySummary', 'dailySummaryTime', 'overdue', 'overdueTime', 'people', 'quietHours', 'quietStart', 'quietEnd', 'gym', 'gymTime', 'prayer', 'prayerLead', 'prayers']
 
 // update_settings arguments → { changes } to write, or { problem }. '' is kept, so a display name
@@ -3493,6 +3501,11 @@ function settingsChanges(args) {
   if (given('assistantWeb')) {
     if (!WEB_SETTINGS.includes(args.assistantWeb)) return { changes, problem: 'assistantWeb is "ask", "always" or "off".' }
     changes.assistantWeb = args.assistantWeb
+  }
+  if (isPlainObject(args.areas)) {
+    const next = {}
+    for (const key of AREA_KEYS) if (typeof args.areas[key] === 'boolean') next[key] = args.areas[key]
+    if (Object.keys(next).length) changes.areas = next // merges field by field, like notifications
   }
   if (isPlainObject(args.notifications)) {
     const next = {}
@@ -3617,6 +3630,7 @@ function settingsText(changes) {
   if (changes.prayerMethod) parts.push(`prayer method ${PRAYER_METHOD_NAMES[changes.prayerMethod] || changes.prayerMethod}`)
   if (changes.prayerSchool !== undefined) parts.push(`${changes.prayerSchool === 1 ? 'Hanafi' : 'standard'} Asr`)
   if (changes.assistantConfirm) parts.push(changes.assistantConfirm === 'off' ? 'the assistant makes changes without asking first' : 'the assistant asks before every change')
+  for (const [key, on] of Object.entries(changes.areas || {})) parts.push(`${capitalize(key)} ${on ? 'shown' : 'hidden'}`)
   const n = changes.notifications || {}
   if (n.taskLead !== undefined) parts.push(n.taskLead < 0 ? 'no reminders for timed tasks' : n.taskLead === 0 ? 'task reminders at the time' : `task reminders ${leadText(n.taskLead)} before`)
   if (n.allDayTime !== undefined) parts.push(n.allDayTime ? `reminders for tasks without a time at ${time12(n.allDayTime)}` : 'no reminders for tasks without a time')

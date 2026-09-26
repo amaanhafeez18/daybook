@@ -13,6 +13,8 @@ import { syncSubscription } from './lib/notifications.js'
 import { applyTheme } from './lib/theme.js'
 import { toISO } from './lib/dates.js'
 import { useNow } from './lib/environment.js'
+import { areasFrom, healthOn, useAreas } from './lib/areas.js'
+import { navigate } from './lib/router.js'
 import './components/today.css'
 import './components/shell.css'
 
@@ -25,6 +27,7 @@ const PAGE_LOADERS = {
   journal: () => import('./pages/JournalPage.jsx'),
   gym: () => import('./pages/GymPage.jsx'),
   food: () => import('./pages/FoodPage.jsx'),
+  health: () => import('./pages/HealthPage.jsx'),
   settings: () => import('./pages/SettingsPage.jsx'),
 }
 const TasksPage = lazy(PAGE_LOADERS.tasks)
@@ -34,28 +37,38 @@ const AssistantPage = lazy(PAGE_LOADERS.assistant)
 const JournalPage = lazy(PAGE_LOADERS.journal)
 const GymPage = lazy(PAGE_LOADERS.gym)
 const FoodPage = lazy(PAGE_LOADERS.food)
+const HealthPage = lazy(PAGE_LOADERS.health)
 const SettingsPage = lazy(PAGE_LOADERS.settings)
 // Warmed one by one once the first screen is up, so the first visit to a tab doesn't wait for its
 // code (it's precached by the service worker, so this costs no network). Most used first.
-const PREFETCH_ORDER = ['tasks', 'calendar', 'assistant', 'people', 'food', 'gym', 'journal']
+const PREFETCH_ORDER = ['tasks', 'calendar', 'assistant', 'people', 'health', 'food', 'gym', 'journal']
 
-// Phones: the five tabs sit in the bottom bar, the daily extras are top-bar icons and Settings is
-// the avatar on the left of the top bar. Desktop: tabs + extras in the sidebar, Settings at its foot.
-const TABS = [
+// Two spaces, each with its own tab bar on phones: Plan (Today, Tasks, Calendar, People, Assistant)
+// and Health (Today, Gym, Food, Assistant), switched with the pill in the top bar. The Journal is a
+// top-bar icon in Plan and Settings the avatar on the left. Areas turned off in Settings → "What you
+// use" (lib/areas.js) leave the bars; with Gym and Food both off there is no Health space and no
+// pill. Desktop: everything in the sidebar, grouped the same way, Settings at its foot.
+const PLAN_TABS = [
   { id: 'today', label: 'Today', icon: 'home' },
   { id: 'tasks', label: 'Tasks', icon: 'tasks' },
   { id: 'calendar', label: 'Calendar', icon: 'calendar' },
-  { id: 'people', label: 'People', icon: 'people' },
+  { id: 'people', label: 'People', icon: 'people', area: 'people' },
   { id: 'assistant', label: 'Assistant', icon: 'sparkles' },
 ]
-const EXTRAS = [
-  { id: 'journal', label: 'Journal', icon: 'journal' },
-  { id: 'gym', label: 'Gym', icon: 'dumbbell' },
-  { id: 'food', label: 'Food', icon: 'utensils' },
+const HEALTH_TABS = [
+  { id: 'health', label: 'Today', title: 'Health', icon: 'home' },
+  { id: 'gym', label: 'Gym', icon: 'dumbbell', area: 'gym' },
+  { id: 'food', label: 'Food', icon: 'utensils', area: 'food' },
+  { id: 'assistant', label: 'Assistant', icon: 'sparkles' },
 ]
+const EXTRAS = [{ id: 'journal', label: 'Journal', icon: 'journal', area: 'journal' }]
 const SETTINGS = { id: 'settings', label: 'Settings', icon: 'settings' }
-const PAGES = [...TABS, ...EXTRAS, SETTINGS]
+const PAGES = [...PLAN_TABS, ...HEALTH_TABS.filter((item) => item.id !== 'assistant'), ...EXTRAS, SETTINGS]
 const ROUTES = PAGES.map((item) => item.id)
+const SPACES = [{ id: 'plan', label: 'Plan', home: 'today' }, { id: 'health', label: 'Health', home: 'health' }]
+// The space a page belongs to; the Assistant and Settings stay in the space you came from.
+const SPACE_OF = { today: 'plan', tasks: 'plan', calendar: 'plan', people: 'plan', journal: 'plan', health: 'health', gym: 'health', food: 'health' }
+const pageOn = (areas) => (item) => !item.area || areas[item.area]
 const LEGACY_ROUTES = { summary: 'today', ai: 'assistant', friends: 'people' }
 
 // Tapping the link of the page already showing (same hash, so nothing would happen) scrolls it
@@ -169,6 +182,19 @@ function Shell({ user, onUserChange, onSignOut }) {
   // the user's data instead of loading placeholders. (Nothing is subscribed yet at this point.)
   useState(() => hydrateFromCache())
   const [route, setRoute] = useState(() => routeFromHash() || readPref('lastRoute', 'today'))
+  const areas = useAreas()
+  const health = healthOn(areas)
+  // Remembered so the Assistant and Settings keep the tab bar of the space you were in.
+  const [space, setSpace] = useState(() => SPACE_OF[route] || readPref('space', 'plan'))
+  useEffect(() => {
+    const next = SPACE_OF[route]
+    if (!next) return
+    setSpace(next)
+    writePref('space', next)
+    writePref(`space.${next}`, route) // the pill returns to the page you left
+  }, [route])
+  const spaceNow = SPACE_OF[route] || (health ? space : 'plan')
+  const tabs = (spaceNow === 'health' ? HEALTH_TABS : PLAN_TABS).filter(pageOn(areas))
   // Only the few settings the shell uses (not the whole object), and no sync state: saving then
   // doesn't re-render the open page (SyncStatus and SaveErrors below watch that themselves).
   const rawName = useStore((state) => state.data.settings?.displayName)
@@ -224,7 +250,8 @@ function Shell({ user, onUserChange, onSignOut }) {
   useEffect(() => {
     writePref('lastRoute', route)
     window.scrollTo({ top: 0 })
-    document.title = `${PAGES.find((item) => item.id === route)?.label || 'Daybook'} · Daybook`
+    const page = PAGES.find((item) => item.id === route)
+    document.title = `${page?.title || page?.label || 'Daybook'} · Daybook`
   }, [route])
 
   // iOS-style navigation bar: once the large page title scrolls away, a compact title appears.
@@ -247,13 +274,35 @@ function Shell({ user, onUserChange, onSignOut }) {
           <BrandMark size={30} />
           <span>Daybook</span>
         </div>
-        <ul className="nav-list">
-          {[...TABS, ...EXTRAS].map((item) => (
-            <li key={item.id} className={EXTRAS.includes(item) ? 'nav-extra' : undefined}>
+        <ul className="nav-list nav-tabs">
+          {tabs.map((item) => (
+            <li key={item.id}>
               <NavLink item={item} active={route === item.id} />
             </li>
           ))}
         </ul>
+        <div className="nav-groups">
+          {health && <p className="nav-group-title">Plan</p>}
+          <ul className="nav-list">
+            {[...PLAN_TABS, ...EXTRAS].filter(pageOn(areas)).map((item) => (
+              <li key={item.id}>
+                <NavLink item={item} active={route === item.id} />
+              </li>
+            ))}
+          </ul>
+          {health && (
+            <>
+              <p className="nav-group-title">Health</p>
+              <ul className="nav-list">
+                {HEALTH_TABS.filter((item) => item.id !== 'assistant').filter(pageOn(areas)).map((item) => (
+                  <li key={item.id}>
+                    <NavLink item={item} active={route === item.id} />
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
         <ul className="nav-list nav-secondary">
           <li>
             <NavLink item={SETTINGS} active={route === SETTINGS.id} />
@@ -262,7 +311,7 @@ function Shell({ user, onUserChange, onSignOut }) {
       </nav>
 
       <div className="shell-main">
-        <header className={`topbar ${scrolled ? 'is-scrolled' : ''}`}>
+        <header className={`topbar ${scrolled ? 'is-scrolled' : ''} ${health ? 'has-spaces' : ''}`}>
           <a
             href="#/settings"
             className={`topbar-brand td-avatar-btn ${route === 'settings' ? 'is-active' : ''}`}
@@ -273,11 +322,13 @@ function Shell({ user, onUserChange, onSignOut }) {
           >
             <Avatar name={displayName} size={32} />
           </a>
-          <span className="topbar-title" aria-hidden={!scrolled}>{routeLabel}</span>
+          {health
+            ? <SpaceSwitch space={spaceNow} areas={areas} />
+            : <span className="topbar-title" aria-hidden={!scrolled}>{routeLabel}</span>}
           <SyncStatus />
           <SaveErrors />
           <div className="topbar-actions">
-            {EXTRAS.map((item) => (
+            {spaceNow === 'plan' && EXTRAS.filter(pageOn(areas)).map((item) => (
               <a
                 key={item.id}
                 href={`#/${item.id}`}
@@ -305,6 +356,7 @@ function Shell({ user, onUserChange, onSignOut }) {
               {route === 'journal' && <JournalPage />}
               {route === 'gym' && <GymPage />}
               {route === 'food' && <FoodPage loaded={loaded} />}
+              {route === 'health' && <HealthPage loaded={loaded} />}
               {route === 'settings' && <SettingsPage user={user} onUserChange={onUserChange} onSignOut={onSignOut} />}
             </Suspense>
           </ErrorBoundary>
@@ -312,6 +364,33 @@ function Shell({ user, onUserChange, onSignOut }) {
         <WorkoutPill />
       </div>
       <Welcome user={user} />
+    </div>
+  )
+}
+
+// Plan | Health in the top bar. A tap goes back to the page you last had open in that space
+// (its Today the first time, or when that page's area has since been turned off).
+function SpaceSwitch({ space, areas }) {
+  const open = (item) => {
+    if (item.id === space) return
+    const last = readPref(`space.${item.id}`, item.home)
+    const page = PAGES.find((entry) => entry.id === last)
+    navigate(page && SPACE_OF[last] === item.id && pageOn(areas)(page) ? last : item.home)
+  }
+  return (
+    <div className="segmented topbar-spaces" role="tablist" aria-label="Plan or Health">
+      {SPACES.map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          role="tab"
+          aria-selected={space === item.id}
+          className={space === item.id ? 'is-active' : ''}
+          onClick={() => open(item)}
+        >
+          {item.label}
+        </button>
+      ))}
     </div>
   )
 }

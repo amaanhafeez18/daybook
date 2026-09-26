@@ -33,7 +33,7 @@ describe('welcome tour: when it shows', () => {
   })
 
   test('settings someone chose count as use; the ones the app writes itself do not', () => {
-    for (const settings of [{ displayName: 'Sam' }, { theme: 'lagoon' }, { gym: { routines: [] } }, { food: { goals: {} } }, { notifications: { dailySummary: false } }]) {
+    for (const settings of [{ displayName: 'Sam' }, { theme: 'lagoon' }, { areas: { gym: false } }, { gym: { routines: [] } }, { food: { goals: {} } }, { notifications: { dailySummary: false } }]) {
       assert.equal(welcomeDecision(loaded({ ...empty(), settings })), 'mark-done', JSON.stringify(settings))
     }
     assert.equal(welcomeDecision(loaded({ ...empty(), settings: { timeZone: 'Europe/London', displayName: '' } })), 'show')

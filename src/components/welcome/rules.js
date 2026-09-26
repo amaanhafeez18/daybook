@@ -8,7 +8,7 @@ const USED_LISTS = ['tasks', 'events', 'friends', 'contactLogs', 'classes', 'jou
 // Settings only a person sets (in Settings, the gym or food pages, or through the assistant), so
 // someone who has only set up a gym plan or food goals isn't greeted as new. Not every setting:
 // the app writes some itself for every account (the time zone, on the first load).
-const USED_SETTINGS = ['displayName', 'theme', 'appearance', 'darkMode', 'gym', 'food', 'notifications', 'assistantConfirm', 'assistantWeb', 'showPrayerTimes', 'prayerMethod', 'prayerSchool']
+const USED_SETTINGS = ['displayName', 'theme', 'appearance', 'darkMode', 'areas', 'gym', 'food', 'notifications', 'assistantConfirm', 'assistantWeb', 'showPrayerTimes', 'prayerMethod', 'prayerSchool']
 
 export function accountIsEmpty(data) {
   const settings = data?.settings && typeof data.settings === 'object' ? data.settings : {}

@@ -48,3 +48,29 @@
     pointer-events: none;
   }
 }
+
+/* ---- Plan | Health (App.jsx) ------------------------------------------------------------------
+   Phones: the pill sits in the middle of the top bar (in place of the compact scrolled title) and
+   the tab bar shows the current space's tabs. Desktop: the sidebar lists both spaces as groups. */
+.topbar .topbar-spaces {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  transform: translateX(-50%);
+  width: auto;
+  min-height: 34px;
+  padding: 3px;
+  gap: 2px;
+}
+.topbar .topbar-spaces button { flex: 0 0 auto; min-height: 28px; padding: 0 16px; font-size: 13px; font-weight: 600; }
+.topbar .topbar-spaces button.is-active { font-weight: 700; }
+.nav .nav-groups { display: none; }
+@media (min-width: 900px) {
+  .topbar .topbar-spaces { display: none; }
+  .nav .nav-list.nav-tabs { display: none; }
+  .nav .nav-groups { display: flex; flex-direction: column; gap: 2px; }
+  .nav .nav-group-title { margin: 14px 10px 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-2); }
+  .nav .nav-groups > .nav-list:first-child { margin-top: 0; }
+}
+.page.page-health { max-width: 780px; }
+.hl-main { display: flex; flex-direction: column; gap: 16px; }
