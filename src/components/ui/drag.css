@@ -1,0 +1,34 @@
+/* Drag to reorder (useDragSort.js): the lifted item and the grip that moves a row. */
+[data-dragging] {
+  position: relative;
+  z-index: 30;
+  transition: none !important;
+  cursor: grabbing;
+  filter: drop-shadow(0 10px 20px rgba(0, 0, 0, 0.22));
+  -webkit-user-select: none;
+  user-select: none;
+}
+[data-dragging] > button { transform: scale(1.05); }
+
+.drag-grip {
+  position: relative;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 44px;
+  border-radius: 10px;
+  color: var(--text-3);
+  cursor: grab;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.drag-grip::after { content: ''; position: absolute; inset: 0 -6px; } /* 44 px target */
+.drag-grip:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+[data-dragging] .drag-grip { color: var(--accent); cursor: grabbing; }
+@media (hover: hover) { .drag-grip:hover { color: var(--text-2); background: var(--surface-2); } }
+
+/* Chips dragged with a long press: no text selection or callout on iPhone. */
+.drag-chip { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }

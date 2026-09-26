@@ -13,7 +13,8 @@ import {
 } from '../lib/media.js'
 import { formatSeconds, useRecorder } from '../lib/recorder.js'
 import { pushSupport } from '../lib/notifications.js'
-import { useGym, useGymSessions, useToday } from '../lib/gym/state.js'
+import { getGym, hasPlan, useGym, useGymSessions, useToday } from '../lib/gym/state.js'
+import { navigate } from '../lib/router.js'
 import { resolveDay } from '../lib/gym/schedule.js'
 import '../components/assistant.css'
 
@@ -53,6 +54,22 @@ const DEEP_LINKS = [
   { test: /^(food_|weight_)/, href: '#/food', label: 'Open Food', icon: 'utensils' },
   { test: /^(create|update|delete)_tasks?$/, href: '#/tasks', label: 'Open Tasks', icon: 'tasks' },
 ]
+// startWorkout.js (exercise library + rest timer) loads when a Gym button shows, so the tap can
+// start the workout at once: the rest timer's sound can only be unlocked inside the tap on iOS.
+let startModule = null
+let startRequest = null
+function loadStart() {
+  if (!startRequest) {
+    startRequest = import('./gym/startWorkout.js')
+      .then((module) => (startModule = module))
+      .catch(() => {
+        startRequest = null
+        return null
+      })
+  }
+  return startRequest
+}
+
 const FALLBACK_SUGGESTIONS = [
   { icon: 'calendar', text: 'Help me plan the rest of my week' },
   { icon: 'sparkles', text: 'What can you do?' },
@@ -303,6 +320,8 @@ export default function AssistantPage({ displayName }) {
         } else if (event.type === 'choices') {
           const choices = cleanChoices(event.choices)
           if (choices.length) patchMessage(replyId, { choices })
+        } else if (event.type === 'offer' && event.offer) {
+          patchMessage(replyId, { offer: event.offer })
         }
       })
       if (done.proposal?.id) proposal = done.proposal
@@ -317,6 +336,7 @@ export default function AssistantPage({ displayName }) {
         actions: doneActions(done, message.actions),
         ...(proposal ? { proposal } : {}),
         ...(choices.length ? { choices } : {}),
+        ...(done.offer && typeof done.offer === 'object' ? { offer: done.offer } : {}),
       }))
       const updates = [done.proposalUpdate].flat().filter((update) => update?.id && update.status)
       // The Yes just carried out: per-action results, from the update or (older server) the reply's actions.
@@ -638,12 +658,35 @@ export default function AssistantPage({ displayName }) {
     send({ message: choice, choice }, choice)
   }
 
+  // A Gym button under a reply: start a workout (in the tap), or open the plan builder.
+  function openOffer(message) {
+    const offer = message?.offer
+    if (!offer) return
+    if (offer.action === 'plan') {
+      navigate(hasPlan(getGym()) ? 'gym/routines' : 'gym')
+      return
+    }
+    // "Log my sets" replaces the quick log waiting on this reply's card.
+    const proposal = message.proposal
+    if (offer.when === 'done' && proposal?.id && proposal.status === 'pending') {
+      setProposalStatus(proposal.id, 'cancelled')
+      apiRequest('/api/assistant', { method: 'POST', body: { confirm: { proposalId: proposal.id, decision: 'no', silent: true }, context: clientContext(pushRef.current) } }).catch(() => {})
+    }
+    const run = (module) => {
+      if (module) module.beginOffer(offer)
+      else toast('Couldn’t open the workout. Check your connection and try again.', { tone: 'error' })
+    }
+    if (startModule) run(startModule)
+    else loadStart().then(run)
+  }
+
   // Stable across renders, so unchanged messages don't re-render while a reply streams.
   const actionsRef = useRef(null)
-  actionsRef.current = { retry, decide, choose }
+  actionsRef.current = { retry, decide, choose, openOffer }
   const onRetry = useCallback((message) => actionsRef.current.retry(message), [])
   const onDecide = useCallback((proposalId, decision) => actionsRef.current.decide(proposalId, decision), [])
   const onChoose = useCallback((choice) => actionsRef.current.choose(choice), [])
+  const onOffer = useCallback((message) => actionsRef.current.openOffer(message), [])
 
   async function newChat() {
     if (messages.length && !(await confirmAction({ title: 'Start a new chat?', message: 'This clears the conversation. What I remember about you is kept.', confirmLabel: 'New chat', tone: 'default' }))) return
@@ -732,6 +775,7 @@ export default function AssistantPage({ displayName }) {
               onRetry={onRetry}
               onDecide={onDecide}
               onChoose={onChoose}
+              onOffer={onOffer}
             />
           )
         })}
@@ -859,12 +903,12 @@ function useSuggestions() {
     } catch {
       // no plan / unreadable plan: no workout prompt
     }
-    return buildSuggestions({ tasks, friends, settings, foodEntries, gymDay, today, hour })
+    return buildSuggestions({ tasks, friends, settings, foodEntries, gymDay, noGymPlan: !hasPlan(gym), today, hour })
   }, [tasks, friends, settings, foodEntries, gym, sessions, today, hour])
 }
 
 // Up to four prompts, most useful first, from what's in the app right now.
-export function buildSuggestions({ tasks, friends, settings, foodEntries, gymDay = false, today, hour = 12 }) {
+export function buildSuggestions({ tasks, friends, settings, foodEntries, gymDay = false, noGymPlan = false, today, hour = 12 }) {
   const list = []
   const overdue = (Array.isArray(tasks) ? tasks : [])
     .filter((task) => task && !task.archived && !task.done && typeof task.date === 'string' && task.date && task.date < today).length
@@ -872,6 +916,7 @@ export function buildSuggestions({ tasks, friends, settings, foodEntries, gymDay
   list.push(hour >= 17 ? { icon: 'sunrise', text: 'Plan tomorrow' } : { icon: 'sun', text: 'What’s on my plate today?' })
   const areas = settings?.areas && typeof settings.areas === 'object' ? settings.areas : {}
   if (gymDay && areas.gym !== false) list.push({ icon: 'dumbbell', text: 'What’s today’s workout?' })
+  if (noGymPlan && areas.gym !== false) list.push({ icon: 'dumbbell', text: 'Help me set up a gym plan' })
   const calorieGoal = Number(settings?.food?.goals?.calories)
   if (areas.food !== false && ((Number.isFinite(calorieGoal) && calorieGoal > 0) || (Array.isArray(foodEntries) && foodEntries.length > 0))) {
     list.push({ icon: 'utensils', text: 'How many calories do I have left?' })
@@ -884,7 +929,7 @@ export function buildSuggestions({ tasks, friends, settings, foodEntries, gymDay
 
 // ---- messages ----------------------------------------------------------------------------------
 
-const Message = memo(function Message({ message, isLast, busy, onRetry, onDecide, onChoose }) {
+const Message = memo(function Message({ message, isLast, busy, onRetry, onDecide, onChoose, onOffer }) {
   if (message.error) {
     return (
       <div className="msg msg-assistant msg-error" role="alert">
@@ -919,7 +964,8 @@ const Message = memo(function Message({ message, isLast, busy, onRetry, onDecide
   const text = message.content || proposal?.summary || ''
   const staged = message.streaming && !proposal && Array.isArray(message.staged) ? message.staged.filter((item) => item && item.ok !== false && !item.internal) : []
   const actions = (Array.isArray(message.actions) ? message.actions : []).filter((action) => action && (action.message || action.ok === false))
-  const links = message.streaming ? [] : deepLinks(actions)
+  const offer = message.offer && typeof message.offer === 'object' ? message.offer : null
+  const links = message.streaming ? [] : deepLinks(actions).filter((link) => !(offer && link.href === '#/gym'))
   const choices = isLast && !message.streaming && Array.isArray(message.choices) ? message.choices : []
 
   return (
@@ -962,6 +1008,7 @@ const Message = memo(function Message({ message, isLast, busy, onRetry, onDecide
             ))}
           </ul>
         )}
+        {offer && <WorkoutOffer offer={offer} proposal={proposal} createdAt={message.createdAt} disabled={!!message.streaming} onUse={() => onOffer?.(message)} />}
         {links.length > 0 && (
           <div className="asst-links">
             {links.map((link) => (
@@ -984,6 +1031,52 @@ const Message = memo(function Message({ message, isLast, busy, onRetry, onDecide
     </div>
   )
 })
+
+// Gym buttons under a reply (offer_workout): "Start Legs workout" / "Log my sets" plus Open Gym,
+// or "Build my gym plan". A start button shows on the day it was offered; "Log my sets" goes once
+// the quick log it replaces has been carried out.
+function WorkoutOffer({ offer, proposal, createdAt, disabled, onUse }) {
+  const start = offer.action === 'start'
+  const [planned, setPlanned] = useState(false) // "Build my gym plan" was tapped (a start offer's second button)
+  useEffect(() => { if (start) loadStart() }, [start])
+  const sameDay = typeof createdAt === 'string' && toISO(new Date(createdAt)) === todayISO()
+  const logged = offer.when === 'done' && ['done', 'partial', 'executing'].includes(proposal?.status)
+  const showStart = start && sameDay && !logged
+  if (!start) {
+    return (
+      <div className="asst-links asst-offer">
+        <button type="button" className="asst-link asst-offer-go" onClick={onUse} disabled={disabled}>
+          <Icon name="wand" size={15} />
+          Build my gym plan
+          <Icon name="chevronRight" size={14} />
+        </button>
+      </div>
+    )
+  }
+  return (
+    <div className="asst-links asst-offer">
+      {showStart && (
+        <button type="button" className="asst-link asst-offer-go is-primary" onClick={onUse} disabled={disabled}>
+          <Icon name={offer.when === 'done' ? 'pencil' : 'play'} size={15} />
+          {offer.when === 'done' ? 'Log my sets' : offer.name === 'Workout' ? 'Start a workout' : `Start ${offer.name} workout`}
+        </button>
+      )}
+      {offer.plan && !planned ? (
+        <button type="button" className="asst-link asst-offer-go" onClick={() => { setPlanned(true); navigate(hasPlan(getGym()) ? 'gym/routines' : 'gym') }} disabled={disabled}>
+          <Icon name="wand" size={15} />
+          Build my gym plan
+          <Icon name="chevronRight" size={14} />
+        </button>
+      ) : (
+        <a className="asst-link" href="#/gym">
+          <Icon name="dumbbell" size={15} />
+          Open Gym
+          <Icon name="chevronRight" size={14} />
+        </a>
+      )}
+    </div>
+  )
+}
 
 // "I'll do:" with the server's labels, then Yes / No. Buttons work only on the newest message, and
 // not while a question with quick replies waits under it (the answer comes first).
@@ -1669,8 +1762,13 @@ async function streamAssistant(payload, signal, onEvent) {
       if (!line) continue
       const event = JSON.parse(line)
       if (event.type === 'error') throw new Error(event.error || 'The assistant ran into a problem.')
-      if (event.type === 'done') done = event
-      else onEvent(event)
+      if (event.type === 'done') {
+        // The reply is complete: the server may still be tidying up (saving the chat summary).
+        done = event
+        reader.read().then(function drain({ done: ended }) { if (!ended) return reader.read().then(drain) }).catch(() => {})
+        return done
+      }
+      onEvent(event)
     }
   }
   if (!done) throw new Error('The connection dropped before the reply finished. Please try again.')

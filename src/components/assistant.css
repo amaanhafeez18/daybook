@@ -560,3 +560,9 @@ button.asst-tray-body:active { opacity: 0.8; }
 .asst-ring-track { opacity: 0.28; }
 .asst-ring-bar { stroke-linecap: round; transition: stroke-dashoffset 0.2s linear; }
 .asst-ring.is-spinning { animation: spin 0.9s linear infinite; }
+
+/* Gym buttons under a reply (offer_workout): the main one is filled. */
+.asst-offer .asst-offer-go { border: 0; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; }
+.asst-offer .asst-offer-go.is-primary { padding: 0 16px 0 14px; background: var(--accent); color: var(--on-accent); }
+.asst-offer .asst-offer-go:disabled { opacity: 0.5; }
+@media (hover: hover) { .asst-offer .asst-offer-go.is-primary:hover { background: var(--accent); filter: brightness(1.06); } }
