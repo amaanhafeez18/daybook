@@ -392,7 +392,13 @@ function Editor({ param, today }) {
       goBack('gym/routines')
       return
     }
-    const saved = saveRoutine(cleanForSave(draft))
+    let saved
+    try {
+      saved = saveRoutine(cleanForSave(draft))
+    } catch (error) {
+      toast(error.message || 'Couldn’t save the routine.', { tone: 'error' })
+      return
+    }
     markClean()
     toast(`Saved ${routineName(saved)}`, { tone: 'success' })
     goBack('gym/routines')
@@ -415,7 +421,12 @@ function Editor({ param, today }) {
     if (!stored) return
     if (dirty) {
       if (!canSave) return
-      saveRoutine(cleanForSave(draft))
+      try {
+        saveRoutine(cleanForSave(draft))
+      } catch (error) {
+        toast(error.message || 'Couldn’t save the routine.', { tone: 'error' })
+        return
+      }
       markClean()
     }
     const copy = duplicateRoutine(stored.id)

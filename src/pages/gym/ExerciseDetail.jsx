@@ -313,7 +313,7 @@ function Facts({ history, exercise, tracking, sessions, prefs, today }) {
   if (records.e1rm) best = { label: 'Est. 1-rep max', value: estimate(records.e1rm.value, unit) }
   else if (records.heaviest) best = { label: tracking === 'weighted_bodyweight' ? 'Most added' : 'Heaviest', value: formatWeight(records.heaviest.value, unit) }
   else if (records.mostReps) best = { label: 'Most reps', value: String(records.mostReps.value) }
-  else if (records.longestDistance) best = { label: 'Longest', value: formatDistance(records.longestDistance.value, prefs.distanceUnit) }
+  else if (records.longestDistance) best = { label: 'Longest', value: formatDistance(records.longestDistance.value, tracking === 'weight_distance' ? (prefs.distanceUnit === 'mi' ? 'yd' : 'm') : prefs.distanceUnit) }
   else if (records.longestDuration) best = { label: 'Longest', value: formatDuration(records.longestDuration.value) }
   const last = history[0].session.date
   return (

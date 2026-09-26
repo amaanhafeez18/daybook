@@ -243,9 +243,10 @@ button.gym-cal-cell:active { transform: scale(0.9); transition-duration: 0.1s; }
 .gym-hist-search input { min-width: 0; font-size: 16px; }
 .gym-hist-search input::-webkit-search-cancel-button { display: none; }
 .gym-hist-clear {
-  flex-shrink: 0; width: 22px; height: 22px; margin-right: -2px; border-radius: 50%; display: grid; place-items: center;
+  position: relative; flex-shrink: 0; width: 22px; height: 22px; margin-right: -2px; border-radius: 50%; display: grid; place-items: center;
   background: var(--text-3); color: var(--card-bg, var(--surface));
 }
+.gym-hist-clear::after { content: ''; position: absolute; inset: -11px; } /* 44 px target */
 
 .gym-hist-filters {
   display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch;

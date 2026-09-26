@@ -14,10 +14,11 @@
 .gym-lib-search input::-webkit-search-decoration { -webkit-appearance: none; appearance: none; }
 .gym-lib-search input::placeholder { color: var(--text-3); }
 .gym-lib-clear {
-  flex-shrink: 0; width: 32px; height: 32px; display: grid; place-items: center; border-radius: 50%;
+  position: relative; flex-shrink: 0; width: 32px; height: 32px; display: grid; place-items: center; border-radius: 50%;
   color: var(--card-bg, #fff);
   background: radial-gradient(circle, var(--text-3) 0 9px, transparent 9.5px);
 }
+.gym-lib-clear::after { content: ''; position: absolute; inset: -6px; } /* 44 px target */
 .gym-lib-new {
   flex-shrink: 0; width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%;
   color: var(--accent); background: var(--glass-bg); border: 1px solid var(--glass-border);

@@ -31,10 +31,13 @@ export function createTask({ text, details = '', date = '', time = '', priority 
 
 export function updateTask(id, patch) {
   let updated = null
+  const linked = data().events.find((event) => event.taskId === id)
   updateData('tasks', (list) => list.map((task) => {
     if (task.id !== id) return task
     updated = { ...task, ...patch }
     if (!updated.date) updated.time = ''
+    // A task dated after it was made shares its event's id, like one created with a date.
+    if (updated.date && !updated.calendarEventId) updated.calendarEventId = linked?.id || newId()
     // When it was ticked off (null again if reopened), for "what did I get done today?".
     if (patch.done !== undefined && !!patch.done !== !!task.done) updated.completedAt = patch.done ? nowIso() : null
     return updated

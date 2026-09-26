@@ -74,3 +74,7 @@
 }
 .page.page-health { max-width: 780px; }
 .hl-main { display: flex; flex-direction: column; gap: 16px; }
+
+/* ---- toast buttons: 44 px targets without a taller toast ------------------------------------- */
+.toaster .toast-action { min-height: 44px; margin: -8px 0; }
+.toaster .toast-close { width: 44px; height: 44px; margin: -8px -7px -8px -4px; }
