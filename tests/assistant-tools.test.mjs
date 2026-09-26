@@ -14,7 +14,7 @@ process.env.SUPABASE_URL ||= 'http://x'
 process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'k'
 process.env.JWT_SECRET ||= 's'
 process.env.OPENAI_API_KEY ||= 'sk-test'
-const { TOOL_DEFS, executeTool, stageTool, buildSnapshot, buildInstructions, LOOKUP_TOOLS, UI_TOOLS } = await import('../api/assistant.js')
+const { TOOL_DEFS, executeTool, stageTool, buildSnapshot, buildInstructions, gymOffer, normalizeOffer, LOOKUP_TOOLS, UI_TOOLS } = await import('../api/assistant.js')
 
 // Expected console noise (resolveFriend fallbacks, snapshot warnings) would hide real output.
 console.warn = () => {}
@@ -758,8 +758,10 @@ const CASES = [
       { args: { date: TODAY, routine: 'Push' }, check(s, d, r) { const session = row(s, 'gym_sessions', r.id); assert.equal(session.routine_id, 'r-push'); assert.equal(session.user_id, USER); assert.equal(d.gym_sessions[0].id, r.id) } },
       { args: { date: 'yesterday' }, check(s, d, r) { assert.equal(row(s, 'gym_sessions', r.id).date, YESTERDAY); assert.equal(row(s, 'gym_sessions', r.id).name, 'Workout') } },
       { args: { date: '2026-09-22', routine: 'rest' }, check(s, d, r) { assert.match(r.message, /now has 2 workouts/) } },
+      // No Chest routine: still a gym log (named after it), never an error that ends up as a task.
+      { args: { date: TODAY, routine: 'chest day' }, check(s, d, r) { const session = row(s, 'gym_sessions', r.id); assert.equal(session.name, 'Chest'); assert.equal(session.routine_id, null); assert.match(r.message, /a Chest workout/) } },
     ],
-    invalid: [{}, { date: 'tomorrow' }, { date: TODAY, routine: 'Chest' }, { date: 'sometime' }],
+    invalid: [{}, { date: 'tomorrow' }, { date: 'sometime' }],
   },
   {
     name: 'gym_log_workout',
@@ -779,6 +781,7 @@ const CASES = [
       { args: { date: TODAY, routine: 'Legs', fill_from_routine: true, exercises: [{ name: 'squat', sets: [{ weight: 80, reps: 5 }] }] }, check(s, d, r) { const session = row(s, 'gym_sessions', r.id); assert.ok(session.exercises.length >= 2, 'the routine’s other exercises are filled in'); assert.match(r.hint || '', /gym_realign/, 'Legs on a Push day in a rotation offers realigning') } },
       { args: { date: 'yesterday', exercises: [{ name: 'Plank', sets: [{ duration_sec: 60, count: 2 }] }] }, check(s, d, r) { const session = row(s, 'gym_sessions', r.id); assert.equal(session.date, YESTERDAY); assert.equal(session.exercises[0].sets[1].durationSec, 60) } },
       { args: { date: TODAY, exercises: [{ name: 'Cable Woodchop', sets: [{ weight: 20, reps: 12 }] }] }, check(s, d, r) { assert.equal(row(s, 'gym_sessions', r.id).exercises[0].exerciseId, 'custom-1') } },
+      { args: { date: TODAY, routine: 'Arms', exercises: [{ name: 'bench', sets: [{ weight: 60, reps: 8 }] }] }, check(s, d, r) { const session = row(s, 'gym_sessions', r.id); assert.equal(session.name, 'Arms', 'no Arms routine: named after it'); assert.equal(session.routine_id, null) } },
     ],
     invalid: [
       {}, { date: 'tomorrow', exercises: [{ name: 'bench', sets: [{ weight: 60, reps: 8 }] }] }, { date: TODAY }, { date: TODAY, exercises: [] },
@@ -814,6 +817,7 @@ const CASES = [
         assert.ok(d.gym.routines.some((item) => item.id === r.id))
       } },
       { args: { name: 'Cardio' }, check(s, d, r) { assert.equal(settingsOf(s).gym.routines.find((item) => item.id === r.id).exercises.length, 0) } },
+      { args: { name: 'Back & Biceps', use_suggested: true }, check(s, d, r) { const routine = settingsOf(s).gym.routines.find((item) => item.id === r.id); assert.ok(routine.exercises.length >= 4, 'the suggested back exercises'); assert.ok(routine.exercises.every((row) => row.exerciseId && row.sets.length)) } },
     ],
     invalid: [{}, { name: '' }, { name: 'Push' }, { name: 'X', color: 'chartreuse' }, { name: 'X', exercises: [{ name: 'Nonexistent' }] }],
   },
@@ -1146,7 +1150,7 @@ const CASES = [
 
 // Tools the harness leaves out on purpose: network (web_lookup is handled by the request handler, not
 // executeTool; food_barcode_lookup calls Open Food Facts) and UI-only tools.
-const SKIPPED = ['web_lookup', 'food_barcode_lookup', 'ask_choice', 'offer_alternatives', 'attach_file'] // attach_file needs storage: tests/attachments.test.mjs
+const SKIPPED = ['web_lookup', 'food_barcode_lookup', 'ask_choice', 'offer_alternatives', 'offer_workout', 'attach_file'] // attach_file needs storage: tests/attachments.test.mjs
 
 // ---- running -----------------------------------------------------------------------------------------
 
@@ -1358,7 +1362,26 @@ describe('coverage and definitions', () => {
 })
 
 describe('snapshot and instructions', () => {
-  const RULED_TOOLS = ['create_task', 'update_task', 'create_event', 'create_class', 'update_class', 'create_friend', 'update_friend', 'log_contact', 'ask_choice', 'remember', 'forget', 'read_journal', 'get_weather', 'get_prayer_times', 'gym_skip', 'gym_shift', 'gym_move', 'gym_realign', 'gym_log_workout', 'gym_quick_log', 'gym_log_bodyweight', 'gym_edit_session', 'gym_duplicate_session', 'gym_stats', 'gym_duplicate_routine', 'gym_edit_routine', 'gym_exercise_records', 'food_log', 'food_day', 'food_set_goals', 'food_calculate_goals', 'food_memory_find', 'food_memory', 'food_barcode_lookup', 'web_lookup', 'offer_alternatives']
+  const RULED_TOOLS = ['create_task', 'update_task', 'create_event', 'create_class', 'update_class', 'create_friend', 'update_friend', 'log_contact', 'ask_choice', 'remember', 'forget', 'read_journal', 'get_weather', 'get_prayer_times', 'gym_skip', 'gym_shift', 'gym_move', 'gym_realign', 'gym_log_workout', 'gym_quick_log', 'gym_log_bodyweight', 'gym_edit_session', 'gym_duplicate_session', 'gym_stats', 'gym_duplicate_routine', 'gym_edit_routine', 'gym_exercise_records', 'food_log', 'food_day', 'food_set_goals', 'food_calculate_goals', 'food_memory_find', 'food_memory', 'food_barcode_lookup', 'web_lookup', 'offer_alternatives', 'offer_workout']
+
+  test('offer_workout: their routine, today’s plan, a ready-made day, or the plan builder', () => {
+    const { data } = fixture()
+    const legs = gymOffer({ action: 'start', routine: 'legs' }, data, ctx).offer
+    assert.deepEqual(legs, { action: 'start', name: 'Legs', routineId: 'r-legs', template: null, when: 'now' })
+    assert.equal(gymOffer({ action: 'start' }, data, ctx).offer.routineId, 'r-push', 'default: today’s planned routine')
+    const arms = gymOffer({ action: 'start', routine: 'arm day', when: 'done' }, data, ctx)
+    assert.deepEqual(arms.offer, { action: 'start', name: 'Arms', routineId: null, template: 'Arms', when: 'done' })
+    assert.match(arms.message, /Log my sets.*suggested Arms workout/)
+    assert.deepEqual(gymOffer({ action: 'plan' }, data, ctx).offer, { action: 'plan' })
+    assert.ok(!gymOffer({ action: 'dance' }, data, ctx).offer)
+    // No plan yet: an empty workout (or the kind of day named) with "Build my gym plan" next to it.
+    const empty = { ...data, gym: { ...data.gym, routines: [], schedule: { ...data.gym.schedule, versions: [] } } }
+    assert.deepEqual(gymOffer({ action: 'start' }, empty, ctx).offer, { action: 'start', name: 'Workout', routineId: null, template: null, when: 'now', plan: true })
+    assert.equal(gymOffer({ action: 'start', routine: 'Legs' }, empty, ctx).offer.template, 'Legs')
+    // Stored offers are cleaned; anything else is dropped.
+    assert.equal(normalizeOffer({ action: 'start', name: '' }), null)
+    assert.equal(normalizeOffer('start'), null)
+  })
 
   test('buildSnapshot reflects the data and is JSON-serialisable', () => {
     const { data } = fixture()

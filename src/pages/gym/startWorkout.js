@@ -1,6 +1,6 @@
 import { confirmAction, toast } from '../../components/ui/feedback.jsx'
 import { todayISO } from '../../lib/dates.js'
-import { exerciseById } from '../../lib/gym/library.js'
+import { dayTemplate, exerciseById } from '../../lib/gym/library.js'
 import { isDeload, plannedFor, resolveDay } from '../../lib/gym/schedule.js'
 import { deloadTargets, plannedWeight } from '../../lib/gym/stats.js'
 import { discardActive, getActiveWorkout, getGym, latestBodyWeight, newGymId, normalizeGym, routineById, startWorkout } from '../../lib/gym/state.js'
@@ -108,8 +108,9 @@ function fromPastSession(session, gym) {
     })
 }
 
-// → ActiveWorkout. `routine` may be a Routine or its id; `date` defaults to today.
-export function buildWorkout({ gym: rawGym, sessions, bodyWeights, routine: routineOrId = null, date, today, fromSession = null, name } = {}) {
+// → ActiveWorkout. `routine` may be a Routine or its id; `date` defaults to today. `after`: the
+// workout is already over (logging its sets afterwards), so no clock runs, like a past day.
+export function buildWorkout({ gym: rawGym, sessions, bodyWeights, routine: routineOrId = null, date, today, fromSession = null, name, after = false } = {}) {
   const gym = normalizeGym(rawGym ?? getGym())
   const state = getState()
   const allSessions = sessions ?? state.data.gymSessions
@@ -134,8 +135,9 @@ export function buildWorkout({ gym: rawGym, sessions, bodyWeights, routine: rout
 
   const stamp = new Date().toISOString()
   // A past day is a backfill: it starts at noon that day and has no running clock (isBackfillWorkout).
-  const backfill = day < now
-  const startedAt = backfill ? new Date(`${day}T12:00:00`).toISOString() : stamp
+  // So is one logged after the fact today (started an hour ago; the finish sheet lets them fix it).
+  const backfill = day < now || after === true
+  const startedAt = day < now ? new Date(`${day}T12:00:00`).toISOString() : after === true ? new Date(Date.now() - 3600000).toISOString() : stamp
   const title = typeof name === 'string' && name.trim()
     ? name.trim()
     : routine?.name?.trim() || (fromSession && typeof fromSession.name === 'string' ? fromSession.name.trim() : '') || 'Workout'
@@ -160,6 +162,16 @@ export function buildWorkout({ gym: rawGym, sessions, bodyWeights, routine: rout
     rest: null,
     backfill,
   }
+}
+
+// A Gym button from the assistant ({ routineId, name, template, when }): their routine, or the
+// app's suggested workout for that kind of day (Legs, Push…) when they have no such routine.
+// Call from the tap, like beginWorkout.
+export function beginOffer(offer, { today = todayISO() } = {}) {
+  const gym = getGym()
+  const own = offer?.routineId ? routineById(gym, offer.routineId) : null
+  const routine = own || { id: null, name: offer?.name || 'Workout', exercises: dayTemplate(offer?.template || offer?.name || '', newGymId) }
+  return beginWorkout({ gym, routine, date: today, today, after: offer?.when === 'done' })
 }
 
 // Call from a tap handler: unlocks audio for the rest timer, asks what to do with a workout

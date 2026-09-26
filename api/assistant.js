@@ -203,6 +203,7 @@ function normalizeMessage(message) {
     ...(proposal ? { proposal } : {}),
     ...(draft ? { draft } : {}),
     ...(choices.length ? { choices } : {}),
+    ...(message.role === 'assistant' && normalizeOffer(message.offer) ? { offer: normalizeOffer(message.offer) } : {}),
     // A web search the assistant asked permission for (the next "Search the web" approves it).
     ...(message.role === 'assistant' && typeof message.webQuery === 'string' && message.webQuery.trim() ? { webQuery: truncate(message.webQuery.trim(), 300) } : {}),
   }
@@ -210,6 +211,48 @@ function normalizeMessage(message) {
 
 // What the app sees: no server-only staged tool calls or held-back drafts, a stale pending proposal
 // shows as expired and one stuck mid-run as interrupted.
+// A Gym button under a reply: { action: 'start', routineId, name, template, when } or { action: 'plan' }.
+function normalizeOffer(offer) {
+  if (!isPlainObject(offer)) return null
+  if (offer.action === 'plan') return { action: 'plan' }
+  if (offer.action !== 'start') return null
+  const name = cleanText(offer.name, 60)
+  if (!name) return null
+  return {
+    action: 'start',
+    name,
+    routineId: typeof offer.routineId === 'string' && offer.routineId ? offer.routineId.slice(0, 80) : null,
+    template: cleanText(offer.template, 60) || null,
+    when: offer.when === 'done' ? 'done' : 'now',
+    ...(offer.plan === true ? { plan: true } : {}), // no gym plan yet: offer to build one too
+  }
+}
+
+// offer_workout → { offer, message } (the message is for the model), or { message } when it can't be shown.
+function gymOffer(args, data, ctx) {
+  if (args?.action === 'plan') return { offer: { action: 'plan' }, message: 'Shown: a "Build my gym plan" button under your reply.' }
+  if (args?.action !== 'start') return { message: 'action is "start" or "plan".' }
+  const when = args.when === 'done' ? 'done' : 'now'
+  let routine = null
+  let named = ''
+  try {
+    if (cleanText(args.routine, 60)) ({ routine, name: named } = routineOrName(data.gym, args.routine))
+    else if (hasGymPlan(data.gym)) routine = sched.resolveDay(data.gym, data.gym_sessions, ctx.localDate, ctx.localDate).routine || null
+  } catch (error) {
+    return { message: error.message }
+  }
+  // Nothing named and nothing planned: without a plan that's an empty workout (exercises added as
+  // they go) next to "Build my gym plan"; with a plan, today is a rest day, so ask which.
+  if (!routine && !named && hasGymPlan(data.gym)) return { message: 'Nothing is planned today: say which routine or kind of day (e.g. Legs).' }
+  const name = routine ? routine.name.trim() || 'Workout' : named || 'Workout'
+  const suggested = routine || !named ? null : gymLib.dayTemplate(named).length
+  const button = `${when === 'done' ? '"Log my sets"' : named || routine ? `"Start ${name} workout"` : '"Start a workout"'}${hasGymPlan(data.gym) ? '' : ' and a "Build my gym plan"'}`
+  return {
+    offer: normalizeOffer({ action: 'start', routineId: routine?.id ?? null, name, template: routine ? null : named, when, plan: !hasGymPlan(data.gym) }),
+    message: `Shown: a ${button} button under your reply.${routine ? '' : !named ? ' It starts an empty workout: they add exercises as they go.' : suggested ? ` They have no ${name} routine, so it starts the app's suggested ${name} workout (${plural(suggested, 'exercise')}).` : ` They have no ${name} routine and there's no suggested one, so it starts an empty workout named ${name}.`}`,
+  }
+}
+
 function publicMessage(message) {
   const { draft, files, ...rest } = message
   if (!rest.proposal) return rest
@@ -327,7 +370,7 @@ const TOOL_LABELS = {
 // Read-only tools: no action chip, no data refresh and never staged for confirmation.
 const LOOKUP_TOOLS = ['search', 'read_journal', 'get_weather', 'get_prayer_times', 'gym_get_schedule', 'gym_list_sessions', 'gym_exercise_records', 'gym_stats', 'person_history', 'web_lookup', ...FOOD_LOOKUP_TOOLS]
 // Tools that only shape the reply (questions, card buttons): never staged, never shown as actions.
-const UI_TOOLS = ['ask_choice', 'offer_alternatives']
+const UI_TOOLS = ['ask_choice', 'offer_alternatives', 'offer_workout']
 const FOOD_TOOL_NAMES = new Set(FOOD_TOOL_DEFS.map((def) => def.name))
 // Everything else except ask_choice changes data, so it is staged when confirmations are on.
 const isWriteTool = (name) => !UI_TOOLS.includes(name) && !LOOKUP_TOOLS.includes(name)
@@ -681,6 +724,7 @@ const tools = [
     color: { type: 'string', enum: ['red', 'orange', 'amber', 'green', 'teal', 'blue', 'indigo', 'pink'] },
     notes: { type: 'string' },
     exercises: { type: 'array', items: gymTargetSchema('name') },
+    use_suggested: { type: 'boolean', description: 'No exercises given: fill it with the app\'s suggested exercises and targets for that kind of day (Push, Pull, Legs, Upper, Lower, Full Body, Chest, Back, Arms…), as the Gym plan builder does.' },
   }, ['name']),
   tool('gym_edit_routine', 'Change a routine: rename, colour, notes, add or remove exercises, change sets/reps/weight/rest targets, reorder exercises or set an exercise\'s note.', {
     name: { type: 'string', description: 'Routine name or id.' },
@@ -796,6 +840,11 @@ const tools = [
   tool('offer_alternatives', 'Only in a turn where you staged changes: add up to 3 one-tap alternatives under the Yes/No card, e.g. ["Look it up online", "Estimate instead"] when logging with saved numbers, or ["Search again", "Estimate instead"] after a web lookup. Tapping one cancels the card and sends that text as the user\'s reply.', {
     options: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 3 },
   }, ['options']),
+  tool('offer_workout', 'Show a Gym button under your reply (changes nothing by itself; can go with a staged card). action "start": one tap starts a workout of a routine in the Gym — their routine by name, or a ready-made day (Legs, Push, Upper, Full Body…) when they have no such routine; when "now" (about to train) the button says "Start <name> workout", when "done" (they already trained and you staged gym_quick_log) it says "Log my sets" and replaces that quick log. action "plan": a "Build my gym plan" button that opens the Gym plan builder.', {
+    action: { type: 'string', enum: ['start', 'plan'] },
+    routine: { type: 'string', description: 'For start: routine name or id, or a kind of day (Legs, Push, Upper…). Default: today\'s planned routine.' },
+    when: { type: 'string', enum: ['now', 'done'], description: 'For start: now = about to train (default); done = already trained, to log the sets they did.' },
+  }, ['action']),
   ...FOOD_TOOL_DEFS,
   // Defined here unless the food module ships its own (tool names must be unique).
   ...(FOOD_TOOL_NAMES.has('food_update_prefs') ? [] : [tool('food_update_prefs','Change the Food tracker\'s display settings (only include what changes). Goals use food_set_goals / food_calculate_goals; the body-weight unit is the gym unit (gym_update_prefs). Adding, removing or reordering meals is done in Food settings in the app.', {
@@ -1064,12 +1113,20 @@ const CONFIRM_RULES = `Confirming changes (the user wants to approve every chang
 
 const DIRECT_RULES = `Making changes (the user turned confirmations off): tools run immediately and several can be used in one turn. Each successful change returns a ref ($1, $2… in the order they ran): a later call in the same turn can use it for something just created (e.g. create_friend, then log_contact with friendId "$1"). Never say something was done unless the tool returned ok. For anything destructive, confirm in words first unless the user was explicit.`
 
-// Kept identical between messages (no clock, no voice flag) so OpenAI can cache this prefix;
-// the current time goes in a developer message next to the new user turn.
-function buildInstructions(snapshot, { confirmMode = true } = {}) {
-  return `You are Daybook, a personal assistant built into the user's planner: a calm, capable "Jarvis". You know their tasks, calendar, classes, the people in their life, their journal and notes, their gym plan and workouts, their food log and goals, and facts they've asked you to remember — all in the snapshot below. Think about how things connect (a friend's birthday next week, a task that clashes with a class, someone they haven't talked to in a while, a workout day when protein is behind) and use that to be genuinely helpful.
+// The instructions with the snapshot appended (what the model reads; tests check it this way).
+function buildInstructions(snapshot, options = {}) {
+  return `${staticInstructions(options)}\n\n${snapshotText(snapshot)}`
+}
 
-What you can do (with tools): tasks (add, edit, reschedule, complete, reopen, archive, restore, bulk changes, delete forever); calendar events; people (add, update, remove, log catch-ups with what you talked about, look up and remove catch-ups); classes; journal (read, write, append, set the title or mood, delete); notes; memories; search older history; per-task reminders and notification preferences (reminder timing, morning summary, evening check-in, people reminders, quiet hours, workout reminder, prayer reminders: on/off, minutes before, which prayers); every setting (appearance, accent colour, display name, what they use (areas: people, journal, gym, food shown or hidden; settings.areasOff lists the hidden ones: if they ask for one of those, say it's turned off and offer to turn it on), prayer times card, method and Asr, and whether you ask before changes); the gym tracker (schedule: skip, shift, swap, move, realign, undo, rotation or weekly plan, deload weeks; log workouts with sets, a quick "I trained" or body weight; history and personal records; routines, custom exercises, per-exercise notes, rest and increments; gym settings); the food tracker (log food with your own calorie and macro estimates, look at a day or week, edit or delete entries, set or calculate goals, favourites, delete a weigh-in, display settings: kcal or kJ, the ring, nutrients shown, meal names, AI review); live weather and prayer times; and tap-to-answer questions (ask_choice). You cannot change the password or recovery question, log out, turn push notifications on or off, change the saved location, run the welcome tour, export CSV, or edit gym warm-up schemes, plates and bars: point the user to Settings (or "Use my location" on Today, Gym settings, Food settings) for those.
+const snapshotText = (snapshot) => `Snapshot (JSON):\n${JSON.stringify(snapshot)}`
+
+// Kept identical between messages (no clock, no data) so OpenAI can cache it together with the
+// conversation so far: the snapshot and the current time go in developer messages right before the
+// newest user message, so only those and the new message are read fresh each turn.
+function staticInstructions({ confirmMode = true } = {}) {
+  return `You are Daybook, a personal assistant built into the user's planner: a calm, capable "Jarvis". You know their tasks, calendar, classes, the people in their life, their journal and notes, their gym plan and workouts, their food log and goals, and facts they've asked you to remember — all in the snapshot (a developer message just before their newest message; it is always current, so trust it over anything older in the conversation). Think about how things connect (a friend's birthday next week, a task that clashes with a class, someone they haven't talked to in a while, a workout day when protein is behind) and use that to be genuinely helpful.
+
+What you can do (with tools): tasks (add, edit, reschedule, complete, reopen, archive, restore, bulk changes, delete forever); calendar events; people (add, update, remove, log catch-ups with what you talked about, look up and remove catch-ups); classes; journal (read, write, append, set the title or mood, delete); notes; memories; search older history; per-task reminders and notification preferences (reminder timing, morning summary, evening check-in, people reminders, quiet hours, workout reminder, prayer reminders: on/off, minutes before, which prayers); every setting (appearance, accent colour, display name, what they use (areas: people, journal, gym, food shown or hidden; settings.areasOff lists the hidden ones: if they ask for one of those, say it's turned off and offer to turn it on), prayer times card, method and Asr, and whether you ask before changes); the gym tracker (schedule: skip, shift, swap, move, realign, undo, rotation or weekly plan, deload weeks; log workouts with sets, a quick "I trained" or body weight; history and personal records; routines, custom exercises, per-exercise notes, rest and increments; gym settings); the food tracker (log food with your own calorie and macro estimates, look at a day or week, edit or delete entries, set or calculate goals, favourites, delete a weigh-in, display settings: kcal or kJ, the ring, nutrients shown, meal names, AI review); live weather and prayer times; tap-to-answer questions (ask_choice); and Gym buttons under a reply (offer_workout: start a workout in one tap, or open the plan builder). You cannot change the password or recovery question, log out, turn push notifications on or off, change the saved location, run the welcome tour, export CSV, or edit gym warm-up schemes, plates and bars: point the user to Settings (or "Use my location" on Today, Gym settings, Food settings) for those.
 
 ${confirmMode ? CONFIRM_RULES : DIRECT_RULES}
 
@@ -1108,6 +1165,9 @@ Gym (snapshot.gym: today's workout with weights in the user's unit, ↑ = progre
 - "Taking the next N days off" = gym_shift from today for N days (it starts tomorrow if today is logged). Explain the result's preview, not a guess. If a day in that range is already rest or shifted, offer choices (e.g. "Shift 2 days" / "Just skip today").
 - "Move legs to Saturday" = gym_move from the next Legs day to Saturday; if Saturday has its own workout, ask: "Move (replaces it)" / "Swap them" / "Cancel". "Move today's workout to tomorrow" is ambiguous: ask "Move just today's" / "Shift the whole plan a day" / "Swap today and tomorrow".
 - "Sick this week": ask with choices: shift the days / skip the workout days / make it a deload week.
+- A workout they did ("did legs today", "hit the gym", "leg workout this morning", "went for a run") is always logged in the Gym, never as a task: gym_log_workout when they give exercises or sets, else gym_quick_log with the routine or kind of day ("Legs": their routine if they have one, otherwise the workout is named after it). With gym_quick_log, also offer_workout (action start, when "done", same routine) so they can log the sets instead.
+- About to train ("going to do legs", "starting my workout", "gym time"): offer_workout (action start, when "now") with today's routine or the one they named, and say what's in it in one line (exercises, about how long). Nothing to confirm.
+- No gym plan yet (snapshot.gym is "not set up"): the first time they bring up training (and no memory says they declined), handle what they asked, then offer to set one up: in a turn with a card, add offer_workout action "plan"; otherwise ask_choice "Want me to set up a gym plan?" with "Push / Pull / Legs", "Upper / Lower", "Full body 3×/week", "I'll build it myself", "Not now". For a split: stage gym_create_routine with use_suggested for each training day plus gym_set_schedule (a rotation with rest days, e.g. Push, Pull, Legs, Rest) in one card. "I'll build it myself" = offer_workout action "plan". "Not now" = remember that they don't want a gym plan yet. Don't offer it again after that.
 - Logging: "I hit push today, bench 35 for 3 sets" = gym_log_workout with routine "Push" and the sets (library names like "Bench Press (Barbell)"; repeated sets as one entry with count). Weights are in the user's gym unit; if they name another unit, pass unit. "60 a side" on a barbell = 2 × 60 + the bar. Missing reps: leave them out when the routine has a fixed rep target (the server fills it in and says so: repeat that); for a rep range ask with choices. "The rest as planned" = fill_from_routine. gym_quick_log when they only say they trained. If they did a different routine than planned in a rotation, offer gym_realign. Say which exercise you logged if the name was vague.
 - "I weigh 72.5" = gym_log_bodyweight in their unit (the same weight log the Food tab uses).
 - When they say when the workout started ("at 6", "this morning at 7:30") pass start_time to gym_log_workout; when they mention weighing that day ("weighed 80 before training") pass bodyweight.
@@ -1154,10 +1214,7 @@ Settings: say what changed in words the user knows ("Accent is now Forest", "I'l
 Notes: save_note for a quick note; "change my note about X" = update_note with the whole new text (ids from snapshot.notes or search); delete_note only when asked.
 Memories: remember saves at once (no Yes/No card). Whenever the user shares a durable fact about themselves (preferences, family, routines and schedules, goals, health and diet, work, school and courses, how they like things done), save it with remember in the same turn, without asking, and mention it in a few words. Also save durable facts you learn from their attachments (e.g. their program or term dates). Don't save one-off chatter or things stored elsewhere (tasks, a person's facts). If a memory is wrong or outdated, forget it and remember the corrected version. Use memories and the conversation summary to stay consistent across conversations.
 Weather and prayer times: call get_weather / get_prayer_times. If the location is unknown, ask the user to tap "Use my location" on the Today screen.
-Before replacing a long journal entry, read it with read_journal.
-
-Snapshot (JSON):
-${JSON.stringify(snapshot)}`
+Before replacing a long journal entry, read it with read_journal.`
 }
 
 function transcriptionVocabulary(data) {
@@ -1917,6 +1974,21 @@ function findRoutine(gym, ref) {
   throw new Error(`No routine called "${query}". Routines: ${gym.routines.map((routine) => routine.name || 'Untitled').join(', ')}.`)
 }
 
+// The routine the user named, or none plus a name for the workout when they have no such routine
+// ("legs" before any plan exists is still a Legs workout, not an error). Several matches still ask.
+function routineOrName(gym, ref) {
+  const text = String(ref ?? '').trim()
+  if (!text || REST_WORDS.has(normText(text))) return { routine: null, name: '' }
+  try {
+    return { routine: findRoutine(gym, text), name: '' }
+  } catch (error) {
+    if (/matches several routines/.test(error.message)) throw error
+    const type = gymLib.matchDayType(text)
+    const plain = text.replace(/\b(day|workout|session|routine)\b/gi, ' ').replace(/\s+/g, ' ').trim() || text
+    return { routine: null, name: (type && !type.rest ? type.name : capitalize(plain)).slice(0, 60) }
+  }
+}
+
 // A routine name/id or "rest" → schedule slot.
 function parseSlot(gym, ref) {
   if (REST_WORDS.has(normText(ref))) return { kind: 'rest' }
@@ -2526,12 +2598,12 @@ async function executeGymTool(supabase, userId, name, args, data, ctx) {
     const date = dateArg(args.date)
     if (date > today) return fail('A workout can only be logged for today or earlier.')
     if (data.gymTablesMissing) return fail(GYM_TABLES_MISSING)
-    const routine = args.routine && !REST_WORDS.has(normText(args.routine)) ? findRoutine(data.gym, args.routine) : null
+    const { routine, name: named } = routineOrName(data.gym, args.routine)
     const already = data.gym_sessions.filter((session) => session.date === date).length
     const session = {
       id: newId(),
       date,
-      name: routine?.name.trim() || 'Workout',
+      name: routine?.name.trim() || named || 'Workout',
       routineId: routine?.id ?? null,
       startedAt: null,
       endedAt: null,
@@ -2545,7 +2617,7 @@ async function executeGymTool(supabase, userId, name, args, data, ctx) {
     }
     await insertGymRow(supabase, 'gym_sessions', sessionToRow(session, userId))
     rememberSession(data, session)
-    return { ok: true, message: `Logged ${routine ? routine.name.trim() || 'your workout' : 'a workout'} ${onWhen(date, today)} (no sets).${already ? ` That day now has ${already + 1} workouts.` : ''}`, id: session.id }
+    return { ok: true, message: `Logged ${routine ? routine.name.trim() || 'your workout' : named ? `a ${named} workout` : 'a workout'} ${onWhen(date, today)} (no sets).${already ? ` That day now has ${already + 1} workouts.` : ''}`, id: session.id }
   }
 
   if (name === 'gym_log_workout') {
@@ -2553,7 +2625,7 @@ async function executeGymTool(supabase, userId, name, args, data, ctx) {
     if (date > today) return fail('A workout can only be logged for today or earlier.')
     if (data.gymTablesMissing) return fail(GYM_TABLES_MISSING)
     const { gym } = data
-    const routine = args.routine && !REST_WORDS.has(normText(args.routine)) ? findRoutine(gym, args.routine) : null
+    const { routine, name: named } = routineOrName(gym, args.routine)
     if (args.unit !== undefined && !WEIGHT_UNITS.includes(args.unit)) return fail('unit must be kg or lb.')
     const rows = []
     const problems = []
@@ -2604,7 +2676,7 @@ async function executeGymTool(supabase, userId, name, args, data, ctx) {
     const session = {
       id: newId(),
       date,
-      name: String(args.name || '').trim().slice(0, 80) || routine?.name.trim() || (rows.length === 1 ? rows[0].name : 'Workout'),
+      name: String(args.name || '').trim().slice(0, 80) || routine?.name.trim() || named || (rows.length === 1 ? rows[0].name : 'Workout'),
       routineId: routine?.id ?? null,
       startedAt,
       endedAt,
@@ -2868,7 +2940,8 @@ async function executeGymTool(supabase, userId, name, args, data, ctx) {
   if (name === 'gym_create_routine') {
     const routineName = String(args.name || '').trim().slice(0, 60)
     if (!routineName) return fail('A routine needs a name.')
-    const rows = routineRowsFrom(args.exercises, data.gym, data)
+    const given = Array.isArray(args.exercises) && args.exercises.length > 0
+    const rows = given ? routineRowsFrom(args.exercises, data.gym, data) : args.use_suggested === true ? gymLib.dayTemplate(routineName, newId) : []
     let created = null
     await saveGym(supabase, userId, data, (gym) => {
       const clash = gym.routines.find((routine) => normText(routine.name) === normText(routineName))
@@ -4992,7 +5065,7 @@ async function saveConversation({ supabase, userId, exists, seen, base, patches,
   for (let attempt = 1; attempt <= SAVE_ATTEMPTS; attempt += 1) {
     try {
       const written = await writeConversation(supabase, userId, { ...state, fields })
-      if (!written.conflict) return { ok: true, updatedAt: written.updatedAt }
+      if (!written.conflict) return { ok: true, updatedAt: written.updatedAt, merged: attempt > 1 }
       const fresh = await readConversation(supabase, userId)
       state = { exists: fresh.exists, seen: fresh.updatedAt, messages: mergeTurn(fresh.messages, { patches, added, startedIso, ctx }) }
       debug.push({ step: 'history.merged', attempt })
@@ -5328,6 +5401,8 @@ export default async function handler(req, res) {
 
   const debug = []
   const startedAt = Date.now()
+  // Every step says when it happened (ms into the request), to see where the time goes.
+  debug.push = (...entries) => Array.prototype.push.apply(debug, entries.map((entry) => ({ ...entry, ms: Date.now() - startedAt })))
   let streaming = false
   let emit = () => {}
   // Errors go out as a JSON response, or as a final 'error' event once streaming has started.
@@ -5502,6 +5577,10 @@ export default async function handler(req, res) {
       if (proposal.status !== 'pending' && !stale) return settledReply(proposal)
       if (decision === 'no') {
         const status = stale ? 'expired' : 'cancelled'
+        // A button that replaces the card (e.g. "Log my sets" instead of a quick log): no chat reply.
+        if (confirm?.silent === true) {
+          return quickReply({ reply: '', save: { base: withProposal(history, index, { status }), patches: [{ id: proposal.id, patch: { status }, from: ['pending', 'expired'] }] }, extra: { proposalUpdate: { id: proposal.id, status } } })
+        }
         const reply = 'OK, nothing changed. What should I do instead?'
         const patches = [{ id: proposal.id, patch: { status }, from: ['pending', 'expired'] }]
         const added = [userMessage(answer), { role: 'assistant', content: reply, createdAt: nowIso() }]
@@ -5593,7 +5672,8 @@ export default async function handler(req, res) {
     if (webApproved && webMode === 'ask') notes.push('For a food they ate, finishing means staging food_log (meal from the time of day unless they said) plus food_memory save in one card, not asking which meal.')
 
     const confirmMode = data.settings.assistantConfirm !== 'off'
-    const instructions = buildInstructions(buildSnapshot(data, ctx, user.username), { confirmMode })
+    const instructions = staticInstructions({ confirmMode })
+    const snapshotNote = snapshotText(buildSnapshot(data, ctx, user.username))
     // The latest earlier attachment stays visible for follow-ups ("add it to my calendar"), unless this
     // message brings new ones.
     // Folding the oldest messages into the summary (a model call every so often) runs alongside this
@@ -5632,6 +5712,7 @@ export default async function handler(req, res) {
       ...modelHistory.map((item, index) => (carried.has(index)
         ? { role: 'user', content: [textPart(historyContent(item, ctx, { visible: true }) || 'See attached.'), ...item.files.map(attachmentPart)] }
         : { role: item.role, content: historyContent(item, ctx) })),
+      { role: 'developer', content: snapshotNote },
       { role: 'developer', content: developerNote },
       // Attachments stay in this message for every tool round of the turn (stored server-side only, see pruneFiles).
       { role: 'user', content: attachments.length ? [textPart(text), ...attachments.map(attachmentPart)] : text },
@@ -5671,6 +5752,8 @@ export default async function handler(req, res) {
     let directCount = 0
     let choice = null
     let alternatives = [] // one-tap alternatives for the proposal card (offer_alternatives)
+    let workoutOffer = null // a Gym button under the reply (offer_workout)
+    let quickLogged = null // gym_quick_log for today (staged or done): "Log my sets" goes with it
     let webAsk = null // a web search waiting for the user's OK
     let webCount = 0
     // web_lookup: runs only with the user's OK; otherwise the app asks them (choices) and the turn ends.
@@ -5737,6 +5820,13 @@ export default async function handler(req, res) {
           roundStaged = false
           result = readChoice(args)
           if (result.ok) choice = result.choice // shown once the turn ends (see below)
+        } else if (call.name === 'offer_workout') {
+          const offered = gymOffer(args, data, ctx)
+          if (offered.offer) {
+            workoutOffer = offered.offer
+            emit({ type: 'offer', offer: workoutOffer })
+          }
+          result = offered.offer ? { ok: true, message: offered.message } : { ok: false, message: offered.message }
         } else if (call.name === 'offer_alternatives') {
           const options = normalizeAlternatives(args?.options) || []
           if (options.length) alternatives = options
@@ -5771,14 +5861,18 @@ export default async function handler(req, res) {
           results.push({ tool: call.name, ...result })
           if (isActionResult({ tool: call.name, ok: result.ok })) emit({ type: 'action', tool: call.name, ok: result.ok, message: result.message || (result.ok ? 'Done.' : 'That didn’t work.') })
         }
+        if (call.name === 'gym_quick_log' && result.ok && gymDate(args?.date, ctx.localDate) === ctx.localDate) quickLogged = args
         debug.push({ step: result.staged ? 'staged' : 'tool', name: call.name, ok: result.ok, message: result.label || result.message || null })
         input.push({ type: 'function_call_output', call_id: call.call_id, output: JSON.stringify(result.choice ? { ok: true, message: result.message } : result) })
       }
       // A question with choices ends the turn: the chips are the answer.
       if (choice) break
       // All staged cleanly and the model already asked whether to go ahead: the card shows the rest,
-      // so the reply needs no second model call.
-      if (roundStaged && /\?\s*$/.test(responseText(response)) && !(wantsAttach && !stage.list.some((item) => item.tool === 'attach_file'))) {
+      // so the reply needs no second model call. Likewise a round that only added buttons to a reply
+      // it already wrote.
+      const said = responseText(response).trim()
+      const onlyButtons = calls.every((call) => call.name === 'offer_workout' || call.name === 'offer_alternatives')
+      if (roundStaged && (/\?\s*$/.test(said) || (onlyButtons && said)) && !(wantsAttach && !stage.list.some((item) => item.tool === 'attach_file'))) {
         debug.push({ step: 'openai.followup_skipped', reason: 'reply already written' })
         break
       }
@@ -5795,8 +5889,11 @@ export default async function handler(req, res) {
         break
       }
       try {
-        // The last round can't run more tools, so ask for a reply only.
-        response = await callOpenAI({ ...callOptions, toolChoice: round === MAX_TOOL_ROUNDS - 1 ? 'none' : undefined }, debug)
+        // The last round can't run more tools, so ask for a reply only. After a round whose calls were
+        // all staged cleanly, the thinking is done (it only writes the sentence, or adds a missed
+        // call), so it runs with minimal reasoning: about half the wait.
+        const light = roundStaged && !heavy ? 'minimal' : callOptions.effort
+        response = await callOpenAI({ ...callOptions, effort: light, toolChoice: round === MAX_TOOL_ROUNDS - 1 ? 'none' : undefined }, debug)
       } catch (error) {
         if (!progress) throw error
         debug.push({ step: 'openai.followup_failed', message: error.message })
@@ -5806,6 +5903,14 @@ export default async function handler(req, res) {
       // A later round that only re-asks "Shall I go ahead?" after an earlier part already did adds nothing.
       const partText = responseText(response)
       if (!(/\?\s*$/.test(partText) && replyParts.some((part) => /\?\s*$/.test(part)) && /go ahead|shall i|should i|want me to/i.test(partText))) replyParts.push(partText)
+    }
+
+    if (!workoutOffer && quickLogged) {
+      const offered = gymOffer({ action: 'start', routine: quickLogged.routine, when: 'done' }, data, ctx)
+      if (offered.offer) {
+        workoutOffer = offered.offer
+        emit({ type: 'offer', offer: workoutOffer })
+      }
     }
 
     // A proposal card and quick-reply chips can't share a turn: the card's Yes / No would answer a
@@ -5888,21 +5993,36 @@ export default async function handler(req, res) {
         ...(heldBack ? { draft: heldBack } : {}),
         ...(choice ? { choices: choice.choices } : {}),
         ...(webAsk && choice ? { webQuery: webAsk.query } : {}),
+        ...(workoutOffer ? { offer: workoutOffer } : {}),
       },
     ]
     // The usage count was written on its own (it leaves updated_at alone); only if that failed does
     // the save carry it.
     const usageResult = usageWrite ? await usageWrite : null
     if (usageResult?.error) debug.push({ step: 'usage.save_failed', message: usageResult.error.message })
-    turnHistory = await folding
-    await saveTurn({
+    // Folding old messages into the summary is a model call of its own: a streamed reply doesn't wait
+    // for it. The turn is saved as it is and 'done' goes out; the summary is saved behind it (if the
+    // conversation hasn't changed meanwhile; otherwise the next turn folds again).
+    const FOLD_PENDING = Symbol('fold pending')
+    const foldNow = streaming ? await Promise.race([folding, Promise.resolve(FOLD_PENDING)]) : await folding
+    if (foldNow !== FOLD_PENDING) turnHistory = foldNow
+    const unfolded = turnHistory
+    const saved = await saveTurn({
       base: turnHistory,
       patches: turnPatches,
       added,
       fields: usage && usageResult?.error ? { usage: { date: usage.date, count: usage.count + 1 } } : undefined,
     })
+    const finish = foldNow !== FOLD_PENDING ? respond : (payload) => {
+      emit({ type: 'done', ...payload, debug })
+      return folding.then(async (folded) => {
+        if (folded === unfolded || !saved.ok || saved.merged) return
+        const written = await writeConversation(supabase, user.id, { exists: true, seen, messages: [...folded, ...added] })
+        debug.push({ step: written.conflict ? 'history.fold_deferred' : 'history.fold_saved' })
+      }).catch((error) => console.error('Saving the folded history failed:', error)).finally(() => res.end())
+    }
 
-    return respond({
+    return finish({
       reply,
       transcript: isVoice ? text : undefined,
       results: results.map(({ tool: toolName, ok, message }) => ({ tool: toolName, ok, message })),
@@ -5911,6 +6031,7 @@ export default async function handler(req, res) {
       memories: results.some((result) => result.memoryChanged) ? data.memories : undefined,
       proposal: proposal ? publicProposal(proposal) : undefined,
       choices: choice ? choice.choices : undefined,
+      offer: workoutOffer || undefined,
       proposalUpdate: proposalUpdate || undefined,
     })
   } catch (error) {
@@ -5922,4 +6043,4 @@ export default async function handler(req, res) {
 }
 
 // For tests only (tests/assistant-tools.test.mjs): the tool catalogue and the pieces that run tools.
-export { tools as TOOL_DEFS, executeTool, stageTool, buildSnapshot, buildInstructions, LOOKUP_TOOLS, UI_TOOLS }
+export { tools as TOOL_DEFS, executeTool, stageTool, buildSnapshot, buildInstructions, gymOffer, normalizeOffer, LOOKUP_TOOLS, UI_TOOLS }

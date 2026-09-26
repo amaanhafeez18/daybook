@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import Icon from '../../components/ui/Icon.jsx'
 import Sheet from '../../components/ui/Sheet.jsx'
+import { moveItem, useDragSort } from '../../components/ui/useDragSort.js'
 import { confirmAction, toast } from '../../components/ui/feedback.jsx'
 import { WEEKDAY_SHORT } from '../../lib/dates.js'
 import { DAY_TYPES, dayTemplate, matchDayType, newRoutineExercise, parseSplit } from '../../lib/gym/library.js'
@@ -35,6 +36,11 @@ const capitalise = (name) => name.charAt(0).toUpperCase() + name.slice(1)
 const joinNames = (days) => days.map((day) => day.name).join(', ')
 const plural = (n, word, many = `${word}s`) => `${n} ${n === 1 ? word : many}`
 const nameOf = (routine) => (typeof routine?.name === 'string' && routine.name.trim()) || 'Untitled routine'
+// Row keys for a weekly plan's 7 days: each day's id, or a fixed key for a day not filled in yet.
+function weekKeysOf(days) {
+  const used = new Set(days.map((day) => day.id))
+  return Array.from({ length: 7 }, (_, i) => days[i]?.id || (used.has(`empty-${i}`) ? `empty-${i}b` : `empty-${i}`))
+}
 
 const blank = () => ({ step: 0, text: '', days: [], mode: 'rotation', selected: null, custom: null, workouts: {}, anchor: 0, pickFor: null })
 
@@ -191,6 +197,25 @@ export default function SplitWizard({ open, onClose, today }) {
   }
 
   const removeDay = (dayId) => commitDays(s.days.filter((day) => day.id !== dayId), { selected: null })
+
+  // Drag a day to any place: the chips in a rotation (hold, then drag, on a phone), or a weekday
+  // row by its grip (the weekday labels stay; what's on them moves).
+  const moveDayTo = (from, to) => set((current) => {
+    const days = moveItem(current.days, from, to)
+    return { days, text: joinNames(days) }
+  })
+  const chipSort = useDragSort({ keys: s.days.map((day) => day.id), onMove: moveDayTo, longPress: true, axis: 'xy' })
+  // The week always has 7 rows; a missing day is a rest day, filled in (with the key its row
+  // already has, so a drag that starts on it keeps going) once a row is moved.
+  const weekDays = s.mode === 'weekly' ? Array.from({ length: 7 }, (_, i) => s.days[i] || null) : []
+  const weekKeys = weekKeysOf(s.days)
+  const moveWeekday = (from, to) => set((current) => {
+    const keys = weekKeysOf(current.days)
+    const week = Array.from({ length: 7 }, (_, i) => current.days[i] || { id: keys[i], name: 'Rest' })
+    const days = [...moveItem(week, from, to), ...current.days.slice(7)]
+    return { days, text: joinNames(days) }
+  })
+  const weekSort = useDragSort({ keys: weekKeys, onMove: moveWeekday })
 
   // Weekly rows: value '' = Rest, a workout key already in the split, or 'type:<id>'.
   const namesInSplit = []
@@ -435,14 +460,15 @@ export default function SplitWizard({ open, onClose, today }) {
                           const hex = dayHex(day)
                           const selected = day.id === s.selected
                           return (
-                            <li key={day.id}>
+                            <li key={day.id} {...chipSort.item(day.id)}>
                               <button
                                 type="button"
-                                className={`wiz-day${hex ? '' : ' is-rest'}${selected ? ' is-selected' : ''}`}
+                                className={`wiz-day drag-chip${hex ? '' : ' is-rest'}${selected ? ' is-selected' : ''}`}
                                 style={hex ? { '--wiz-c': hex } : undefined}
                                 aria-pressed={selected}
                                 aria-label={`Day ${index + 1}: ${day.name}`}
                                 onClick={() => set({ selected: selected ? null : day.id })}
+                                {...chipSort.handle(day.id, { keyboard: false })}
                               >
                                 <span className="wiz-day-num" aria-hidden="true">{index + 1}</span>
                                 <span className="wiz-day-name">{day.name}</span>
@@ -473,19 +499,19 @@ export default function SplitWizard({ open, onClose, today }) {
                         </button>
                       </div>
                     ) : hasDays && s.days.length > 1 ? (
-                      <p className="wiz-help">Tap a day to move or remove it.</p>
+                      <p className="wiz-help">Drag a day to reorder (on a phone, hold it first), or tap it to move or remove it.</p>
                     ) : null}
                   </>
                 ) : (
                   <>
                     <ul className="wiz-week">
                       {weekOrder.map((weekdayIndex, index) => {
-                        const day = s.days[index]
+                        const day = weekDays[index]
                         const rest = !day || isRestName(day.name)
                         const hex = rest ? null : dayHex(day)
                         const isToday = weekdayIndex === weekday(today)
                         return (
-                          <li key={weekdayIndex} className={`wiz-week-row${isToday ? ' is-today' : ''}`}>
+                          <li key={weekKeys[index]} className={`wiz-week-row${isToday ? ' is-today' : ''}`} {...weekSort.item(weekKeys[index])}>
                             <span className="wiz-week-dow" aria-hidden="true">{WEEKDAY_SHORT[weekdayIndex]}</span>
                             <span className="wiz-week-pick" style={hex ? { '--wiz-c': hex } : undefined}>
                               <span className={rest ? 'wiz-week-rest' : 'wiz-week-dot'} aria-hidden="true" />
@@ -505,6 +531,14 @@ export default function SplitWizard({ open, onClose, today }) {
                               </select>
                             </span>
                             {isToday && <span className="wiz-week-today" aria-hidden="true">Today</span>}
+                            <button
+                              type="button"
+                              className="drag-grip"
+                              aria-label={`Move ${rest ? 'rest day' : day.name} (${WEEKDAY_LONG[weekdayIndex]}): drag, or use the arrow keys`}
+                              {...weekSort.handle(weekKeys[index])}
+                            >
+                              <Icon name="grip" size={18} />
+                            </button>
                           </li>
                         )
                       })}

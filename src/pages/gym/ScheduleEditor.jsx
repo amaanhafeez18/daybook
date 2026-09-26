@@ -4,6 +4,7 @@ import Sheet from '../../components/ui/Sheet.jsx'
 import Disclosure from '../../components/ui/Disclosure.jsx'
 import { confirmAction, toast } from '../../components/ui/feedback.jsx'
 import { Button, IconButton, Segmented } from '../../components/ui/primitives.jsx'
+import { moveItem, useDragSort } from '../../components/ui/useDragSort.js'
 import { WEEKDAY_SHORT } from '../../lib/dates.js'
 import { addDays, editSchedule, mod, plannedFor, resolveDay, resolveRange, setDeloadEvery, versionFor, weekday } from '../../lib/gym/schedule.js'
 import { getGym, routineById, routineColor, saveSchedule, updateGym, useGym, useGymSessions } from '../../lib/gym/state.js'
@@ -29,6 +30,7 @@ const MODES = [
 let keySeq = 0
 const newKey = () => `slot-${++keySeq}`
 const keyed = (slots) => slots.map((slot) => ({ key: newKey(), slot }))
+const weekKeys = () => Array.from({ length: 7 }, () => newKey())
 const slotValue = (slot) => (slot?.kind === 'routine' ? `r:${slot.routineId}` : 'rest')
 const valueSlot = (value) => (value.startsWith('r:') ? { kind: 'routine', routineId: value.slice(2) } : REST)
 const sameSlots = (a, b) => a.length === b.length && a.every((slot, index) => slotValue(slot) === slotValue(b[index]))
@@ -78,7 +80,7 @@ function initialDraft(gym, sessions, today) {
   if (base?.mode === 'weekly') {
     draft = {
       mode: 'weekly',
-      weekly: { slots: base.weekly.slice(), edited: true },
+      weekly: { slots: base.weekly.slice(), keys: weekKeys(), edited: true },
       rotation: { slots: keyed(weeklyToCycle(base.weekly, firstWeekday)), edited: false },
     }
   } else {
@@ -87,7 +89,7 @@ function initialDraft(gym, sessions, today) {
     draft = {
       mode: 'rotation',
       rotation: { slots: keyed(cycle), edited: Boolean(base) },
-      weekly: { slots: cycleToWeekly(cycle), edited: false },
+      weekly: { slots: cycleToWeekly(cycle), keys: weekKeys(), edited: false },
     }
   }
   const slots = draft.rotation.slots.map((item) => item.slot)
@@ -167,21 +169,14 @@ export default function ScheduleEditor({ open, onClose, today }) {
       return { ...current, mode, rotation: { slots, edited: false }, anchorKey: slots[mod(weekday(today) - firstWeekday, 7)].key }
     }
     if (mode === 'weekly' && !current.weekly.edited) {
-      return { ...current, mode, weekly: { slots: cycleToWeekly(current.rotation.slots.map((item) => item.slot)), edited: false } }
+      return { ...current, mode, weekly: { slots: cycleToWeekly(current.rotation.slots.map((item) => item.slot)), keys: current.weekly.keys, edited: false } }
     }
     return { ...current, mode }
   })
 
   const setSlot = (key, value) => editRotation((slots) => slots.map((item) => (item.key === key ? { ...item, slot: valueSlot(value) } : item)))
   const removeSlot = (key) => editRotation((slots) => (slots.length > 1 ? slots.filter((item) => item.key !== key) : slots))
-  const moveSlot = (key, delta) => editRotation((slots) => {
-    const from = slots.findIndex((item) => item.key === key)
-    const to = from + delta
-    if (from < 0 || to < 0 || to >= slots.length) return slots
-    const next = slots.slice()
-    ;[next[from], next[to]] = [next[to], next[from]]
-    return next
-  })
+  const moveSlotTo = (from, to) => editRotation((slots) => moveItem(slots, from, to))
   // A new day gets the first routine not in the cycle yet, else Rest.
   const addSlot = () => editRotation((slots) => {
     if (slots.length >= MAX_SLOTS) return slots
@@ -191,8 +186,22 @@ export default function ScheduleEditor({ open, onClose, today }) {
   })
   const setWeekday = (day, value) => update((current) => ({
     ...current,
-    weekly: { slots: current.weekly.slots.map((slot, index) => (index === day ? valueSlot(value) : slot)), edited: true },
+    weekly: { ...current.weekly, slots: current.weekly.slots.map((slot, index) => (index === day ? valueSlot(value) : slot)), edited: true },
   }))
+  // Weekly rows in first-weekday order: dragging moves what's on a day; the weekday labels stay.
+  const weekOrder = Array.from({ length: 7 }, (_, i) => (firstWeekday + i) % 7)
+  const moveWeekday = (from, to) => update((current) => {
+    const ordered = moveItem(weekOrder.map((day) => ({ slot: current.weekly.slots[day] || REST, key: current.weekly.keys[day] })), from, to)
+    const slots = current.weekly.slots.slice()
+    const keys = current.weekly.keys.slice()
+    weekOrder.forEach((day, i) => {
+      slots[day] = ordered[i].slot
+      keys[day] = ordered[i].key
+    })
+    return { ...current, weekly: { slots, keys, edited: true } }
+  })
+  const rotationSort = useDragSort({ keys: draft ? draft.rotation.slots.map((item) => item.key) : [], onMove: moveSlotTo })
+  const weekSort = useDragSort({ keys: draft ? weekOrder.map((day) => draft.weekly.keys[day]) : [], onMove: moveWeekday })
 
   const requestClose = async () => {
     if (dirty && !(await confirmAction({ title: 'Discard changes?', message: 'Your schedule edits will be lost.', confirmLabel: 'Discard' }))) return
@@ -287,7 +296,10 @@ export default function ScheduleEditor({ open, onClose, today }) {
                     const isAnchor = item.key === draft.anchorKey
                     const routine = item.slot.kind === 'routine' ? routineById(gym, item.slot.routineId) : null
                     return (
-                      <li key={item.key} className={`gym-sched-row${isAnchor ? ' is-anchor' : ''}`}>
+                      <li key={item.key} className={`gym-sched-row${isAnchor ? ' is-anchor' : ''}`} {...rotationSort.item(item.key)}>
+                        <button type="button" className="drag-grip" aria-label={`Move day ${index + 1}: drag, or use the arrow keys`} {...rotationSort.handle(item.key)}>
+                          <Icon name="grip" size={18} />
+                        </button>
                         <span className="gym-sched-index" aria-hidden="true">{index + 1}</span>
                         <SlotSelect
                           slot={item.slot}
@@ -296,8 +308,6 @@ export default function ScheduleEditor({ open, onClose, today }) {
                           label={`Day ${index + 1}${isAnchor ? ' (today)' : ''}`}
                           onChange={(value) => setSlot(item.key, value)}
                         />
-                        <IconButton icon="arrowUp" label={`Move day ${index + 1} up`} className="gym-sched-btn" size={18} disabled={index === 0} onClick={() => moveSlot(item.key, -1)} />
-                        <IconButton icon="arrowDown" label={`Move day ${index + 1} down`} className="gym-sched-btn" size={18} disabled={index === slots.length - 1} onClick={() => moveSlot(item.key, 1)} />
                         <IconButton icon="minus" label={`Remove day ${index + 1}`} className="gym-sched-btn gym-sched-remove" size={18} disabled={slots.length <= 1} onClick={() => removeSlot(item.key)} />
                       </li>
                     )
@@ -327,12 +337,16 @@ export default function ScheduleEditor({ open, onClose, today }) {
             ) : (
               <section className="gym-sched-section" aria-label="Weekly plan">
                 <ul className="gym-sched-list">
-                  {Array.from({ length: 7 }, (_, i) => (firstWeekday + i) % 7).map((day) => {
+                  {weekOrder.map((day) => {
                     const slot = draft.weekly.slots[day] || REST
                     const routine = slot.kind === 'routine' ? routineById(gym, slot.routineId) : null
                     const isToday = day === weekday(today)
+                    const key = draft.weekly.keys[day]
                     return (
-                      <li key={day} className={`gym-sched-row${isToday ? ' is-anchor' : ''}`}>
+                      <li key={key} className={`gym-sched-row${isToday ? ' is-anchor' : ''}`} {...weekSort.item(key)}>
+                        <button type="button" className="drag-grip" aria-label={`Move ${WEEKDAY_SHORT[day]}’s workout: drag, or use the arrow keys`} {...weekSort.handle(key)}>
+                          <Icon name="grip" size={18} />
+                        </button>
                         <span className="gym-sched-weekday" aria-hidden="true">{WEEKDAY_SHORT[day]}</span>
                         <SlotSelect slot={slot} routine={routine} gym={gym} label={`${WEEKDAY_SHORT[day]}${isToday ? ' (today)' : ''}`} onChange={(value) => setWeekday(day, value)} />
                         {isToday && <span className="gym-sched-today" aria-hidden="true">Today</span>}
