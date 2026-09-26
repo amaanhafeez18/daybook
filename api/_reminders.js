@@ -456,13 +456,17 @@ function taskUrl(task) {
 // unknown; prayer reminders ignore quiet hours (Fajr is early by nature).
 export function dueNotifications({ settings, tasks, friends, contactLogs = null, classes, gymSessions = null, prayerTimings = null }, now = Date.now()) {
   const prefs = notificationPrefs(settings)
+  // Areas switched off in Settings → What you use get no reminders either.
+  const areas = isObject(settings?.areas) ? settings.areas : {}
+  if (areas.gym === false) prefs.gym = false
+  if (areas.people === false) prefs.people = false
   const timeZone = safeZone(settings?.timeZone || 'UTC')
   const today = localNow(now, timeZone).date
   const tomorrow = addDays(today, 1)
   const open = tasks.filter((task) => !task.done && !task.archived)
   // Overdue counts leave out catch-up tasks when those notifications are off.
   const counted = open.filter((task) => prefs.people || !isReminderTask(task))
-  const workout = prefs.gym || prefs.dailySummary ? plannedWorkout(settings, gymSessions, today) : null
+  const workout = areas.gym !== false && (prefs.gym || prefs.dailySummary) ? plannedWorkout(settings, gymSessions, today) : null
   const candidates = []
 
   // Task reminders

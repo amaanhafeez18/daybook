@@ -572,8 +572,9 @@ const CASES = [
       { args: { prayerMethod: '2', prayerSchool: 1, showPrayerTimes: false }, check(s) { assert.equal(settingsOf(s).prayerSchool, 1) } },
       { args: { assistantConfirm: 'off', assistantWeb: 'always' }, check(s) { assert.equal(settingsOf(s).assistantWeb, 'always') } },
       { args: { darkMode: true }, check(s) { assert.equal(settingsOf(s).appearance, 'dark') } },
+      { args: { areas: { gym: false } }, check(s, d) { assert.equal(settingsOf(s).areas.gym, false); assert.equal(d.settings.areas.gym, false); assert.ok(settingsOf(s).gym.routines.length === 3, 'hiding an area keeps its data') } },
     ],
-    invalid: [{}, { theme: 'purple' }, { appearance: 'blue' }, { notifications: { taskLead: '30' } }, { notifications: { dailySummaryTime: '8am' } }, { notifications: { gymTime: '' } }, { prayerMethod: '99' }, { assistantConfirm: 'sometimes' }, { notifications: {} }, { assistantWeb: 'maybe' }],
+    invalid: [{}, { areas: { gym: 'no' } }, { theme: 'purple' }, { appearance: 'blue' }, { notifications: { taskLead: '30' } }, { notifications: { dailySummaryTime: '8am' } }, { notifications: { gymTime: '' } }, { prayerMethod: '99' }, { assistantConfirm: 'sometimes' }, { notifications: {} }, { assistantWeb: 'maybe' }],
   },
   {
     name: 'food_update_prefs',

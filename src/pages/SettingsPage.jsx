@@ -13,6 +13,7 @@ import { discardActive, flushActive, getActiveWorkout, updateGym } from '../lib/
 import { classSchedule } from '../lib/planner.js'
 import { ACCENTS, APPEARANCES, DEFAULT_ACCENT, resolveAppearance } from '../lib/theme.js'
 import { PRAYER_METHODS } from '../lib/environment.js'
+import { AREAS, areasFrom } from '../lib/areas.js'
 import { formatDateShort, formatTime } from '../lib/dates.js'
 import { DEFAULT_NOTIFICATIONS, LEAD_OPTIONS, currentSubscription, disableNotifications, enableNotifications, leadLabel, notificationPrefs, pushSupport, sendTestNotification, syncSubscription } from '../lib/notifications.js'
 import { openWelcome } from '../components/welcome/rules.js'
@@ -33,7 +34,7 @@ const PRAYER_LEADS = [{ value: 0, label: 'At the time' }, { value: 5, label: '5 
 
 // #/settings/<id> opens Settings scrolled to that section (e.g. the prayer card's "Method" link).
 // 'security' is the Change password row inside Account & security.
-const SECTION_IDS = new Set(['notifications', 'assistant', 'classes', 'prayer', 'appearance', 'profile', 'security', 'account', 'danger'])
+const SECTION_IDS = new Set(['areas', 'notifications', 'assistant', 'classes', 'prayer', 'appearance', 'profile', 'security', 'account', 'danger'])
 
 // The section a deep link points at, read before useSectionLink clears it from the hash, so a
 // disclosure it points into (the prayer method) can start open.
@@ -159,6 +160,8 @@ export default function SettingsPage({ user, onUserChange, onSignOut }) {
         </div>
         <p className="set-footnote">Used in greetings and by the assistant.</p>
       </section>
+
+      <AreaSettings settings={settings} />
 
       <NotificationSettings settings={settings} />
 
@@ -509,6 +512,26 @@ const DEVICE_STATUS = {
   unsupported: 'This browser doesn’t support notifications.',
   dev: 'Available in the installed app (not the local dev server).',
   denied: 'Blocked. Allow notifications for Daybook in your phone’s Settings → Notifications.',
+}
+
+// Which optional areas show (lib/areas.js). Off hides the area from the tab bar, the top bar and
+// Today; the data stays and the area comes straight back when switched on.
+function AreaSettings({ settings }) {
+  const areas = areasFrom(settings)
+  const set = (id, on) => updateSettings({ areas: { ...(settings.areas && typeof settings.areas === 'object' ? settings.areas : {}), [id]: on } })
+  return (
+    <section className="settings-group" id="areas">
+      <h2>What you use</h2>
+      <div className="card set-list">
+        {AREAS.map((area) => (
+          <div key={area.id} className="set-row is-switch">
+            <Switch label={area.label} description={area.text} checked={areas[area.id]} onChange={(on) => set(area.id, on)} />
+          </div>
+        ))}
+      </div>
+      <p className="set-footnote">Today, Tasks, Calendar and the Assistant are always there. Gym and Food live in Health, one tap from the top. Turning something off only hides it; nothing is deleted.</p>
+    </section>
+  )
 }
 
 function NotificationSettings({ settings }) {

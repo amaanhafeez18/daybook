@@ -870,12 +870,13 @@ export function buildSuggestions({ tasks, friends, settings, foodEntries, gymDay
     .filter((task) => task && !task.archived && !task.done && typeof task.date === 'string' && task.date && task.date < today).length
   if (overdue > 0) list.push({ icon: 'alert', text: overdue === 1 ? 'Reschedule my overdue task' : `Reschedule my ${overdue} overdue tasks` })
   list.push(hour >= 17 ? { icon: 'sunrise', text: 'Plan tomorrow' } : { icon: 'sun', text: 'What’s on my plate today?' })
-  if (gymDay) list.push({ icon: 'dumbbell', text: 'What’s today’s workout?' })
+  const areas = settings?.areas && typeof settings.areas === 'object' ? settings.areas : {}
+  if (gymDay && areas.gym !== false) list.push({ icon: 'dumbbell', text: 'What’s today’s workout?' })
   const calorieGoal = Number(settings?.food?.goals?.calories)
-  if ((Number.isFinite(calorieGoal) && calorieGoal > 0) || (Array.isArray(foodEntries) && foodEntries.length > 0)) {
+  if (areas.food !== false && ((Number.isFinite(calorieGoal) && calorieGoal > 0) || (Array.isArray(foodEntries) && foodEntries.length > 0))) {
     list.push({ icon: 'utensils', text: 'How many calories do I have left?' })
   }
-  if (Array.isArray(friends) && friends.length > 0) list.push({ icon: 'people', text: 'Who should I catch up with?' })
+  if (areas.people !== false && Array.isArray(friends) && friends.length > 0) list.push({ icon: 'people', text: 'Who should I catch up with?' })
   if (settings?.showPrayerTimes !== false) list.push({ icon: 'moon', text: 'What are today’s prayer times?' })
   for (const fallback of FALLBACK_SUGGESTIONS) list.push(fallback)
   return list.slice(0, 4)
