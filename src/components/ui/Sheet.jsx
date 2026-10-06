@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import Icon from './Icon.jsx'
+import { revealFocused, watchKeyboard } from '../../lib/keyboard.js'
 import '../shell.css'
 
 const EXIT_MS = 180
@@ -18,7 +19,7 @@ const NOT_A_HANDLE = 'button, a, input, textarea, select, label, [contenteditabl
 
 // Bottom sheet on phones, centred dialog on wider screens. Closes on Escape, backdrop tap or (on
 // phones) a swipe down on its handle or header; moves focus inside while open and returns it
-// afterwards, and locks page scroll.
+// afterwards, locks page scroll, and stays above the on-screen keyboard (lib/keyboard.js).
 export default function Sheet({ open, onClose, title, description, children, footer, size = 'md', initialFocus = true, role = 'dialog', describedBy }) {
   const [mounted, setMounted] = useState(open)
   const [closing, setClosing] = useState(false)
@@ -78,9 +79,29 @@ export default function Sheet({ open, onClose, title, description, children, foo
       if (event.key === 'Tab') trapFocus(event, panelRef.current)
     }
     document.addEventListener('keydown', onKeyDown)
+
+    // iPhone keyboard: the sheet sits above it (shell.css, from --kb), and the field being typed in
+    // stays in view when the keyboard opens or resizes, and when focus moves to another field.
+    let shownKb = 0
+    const stopKeyboard = watchKeyboard((kb) => {
+      if (kb > 0 && kb !== shownKb) revealFocused(panelRef.current)
+      shownKb = kb
+    })
+    let revealFrame = 0
+    const onFocusIn = () => {
+      cancelAnimationFrame(revealFrame)
+      revealFrame = requestAnimationFrame(() => {
+        if (shownKb > 0) revealFocused(panelRef.current)
+      })
+    }
+    const panel = panelRef.current
+    panel?.addEventListener('focusin', onFocusIn)
     return () => {
       clearTimeout(focusTimer)
       document.removeEventListener('keydown', onKeyDown)
+      stopKeyboard()
+      cancelAnimationFrame(revealFrame)
+      panel?.removeEventListener('focusin', onFocusIn)
       openSheets -= 1
       const index = sheetStack.indexOf(panelRef)
       if (index !== -1) sheetStack.splice(index, 1)
