@@ -1,0 +1,95 @@
+/* Exercise visuals: figure and muscle map colours (follow light/dark and the accent theme), the
+   exercise page's panel, the visual sheet and the #/gym/visuals review gallery. */
+
+.gvis {
+  --gvis-body: #7f8892;
+  --gvis-far: #c5cbd1;
+  --gvis-gear: #4b535c;
+  --gvis-plate: #eef0f2;
+  --gvis-pad: #d5d9de;
+  --gvis-frame: #bcc3ca;
+  --gvis-ground: var(--border);
+  --gvis-hot: var(--accent);
+  --gvis-warm: var(--accent-soft);
+  --gvis-hot-far: var(--accent-soft);
+  --gvis-warm-far: var(--accent-soft);
+  --gvis-tint: var(--accent-soft);
+  --gvis-ghost: #dde1e5;
+  --gvis-map: #e6e9ec;
+  --gvis-map-muscle: #cfd4d9;
+  display: block; overflow: visible;
+}
+@supports (color: color-mix(in srgb, red 50%, blue)) {
+  .gvis {
+    --gvis-body: color-mix(in srgb, var(--text) 50%, var(--surface));
+    --gvis-far: color-mix(in srgb, var(--text) 24%, var(--surface));
+    --gvis-gear: color-mix(in srgb, var(--text) 76%, var(--surface));
+    --gvis-plate: color-mix(in srgb, var(--text) 7%, var(--surface));
+    --gvis-pad: color-mix(in srgb, var(--text) 17%, var(--surface));
+    --gvis-frame: color-mix(in srgb, var(--text) 28%, var(--surface));
+    --gvis-warm: color-mix(in srgb, var(--accent) 42%, var(--surface));
+    --gvis-hot-far: color-mix(in srgb, var(--accent) 58%, var(--surface));
+    --gvis-warm-far: color-mix(in srgb, var(--accent) 26%, var(--surface));
+    --gvis-tint: color-mix(in srgb, var(--accent) 60%, var(--surface));
+    --gvis-ghost: color-mix(in srgb, var(--text) 15%, var(--surface));
+    --gvis-map: color-mix(in srgb, var(--text) 9%, var(--surface));
+    --gvis-map-muscle: color-mix(in srgb, var(--text) 21%, var(--surface));
+  }
+}
+
+.gvis .r-body { fill: var(--gvis-body); stroke: var(--gvis-body); }
+.gvis .r-far { fill: var(--gvis-far); stroke: var(--gvis-far); }
+.gvis .r-hot { fill: var(--gvis-hot); stroke: var(--gvis-hot); }
+.gvis .r-warm { fill: var(--gvis-warm); stroke: var(--gvis-warm); }
+.gvis .r-hotFar { fill: var(--gvis-hot-far); stroke: var(--gvis-hot-far); }
+.gvis .r-warmFar { fill: var(--gvis-warm-far); stroke: var(--gvis-warm-far); }
+.gvis .r-tint { fill: var(--gvis-tint); stroke: var(--gvis-tint); }
+.gvis .r-gear { fill: var(--gvis-gear); stroke: var(--gvis-gear); }
+.gvis .r-pad { fill: var(--gvis-pad); stroke: var(--gvis-pad); }
+.gvis .r-frame { fill: var(--gvis-frame); stroke: var(--gvis-frame); }
+.gvis .r-thin { fill: none; stroke: var(--gvis-gear); }
+.gvis .r-ground { fill: none; stroke: var(--gvis-ground); }
+.gvis .r-ghost { fill: var(--gvis-ghost); stroke: var(--gvis-ghost); }
+.gvis .r-cut { fill: none; stroke: var(--gvis-cut, var(--surface)); }
+.gvis .r-map { fill: var(--gvis-map); stroke: var(--gvis-map); }
+.gvis .r-mapMuscle { fill: var(--gvis-map-muscle); stroke: var(--gvis-map-muscle); }
+.gvis .f-none { fill: none; }
+.gvis .f-plate { fill: var(--gvis-plate); }
+
+.gvis-wrap { display: block; line-height: 0; }
+
+/* ---- exercise page panel / sheet --------------------------------------------------------- */
+
+.gvis-panel { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.gvis-panel-art { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 10px; align-items: center; }
+.gvis-panel.is-map-only .gvis-panel-art { grid-template-columns: minmax(0, 240px); justify-content: center; }
+.gvis-panel-figure { --gvis-cut: var(--surface-2); padding: 6px; border-radius: 18px; background: var(--surface-2); }
+.gvis-panel-figure svg { display: block; width: 100%; height: auto; }
+.gvis-panel-map { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; }
+.gvis-panel-map svg { display: block; width: 100%; max-width: 190px; height: auto; }
+.gvis-map-caption { display: flex; justify-content: space-around; width: 100%; max-width: 190px; font-size: 12px; color: var(--text-2); }
+.gvis-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; font-size: 14px; color: var(--text-2); }
+.gvis-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.gvis-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--accent-soft); }
+.gvis-swatch.is-hot { background: var(--accent); }
+@supports (color: color-mix(in srgb, red 50%, blue)) {
+  .gvis-swatch.is-warm { background: color-mix(in srgb, var(--accent) 42%, var(--surface)); }
+}
+.gvis-cues { display: flex; flex-direction: column; gap: 4px; margin: 0; padding-left: 22px; font-size: 15px; line-height: 1.35; color: var(--text); }
+.gvis-cues li::marker { color: var(--text-2); font-variant-numeric: tabular-nums; }
+.gvis-panel-holder { min-height: 236px; margin-top: 12px; }
+.gvis-panel.in-sheet { margin-top: 0; padding-bottom: 6px; }
+
+/* ---- review gallery ---------------------------------------------------------------------- */
+
+.gvis-gallery .gym-st-head p { margin-top: 2px; font-size: 14px; }
+.gvis-gallery-mode { margin: 6px 0 12px; }
+.gvis-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(156px, 1fr)); gap: 10px; margin: 0; padding: 0; list-style: none; }
+.gvis-grid.is-thumbs { grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); }
+.gvis-cell { --gvis-cut: var(--surface); display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 10px; min-width: 0; }
+.gvis-cell-art { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); align-items: center; gap: 4px; }
+.gvis-grid.is-thumbs .gvis-cell-art { display: flex; }
+.gvis-cell-art svg { display: block; width: 100%; height: auto; }
+.gvis-grid.is-thumbs .gvis-cell-art svg { width: auto; }
+.gvis-cell-name { margin: 0; font-size: 14px; font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
+.gvis-cell-meta { margin: 0; font-size: 12px; color: var(--text-2); overflow-wrap: anywhere; }

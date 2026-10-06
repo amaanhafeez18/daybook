@@ -33,6 +33,8 @@ const RoutineEditor = lazy(loadRoutineEditor)
 const ExerciseDetail = lazy(loadExerciseDetail)
 const StatsView = lazy(loadStatsView)
 const GymSettingsSheet = lazy(loadGymSettings)
+// #/gym/visuals: review grid of every exercise visual (not linked anywhere).
+const VisualsGallery = lazy(() => import('./gym/visuals/VisualsGallery.jsx'))
 
 // #/gym/<view>/<param>: four tabs under one header, the exercise library (opened from Routines)
 // as a page of its own, and detail views that take the whole page.
@@ -45,7 +47,7 @@ const TABS = [
 ]
 const TAB_VIEWS = { today: TodayTab, calendar: CalendarTab, routines: RoutinesTab, history: HistoryTab }
 const PAGE_VIEWS = { exercises: ExercisesPage }
-const DETAIL_VIEWS = { workout: WorkoutScreen, session: SessionDetail, routine: RoutineEditor, exercise: ExerciseDetail, stats: StatsView }
+const DETAIL_VIEWS = { workout: WorkoutScreen, session: SessionDetail, routine: RoutineEditor, exercise: ExerciseDetail, stats: StatsView, visuals: VisualsGallery }
 const knownView = (view) => !!(TAB_VIEWS[view] || PAGE_VIEWS[view] || DETAIL_VIEWS[view])
 // How deep a view sits: tabs, then the library, then details. Going deeper keeps the scroll
 // position of the view left behind; coming back up restores it.

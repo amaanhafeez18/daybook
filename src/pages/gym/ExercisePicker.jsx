@@ -5,6 +5,7 @@ import { Button } from '../../components/ui/primitives.jsx'
 import { EQUIPMENT, MUSCLES, exerciseById, searchExercises } from '../../lib/gym/library.js'
 import { useGym, useGymSessions } from '../../lib/gym/state.js'
 import CustomExerciseSheet from './CustomExerciseSheet.jsx'
+import { ExerciseThumb } from './visuals/lazy.jsx'
 import './exercises.css'
 
 // ---- shared by the Exercises tab and the picker ---------------------------------------------
@@ -140,11 +141,12 @@ export function ExerciseFilters({ query, onQuery, muscle, onMuscle, equipment, o
   )
 }
 
-// Row internals: initial, name (+ Custom tag), primary muscle · equipment, times performed.
+// Row internals: picture (the initial until it loads), name (+ Custom tag), primary muscle ·
+// equipment, times performed.
 export function ExerciseRowBody({ exercise, count = 0 }) {
   return (
     <>
-      <span className="gym-lib-avatar" aria-hidden="true">{letterOf(exercise.name)}</span>
+      <ExerciseThumb exercise={exercise} size={36} animate="hover" className="gym-lib-avatar" fallback={letterOf(exercise.name)} />
       <span className="gym-lib-text">
         <span className="gym-lib-name">
           <span className="gym-lib-name-text">{exercise.name}</span>

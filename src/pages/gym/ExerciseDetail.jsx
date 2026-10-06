@@ -14,6 +14,7 @@ import { GymEmpty, SetTypeBadge, goBack } from './common.jsx'
 import CustomExerciseSheet, { CATEGORY_OPTIONS, restChoices, restText, trackingName } from './CustomExerciseSheet.jsx'
 import { equipmentLabel, muscleLabel } from './ExercisePicker.jsx'
 import ToolsSheet from './ToolsSheet.jsx'
+import { ExerciseVisualPanel } from './visuals/lazy.jsx'
 import './exercises.css'
 
 const isNum = (value) => typeof value === 'number' && Number.isFinite(value)
@@ -249,6 +250,7 @@ export default function ExerciseDetail({ param, today }) {
           {exercise.custom && <span className="meta-chip is-accent">Custom</span>}
           {exercise.hidden && <span className="meta-chip">Hidden from list</span>}
         </div>
+        {!exercise.missing && <ExerciseVisualPanel exercise={exercise} />}
       </header>
 
       <Facts history={history} exercise={exercise} tracking={tracking} sessions={sessions} prefs={prefs} today={today} />
