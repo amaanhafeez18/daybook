@@ -1,0 +1,25 @@
+/* Exercise visual thumbnails and the thumbnail button (gym rows, live workout cards). Loaded with
+   the gym screens so placeholders have their size before the visuals chunk arrives. */
+
+.gvis-tile {
+  --gvis-cut: var(--surface-2);
+  flex-shrink: 0; display: inline-grid; place-items: center; overflow: hidden;
+  border-radius: 10px; background: var(--surface-2); color: var(--text-2); line-height: 0;
+}
+.gvis-tile .gvis-wrap, .gvis-tile svg { display: block; }
+/* The library rows' letter avatar becomes a rounded tile once it holds a picture. */
+.gym-lib-avatar.gvis-tile { border-radius: 10px; line-height: normal; }
+.gvis-tile.is-map { background: transparent; }
+
+.gvis-btn {
+  position: relative; flex-shrink: 0; display: inline-grid; place-items: center;
+  padding: 0; border-radius: 10px; color: var(--text-2); -webkit-tap-highlight-color: transparent;
+}
+/* 34px tile, 44px touch target. */
+.gvis-btn::after { content: ''; position: absolute; inset: -5px; }
+.gvis-btn .gvis-tile { transition: transform 0.15s var(--ease, ease); }
+.gvis-btn:active .gvis-tile { transform: scale(0.94); }
+.gvis-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.gym-ex-head > .gvis-btn { margin-top: 1px; }
+.gym-re-ex-head > .gvis-tile { margin-top: 1px; }

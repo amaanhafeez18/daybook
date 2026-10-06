@@ -13,6 +13,7 @@ import { DurationInput, GymEmpty, NumberInput, SectionHeader, SetTypeBadge, Weig
 import { offerRelink } from './relink.js'
 import ExercisePicker from './ExercisePicker.jsx'
 import { ActionSheet, removeRoutine, routineName, useSheetTarget } from './RoutinesTab.jsx'
+import { ExerciseThumb } from './visuals/lazy.jsx'
 import './routines.css'
 
 // #/gym/routine/<id> ('new' creates one). Edits a draft in component state; nothing reaches the
@@ -707,6 +708,7 @@ function ExerciseCard({ row, group, muscles, unit, distanceUnit, showRpe, defaul
       )}
       <header className="gym-re-ex-head">
         {group && <span className="gym-re-ss-tag">{group.letter}{group.position}</span>}
+        <ExerciseThumb exerciseId={row.exerciseId} size={40} />
         <div className="gym-re-ex-title">
           <h3>{name}</h3>
           {muscles && <p>{muscles}</p>}

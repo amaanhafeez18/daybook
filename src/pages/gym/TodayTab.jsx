@@ -21,6 +21,7 @@ import ChangeWorkoutSheet from './ChangeWorkoutSheet.jsx'
 import ScheduleEditor from './ScheduleEditor.jsx'
 import SkipSheet from './SkipSheet.jsx'
 import { beginWorkout } from './startWorkout.js'
+import { ExerciseThumb } from './visuals/lazy.jsx'
 import './gym.css'
 
 const num = (value) => (typeof value === 'number' && Number.isFinite(value) ? value : null)
@@ -647,6 +648,7 @@ function ExerciseList({ routine, gym, sessions, deload }) {
           <li key={plan.row.id} className={`gym-td-ex${open ? ' is-open' : ''}${label ? ' in-superset' : ''}`}>
             <button type="button" className="gym-td-ex-row" aria-expanded={open} onClick={() => setOpenId(open ? null : plan.row.id)}>
               <span className="gym-td-ex-num" aria-hidden="true">{label || index + 1}</span>
+              <ExerciseThumb exercise={plan.entry} size={36} animate={open} />
               <span className="gym-td-ex-text">
                 <span className="gym-td-ex-name">{plan.name}</span>
                 <span className="gym-td-ex-line">

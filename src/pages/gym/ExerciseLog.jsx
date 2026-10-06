@@ -12,6 +12,7 @@ import { ActionSheet, DurationInput, GymEmpty, NumberInput, SetTypeBadge, Weight
 import ExercisePicker from './ExercisePicker.jsx'
 import { PlateCalculatorSheet } from './ToolsSheet.jsx'
 import { unlockAudio } from './RestTimer.jsx'
+import { ExerciseVisualButton } from './visuals/lazy.jsx'
 import './workout.css'
 
 // The exercise cards of a workout: the set grid (previous values, placeholders, set types,
@@ -1341,6 +1342,7 @@ const ExerciseCard = memo(function ExerciseCard({
             {ssLetter}{ssPos}
           </span>
         )}
+        <ExerciseVisualButton exerciseId={exercise.exerciseId} name={name} />
         <div className="gym-ex-title">
           <h3 className="gym-ex-name" id={`${domPrefix}-h-${index}`}>
             {live && exercise.exerciseId
