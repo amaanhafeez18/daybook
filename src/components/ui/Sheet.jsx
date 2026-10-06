@@ -20,7 +20,9 @@ const NOT_A_HANDLE = 'button, a, input, textarea, select, label, [contenteditabl
 // Bottom sheet on phones, centred dialog on wider screens. Closes on Escape, backdrop tap or (on
 // phones) a swipe down on its handle or header; moves focus inside while open and returns it
 // afterwards, locks page scroll, and stays above the on-screen keyboard (lib/keyboard.js).
-export default function Sheet({ open, onClose, title, description, children, footer, size = 'md', initialFocus = true, role = 'dialog', describedBy }) {
+// dragBody: the body takes the swipe-down too (short sheets that never scroll, e.g. an exercise's
+// animation), so the whole sheet can be pulled down to close.
+export default function Sheet({ open, onClose, title, description, children, footer, size = 'md', initialFocus = true, role = 'dialog', describedBy, dragBody = false }) {
   const [mounted, setMounted] = useState(open)
   const [closing, setClosing] = useState(false)
   const panelRef = useRef(null)
@@ -139,7 +141,7 @@ export default function Sheet({ open, onClose, title, description, children, foo
             </button>
           </header>
         )}
-        <div className="sheet-body">{children}</div>
+        <div className={`sheet-body${dragBody ? ' is-draggable' : ''}`} {...(dragBody ? drag.handlers : {})}>{children}</div>
         {footer && <footer className="sheet-footer">{footer}</footer>}
       </div>
     </div>,
@@ -147,7 +149,7 @@ export default function Sheet({ open, onClose, title, description, children, foo
   )
 }
 
-// Swipe down to close, from the handle or the header (never the scrolling body). The sheet follows
+// Swipe down to close, from the handle or the header (or the body of a dragBody sheet, which doesn't scroll). The sheet follows
 // the finger, the backdrop fades with it, and on release it closes past DRAG_CLOSE_PX or on a flick,
 // otherwise springs back. Closing goes through onClose like the × does, so a sheet that asks
 // "discard changes?" first still can; if it stays open, the sheet springs back.
