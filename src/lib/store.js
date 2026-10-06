@@ -44,6 +44,9 @@ let synced = {} // what the server is known to have, per key
 const saveTimers = {}
 const inFlight = {}
 const saveAgain = {}
+// Saves the server turned down, per key (its message). state.saveError shows the newest one and
+// stays until every one of those keys has saved, so a retry of one list can't hide another's failure.
+const failedSaves = new Map()
 let retryTimer = null
 let retryAttempt = 0
 let refreshPromise = null
@@ -432,11 +435,12 @@ async function flush(key) {
   if (key === 'settings') {
     // Only the fields changed here, so an old copy can't overwrite changes made elsewhere.
     set = settingsChanges(base || {}, target)
-    if (!Object.keys(set).length) return
+    if (!Object.keys(set).length) return noteSaveFailure(key, '')
     request = { method: 'PATCH', body: { key, set } }
   } else {
     ;({ upsert, remove } = diffList(base || [], target))
-    if (!upsert.length && !remove.length) return
+    // Nothing left to send (e.g. the edit was undone): an earlier failure of this list is moot.
+    if (!upsert.length && !remove.length) return noteSaveFailure(key, '')
     request = { method: 'PATCH', body: { key, upsert, delete: remove } }
   }
 
@@ -454,10 +458,13 @@ async function flush(key) {
       if (uncached.has(key)) storeCache(key, state.data[key])
       else storeRecord(key)
       retryAttempt = 0
-      setState({ saveError: '', offline: false })
+      failedSaves.delete(key)
+      setState({ saveError: latestSaveFailure(), offline: false })
     } catch (error) {
       if (startedIn !== generation || error.status === 401) return
-      setState({ saveError: error.status === 0 ? '' : error.message, offline: error.status === 0 })
+      // Offline isn't a rejection: the list keeps whatever failure it had before.
+      if (error.status !== 0) failedSaves.set(key, error.message || 'Something went wrong. Please try again.')
+      setState({ saveError: latestSaveFailure(), offline: error.status === 0 })
       scheduleRetry()
     } finally {
       if (startedIn === generation) {
@@ -471,6 +478,26 @@ async function flush(key) {
     }
   })()
   return inFlight[key]
+}
+
+function latestSaveFailure() {
+  return [...failedSaves.values()].pop() || ''
+}
+
+// Records (message) or clears ('') a failed save of `key` and updates state.saveError.
+function noteSaveFailure(key, message) {
+  if (message) failedSaves.set(key, message)
+  else if (!failedSaves.delete(key)) return
+  const saveError = latestSaveFailure()
+  if (saveError !== state.saveError) setState({ saveError })
+}
+
+// What the sync badge shows: 'offline', 'error' (the server turned a save down; until it saves),
+// 'saving' (only once a save has taken a while: `slow`) or 'saved'. Refreshes never show.
+export function saveStatus({ offline, saveError, pendingSaves }, slow = false) {
+  if (offline) return 'offline'
+  if (saveError) return 'error'
+  return pendingSaves > 0 && slow ? 'saving' : 'saved'
 }
 
 export async function flushAll() {
@@ -505,6 +532,7 @@ export function resetStore() {
   clearTimeout(retryTimer)
   retryAttempt = 0
   refreshPromise = null
+  failedSaves.clear()
   synced = {}
   held = {}
   for (const key of ALL_KEYS) uncached.add(key)

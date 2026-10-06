@@ -1,5 +1,6 @@
 /* =========================================================================================
-   Shell extras: drag-to-close sheets and the distraction-free workout ("focus mode").
+   Shell extras: drag-to-close sheets, the distraction-free workout ("focus mode"), the top bar's
+   sync badge and touch targets, sheets above the iPhone keyboard, and toasts.
    Imported by App.jsx and Sheet.jsx, which main.jsx loads BEFORE App.css / glass.css / apple.css,
    so every rule here either styles something those files don't, or is more specific than theirs.
    ========================================================================================= */
@@ -52,18 +53,23 @@
 /* ---- Plan | Health (App.jsx) ------------------------------------------------------------------
    Phones: the pill sits in the middle of the top bar (in place of the compact scrolled title) and
    the tab bar shows the current space's tabs. Desktop: the sidebar lists both spaces as groups. */
+/* 36px tall (28px buttons + 3px padding + 1px border), centred in the bar's row like the avatar. */
 .topbar .topbar-spaces {
   position: absolute;
   left: 50%;
-  bottom: 8px;
+  bottom: calc((var(--topbar-h) - 36px) / 2);
   transform: translateX(-50%);
   width: auto;
-  min-height: 34px;
+  height: 36px;
+  min-height: 36px;
+  align-items: center;
   padding: 3px;
   gap: 2px;
 }
-.topbar .topbar-spaces button { flex: 0 0 auto; min-height: 28px; padding: 0 16px; font-size: 13px; font-weight: 600; }
+.topbar .topbar-spaces button { position: relative; flex: 0 0 auto; min-height: 28px; padding: 0 16px; font-size: 13px; font-weight: 600; }
 .topbar .topbar-spaces button.is-active { font-weight: 700; }
+/* 46px-tall touch targets without a bigger pill; the two meet in the 2px gap. */
+.topbar .topbar-spaces button::after { content: ''; position: absolute; inset: -9px -1px; }
 .nav .nav-groups { display: none; }
 @media (min-width: 900px) {
   .topbar .topbar-spaces { display: none; }
@@ -75,6 +81,50 @@
 .page.page-health { max-width: 780px; }
 .hl-main { display: flex; flex-direction: column; gap: 16px; }
 
-/* ---- toast buttons: 44 px targets without a taller toast ------------------------------------- */
+/* ---- top bar: sync badge and desktop (App.jsx) -------------------------------------------------
+   The badge is the first thing in .topbar-actions (right side), so it never covers the centred
+   pill. While Plan | Health shows it's always the 28px circle ("Offline" stays in its label and
+   tap toast). Red while a save was turned down. Desktop: the bar is just the badge, top right
+   (the avatar and the journal icon are in the sidebar). */
+.topbar .topbar-actions > .sync-badge.td-sync { align-self: center; }
+.topbar .sync-badge.td-sync.is-error { width: 28px; padding: 0; justify-content: center; background: var(--danger-soft); color: var(--danger); }
+@media (max-width: 899px) {
+  .topbar.has-spaces .sync-badge.td-sync { width: 28px; padding: 0; justify-content: center; }
+  .topbar.has-spaces .sync-badge.td-sync .td-sync-text { display: none; }
+}
+@media (min-width: 900px) {
+  .topbar .topbar-brand { display: none; }
+  .topbar .topbar-actions { display: flex; }
+  .topbar .topbar-actions > .icon-btn { display: none; }
+}
+
+/* ---- sheets: the × keeps its 32px look (apple.css) with a 44px touch target, above the grab row */
+.sheet .sheet-header .icon-btn { z-index: 2; }
+.sheet .sheet-header .icon-btn::after { content: ''; position: absolute; inset: -6px; border-radius: 50%; }
+
+/* ---- the on-screen keyboard (lib/keyboard.js sets --kb, --vvh and html.kb-open) ----------------
+   Sheets sit on top of the keyboard instead of behind it, fit the visible height, and drop the
+   home-indicator gap (the keyboard covers it). Toasts move up with it. */
+html.kb-open .sheet-layer { bottom: var(--kb, 0px); }
+html.kb-open .sheet-layer .sheet { max-height: calc(var(--vvh, 100dvh) - var(--safe-top) - 16px); }
+@media (max-width: 639px) {
+  html.kb-open .sheet-layer .sheet { margin-bottom: 6px; }
+}
+@media (min-width: 640px) {
+  html.kb-open .sheet-layer .sheet { max-height: calc(var(--vvh, 100dvh) - 48px); }
+}
+html.kb-open:not(.has-sheet) .toaster { bottom: calc(var(--kb, 0px) + 12px); }
+
+/* ---- toasts (components/ui/feedback.jsx) -------------------------------------------------------- */
+/* 44 px targets without a taller toast. */
 .toaster .toast-action { min-height: 44px; margin: -8px 0; }
 .toaster .toast-close { width: 44px; height: 44px; margin: -8px -7px -8px -4px; }
+/* Only the leading icon carries the tone (glass.css colours every icon in the toast). */
+.toaster .toast .toast-close .icon { color: inherit; }
+/* Sideways swipes are the toast's (to dismiss); vertical ones still scroll the page. */
+.toaster .toast { touch-action: pan-y; }
+.toaster .toast.is-swiping { -webkit-user-select: none; user-select: none; }
+/* While a sheet is open, toasts show at the top, clear of its buttons and the keyboard. */
+html.has-sheet .toaster { top: calc(var(--safe-top) + 10px); bottom: auto; flex-direction: column-reverse; }
+html.has-sheet .toaster .toast { animation-name: toast-drop; }
+@keyframes toast-drop { from { opacity: 0; transform: translateY(-8px); } }

@@ -7,7 +7,7 @@ import TodayPage from './pages/TodayPage.jsx'
 import WorkoutPill from './components/WorkoutPill.jsx'
 import Welcome from './components/Welcome.jsx'
 import { SESSION_EXPIRED_EVENT, clearSession, fetchSession, getCachedUser, getToken, readJson, readPref, tokenUserId, writePref } from './lib/api.js'
-import { getState, hydrateFromCache, refresh, resetStore, retryUnsaved, updateSettings, useData, useStore } from './lib/store.js'
+import { getState, hydrateFromCache, refresh, resetStore, retryUnsaved, saveStatus, updateSettings, useData, useStore } from './lib/store.js'
 import { ensureFriendReminders } from './lib/planner.js'
 import { syncSubscription } from './lib/notifications.js'
 import { applyTheme } from './lib/theme.js'
@@ -325,9 +325,10 @@ function Shell({ user, onUserChange, onSignOut }) {
           {health
             ? <SpaceSwitch space={spaceNow} areas={areas} />
             : <span className="topbar-title" aria-hidden={!scrolled}>{routeLabel}</span>}
-          <SyncStatus />
           <SaveErrors />
+          {/* On the right, clear of the centred Plan | Health pill (alone there in Health). */}
           <div className="topbar-actions">
+            <SyncStatus />
             {spaceNow === 'plan' && EXTRAS.filter(pageOn(areas)).map((item) => (
               <a
                 key={item.id}
@@ -396,17 +397,42 @@ function SpaceSwitch({ space, areas }) {
 }
 
 // The sync badge and save errors follow the save state on their own, so a save re-renders only them.
+// Refreshes (every launch and return to the app) never show; a save only once it takes a while.
+const SLOW_SAVE_MS = 800
+
 function SyncStatus() {
-  const syncing = useStore((state) => state.syncing)
   const offline = useStore((state) => state.offline)
-  const pendingSaves = useStore((state) => state.pendingSaves)
-  return <SyncBadge state={offline ? 'offline' : pendingSaves > 0 || syncing ? 'syncing' : 'synced'} />
+  const saveError = useStore((state) => state.saveError)
+  const saving = useStore((state) => state.pendingSaves > 0)
+  const slow = useAfter(saving, SLOW_SAVE_MS)
+  return <SyncBadge state={saveStatus({ offline, saveError, pendingSaves: saving ? 1 : 0 }, slow)} error={saveError} />
 }
 
+// True once `on` has stayed true for `ms`.
+function useAfter(on, ms) {
+  const [after, setAfter] = useState(false)
+  useEffect(() => {
+    if (!on) {
+      setAfter(false) // reset while off, so the next `on` doesn't start out true
+      return undefined
+    }
+    const timer = setTimeout(() => setAfter(true), ms)
+    return () => clearTimeout(timer)
+  }, [on, ms])
+  return on && after
+}
+
+const saveErrorToast = (message) => toast(`Some changes aren’t saved: ${message}`, {
+  tone: 'error',
+  key: 'save-error', // the badge's tap shows the same toast again instead of stacking a second
+  action: { label: 'Retry', onClick: retryUnsaved },
+})
+
+// A newly rejected save says so once; the badge then stays until a save gets through.
 function SaveErrors() {
   const saveError = useStore((state) => state.saveError)
   useEffect(() => {
-    if (saveError) toast(`Couldn’t sync: ${saveError}`, { tone: 'error', action: { label: 'Retry', onClick: retryUnsaved } })
+    if (saveError) saveErrorToast(saveError)
   }, [saveError])
   return null
 }
@@ -458,21 +484,33 @@ function JournalDot() {
   )
 }
 
-// Compact: a cloud + "Offline", or just a spinner while saving. A tap explains.
-function SyncBadge({ state }) {
-  if (state === 'synced') return <span className="sync-badge is-hidden" aria-hidden="true" />
-  const offline = state === 'offline'
+// Compact: a cloud + "Offline" (a circle while Plan | Health shows, shell.css), a red alert while a
+// save was turned down, or just a spinner while a save takes a while. A tap explains.
+const SYNC_BADGES = {
+  offline: {
+    icon: 'cloudOff',
+    label: 'Offline: changes are saved on this device',
+    text: 'Offline',
+    explain: () => toast('You’re offline. Changes are saved on this device and sync when you’re back online.', { key: 'sync' }),
+  },
+  error: { icon: 'alert', label: 'Some changes aren’t saved', explain: saveErrorToast },
+  saving: { icon: 'refresh', label: 'Saving changes', explain: () => toast('Saving your changes…', { key: 'sync' }) },
+}
+
+function SyncBadge({ state, error }) {
+  const badge = SYNC_BADGES[state]
+  if (!badge) return null
   return (
     <button
       type="button"
-      className={`sync-badge td-sync is-${state}`}
-      aria-label={offline ? 'Offline: changes are saved on this device' : 'Saving changes'}
-      onClick={() => toast(offline
-        ? 'You’re offline. Changes are saved on this device and sync when you’re back online.'
-        : 'Saving your changes…')}
+      // 'saving' keeps the is-syncing class, which the spin and compact rules already use.
+      className={`sync-badge td-sync is-${state === 'saving' ? 'syncing' : state}`}
+      aria-label={badge.label}
+      title={badge.label}
+      onClick={() => badge.explain(error)}
     >
-      <Icon name={offline ? 'cloudOff' : 'refresh'} size={14} strokeWidth={2} />
-      {offline && <span className="td-sync-text" aria-hidden="true">Offline</span>}
+      <Icon name={badge.icon} size={14} strokeWidth={2} />
+      {badge.text && <span className="td-sync-text" aria-hidden="true">{badge.text}</span>}
     </button>
   )
 }
