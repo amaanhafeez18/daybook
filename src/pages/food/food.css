@@ -182,16 +182,8 @@
 .icon-btn.food-row-more { width: 36px; height: 36px; color: var(--text-3); flex-shrink: 0; }
 .icon-btn.food-row-more::after { content: ''; position: absolute; inset: -4px; } /* a 44px target */
 
-.food-chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.food-suggest {
-  display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 40px; padding: 0 14px 0 11px;
-  border-radius: 999px; background: var(--card-bg, var(--surface)); color: var(--text); font-size: 15px; font-weight: 500;
-  transition: transform 0.3s var(--spring, var(--ease));
-}
-.food-suggest .icon { flex-shrink: 0; color: var(--accent); }
-.food-suggest span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.food-suggest.is-copy .icon { color: var(--text-2); }
-.food-suggest:active { transform: scale(0.95); }
+/* .food-chips / .food-suggest (meal shortcut chips) live in components/food-quick.css, shared
+   with the Health card. */
 .food-meal-ghost {
   display: flex; align-items: center; gap: 8px; width: 100%; min-height: 50px; padding: 0 16px; border-radius: 18px;
   border: 1.5px dashed var(--border-strong); color: var(--text-2); font-size: 15px; text-align: left;
@@ -259,13 +251,16 @@
   transform-origin: bottom center; animation: food-tray-in 0.22s var(--ease);
 }
 @keyframes food-tray-in { from { opacity: 0; transform: translateY(8px) scale(0.98); } }
-.food-tray-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; padding: 0 2px 0 6px; }
-.food-tray-to { font-size: 13px; color: var(--text-2); }
-.food-tray-links { margin-left: auto; display: flex; gap: 2px; }
-.food-tray-link { min-height: 40px; padding: 0 8px; border-radius: 999px; color: var(--accent); font-size: 14px; font-weight: 600; white-space: nowrap; }
-.food-tray-link:active { background: var(--surface-2); }
-.segmented.food-tray-tabs { flex-shrink: 0; }
-.segmented.food-tray-tabs button { min-height: 32px; font-size: 13px; }
+/* One row: meal picker + list tabs (they wrap only on very narrow screens). */
+.food-tray-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 0 0 0 4px; }
+.food-tray-to { font-size: 13px; color: var(--text-2); white-space: nowrap; }
+.food-pick.food-tray-meal { flex-shrink: 0; min-height: 36px; padding: 0 8px 0 11px; font-size: 14px; }
+.segmented.food-tray-tabs { flex: 1 1 auto; min-width: 0; }
+.segmented.food-tray-tabs button { min-width: 0; min-height: 32px; padding: 0 4px; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 419px) {
+  /* The meal chip says where food goes; the words come back when there's room (or no tabs). */
+  .food-tray-head:not(.is-search) .food-tray-to { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+}
 .food-tray-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; margin: 0 -4px; padding: 0 4px; }
 .food-tray-row {
   width: 100%; display: flex; align-items: center; gap: 10px; min-height: 50px; padding: 6px 8px 6px 10px;
@@ -281,6 +276,27 @@
 .food-tray-plus { background: var(--accent-soft); color: var(--accent); }
 .food-tray-icon { background: var(--accent); color: var(--on-accent); }
 .food-tray-empty { padding: 14px 10px; font-size: 14px; color: var(--text-2); text-align: center; }
+/* "Added ✓": tap the row again to take it back out. */
+.food-tray-row.is-added .food-tray-name { color: var(--text-2); }
+.food-tray-added {
+  flex-shrink: 0; display: inline-flex; align-items: center; gap: 3px; height: 28px; padding: 0 9px 0 10px;
+  border-radius: 999px; background: var(--accent); color: var(--on-accent); font-size: 13px; font-weight: 600;
+  animation: food-added-in 0.22s var(--spring, var(--ease));
+}
+@keyframes food-added-in { from { transform: scale(0.8); opacity: 0.4; } }
+/* "Add by hand" / "Quick calories" close the list. */
+.food-tray-more { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--border); }
+.food-tray-row.is-link > .icon:last-child { color: var(--text-3); }
+.food-tray-row.is-link .food-tray-name { font-size: 15px; }
+.food-tray-icon.is-soft { background: var(--accent-soft); color: var(--accent); }
+.food-tray-foot { flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 2px 0 0 10px; }
+.food-tray-count { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.food-tray-done {
+  position: relative; flex-shrink: 0; min-height: 40px; padding: 0 18px; border-radius: 999px;
+  background: var(--accent); color: var(--on-accent); font-size: 15px; font-weight: 600;
+}
+.food-tray-done::after { content: ''; position: absolute; inset: -2px 0; } /* a 44px target */
+.food-tray-done:active { transform: scale(0.96); }
 
 /* Toasts float above the dock while it is on screen. */
 html:has(.food-dock) .toaster { bottom: calc(var(--nav-h) + var(--safe-bottom) + 84px + var(--gymw-pill-space, 0px)); }
@@ -291,8 +307,9 @@ html.has-workout-pill:has(.food-dock):not(.has-sheet) .toaster { bottom: calc(va
 @media (pointer: coarse) and (max-width: 899px) {
   /* The tab bar hides while typing, so the bar drops to just above the keyboard. */
   .shell:has(.food-dock input:focus) .food-dock { bottom: calc(8px + var(--safe-bottom)); }
-  /* Keeps the tray inside the space the keyboard leaves. */
-  .shell:has(.food-dock input:focus) .food-tray { max-height: min(260px, 30vh); }
+  /* Keeps the tray inside the space the keyboard leaves (measured from visualViewport by
+     QuickAddBar; the fallback still shows 3–4 rows). */
+  .shell:has(.food-dock input:focus) .food-tray { max-height: var(--food-tray-room, min(320px, 38vh)); }
 }
 @media (min-width: 900px) {
   /* The workout pill (bottom 24px, centred on the same column) would sit on the dock: lift it. */
@@ -554,6 +571,20 @@ button.food-cfg-row:active { background: var(--surface-2); }
 .food-goal-macro.is-fat .food-goal-macro-name::before { background: var(--food-fat); }
 .food-goal-macro.is-fiber .food-goal-macro-name::before { background: var(--food-fiber); }
 .food-goal-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+/* The summary a set goal opens on. */
+.food-goal-hero-num {
+  color: var(--text); font-family: var(--font-display, var(--font)); font-size: 52px; font-weight: 700;
+  letter-spacing: -0.03em; font-variant-numeric: tabular-nums; line-height: 1.1;
+}
+.food-goal-summary .food-goal-facts { flex-wrap: wrap; gap: 8px 24px; }
+.food-goal-fact {
+  flex-shrink: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-end;
+  font-size: 17px; letter-spacing: -0.02em; color: var(--text-2); text-align: right;
+}
+.food-goal-fact small { font-size: 13px; letter-spacing: 0; color: var(--text-3); }
+.food-cfg-label small.food-goal-old, .food-goal-fact small.food-goal-old { color: var(--food-over); font-weight: 500; }
+.food-goal-plan { display: flex; align-items: flex-start; gap: 6px; }
+.food-goal-plan .icon { flex-shrink: 0; margin-top: 1px; color: var(--accent); }
 
 /* ---- weight view ---------------------------------------------------------------------------- */
 
