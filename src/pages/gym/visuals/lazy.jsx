@@ -47,32 +47,52 @@ export function ExerciseVisualPanel({ exercise, exerciseId }) {
   )
 }
 
-// A thumbnail button (live workout cards) that opens a sheet with the full visual.
-export function ExerciseVisualButton({ exercise, exerciseId, name, size = 34 }) {
+// The pop-up with the full visual (animation, muscles, cues), for anything that should open it:
+// { entry, title, show(), sheet }. Render `sheet` once; call show() from a tap. onDetails adds a
+// "History & records" button that closes the sheet first.
+export function useExerciseVisual({ exercise, exerciseId, name, onDetails }) {
   const entry = useEntry(exercise, exerciseId)
   const [open, setOpen] = useState(false)
   const [used, setUsed] = useState(false)
-  if (!entry) return null
-  const title = name || entry.name || 'Exercise'
+  const title = name || entry?.name || 'Exercise'
+  const show = () => {
+    setUsed(true)
+    setOpen(true)
+  }
+  const sheet = entry && used ? (
+    <Suspense fallback={null}>
+      <LazySheet
+        open={open}
+        onClose={() => setOpen(false)}
+        exercise={entry}
+        title={title}
+        onDetails={onDetails ? () => {
+          setOpen(false)
+          onDetails()
+        } : undefined}
+      />
+    </Suspense>
+  ) : null
+  return { entry, title, show, sheet }
+}
+
+// The thumbnail that opens it (live workout cards).
+export function ExerciseVisualThumbButton({ visual, size = 34 }) {
+  if (!visual.entry) return null
+  return (
+    <button type="button" className="gvis-btn" aria-label={`How to do ${visual.title}`} aria-haspopup="dialog" onClick={visual.show}>
+      <ExerciseThumb exercise={visual.entry} size={size} fallback={<Icon name="dumbbell" size={18} />} />
+    </button>
+  )
+}
+
+// A thumbnail button with its own sheet.
+export function ExerciseVisualButton({ exercise, exerciseId, name, size = 34 }) {
+  const visual = useExerciseVisual({ exercise, exerciseId, name })
   return (
     <>
-      <button
-        type="button"
-        className="gvis-btn"
-        aria-label={`How to do ${title}`}
-        aria-haspopup="dialog"
-        onClick={() => {
-          setUsed(true)
-          setOpen(true)
-        }}
-      >
-        <ExerciseThumb exercise={entry} size={size} fallback={<Icon name="dumbbell" size={18} />} />
-      </button>
-      {used && (
-        <Suspense fallback={null}>
-          <LazySheet open={open} onClose={() => setOpen(false)} exercise={entry} title={title} />
-        </Suspense>
-      )}
+      <ExerciseVisualThumbButton visual={visual} size={size} />
+      {visual.sheet}
     </>
   )
 }

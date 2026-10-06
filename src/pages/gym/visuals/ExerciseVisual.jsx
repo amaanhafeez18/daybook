@@ -1,5 +1,6 @@
 // The exercise visual components. This module (and everything it pulls in: the rig, patterns,
 // mapping) is its own chunk, loaded on demand through ./lazy.jsx.
+import Icon from '../../../components/ui/Icon.jsx'
 import Sheet from '../../../components/ui/Sheet.jsx'
 import { MUSCLES } from '../../../lib/gym/library.js'
 import { Figure, MuscleMap } from './render.js'
@@ -66,9 +67,23 @@ export function VisualPanel({ exercise, className = '' }) {
   )
 }
 
-export function VisualSheet({ open, onClose, exercise, title }) {
+// onDetails: shows "History & records" (the exercise's own page), e.g. from a live workout.
+export function VisualSheet({ open, onClose, exercise, title, onDetails }) {
   return (
-    <Sheet open={open} onClose={onClose} title={title || exercise?.name || 'Exercise'} size="md">
+    <Sheet
+      open={open}
+      onClose={onClose}
+      title={title || exercise?.name || 'Exercise'}
+      size="md"
+      initialFocus={false}
+      dragBody
+      footer={onDetails ? (
+        <button type="button" className="btn btn-secondary btn-grow" onClick={onDetails}>
+          <Icon name="chart" size={17} />
+          History &amp; records
+        </button>
+      ) : null}
+    >
       {exercise && <VisualPanel exercise={exercise} className="in-sheet" />}
     </Sheet>
   )

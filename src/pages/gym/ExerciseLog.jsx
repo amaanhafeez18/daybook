@@ -12,7 +12,7 @@ import { ActionSheet, DurationInput, GymEmpty, NumberInput, SetTypeBadge, Weight
 import ExercisePicker from './ExercisePicker.jsx'
 import { PlateCalculatorSheet } from './ToolsSheet.jsx'
 import { unlockAudio } from './RestTimer.jsx'
-import { ExerciseVisualButton } from './visuals/lazy.jsx'
+import { ExerciseVisualThumbButton, useExerciseVisual } from './visuals/lazy.jsx'
 import './workout.css'
 
 // The exercise cards of a workout: the set grid (previous values, placeholders, set types,
@@ -1327,6 +1327,10 @@ const ExerciseCard = memo(function ExerciseCard({
   const pinned = typeof derived.meta?.note === 'string' ? derived.meta.note.trim() : ''
   const showNote = noteOpen || !!exercise.note
   const suggestion = live ? derived.suggestion : null
+  // Tapping the exercise (its picture or name) pops up how it's done; the exercise's own page is a
+  // button inside, so the workout isn't left by accident.
+  const detailRoute = exercise.exerciseId ? `gym/exercise/${encodeURIComponent(exercise.exerciseId)}` : null
+  const visual = useExerciseVisual({ exerciseId: exercise.exerciseId, name, onDetails: detailRoute ? () => navigate(detailRoute) : undefined })
 
   return (
     <li
@@ -1342,12 +1346,14 @@ const ExerciseCard = memo(function ExerciseCard({
             {ssLetter}{ssPos}
           </span>
         )}
-        <ExerciseVisualButton exerciseId={exercise.exerciseId} name={name} />
+        <ExerciseVisualThumbButton visual={visual} />
         <div className="gym-ex-title">
           <h3 className="gym-ex-name" id={`${domPrefix}-h-${index}`}>
-            {live && exercise.exerciseId
-              ? <button type="button" onClick={() => navigate(`gym/exercise/${encodeURIComponent(exercise.exerciseId)}`)}>{name}</button>
-              : <span>{name}</span>}
+            {visual.entry
+              ? <button type="button" aria-haspopup="dialog" onClick={visual.show}>{name}</button>
+              : live && detailRoute
+                ? <button type="button" onClick={() => navigate(detailRoute)}>{name}</button>
+                : <span>{name}</span>}
           </h3>
           {(derived.muscles || suggestion?.increased || suggestion?.deload) && (
             <p className="gym-ex-meta">
@@ -1376,6 +1382,7 @@ const ExerciseCard = memo(function ExerciseCard({
           <Icon name="more" size={22} strokeWidth={2.2} />
         </button>
       </header>
+      {visual.sheet}
 
       {pinned && (
         <button type="button" className="gym-pinned" onClick={() => actions.openPinned(exRef)} aria-label={`Pinned note: ${pinned}. Edit`}>

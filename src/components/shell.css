@@ -128,3 +128,8 @@ html.kb-open:not(.has-sheet) .toaster { bottom: calc(var(--kb, 0px) + 12px); }
 html.has-sheet .toaster { top: calc(var(--safe-top) + 10px); bottom: auto; flex-direction: column-reverse; }
 html.has-sheet .toaster .toast { animation-name: toast-drop; }
 @keyframes toast-drop { from { opacity: 0; transform: translateY(-8px); } }
+
+/* A sheet whose body doesn't scroll can be pulled down from anywhere (Sheet dragBody). */
+@media (max-width: 639px) {
+  .sheet .sheet-body.is-draggable { touch-action: none; -webkit-user-select: none; user-select: none; }
+}
