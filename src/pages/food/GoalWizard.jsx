@@ -3,18 +3,23 @@ import Disclosure from '../../components/ui/Disclosure.jsx'
 import Icon from '../../components/ui/Icon.jsx'
 import { Button, Segmented } from '../../components/ui/primitives.jsx'
 import { toast } from '../../components/ui/feedback.jsx'
-import { addDaysISO } from '../../lib/dates.js'
+import { useAreas } from '../../lib/areas.js'
+import { addDaysISO, diffDays } from '../../lib/dates.js'
+import { activityForWorkouts, planWorkoutsPerWeek } from '../../lib/food/activity.js'
 import { ACTIVITY_LEVELS, KCAL_PER_G, RATE_OPTIONS, calcGoals, energyInUnit, energyToKcal } from '../../lib/food/nutrition.js'
 import { addBodyWeight, deleteBodyWeight, getFood, latestBodyWeight, setGoals, updateFood, useBodyWeights, useFood, useWeightUnit } from '../../lib/food/state.js'
+import { hasPlan, useGym } from '../../lib/gym/state.js'
 import { refresh, useStore } from '../../lib/store.js'
 import { DetailTop, goBack } from './common.jsx'
-import { NUTRIENT_INFO, fmtInt, fmtNum, isNum, kgToUnit, shortDay, toNum, unitLabel, unitToKg, weightUnitLabel } from './format.js'
+import { NUTRIENT_INFO, dayLabel, fmtInt, fmtNum, fmtWeight, isNum, kgToUnit, plural, shortDay, toNum, unitLabel, unitToKg, weightUnitLabel } from './format.js'
 
-// #/food/goals. The default path is "Calculate for me": a few facts about you, your activity and
-// what you're after → a daily calorie goal (Mifflin-St Jeor, or Katch-McArdle with a body fat %)
-// with safety floors, explained in plain words, and macros you can adjust. Body fat sits behind
-// "More options"; typing your own numbers instead is one link away ("Set goals manually"), and is
-// where the page starts when the current goals were set that way. Every goal is optional.
+// #/food/goals. With a calorie goal set, the page opens on a summary of it (and what it was
+// based on) with "Adjust numbers" (type your own, prefilled) and "Recalculate" (the calculator,
+// prefilled). The calculator: a few facts about you, your activity and what you're after → a
+// daily calorie goal (Mifflin-St Jeor, or Katch-McArdle with a body fat %) with safety floors,
+// explained in plain words, and macros you can adjust. Body fat sits behind "More options";
+// typing your own numbers instead is one link away. A new profile's activity starts from the
+// gym plan's workouts a week. Every goal is optional.
 
 const SEXES = [{ id: 'female', label: 'Female' }, { id: 'male', label: 'Male' }, { id: 'none', label: 'Not given' }]
 const GOAL_TYPES = [{ id: 'lose', label: 'Lose' }, { id: 'maintain', label: 'Maintain' }, { id: 'gain', label: 'Gain' }]
@@ -25,6 +30,9 @@ const MANUAL_KEYS = ['calories', 'protein', 'carbs', 'fat', 'fiber', 'sugar', 's
 const MANUAL_MAIN = ['calories', 'protein', 'carbs', 'fat']
 
 const numText = (value, dp = 1) => (isNum(value) ? String(Math.round(value * 10 ** dp) / 10 ** dp) : '')
+// A weigh-in older than this is worth updating before recalculating.
+const WEIGHT_OLD_DAYS = 14
+const ACTIVITY_IDS = new Set(ACTIVITY_LEVELS.map((level) => level.id))
 
 // A pace as its chip reads ('0.5 lb' for 0.25 kg, research §3); other values to two decimals.
 function paceLabel(kg, weightUnit) {
@@ -42,7 +50,8 @@ function useGroupedText(value, dp = 0) {
   return { shown, onFocus: () => setFocused(true), onBlur: () => setFocused(false) }
 }
 
-function profileForm(profile, latestKg, weightUnit) {
+// planActivity: the activity suggested by the gym plan, for a profile that has none saved yet.
+function profileForm(profile, latestKg, weightUnit, planActivity = null) {
   const cm = profile.heightCm
   // To the nearest half inch, carried into feet (182 cm → 5 ft 11.5 in, never "5 ft 12 in"), so a
   // height saved in ft/in shows as it was typed.
@@ -55,7 +64,7 @@ function profileForm(profile, latestKg, weightUnit) {
     feet: feet !== null ? String(feet) : '',
     inches: inches !== null ? String(inches - feet * 12) : '',
     weight: latestKg ? numText(kgToUnit(latestKg, weightUnit), 1) : '',
-    activity: profile.activity || 'moderate',
+    activity: planActivity || profile.activity || 'moderate',
     goal: profile.goal || 'maintain',
     rate: profile.rateKgPerWeek,
     target: isNum(profile.targetKg) ? numText(kgToUnit(profile.targetKg, weightUnit), 1) : '',
@@ -71,19 +80,32 @@ export default function GoalWizard({ today }) {
   const loadFailed = useStore((state) => state.loaded && !state.syncing && !state.hydrated)
   const unit = food.prefs.energyUnit
   const latestKg = latestBodyWeight(bodyWeights)
-  const [mode, setMode] = useState(() => (food.goals.source === 'manual' && food.goals.calories ? 'manual' : 'calc'))
+  const latestWeighIn = bodyWeights.find((entry) => entry.date <= today) || null
+  const weightAge = latestWeighIn ? diffDays(latestWeighIn.date, today) : null
+  const weightOld = weightAge !== null && weightAge > WEIGHT_OLD_DAYS
+  // A profile with no activity saved yet starts from the gym plan (read-only; gym area on).
+  const gym = useGym()
+  const areas = useAreas()
+  const savedActivity = useStore((state) => state.data.settings?.food?.profile?.activity)
+  const planPerWeek = useMemo(() => (areas.gym && hasPlan(gym) ? planWorkoutsPerWeek(gym.schedule, today) : null), [areas.gym, gym, today])
+  const planActivity = ACTIVITY_IDS.has(savedActivity) ? null : activityForWorkouts(planPerWeek)
+  const initialMode = () => (food.goals.calories ? 'summary' : 'calc')
+  const [mode, setMode] = useState(initialMode)
   const [step, setStep] = useState(1)
   const [heightUnit, setHeightUnit] = useState(weightUnit === 'lb' ? 'ftin' : 'cm')
-  const [form, setForm] = useState(() => profileForm(food.profile, latestKg, weightUnit))
+  const [form, setForm] = useState(() => profileForm(food.profile, latestKg, weightUnit, planActivity))
   const [macros, setMacros] = useState(null)
   const dirty = useRef(false)
+  const modeChosen = useRef(false)
   const topRef = useRef(null)
 
-  // Data that arrives after the page opened (first load) fills the form, unless it was edited.
+  // Data that arrives after the page opened (first load) fills the form, unless it was edited,
+  // and opens the summary when there's a goal (unless a mode was picked already).
   useEffect(() => {
+    if (!modeChosen.current) setMode(initialMode())
     if (dirty.current) return
-    setForm(profileForm(food.profile, latestKg, weightUnit))
-  }, [hydrated, latestKg, weightUnit]) // eslint-disable-line react-hooks/exhaustive-deps
+    setForm(profileForm(food.profile, latestKg, weightUnit, planActivity))
+  }, [hydrated, latestKg, weightUnit, planActivity]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useLayoutEffect(() => {
     window.scrollTo({ top: 0 })
@@ -173,7 +195,9 @@ export default function GoalWizard({ today }) {
       <DetailTop />
       <header className="food-page-head" ref={topRef}>
         <h1>Goals</h1>
-        <p className="page-subtitle">{mode === 'manual' ? 'Type your own daily goals. Every goal is optional.' : 'A daily calorie goal worked out from a few facts about you. Change it any time.'}</p>
+        <p className="page-subtitle">
+          {mode === 'summary' ? 'Your daily goals. Change them any time.' : mode === 'manual' ? 'Type your own daily goals. Every goal is optional.' : 'A daily calorie goal worked out from a few facts about you. Change it any time.'}
+        </p>
       </header>
     </>
   )
@@ -195,15 +219,29 @@ export default function GoalWizard({ today }) {
   }
 
   const switchMode = (next) => {
+    modeChosen.current = true
     setMode(next)
     setStep(1)
   }
+
+  const fromPlan = !!planActivity && form.activity === planActivity
 
   return (
     <div className="food-goals">
       {header}
 
-      {mode === 'manual' ? (
+      {mode === 'summary' ? (
+        <GoalSummary
+          food={food}
+          unit={unit}
+          weightUnit={weightUnit}
+          weighIn={latestWeighIn}
+          weightOld={weightOld}
+          today={today}
+          onAdjust={() => switchMode('manual')}
+          onRecalculate={() => switchMode('calc')}
+        />
+      ) : mode === 'manual' ? (
         <>
           <ManualGoals food={food} unit={unit} />
           <p className="food-goals-switch">
@@ -235,7 +273,12 @@ export default function GoalWizard({ today }) {
                 )}
               </div>
               <div className="food-cfg-row is-stacked">
-                <span className="food-cfg-label"><span>Current weight</span><small>{isNum(latestKg) ? 'From your weigh-ins' : 'Also saved as today’s weigh-in'}</small></span>
+                <span className="food-cfg-label">
+                  <span>Current weight</span>
+                  <small className={weightOld ? 'food-goal-old' : undefined}>
+                    {!isNum(latestKg) ? 'Also saved as today’s weigh-in' : weightOld ? `From ${shortDay(latestWeighIn.date)}, ${weightAge} days ago — update it if it’s changed` : 'From your weigh-ins'}
+                  </small>
+                </span>
                 <UnitInput value={form.weight} onChange={(value) => set('weight', value)} suffix={weightUnitLabel(weightUnit)} label="Current weight" placeholder={weightUnit === 'lb' ? '170' : '75'} />
               </div>
             </div>
@@ -251,6 +294,12 @@ export default function GoalWizard({ today }) {
                 </button>
               ))}
             </div>
+            {fromPlan && (
+              <p className="food-cfg-foot food-goal-plan">
+                <Icon name="dumbbell" size={15} />
+                <span>From your gym plan: about {plural(planPerWeek, 'workout')} a week. Change it if the rest of your day is more or less active.</span>
+              </p>
+            )}
           </section>
 
           <section className="food-cfg-group">
@@ -300,6 +349,79 @@ export default function GoalWizard({ today }) {
       ) : (
         <GoalResult result={result} profile={profile} unit={unit} weightUnit={weightUnit} today={today} macros={macros} setMacros={setMacros} onBack={() => setStep(1)} onSave={saveCalculated} />
       )}
+    </div>
+  )
+}
+
+// The goal as it stands (calories, macros) and what it was worked out from, with the two ways to
+// change it.
+function GoalSummary({ food, unit, weightUnit, weighIn, weightOld, today, onAdjust, onRecalculate }) {
+  const { goals, profile } = food
+  const e = unitLabel(unit)
+  const u = weightUnitLabel(weightUnit)
+  const facts = ['protein', 'carbs', 'fat', 'fiber'].filter((key) => isNum(goals[key]))
+  const limits = ['sugar', 'sodium'].filter((key) => isNum(goals[key]))
+  const calculated = goals.source === 'calculator'
+  const activity = ACTIVITY_LEVELS.find((level) => level.id === profile.activity)
+  const aim = profile.goal === 'maintain' || !isNum(profile.rateKgPerWeek)
+    ? 'Keep my weight steady'
+    : `${profile.goal === 'lose' ? 'Lose' : 'Gain'} ${paceLabel(profile.rateKgPerWeek, weightUnit)} a week`
+  const rows = calculated
+    ? [
+        { label: 'Activity', value: activity?.label },
+        { label: 'Goal', value: aim },
+        weighIn && { label: 'Weight', value: `${fmtWeight(weighIn.kg, weightUnit)} ${u}`, note: dayLabel(weighIn.date, today), old: weightOld },
+        isNum(profile.targetKg) && profile.goal !== 'maintain' && { label: 'Goal weight', value: `${fmtWeight(profile.targetKg, weightUnit)} ${u}` },
+      ].filter(Boolean)
+    : [{ label: 'Set by you', value: 'Your own numbers' }]
+
+  return (
+    <div className="food-cfg food-goal-summary">
+      <section className="card food-goal-hero" aria-label="Daily goals">
+        <span className="food-goal-hero-label">Daily calories</span>
+        <span className="food-goal-hero-value">
+          <strong className="food-goal-hero-num">{fmtInt(energyInUnit(goals.calories, unit))}</strong>
+          <small>{e}</small>
+        </span>
+        {facts.length > 0 && (
+          <dl className="food-goal-facts">
+            {facts.map((key) => (
+              <div key={key}>
+                <dt>{NUTRIENT_INFO[key].label}</dt>
+                <dd>{fmtInt(goals[key])} g</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+        {limits.length > 0 && (
+          <span className="food-goal-hero-sub">
+            {limits.map((key) => `${NUTRIENT_INFO[key].label} under ${fmtInt(goals[key])} ${NUTRIENT_INFO[key].unit}`).join(' · ')}
+          </span>
+        )}
+      </section>
+
+      <section className="food-cfg-group">
+        <h3 className="food-cfg-title">{calculated ? 'Worked out from' : 'How it was set'}</h3>
+        <div className="food-cfg-card">
+          {rows.map((row) => (
+            <div key={row.label} className="food-cfg-row">
+              <span className="food-cfg-label"><span>{row.label}</span></span>
+              <span className="food-goal-fact">
+                {row.value}
+                {row.note && <small className={row.old ? 'food-goal-old' : undefined}>{row.note}</small>}
+              </span>
+            </div>
+          ))}
+        </div>
+        {calculated && weightOld && (
+          <p className="food-cfg-foot">Your last weigh-in was {diffDays(weighIn.date, today)} days ago. If your weight has changed, recalculate with today’s.</p>
+        )}
+      </section>
+
+      <div className="food-goal-actions">
+        <Button variant="secondary" icon="pencil" onClick={onAdjust}>Adjust numbers</Button>
+        <Button className="btn-grow" icon="calculator" onClick={onRecalculate}>Recalculate</Button>
+      </div>
     </div>
   )
 }

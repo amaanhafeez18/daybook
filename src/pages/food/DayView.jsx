@@ -5,10 +5,10 @@ import { Button, IconButton, Skeleton } from '../../components/ui/primitives.jsx
 import { toast } from '../../components/ui/feedback.jsx'
 import { addDaysISO, isISODate, weekdayIndex } from '../../lib/dates.js'
 import {
-  cleanEntry, dayTotals, entryCalories, entryMeal, findFavorite, foodKey, logStreak, macroCalories, mealTotals, suggestions, weightSeries, weightTrend,
+  cleanEntry, dayTotals, entryCalories, entryMeal, findFavorite, logStreak, macroCalories, mealTotals, weightSeries, weightTrend,
 } from '../../lib/food/nutrition.js'
 import {
-  addEntries, copyDay, copyMeal, dayEntries, deleteEntry, deleteFavorite, saveFavorite, updateEntry, updateFood, useBodyWeights, useFood, useFoodEntries,
+  addEntries, copyDay, dayEntries, deleteEntry, deleteFavorite, saveFavorite, updateEntry, updateFood, useBodyWeights, useFood, useFoodEntries,
   useWeightUnit,
 } from '../../lib/food/state.js'
 import { navigate } from '../../lib/router.js'
@@ -18,12 +18,13 @@ import { Sparkline } from './charts.jsx'
 import EntrySheet from './EntrySheet.jsx'
 import EstimateSheet from './EstimateSheet.jsx'
 import FoodSettingsSheet from './FoodSettingsSheet.jsx'
-import QuickAddBar, { quickLog } from './QuickAddBar.jsx'
+import MealShortcuts, { hasShortcuts, useMealShortcuts } from './MealShortcuts.jsx'
+import QuickAddBar from './QuickAddBar.jsx'
 import { MacroBars, Ring, ringState } from './ring.jsx'
 import WeightSheet from './WeightSheet.jsx'
 import {
   confidenceLevel, dayLabel, defaultMeal, energyNumber, entryConfidence, entryName, fmtEnergy, fmtWeight, fmtWeightChange, isEstimate, isNum,
-  mealName, mealTime, openDatePicker, plural, portionText, shortDay, unitLabel, weekdayLetter, weightUnitLabel,
+  mealName, openDatePicker, plural, portionText, shortDay, unitLabel, weekdayLetter, weightUnitLabel,
 } from './format.js'
 
 // #/food and #/food/day/<date>: the day's ring, meals and weight, with the quick-add bar.
@@ -420,60 +421,17 @@ function EntryRow({ entry, unit, onOpen, onMore, onDelete, onEstimate }) {
   )
 }
 
+// Chips for foods usually logged in this meal and "Same as <day>"; a plain "Add" without any.
 function EmptyMeal({ meal, date, today, allEntries, food, onAdd }) {
-  const { meals, energyUnit: unit } = food.prefs
-  const yesterday = addDaysISO(date, -1)
-  // Suggestions for this meal: foods logged in it before (within the scoring window).
-  const chips = useMemo(() => {
-    const inMeal = new Set(allEntries.filter((entry) => entry.meal === meal.id).map((entry) => foodKey(entry.name, entry.brand)))
-    return suggestions(allEntries, meal.id, mealTime(meal.id), today, 8).filter((item) => inMeal.has(item.key)).slice(0, 3)
-  }, [allEntries, meal.id, today])
-  const yesterdayRows = useMemo(
-    () => dayEntries(allEntries, yesterday, meals).filter((entry) => entryMeal(entry, meals) === meal.id),
-    [allEntries, yesterday, meals, meal.id],
-  )
-
-  function logChip(item) {
-    quickLog(item, { meal: meal.id, date, favorites: food.favorites, meals, unit, today })
-  }
-
-  function sameAsYesterday() {
-    try {
-      const undo = copyMeal(yesterday, meal.id, date)
-      const count = undo.entries.length
-      toast(`Copied ${plural(count, 'item')} from yesterday’s ${meal.name.toLowerCase()}`, { action: { label: 'Undo', onClick: undo } })
-    } catch (error) {
-      toast(error.message, { tone: 'error' })
-    }
-  }
-
-  if (!chips.length && !yesterdayRows.length) {
+  const shortcuts = useMealShortcuts({ entries: allEntries, meal, date, today, meals: food.prefs.meals })
+  if (!hasShortcuts(shortcuts)) {
     return (
       <button type="button" className="food-meal-ghost" onClick={onAdd}>
         <Icon name="plus" size={16} />Add {meal.name.toLowerCase()}
       </button>
     )
   }
-  const yesterdayKcal = yesterdayRows.reduce((sum, entry) => sum + entryCalories(entry), 0)
-  return (
-    <div className="food-chips" role="group" aria-label={`Quick add to ${meal.name}`}>
-      {chips.map((item) => {
-        const kcal = entryCalories(item)
-        return (
-          <button key={item.key || foodKey(item.name, item.brand)} type="button" className="food-suggest" onClick={() => logChip(item)} aria-label={`Log ${entryName(item)}${kcal ? `, ${fmtEnergy(kcal, unit)}` : ''}`}>
-            <Icon name="plus" size={14} strokeWidth={2.4} />
-            <span>{entryName(item)}</span>
-          </button>
-        )
-      })}
-      {yesterdayRows.length > 0 && (
-        <button type="button" className="food-suggest is-copy" onClick={sameAsYesterday} aria-label={`Same as yesterday: ${plural(yesterdayRows.length, 'item')}, ${fmtEnergy(yesterdayKcal, unit)}`}>
-          <Icon name="repeat" size={14} />
-          <span>Same as yesterday</span>
-        </button>
-      )}
-    </div>
-  )
+  return <MealShortcuts shortcuts={shortcuts} meal={meal} date={date} today={today} food={food} />
 }
 
 // ---- weight -----------------------------------------------------------------------------------

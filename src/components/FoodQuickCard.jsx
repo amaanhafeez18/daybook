@@ -4,10 +4,11 @@ import { Button } from './ui/primitives.jsx'
 import { toast } from './ui/feedback.jsx'
 import { imageToJpegDataUrl } from '../lib/media.js'
 import { formatSeconds, useRecorder } from '../lib/recorder.js'
-import { dayTotals } from '../lib/food/nutrition.js'
+import { dayTotals, entryMeal } from '../lib/food/nutrition.js'
 import { addEntries, dayEntries, estimateFood, useFood, useFoodEntries } from '../lib/food/state.js'
 import { useStore } from '../lib/store.js'
 import EstimateReview, { BARCODE_HINT, barcodeDigits, canAutoLog, logEstimate, prepareEstimate, reviewTotals } from '../pages/food/EstimateReview.jsx'
+import MealShortcuts, { hasShortcuts, useMealShortcuts } from '../pages/food/MealShortcuts.jsx'
 import { CameraChoice } from '../pages/food/QuickAddBar.jsx'
 import { Ring, ringState } from '../pages/food/ring.jsx'
 import PhotoInput from '../pages/food/PhotoInput.jsx'
@@ -18,6 +19,8 @@ import './food-quick.css'
 // food by text, photo (of the food or of a barcode), a barcode number or voice. The AI estimate
 // opens right here as an editable review with Save / Cancel (or logs straight away when
 // "auto-log if sure" is on); items with "Save to My foods" on are saved there on Save too.
+// Below the line, up to 3 one-tap chips for the meal of the moment (and "Same as <day>" while
+// that meal is empty), hidden while an estimate is open.
 
 function statusText(request) {
   if (request?.image && request.text === BARCODE_HINT) return 'Reading the barcode…'
@@ -45,8 +48,14 @@ export default function FoodQuickCard({ today, loaded }) {
   const fileRef = useRef(null)
   const photoMode = useRef('photo') // 'photo' | 'barcode': what the picked photo shows
 
-  const totals = useMemo(() => dayTotals(dayEntries(entries, today, meals)), [entries, today, meals])
+  const todayRows = useMemo(() => dayEntries(entries, today, meals), [entries, today, meals])
+  const totals = useMemo(() => dayTotals(todayRows), [todayRows])
   const eaten = totals.calories
+  // The meal of the moment, for the one-tap chips.
+  const nowMealId = defaultMeal(meals)
+  const nowMeal = meals.find((item) => item.id === nowMealId) || meals[0]
+  const nowMealEmpty = !todayRows.some((entry) => entryMeal(entry, meals) === nowMeal?.id)
+  const shortcuts = useMealShortcuts({ entries, meal: nowMeal || { id: nowMealId }, date: today, today, meals, sameAs: nowMealEmpty })
   const ring = ringState(eaten, goal)
   const left = goal ? goal - eaten : null
 
@@ -236,6 +245,13 @@ export default function FoodQuickCard({ today, loaded }) {
         </form>
       )}
       <PhotoInput inputRef={fileRef} onChange={onPhoto} />
+
+      {loaded && phase === 'idle' && !recorder.recording && nowMeal && hasShortcuts(shortcuts) && (
+        <div className="fq-shortcuts">
+          <span className="fq-shortcuts-label" aria-hidden="true">{nowMeal.name}</span>
+          <MealShortcuts shortcuts={shortcuts} meal={nowMeal} date={today} today={today} food={food} />
+        </div>
+      )}
 
       {phase === 'estimating' && (
         <div className="fq-panel" aria-busy="true">

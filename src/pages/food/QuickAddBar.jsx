@@ -5,18 +5,21 @@ import { toast } from '../../components/ui/feedback.jsx'
 import { nowTimeHHMM } from '../../lib/dates.js'
 import { imageToJpegDataUrl } from '../../lib/media.js'
 import { entryCalories, findFavorite, foodKey, recents, suggestions } from '../../lib/food/nutrition.js'
+import { addedSummary } from '../../lib/food/shortcuts.js'
 import { addEntries } from '../../lib/food/state.js'
 import { formatSeconds, useRecorder } from '../../lib/recorder.js'
 import { BARCODE_HINT, FoodGlyph, MealSelect, barcodeDigits } from './EstimateReview.jsx'
 import PhotoInput from './PhotoInput.jsx'
-import { dayLabel, energyNumber, entryName, isSubmitKey, mealName, mealTime, portionText, unitLabel } from './format.js'
+import { dayLabel, energyNumber, entryName, isSubmitKey, mealName, mealTime, plural, portionText, unitLabel } from './format.js'
 import '../../components/food-quick.css'
 
 // The Food page's quick-add bar, pinned above the tab bar: describe food (Enter runs the AI
 // estimate; a barcode number is looked up), a photo (of the food or of a barcode), or a voice
-// note. Focusing it opens a tray above with Suggested · Recent · My foods (one tap logs, with
-// Undo), a meal picker, and links to "Add by hand" / quick calories. While typing, the tray shows
-// matching foods you've logged or saved before (a barcode number matches saved barcodes).
+// note. Focusing it opens a tray above with a meal picker and Suggested · Recent · My foods, then
+// "Add by hand" / "Quick calories" at the bottom of the list. One tap logs a food and the tray
+// stays open for the next ("Added ✓"; tap again to take it back out); closing it shows one toast
+// for everything added, with "Undo all". While typing, the tray shows matching foods you've
+// logged or saved before (a barcode number matches saved barcodes).
 
 // The camera button: a small menu with "Photo of food" and "Scan barcode" (both open the same
 // hidden photo picker; call it inside the tap so iOS allows it). onPick('photo' | 'barcode').
@@ -81,16 +84,65 @@ const TABS = [
   { id: 'favorites', label: 'My foods' },
 ]
 
-// Logs a recent, suggestion or favorite with its last portion. Returns the undo.
-export function quickLog(template, { meal, date, favorites, meals, unit, today }) {
+// The row to log for a recent, suggestion or favorite (its last portion).
+function quickRow(template, { meal, date, favorites }) {
   const favorite = template.aliases ? template : findFavorite(favorites, template)
   const { id, key, lastDate, count, score, aliases, updatedAt, ...rest } = template // eslint-disable-line no-unused-vars
-  const row = { ...rest, meal, date, source: favorite ? 'favorite' : 'recent', favoriteId: favorite?.id ?? null }
-  const kcal = entryCalories(template)
-  const energy = kcal > 0 ? ` · ${energyNumber(kcal, unit)} ${unitLabel(unit)}` : ''
-  const where = date === today ? mealName(meals, meal) : `${mealName(meals, meal)}, ${dayLabel(date, today)}`
-  return addEntries([row], { toastLabel: `Logged ${entryName(template)} to ${where}${energy}` })
+  return { ...rest, meal, date, source: favorite ? 'favorite' : 'recent', favoriteId: favorite?.id ?? null }
 }
+
+// "Breakfast", or "Breakfast, Yesterday" on another day; without a meal just the day (or '').
+function whereText(meals, meal, date, today) {
+  const day = date && date !== today ? dayLabel(date, today) : ''
+  return [meal ? mealName(meals, meal) : '', day].filter(Boolean).join(', ')
+}
+
+const energyTail = (kcal, unit) => (kcal > 0 ? ` · ${energyNumber(kcal, unit)} ${unitLabel(unit)}` : '')
+
+// Logs a recent, suggestion or favorite with its last portion, with an Undo toast. Returns the undo.
+export function quickLog(template, { meal, date, favorites, meals, unit, today }) {
+  const row = quickRow(template, { meal, date, favorites })
+  return addEntries([row], { toastLabel: `Logged ${entryName(template)} to ${whereText(meals, meal, date, today)}${energyTail(entryCalories(template), unit)}` })
+}
+
+// While the tray is open on a phone, its height follows the room the keyboard leaves above the
+// bar (so 3–4 rows show): --food-tray-room on the dock, read by food.css.
+function useTrayRoom(dockRef, open) {
+  useEffect(() => {
+    const viewport = typeof window !== 'undefined' ? window.visualViewport : null
+    const dock = dockRef.current
+    if (!open || !viewport || !dock) return undefined
+    let frame = 0
+    const measure = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        const bar = dock.querySelector('.food-bar')
+        if (!bar) return
+        // From the top of what's visible (below the title bar) down to the bar, less the gaps.
+        const topbar = document.querySelector('.topbar')?.getBoundingClientRect()
+        const top = Math.max(viewport.offsetTop + 12, topbar && topbar.bottom > 0 ? topbar.bottom + 8 : 0)
+        const room = bar.getBoundingClientRect().top - 8 - top
+        dock.style.setProperty('--food-tray-room', `${Math.round(Math.min(440, Math.max(200, room)))}px`)
+      })
+    }
+    measure()
+    viewport.addEventListener('resize', measure)
+    viewport.addEventListener('scroll', measure)
+    dock.addEventListener('focusin', measure)
+    dock.addEventListener('focusout', measure)
+    return () => {
+      cancelAnimationFrame(frame)
+      viewport.removeEventListener('resize', measure)
+      viewport.removeEventListener('scroll', measure)
+      dock.removeEventListener('focusin', measure)
+      dock.removeEventListener('focusout', measure)
+      dock.style.removeProperty('--food-tray-room')
+    }
+  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+}
+
+// A tap on a tray row keeps the keyboard up (the field keeps its focus).
+const keepFocus = (event) => event.preventDefault()
 
 // controlRef.current.open() focuses the field and opens the tray (call it inside a tap so iOS
 // shows the keyboard).
@@ -100,6 +152,9 @@ export default function QuickAddBar({ date, today, meal, mealChosen = false, onM
   const [trayOpen, setTrayOpen] = useState(false)
   const [tab, setTab] = useState('suggested')
   const [preparing, setPreparing] = useState(false)
+  // Foods logged since the tray opened: [{ key, undo, kcal, name, meal, date }].
+  const [added, setAdded] = useState([])
+  const addedRef = useRef(added)
   const dockRef = useRef(null)
   const fileRef = useRef(null)
   const photoMode = useRef('photo') // 'photo' | 'barcode': what the picked photo shows
@@ -125,6 +180,34 @@ export default function QuickAddBar({ date, today, meal, mealChosen = false, onM
     recorder.clearError()
   }, [recorder.error]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  useTrayRoom(dockRef, trayOpen)
+
+  function setAddedList(next) {
+    addedRef.current = next
+    setAdded(next)
+  }
+
+  // When the tray closes: one toast for everything added while it was open, with Undo all.
+  function flushAdded() {
+    const items = addedRef.current
+    if (!items.length) return
+    setAddedList([])
+    const { count, kcal, meal: oneMeal, date: oneDate } = addedSummary(items)
+    const where = whereText(meals, oneMeal, oneDate, today)
+    toast(`Logged ${count === 1 ? items[0].name : plural(count, 'item')}${where ? ` to ${where}` : ''}${energyTail(kcal, unit)}`, {
+      action: { label: count === 1 ? 'Undo' : 'Undo all', onClick: () => items.forEach((item) => item.undo()) },
+      duration: 7000,
+    })
+  }
+
+  const flushRef = useRef(flushAdded)
+  flushRef.current = flushAdded
+  useEffect(() => {
+    if (!trayOpen) flushRef.current()
+  }, [trayOpen])
+  // Leaving the page with the tray open still says what was logged.
+  useEffect(() => () => flushRef.current(), [])
+
   // The tray closes on a tap outside the bar, or Escape.
   useEffect(() => {
     if (!trayOpen) return undefined
@@ -145,12 +228,18 @@ export default function QuickAddBar({ date, today, meal, mealChosen = false, onM
     }
   }, [trayOpen]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Once something has been added, the lists hold still until the tray closes, so logging one
+  // food doesn't move the next one out from under your finger.
+  const listEntries = useRef(entries)
+  if (!trayOpen || !added.length) listEntries.current = entries
+  const shownEntries = listEntries.current
+
   const query = text.trim().toLowerCase()
   const code = barcodeDigits(text)
   const lists = useMemo(() => {
     if (!trayOpen) return null
     const hhmm = date === today ? nowTimeHHMM() : mealTime(meal)
-    const recent = recents(entries, today, { limit: 25 })
+    const recent = recents(shownEntries, today, { limit: 25 })
     const favorites = food.favorites
     let matches = []
     if (query) {
@@ -166,18 +255,38 @@ export default function QuickAddBar({ date, today, meal, mealChosen = false, onM
       }
     }
     return {
-      suggested: suggestions(entries, meal, hhmm, today, 8),
+      suggested: suggestions(shownEntries, meal, hhmm, today, 8),
       recent,
       favorites,
       matches,
     }
-  }, [trayOpen, entries, food.favorites, meal, date, today, query, code])
+  }, [trayOpen, shownEntries, food.favorites, meal, date, today, query, code])
 
-  function log(template) {
-    quickLog(template, { meal, date, favorites: food.favorites, meals, unit, today })
+  const foodId = (item) => foodKey(item.name, item.brand)
+
+  // Logs a food and keeps the tray open for the next; a food added already comes back out.
+  function toggle(template) {
+    const key = foodId(template)
+    const done = addedRef.current.find((item) => item.key === key)
+    if (done) {
+      done.undo()
+      setAddedList(addedRef.current.filter((item) => item !== done))
+      return
+    }
+    const undo = addEntries([quickRow(template, { meal, date, favorites: food.favorites })])
+    if (!undo.entries.length) return
+    setAddedList([...addedRef.current, { key, undo, kcal: entryCalories(template), name: entryName(template), meal, date }])
     setText('')
+  }
+
+  function closeTray() {
     setTrayOpen(false)
     input.current?.blur()
+  }
+
+  function manual(defaults) {
+    setTrayOpen(false)
+    onManual(defaults)
   }
 
   function submit(event) {
@@ -222,6 +331,8 @@ export default function QuickAddBar({ date, today, meal, mealChosen = false, onM
   }
 
   const list = !lists ? [] : query ? lists.matches : lists[tab] || []
+  const addedKeys = new Set(added.map((item) => item.key))
+  const addedTotal = addedSummary(added)
   const emptyText = {
     suggested: 'Foods you log often at this time show up here.',
     recent: 'Foods you’ve logged in the last 90 days show up here.',
@@ -232,19 +343,15 @@ export default function QuickAddBar({ date, today, meal, mealChosen = false, onM
     <div className={`food-dock${trayOpen ? ' has-tray' : ''}`} ref={dockRef}>
       {trayOpen && (
         <div className="food-tray" role="dialog" aria-label="Quick add">
-          <div className="food-tray-head">
+          <div className={`food-tray-head${query ? ' is-search' : ''}`}>
             <span className="food-tray-to">Add to</span>
-            <MealSelect meals={meals} value={meal} onChange={onMealChange} />
-            <span className="food-tray-links">
-              <button type="button" className="food-tray-link" onClick={() => { setTrayOpen(false); onManual({ name: text.trim() }) }}>Add by hand</button>
-              <button type="button" className="food-tray-link" onClick={() => { setTrayOpen(false); onManual({ quick: true }) }}>Quick calories</button>
-            </span>
+            <MealSelect meals={meals} value={meal} onChange={onMealChange} className="food-tray-meal" />
+            {!query && <Segmented options={TABS} value={tab} onChange={setTab} label="Quick add lists" className="food-tray-tabs" />}
           </div>
-          {!query && <Segmented options={TABS} value={tab} onChange={setTab} label="Quick add lists" className="food-tray-tabs" />}
           <ul className="food-tray-list">
             {query && (
               <li>
-                <button type="button" className="food-tray-row is-ai" onClick={submit}>
+                <button type="button" className="food-tray-row is-ai" onMouseDown={keepFocus} onClick={submit}>
                   <span className="food-tray-icon">{code ? <FoodGlyph name="barcode" size={17} /> : <Icon name="sparkles" size={17} />}</span>
                   <span className="food-tray-text">
                     <span className="food-tray-name">{code ? `Look up barcode ${code}` : `Estimate “${text.trim()}”`}</span>
@@ -257,22 +364,55 @@ export default function QuickAddBar({ date, today, meal, mealChosen = false, onM
             {list.map((item) => {
               const kcal = entryCalories(item)
               const portion = portionText(item)
+              const isAdded = addedKeys.has(foodId(item))
               return (
-                <li key={item.id || item.key || foodKey(item.name, item.brand)}>
-                  <button type="button" className="food-tray-row" onClick={() => log(item)}>
+                <li key={item.id || item.key || foodId(item)}>
+                  <button type="button" className={`food-tray-row${isAdded ? ' is-added' : ''}`} aria-pressed={isAdded} onMouseDown={keepFocus} onClick={() => toggle(item)}>
                     <span className="food-tray-text">
                       <span className="food-tray-name">{entryName(item)}</span>
                       {(portion || item.brand) && <span className="food-tray-sub">{[portion, item.brand].filter(Boolean).join(' · ')}</span>}
                     </span>
                     <span className="food-tray-kcal">{kcal > 0 ? energyNumber(kcal, unit) : '—'}</span>
-                    <span className="food-tray-plus" aria-hidden="true"><Icon name="plus" size={16} strokeWidth={2.4} /></span>
+                    {isAdded ? (
+                      <span className="food-tray-added">Added<Icon name="check" size={14} strokeWidth={2.6} /></span>
+                    ) : (
+                      <span className="food-tray-plus" aria-hidden="true"><Icon name="plus" size={16} strokeWidth={2.4} /></span>
+                    )}
                   </button>
                 </li>
               )
             })}
             {!query && list.length === 0 && <li className="food-tray-empty">{emptyText}</li>}
             {query && list.length === 0 && <li className="food-tray-empty">{code ? 'Not saved in My foods yet — tap above to look it up.' : 'Nothing logged before matches — tap above to estimate it.'}</li>}
+            <li className="food-tray-more">
+              <button type="button" className="food-tray-row is-link" onClick={() => manual({ name: text.trim() })}>
+                <span className="food-tray-icon is-soft" aria-hidden="true"><Icon name="pencil" size={15} /></span>
+                <span className="food-tray-text">
+                  <span className="food-tray-name">Add by hand</span>
+                  <span className="food-tray-sub">Name, portion and nutrition</span>
+                </span>
+                <Icon name="chevronRight" size={17} />
+              </button>
+            </li>
+            <li>
+              <button type="button" className="food-tray-row is-link" onClick={() => manual({ quick: true })}>
+                <span className="food-tray-icon is-soft" aria-hidden="true"><Icon name="zap" size={15} /></span>
+                <span className="food-tray-text">
+                  <span className="food-tray-name">Quick calories</span>
+                  <span className="food-tray-sub">Just a number</span>
+                </span>
+                <Icon name="chevronRight" size={17} />
+              </button>
+            </li>
           </ul>
+          {added.length > 0 && (
+            <div className="food-tray-foot">
+              <span className="food-tray-count" role="status">
+                {addedTotal.count} added{addedTotal.kcal > 0 ? ` · ${energyNumber(addedTotal.kcal, unit)} ${unitLabel(unit)}` : ''}
+              </span>
+              <button type="button" className="food-tray-done" onClick={closeTray}>Done</button>
+            </div>
+          )}
         </div>
       )}
 
@@ -307,8 +447,8 @@ export default function QuickAddBar({ date, today, meal, mealChosen = false, onM
               }
             }}
             onFocus={() => setTrayOpen(true)}
-            placeholder={mealChosen ? `Add to ${mealName(meals, meal).toLowerCase()}…` : 'Describe food or a barcode…'}
-            aria-label="Describe what you ate, or type a barcode number"
+            placeholder="What did you eat?"
+            aria-label={`What did you eat${mealChosen ? ` for ${mealName(meals, meal).toLowerCase()}` : ''}? You can also type a barcode number.`}
             enterKeyHint="send"
             autoComplete="off"
             maxLength={1000}
