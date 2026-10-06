@@ -715,9 +715,6 @@ export default function AssistantPage({ displayName }) {
       setProposalStatus(proposal.id, 'cancelled')
       apiRequest('/api/assistant', { method: 'POST', body: { confirm: { proposalId: proposal.id, decision: 'no', silent: true }, context: clientContext(pushRef.current) } }).catch(() => {})
     }
-    // A quick log that already ran (no card to decline) is taken back the same way, so the workout isn't there twice.
-    const quickLog = offer.when === 'done' ? (message.actions || []).find((action) => action.tool === 'gym_quick_log' && canUndo(action, message.createdAt)) : null
-    if (quickLog) undo(quickLog.undoId, { quiet: true })
     const run = (module) => {
       if (module) module.beginOffer(offer)
       else toast('Couldn’t open the workout. Check your connection and try again.', { tone: 'error' })
@@ -1096,7 +1093,7 @@ const Message = memo(function Message({ message, isLast, busy, onRetry, onDecide
             })}
           </ul>
         )}
-        {offer && <WorkoutOffer offer={offer} proposal={proposal} createdAt={message.createdAt} disabled={!!message.streaming} onUse={() => onOffer?.(message)} />}
+        {offer && <WorkoutOffer offer={offer} proposal={proposal} actions={message.actions} createdAt={message.createdAt} disabled={!!message.streaming} onUse={() => onOffer?.(message)} />}
         {links.length > 0 && (
           <div className="asst-links">
             {links.map((link) => (
@@ -1123,12 +1120,15 @@ const Message = memo(function Message({ message, isLast, busy, onRetry, onDecide
 // Gym buttons under a reply (offer_workout): "Start Legs workout" / "Log my sets" plus Open Gym,
 // or "Build my gym plan". A start button shows on the day it was offered; "Log my sets" goes once
 // the quick log it replaces has been carried out.
-function WorkoutOffer({ offer, proposal, createdAt, disabled, onUse }) {
+function WorkoutOffer({ offer, proposal, actions, createdAt, disabled, onUse }) {
   const start = offer.action === 'start'
   const [planned, setPlanned] = useState(false) // "Build my gym plan" was tapped (a start offer's second button)
   useEffect(() => { if (start) loadStart() }, [start])
   const sameDay = typeof createdAt === 'string' && toISO(new Date(createdAt)) === todayISO()
-  const logged = offer.when === 'done' && ['done', 'partial', 'executing'].includes(proposal?.status)
+  // Once the quick log it replaces has been saved (by the card, or straight away), "Log my sets"
+  // would log the workout twice: the logged workout is edited from the Gym's History instead.
+  const quickLogged = Array.isArray(actions) && actions.some((action) => action?.tool === 'gym_quick_log' && action.ok)
+  const logged = offer.when === 'done' && (quickLogged || ['done', 'partial', 'executing'].includes(proposal?.status))
   const showStart = start && sameDay && !logged
   if (!start) {
     return (

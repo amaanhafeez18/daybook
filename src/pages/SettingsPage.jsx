@@ -33,7 +33,7 @@ const WEB_HINTS = {
   off: 'Never searches the web. Your saved foods and estimates still work.',
 }
 // settings.assistantConfirm: when the assistant waits for your Yes before changing something.
-const CONFIRM_OPTIONS = [{ id: 'all', label: 'Always ask' }, { id: 'changes', label: 'Only edits & deletes' }, { id: 'off', label: 'Never' }]
+const CONFIRM_OPTIONS = [{ id: 'all', label: 'Always' }, { id: 'changes', label: 'Edits only' }, { id: 'off', label: 'Never' }]
 const CONFIRM_HINTS = {
   all: 'Shows what it understood and waits for your Yes before every change.',
   changes: 'Adds and logs things straight away, with Undo. Asks before editing, moving or deleting anything.',
