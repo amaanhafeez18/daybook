@@ -10,6 +10,7 @@ import { formatDuration, fromMeters, toMeters } from '../../lib/gym/units.js'
 import { tokenUserId } from '../../lib/api.js'
 import { useStore } from '../../lib/store.js'
 import { DurationInput, GymEmpty, NumberInput, SectionHeader, SetTypeBadge, WeightInput, goBack } from './common.jsx'
+import { offerRelink } from './relink.js'
 import ExercisePicker from './ExercisePicker.jsx'
 import { ActionSheet, removeRoutine, routineName, useSheetTarget } from './RoutinesTab.jsx'
 import './routines.css'
@@ -401,6 +402,7 @@ function Editor({ param, today }) {
     }
     markClean()
     toast(`Saved ${routineName(saved)}`, { tone: 'success' })
+    offerRelink([saved.id])
     goBack('gym/routines')
   }
 

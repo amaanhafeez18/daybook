@@ -105,6 +105,16 @@ function useAudioUnlock() {
   }, [])
 }
 
+// Working sets in the workout, done or not (the "/ 16" next to the done count; warm-ups left out
+// as sessionWorkingSets leaves them out).
+function workingSetCount(workout) {
+  let n = 0
+  for (const exercise of Array.isArray(workout?.exercises) ? workout.exercises : []) {
+    for (const set of Array.isArray(exercise?.sets) ? exercise.sets : []) if (set && typeof set === 'object' && set.type !== 'warmup') n += 1
+  }
+  return n
+}
+
 function Elapsed({ startedAt }) {
   const now = useTick(1000, true)
   const start = Date.parse(startedAt)
@@ -198,6 +208,7 @@ export default function WorkoutScreen({ today }) {
 
   const lookup = useMemo(() => volumeLookup(gym), [gym])
   const doneSets = workout ? sessionWorkingSets(workout) : 0
+  const totalSets = workout ? workingSetCount(workout) : 0
   const volume = useMemo(() => (workout ? sessionVolume(workout, lookup) : 0), [workout, lookup])
 
   const onFinished = useCallback((session) => {
@@ -274,7 +285,10 @@ export default function WorkoutScreen({ today }) {
       <div className="gym-wo-stats" role="group" aria-label="So far">
         <div className="gym-wo-stat">
           <span>Sets</span>
-          <strong>{doneSets}</strong>
+          <strong>
+            {doneSets}
+            {totalSets >= doneSets && totalSets > 0 && <small><span aria-hidden="true"> / </span><span className="sr-only"> of </span>{totalSets}</small>}
+          </strong>
         </div>
         <div className="gym-wo-stat">
           <span>Weight lifted</span>

@@ -21,12 +21,16 @@
 
 /* ---- section tabs: an iOS segmented control that stays under the title bar ----------------- */
 
+/* Solid frosted glass (as the routine editor's bar), so cards scrolling underneath don't show through. */
 .segmented.gym-shell-tabs {
   position: sticky; top: calc(var(--topbar-h) + var(--safe-top) + 4px); z-index: 25;
   display: flex; gap: 2px; margin: 0 0 18px; padding: 3px;
+  background: var(--glass-bg-strong, var(--glass-bg)); border: 1px solid var(--glass-border);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-highlight), var(--glass-shadow);
 }
 .segmented.gym-shell-tabs button {
-  flex: 1 1 auto; min-width: 0; min-height: 36px; padding: 0 6px;
+  flex: 1 1 auto; min-width: 0; min-height: 40px; padding: 0 6px;
   font-size: 13px; letter-spacing: -0.01em; white-space: nowrap;
 }
 @media (min-width: 420px) { .segmented.gym-shell-tabs button { padding: 0 10px; font-size: 14px; } }
@@ -376,6 +380,8 @@
 .gym-cfg-row.is-switch .switch-row { width: 100%; }
 .gym-cfg-label { min-width: 0; display: flex; flex-direction: column; font-size: 17px; letter-spacing: -0.02em; }
 .gym-cfg-label small { font-size: 13px; letter-spacing: 0; color: var(--text-2); }
+.gym-cfg-link { position: relative; padding: 0; color: var(--accent); font-size: 13px; font-weight: 600; text-align: left; }
+.gym-cfg-link::after { content: ''; position: absolute; inset: -14px -8px; }
 .gym-cfg-control { flex-shrink: 0; min-width: 0; display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .gym-cfg-control .segmented { min-width: 128px; }
 .gym-cfg-control .segmented button { min-height: 32px; padding: 0 12px; font-size: 14px; }

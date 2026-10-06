@@ -424,7 +424,21 @@ describe('units', () => {
     assert.equal(formatWeight(100, 'kg'), '100 kg')
     assert.equal(formatWeight(null, 'kg'), '—')
     assert.equal(formatWeight('100', 'kg'), '—')
-    assert.equal(formatWeight(1000, 'kg'), '1000 kg')
+    assert.equal(formatWeight(1000, 'kg'), `${new Intl.NumberFormat().format(1000)} kg`)
+  })
+
+  test('formatWeight tidies converted weights', () => {
+    assert.equal(formatWeight(20, 'lb'), '44 lb')
+    assert.equal(formatWeight(10, 'lb'), '22 lb')
+    assert.equal(formatWeight(2.5, 'lb'), '5.5 lb')
+    assert.equal(formatWeight(1.25, 'kg'), '1.25 kg')
+    assert.equal(formatWeight(61.25, 'kg'), '61.25 kg')
+    assert.equal(formatWeight(2.1, 'kg'), '2.1 kg')
+    assert.equal(formatWeight(60.1, 'kg'), '60 kg')
+    assert.equal(formatWeight(toKg(47.5, 'lb'), 'lb'), '47.5 lb')
+    assert.equal(formatWeight(0, 'kg'), '0 kg')
+    assert.equal(formatWeight(-0.001, 'kg'), '0 kg')
+    assert.equal(formatWeight(0.25, 'kg', { withUnit: false }), '0.25')
   })
 
   test('numbers, decimals and durations', () => {

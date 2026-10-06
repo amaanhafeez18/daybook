@@ -34,10 +34,27 @@ export function formatNumber(n, dp = 2) {
   return String(roundTo(value, places))
 }
 
+// Display precision for a weight: kg-stored values shown in lb land just off whole numbers (20 kg =
+// 44.09 lb), so near-whole values show whole, 1 decimal when that's (almost) exact, else 2 (1.25 kg
+// plates). The whole-number tolerance shrinks for light weights so 2.1 kg stays 2.1.
+export function tidyWeight(value) {
+  const n = finite(value)
+  if (n === null) return null
+  const whole = Math.round(n)
+  if (Math.abs(n - whole) <= Math.min(0.15, Math.abs(n) * 0.005) + 1e-9) return { value: whole, dp: 0 }
+  const one = roundTo(n, 1)
+  if (Math.abs(n - one) <= 0.03) return { value: one, dp: 1 }
+  return { value: roundTo(n, 2), dp: 2 }
+}
+
+const weightFormatters = {}
+
+// '44 lb', '102.5 kg', '1,250 kg' (grouped in the viewer's locale). Inputs keep full precision.
 export function formatWeight(kg, unit, options = {}) {
-  const value = fromKg(kg, unit)
-  if (value === null) return '—'
-  const text = formatNumber(value, 2)
+  const tidy = tidyWeight(fromKg(kg, unit))
+  if (tidy === null) return '—'
+  const formatter = weightFormatters[tidy.dp] ??= new Intl.NumberFormat(undefined, { maximumFractionDigits: tidy.dp })
+  const text = formatter.format(tidy.value === 0 ? 0 : tidy.value)
   return options?.withUnit === false ? text : `${text} ${unit === 'lb' ? 'lb' : 'kg'}`
 }
 

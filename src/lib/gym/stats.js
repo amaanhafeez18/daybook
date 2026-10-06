@@ -413,6 +413,45 @@ export function previousSets(sessions, exerciseId, options = {}) {
   return null
 }
 
+// ---- plausibility --------------------------------------------------------------------------
+
+// Rough ceilings (kg, per hand for dumbbells/kettlebells) for one logged load, used only when the
+// exercise has no history to compare with.
+const WEIGHT_CAP = { barbell: 400, smith_machine: 400, machine: 600, cable: 250, dumbbell: 100, kettlebell: 100, band: 150, bodyweight: 150 }
+const DEFAULT_CAP = 400
+
+// Heaviest working load of the exercise across `sessions` (minus excludeSessionId) plus `extraKg`.
+function heaviestLoad(sessions, exerciseId, excludeSessionId, extraKg) {
+  let best = null
+  const consider = (kg) => {
+    const n = pos(kg)
+    if (n !== null && (best === null || n > best)) best = n
+  }
+  for (const group of indexSessions(sessions).byExercise.get(exerciseId) || []) {
+    if (excludeSessionId != null && group.session.id === excludeSessionId) continue
+    for (const set of group.sets) if (isWorking(set)) consider(set.weightKg)
+  }
+  for (const kg of Array.isArray(extraKg) ? extraKg : []) consider(kg)
+  return best
+}
+
+// Is `kg` believable for this exercise? null when it is (or can't be judged), else
+// { kg, referenceKg, reason: 'history' | 'cap', suggestKg } where suggestKg is kg ÷ 10 when that
+// would be plausible (850 typed for 85), else null. Advisory only: callers never block or auto-edit.
+// Flags more than 2.5× (and 40 kg over) the previous heaviest working load, or above a per-equipment
+// ceiling when there's no history. extraKg = other loads already kept in this workout.
+export function plausibleWeight({ kg, exerciseId, sessions, equipment, tracking, excludeSessionId = null, extraKg = [] } = {}) {
+  const load = pos(kg)
+  if (load === null || (tracking && !WEIGHT_UP.has(tracking))) return null
+  const reference = typeof exerciseId === 'string' && exerciseId ? heaviestLoad(sessions, exerciseId, excludeSessionId, extraKg) : null
+  const cap = own(WEIGHT_CAP, equipment) ?? DEFAULT_CAP
+  const tooHeavy = (value) => (reference !== null ? value > Math.max(reference * 2.5, reference + 40) : value > cap)
+  if (!tooHeavy(load)) return null
+  const tenth = load / 10
+  const fits = reference !== null ? tenth >= reference * 0.4 : tenth >= 1
+  return { kg: load, referenceKg: reference, reason: reference !== null ? 'history' : 'cap', suggestKg: fits && !tooHeavy(tenth) ? tenth : null }
+}
+
 // ---- progression ---------------------------------------------------------------------------
 
 const LOWER_BODY = new Set(['quads', 'hamstrings', 'glutes', 'lower_back'])
@@ -855,6 +894,72 @@ export function weekProgress(sessions, today, firstWeekday) {
   const first = weekdayOf(firstWeekday)
   const current = weekStart(today, first)
   return sessionList(sessions).filter((session) => isIsoDate(session.date) && weekStart(session.date, first) === current).length
+}
+
+// Workouts a week the plan asks for, from its newest version: a weekly plan counts its workout
+// days; a rotation gives round(workouts × 7 / cycle length). 1-14, or null with no workouts planned.
+export function planWeeklyGoal(schedule) {
+  const versions = isObject(schedule) && Array.isArray(schedule.versions) ? schedule.versions.filter(isObject) : []
+  const version = versions.reduce((latest, v) => (!latest || str(v.effectiveFrom) >= str(latest.effectiveFrom) ? v : latest), null)
+  if (!version) return null
+  const rotation = version.mode === 'rotation' || (version.mode !== 'weekly' && Array.isArray(version.cycle) && version.cycle.length)
+  const slots = (rotation ? version.cycle : version.weekly) || []
+  if (!Array.isArray(slots) || !slots.length) return null
+  const workouts = slots.filter((slot) => isObject(slot) && slot.kind === 'routine').length
+  if (!workouts) return null
+  const perWeek = rotation ? Math.round((workouts * 7) / slots.length) : workouts
+  return Math.min(14, Math.max(1, perWeek))
+}
+
+const DEFAULT_GOAL = 3
+
+// The weekly goal to show: { goal, fromPlan, manual }. It follows the plan unless set by hand
+// (prefs.weeklyGoalAuto false). Older data has no flag: a missing goal, or the old default 3 that
+// every prefs write used to store, follows the plan; any other stored number stays manual.
+export function weeklyGoalFor(prefs, schedule) {
+  const p = isObject(prefs) ? prefs : {}
+  const stored = Number.isInteger(p.weeklyGoal) && p.weeklyGoal >= 1 && p.weeklyGoal <= 14 ? p.weeklyGoal : null
+  const follow = typeof p.weeklyGoalAuto === 'boolean' ? p.weeklyGoalAuto : stored === null || stored === DEFAULT_GOAL
+  if (!follow) return { goal: stored ?? DEFAULT_GOAL, fromPlan: false, manual: true }
+  const planned = planWeeklyGoal(schedule)
+  return { goal: planned ?? stored ?? DEFAULT_GOAL, fromPlan: planned !== null, manual: false }
+}
+
+// ---- orphaned sessions -----------------------------------------------------------------------
+
+const nameKey = (value) => str(value).trim().replace(/\s+/g, ' ').toLowerCase()
+
+// Sessions whose routine no longer exists (a rebuilt plan gives routines new ids) and whose name
+// matches exactly one current routine, ignoring case and spacing:
+// [{ sessionId, fromRoutineId, routineId, name }] (name = the routine's). routineIds limits the
+// targets (e.g. just the routine that was created).
+export function orphanMatches(sessions, routines, options = {}) {
+  const list = Array.isArray(routines) ? routines.filter((routine) => isObject(routine) && routine.id != null) : []
+  const ids = new Set(list.map((routine) => routine.id))
+  const only = Array.isArray(options?.routineIds) ? new Set(options.routineIds) : null
+  const byName = new Map()
+  for (const routine of list) {
+    const key = nameKey(routine.name)
+    if (key) byName.set(key, byName.has(key) ? null : routine) // null = ambiguous
+  }
+  const out = []
+  for (const session of sessionList(sessions)) {
+    const from = session.routineId
+    if (from == null || from === '' || ids.has(from) || session.id == null) continue
+    const routine = byName.get(nameKey(session.name))
+    if (!routine || (only && !only.has(routine.id))) continue
+    out.push({ sessionId: session.id, fromRoutineId: from, routineId: routine.id, name: str(routine.name).trim() })
+  }
+  return out
+}
+
+// "4 past Push workouts" / "6 past workouts" (several routines) for a list of orphanMatches.
+export function orphanSummary(matches) {
+  const list = Array.isArray(matches) ? matches : []
+  const names = new Set(list.map((match) => match.name))
+  const n = list.length
+  const what = names.size === 1 ? `${[...names][0]} workout` : 'workout'
+  return `${n} past ${what}${n === 1 ? '' : 's'}`
 }
 
 // Most-trained exercises by number of sessions: [{ exerciseId, name, count, lastDate }].
