@@ -1,0 +1,104 @@
+/* Getting set up: Today's "Get set up" card and its one-at-a-time hint cards (reminders on this
+   iPhone, add to Home Screen), the "notifications are off here" row under reminder switches, the
+   Home Screen steps and the city picker. Every rule hangs off a class of its own (su-*, nh-*,
+   city-*), so the order against App.css / glass.css / apple.css doesn't matter. */
+
+/* ---- "Get set up" card ------------------------------------------------------------------------ */
+.su-card .su-count { font-size: 15px; color: var(--text-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.su-progress { height: 4px; margin: 2px 0 4px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+.su-progress > span { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width 0.4s var(--ease, ease); }
+.su-list { list-style: none; margin: 0; padding: 0; }
+.su-item { position: relative; }
+.su-item + .su-item::before {
+  content: ''; position: absolute; top: 0; left: 42px; right: 0; height: 1px;
+  background: var(--separator, var(--border)); transform: scaleY(0.5); transform-origin: top; pointer-events: none;
+}
+.su-row { display: flex; align-items: center; gap: 8px; min-height: 56px; }
+.su-main {
+  flex: 1; min-width: 0; align-self: stretch; display: flex; align-items: center; gap: 12px;
+  min-height: 56px; padding: 6px 0; border: 0; background: none; color: inherit; font: inherit;
+  text-align: left; text-decoration: none; transition: opacity 0.15s;
+}
+a.su-main:hover { text-decoration: none; }
+.su-main:active:not(:disabled) { opacity: 0.55; }
+.su-main:disabled { cursor: default; }
+.su-main:focus-visible { outline-offset: -2px; border-radius: 12px; }
+.su-icon {
+  flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--accent-soft); color: var(--accent);
+}
+.su-item.is-done .su-icon { background: var(--success-soft); color: var(--success); }
+.su-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.su-text strong { font-size: 16px; font-weight: 500; letter-spacing: -0.01em; color: var(--text); }
+.su-text small { font-size: 14px; line-height: 1.3; color: var(--text-2); }
+.su-item.is-done .su-text strong { color: var(--text-3); text-decoration: line-through; text-decoration-color: var(--text-3); }
+.su-chev { flex-shrink: 0; display: grid; place-items: center; color: var(--text-3); }
+.su-main .spinner { width: 16px; height: 16px; }
+/* A second, smaller action on a row ("From a photo", "Choose a city"): 32 px, a 44 px target. */
+.su-chip {
+  position: relative; flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px; height: 32px; padding: 0 12px;
+  border-radius: 999px; background: var(--accent-soft); color: var(--accent);
+  font-size: 14px; font-weight: 600; white-space: nowrap; text-decoration: none;
+  transition: transform 0.35s var(--spring, ease), opacity 0.15s;
+}
+.su-chip::after { content: ''; position: absolute; inset: -6px -4px; }
+.su-chip:hover { text-decoration: none; }
+.su-chip:active { transform: scale(0.94); transition-duration: 0.1s; }
+.su-more { padding: 0 0 12px 42px; animation: rise 0.2s var(--ease, ease); }
+.su-foot { display: flex; justify-content: flex-end; margin: 0 -2px -6px; }
+.su-foot .link-btn { min-height: 44px; padding: 0 4px; font-size: 15px; color: var(--text-2); }
+
+/* ---- one hint card (reminders on this iPhone / add to Home Screen) ------------------------------ */
+.su-hint-body { display: flex; align-items: flex-start; gap: 12px; }
+.su-hint-body .su-icon { margin-top: 1px; }
+.su-hint-text { flex: 1; min-width: 0; }
+.su-hint-text strong { display: block; font-size: 17px; font-weight: 600; letter-spacing: -0.02em; color: var(--text); }
+.su-hint-text p { margin: 2px 0 0; font-size: 15px; line-height: 1.4; color: var(--text-2); }
+.su-hint-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.su-hint-actions .btn { min-height: 44px; }
+
+/* ---- Add to Home Screen steps ------------------------------------------------------------------- */
+.su-steps { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 10px; font-size: 15px; line-height: 1.4; }
+.su-steps li { display: flex; align-items: flex-start; gap: 10px; color: var(--text); }
+.su-step-n {
+  flex-shrink: 0; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%;
+  background: var(--accent-soft); color: var(--accent); font-size: 13px; font-weight: 700;
+}
+.su-kbd {
+  display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px 1px 6px; border-radius: 8px;
+  background: var(--surface-2, var(--bg)); font-weight: 600; white-space: nowrap; vertical-align: -3px;
+}
+.su-kbd svg { color: var(--info, var(--accent)); }
+
+/* ---- "Notifications are off on this iPhone · Turn on" ---------------------------------------- */
+.nh-row { display: flex; align-items: center; gap: 10px; min-height: 48px; }
+.set-row.nh-row, .gym-cfg-row.nh-row { justify-content: flex-start; }
+.nh-icon { flex-shrink: 0; display: grid; place-items: center; color: var(--text-2); }
+.nh-row.is-blocked .nh-icon { color: var(--danger); }
+.nh-text { flex: 1; min-width: 0; font-size: 15px; line-height: 1.35; color: var(--text-2); }
+.nh-row .btn { flex-shrink: 0; }
+.nh-row .link-btn { flex-shrink: 0; min-height: 44px; padding: 0 2px; font-size: 15px; }
+.nh-steps, .set-row.nh-steps, .gym-cfg-row.nh-steps { display: block; padding-top: 4px; padding-bottom: 14px; }
+.nh-steps .su-steps { margin-top: 0; }
+
+/* ---- Choose a city ------------------------------------------------------------------------------ */
+.city-search { position: relative; }
+.city-search .input { width: 100%; min-height: 48px; padding-left: 40px; font-size: 17px; }
+.city-search > .icon { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); color: var(--text-3); pointer-events: none; }
+.city-results { list-style: none; margin: 8px 0 0; padding: 0; }
+.city-results li + li { border-top: 1px solid var(--border); }
+.city-option {
+  width: 100%; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 6px 2px;
+  border: 0; background: none; color: var(--text); font: inherit; text-align: left; transition: opacity 0.15s;
+}
+.city-option:active { opacity: 0.55; }
+.city-option .icon { flex-shrink: 0; color: var(--accent); }
+.city-option span { min-width: 0; display: flex; flex-direction: column; }
+.city-option strong { font-size: 16px; font-weight: 500; }
+.city-option small { font-size: 14px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.city-note { margin: 12px 2px 0; font-size: 15px; line-height: 1.4; color: var(--text-2); }
+
+@media (prefers-reduced-motion: reduce) {
+  .su-progress > span, .su-chip { transition: none; }
+  .su-more { animation: none; }
+}

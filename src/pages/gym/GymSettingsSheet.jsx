@@ -11,6 +11,7 @@ import { LB, formatDuration, formatNumber } from '../../lib/gym/units.js'
 import { navigate } from '../../lib/router.js'
 import { getState, updateSettings, useStore } from '../../lib/store.js'
 import { DurationInput, NumberInput, WeightInput } from './common.jsx'
+import NotifyOffHint from '../../components/NotifyOffHint.jsx'
 import './gym.css'
 
 // Gym settings: the basics everyone touches (units, week, rest timer, reminder) up top, and every
@@ -296,6 +297,7 @@ export default function GymSettingsSheet({ open, onClose }) {
 
         <Group title="Workout reminder" footer="Arrives on devices with notifications turned on in Settings, on planned workout days you haven’t trained yet.">
           <SwitchRow label="Remind me to train" description="Not on rest, skipped or done days" checked={reminderOn} onChange={(gymOn) => setReminder({ gym: gymOn })} />
+          {reminderOn && <NotifyOffHint className="gym-cfg-row" />}
           {reminderOn && (
             <Row label="Time" htmlFor="gym-cfg-reminder">
               <input id="gym-cfg-reminder" className="input gym-cfg-time" type="time" value={reminderTime} onChange={(event) => setReminder({ gymTime: event.target.value || DEFAULT_REMINDER_TIME })} />

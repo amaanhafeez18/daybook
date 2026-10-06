@@ -376,7 +376,7 @@ export default function WelcomeFlow({ user, onClose }) {
       title: `You’re all set${firstName ? `, ${firstName}` : ''}`,
       body: 'Here’s where things are.',
       visual: <DoneVisual />,
-      content: <WhereThings picks={picks} wide={wide} />,
+      content: <WhereThings picks={picks} wide={wide} onGo={finish} />,
       primary: { label: 'Start using Daybook', onClick: () => finish('today') },
       secondary: { label: 'Ask the assistant something', onClick: () => finish('assistant') },
     },
@@ -487,21 +487,25 @@ function PushStatus({ state, error }) {
   return <p className={`wl-panel ${error ? 'is-error' : ''}`} role={error ? 'alert' : undefined}>{note}</p>
 }
 
-function WhereThings({ picks, wide }) {
+// Each row also goes there: a tap closes the tour on that page (`onGo` is finish(route)).
+function WhereThings({ picks, wide, onGo }) {
   const health = [['gym', 'Gym'], ['food', 'Food']].filter(([id]) => picks.has(id)).map(([, label]) => label)
   const rows = [
-    { icon: 'tasks', title: picks.has('people') ? 'Today, Tasks, Calendar & People' : 'Today, Tasks & Calendar', text: `In the ${wide ? 'sidebar' : 'tab bar'}, with the Assistant.` },
-    health.length > 0 && { icon: picks.has('gym') ? 'dumbbell' : 'utensils', title: health.join(' & '), text: wide ? 'Under Health in the sidebar.' : 'Tap Health at the top to switch; Plan brings you back.' },
-    picks.has('journal') && { icon: 'journal', title: 'Journal', text: wide ? 'In the sidebar.' : 'The book icon at the top right.' },
-    picks.has('classes') && { icon: 'graduation', title: 'Classes', text: 'Add your timetable in Settings, or just tell the assistant.' },
-    { icon: 'settings', title: 'Settings', text: `${wide ? 'At the foot of the sidebar' : 'Tap your picture, top left'}: themes, notifications and what you use.` },
+    { icon: 'tasks', title: picks.has('people') ? 'Today, Tasks, Calendar & People' : 'Today, Tasks & Calendar', text: `In the ${wide ? 'sidebar' : 'tab bar'}, with the Assistant.`, route: 'today' },
+    health.length > 0 && { icon: picks.has('gym') ? 'dumbbell' : 'utensils', title: health.join(' & '), text: wide ? 'Under Health in the sidebar.' : 'Tap Health at the top to switch; Plan brings you back.', route: picks.has('gym') ? 'gym' : 'food' },
+    picks.has('journal') && { icon: 'journal', title: 'Journal', text: wide ? 'In the sidebar.' : 'The book icon at the top right.', route: 'journal' },
+    picks.has('classes') && { icon: 'graduation', title: 'Classes', text: 'Add your timetable in Settings, or just tell the assistant.', route: 'settings/classes' },
+    { icon: 'settings', title: 'Settings', text: `${wide ? 'At the foot of the sidebar' : 'Tap your picture, top left'}: themes, notifications and what you use.`, route: 'settings' },
   ].filter(Boolean)
   return (
     <ul className="wl-where">
       {rows.map((row) => (
         <li key={row.title}>
-          <span className="wl-badge"><Icon name={row.icon} size={17} /></span>
-          <span className="wl-row-text"><strong>{row.title}</strong><small>{row.text}</small></span>
+          <button type="button" className="wl-where-btn" onClick={() => onGo(row.route)}>
+            <span className="wl-badge"><Icon name={row.icon} size={17} /></span>
+            <span className="wl-row-text"><strong>{row.title}</strong><small>{row.text}</small></span>
+            <span className="wl-where-chev" aria-hidden="true"><Icon name="chevronRight" size={18} strokeWidth={2.2} /></span>
+          </button>
         </li>
       ))}
     </ul>

@@ -5,13 +5,22 @@ import Disclosure from './ui/Disclosure.jsx'
 import { Button, Field } from './ui/primitives.jsx'
 import { toast } from './ui/feedback.jsx'
 import { classSchedule, deleteClass, saveClass } from '../lib/planner.js'
-import { formatDateShort, formatTime, timeRangeMinutes } from '../lib/dates.js'
+import { formatDateShort, formatTime, timeRangeMinutes, todayISO } from '../lib/dates.js'
+import { clearDraft, saveDraft, takeDraft } from '../lib/drafts.js'
+import { useData } from '../lib/store.js'
+import { addMinutesHHMM, classLength, commonEndDate } from '../lib/setup.js'
 import './class-sheet.css'
 
 // Add a class (item = {}) or edit one (item = the class record); item = null closes the sheet.
 // Opened from Settings, the Today card and the calendar agenda.
 // Name, days and one time per day show first; rooms, extra times on a day and the last day of
 // classes sit behind "More options" (open by itself once any of them is set).
+// Entering a timetable is quick: a new class ends on the date the others share, a start time
+// fills in the end from the last class's length, and "Save & add another" keeps the days, times
+// and end date for the next one. A new class closed before it's saved is kept as a draft
+// ('class:new', lib/drafts.js) and comes back the next time "Add class" is opened.
+
+const DRAFT_KEY = 'class:new'
 
 const DAY_ORDER = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
@@ -33,7 +42,8 @@ const nextKey = () => `slot-${keyCounter += 1}`
 
 const rangeText = (start, end) => (start ? `${formatTime(start)}${end ? ` - ${formatTime(end)}` : ''}` : '')
 
-export default function ClassSheet({ item, onClose }) {
+export default function ClassSheet({ item, onClose, onReopen }) {
+  const classes = useData('classes')
   const open = !!item
   // Keep the last class while the sheet animates closed, so it doesn't switch to "Add a class".
   const shown = useRef(item)
@@ -45,14 +55,31 @@ export default function ClassSheet({ item, onClose }) {
   // Every meeting of the class: a day can have more than one (e.g. a lecture and a lab on Thursday).
   const [slots, setSlots] = useState([]) // [{ key, day, start, end, room, raw }]
   const [error, setError] = useState('')
+  const [added, setAdded] = useState(0) // classes saved with "Save & add another" this time
+  const nameRef = useRef(null)
+  const defaultEnd = useRef('')
 
   useEffect(() => {
     if (!open) return
     setError('')
-    setName(editing?.name || '')
-    setEndDate(editing?.endDate || '')
-    setSlots((editing ? classSchedule(editing) : []).map((slot) => ({ key: nextKey(), day: slot.day, ...splitRange(slot.time), room: slot.room || '' })))
+    setAdded(0)
+    if (editing) {
+      setName(editing.name || '')
+      setEndDate(editing.endDate || '')
+      setSlots(classSchedule(editing).map((slot) => ({ key: nextKey(), day: slot.day, ...splitRange(slot.time), room: slot.room || '' })))
+      return
+    }
+    defaultEnd.current = commonEndDate(classes.map((record) => record.endDate), todayISO())
+    const draft = takeDraft(DRAFT_KEY)
+    setName(typeof draft?.name === 'string' ? draft.name : '')
+    setEndDate(typeof draft?.endDate === 'string' ? draft.endDate : defaultEnd.current)
+    setSlots(Array.isArray(draft?.slots) ? draft.slots.map((slot) => ({ day: '', start: '', end: '', room: '', raw: null, ...slot, key: nextKey() })) : [])
   }, [open, editing?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // How long a class usually is: the newest class with a full time range, else 50 minutes.
+  const usualLength = () => classLength([...classes]
+    .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
+    .flatMap((record) => classSchedule(record).map((slot) => slot.time)))
 
   const hasDay = (day) => slots.some((slot) => slot.day === day)
   const chosenDays = DAY_ORDER.filter(hasDay)
@@ -64,9 +91,18 @@ export default function ClassSheet({ item, onClose }) {
   })
   const addTime = (day) => setSlots((current) => [...current, { key: nextKey(), day, start: '', end: '', room: current.find((slot) => slot.day === day)?.room || '', raw: null }])
   const removeTime = (key) => setSlots((current) => current.filter((slot) => slot.key !== key))
-  const setSlot = (key, field, value) => setSlots((current) => current.map((slot) => (slot.key === key
-    ? { ...slot, [field]: value, ...(field === 'start' || field === 'end' ? { raw: null } : {}) }
-    : slot)))
+  // A start time with no end yet fills the end in: the length of another meeting in this form,
+  // else of the last class added.
+  const setSlot = (key, field, value) => setSlots((current) => current.map((slot) => {
+    if (slot.key !== key) return slot
+    const next = { ...slot, [field]: value, ...(field === 'start' || field === 'end' ? { raw: null } : {}) }
+    if (field === 'start' && value && !slot.end) {
+      const model = current.find((other) => other.key !== key && other.start && other.end)
+      const length = model ? timeRangeMinutes(`${model.start}-${model.end}`) : null
+      next.end = addMinutesHHMM(value, length?.end > length?.start ? length.end - length.start : usualLength())
+    }
+    return next
+  }))
 
   // Rows in weekday order; a day with several meetings numbers them ("Thu", "Thu 2").
   const rows = chosenDays.flatMap((day) => {
@@ -80,7 +116,18 @@ export default function ClassSheet({ item, onClose }) {
     endDate ? `Ends ${formatDateShort(endDate)}` : '',
   ].filter(Boolean).join(' · ')
 
-  function submit(event) {
+  // Closing a new class with something typed keeps it as a draft, with a way straight back.
+  function close() {
+    // After "Save & add another", the kept days and times alone aren't a draft.
+    const dirty = !editing && (name.trim() || (!added && (slots.length || endDate !== defaultEnd.current)))
+    if (dirty) {
+      saveDraft(DRAFT_KEY, { name, endDate, slots: slots.map(({ key, ...slot }) => slot) })
+      toast('Draft kept', onReopen ? { action: { label: 'Reopen', onClick: onReopen } } : undefined)
+    }
+    onClose()
+  }
+
+  function submit(event, again = false) {
     event.preventDefault()
     if (!name.trim()) return setError('Give the class a name.')
     if (!slots.length) return setError('Pick at least one day.')
@@ -97,7 +144,15 @@ export default function ClassSheet({ item, onClose }) {
       time: editing?.time ? null : undefined,
       room: editing?.room ? null : undefined,
     })
-    onClose()
+    clearDraft(DRAFT_KEY)
+    if (!again) return onClose()
+    // The next class: same days, times and end date; a new name (and rooms) to fill in.
+    toast(`Added ${name.trim()}`)
+    setAdded((count) => count + 1)
+    setName('')
+    setError('')
+    setSlots((current) => current.map((slot) => ({ ...slot, key: nextKey(), room: '' })))
+    nameRef.current?.focus()
   }
 
   function remove() {
@@ -113,19 +168,20 @@ export default function ClassSheet({ item, onClose }) {
   return (
     <Sheet
       open={open}
-      onClose={onClose}
-      title={editing ? 'Edit class' : 'New class'}
+      onClose={close}
+      title={editing ? 'Edit class' : added ? `New class · ${added} added` : 'New class'}
       initialFocus={!editing}
       footer={(
         <>
           {editing && <Button variant="ghost" icon="trash" onClick={remove}>Remove</Button>}
+          {!editing && <Button variant="secondary" className="cs-again" onClick={(event) => submit(event, true)}>Save &amp; add another</Button>}
           <Button type="submit" form="class-form" className="btn-grow">{editing ? 'Save' : 'Add class'}</Button>
         </>
       )}
     >
       <form id="class-form" className="form-stack" onSubmit={submit}>
         <Field label="Class" error={error}>
-          {(id) => <input id={id} className="input input-lg" value={name} onChange={(event) => { setName(event.target.value); setError('') }} placeholder="e.g. Biology" autoComplete="off" data-autofocus />}
+          {(id) => <input ref={nameRef} id={id} className="input input-lg" value={name} onChange={(event) => { setName(event.target.value); setError('') }} placeholder="e.g. Biology" autoComplete="off" data-autofocus />}
         </Field>
         <div className="field">
           <span className="field-label">Days</span>
@@ -196,7 +252,7 @@ export default function ClassSheet({ item, onClose }) {
               </div>
             </div>
           )}
-          <Field label="Last day of classes" hint="Optional — the class stops showing after this date.">
+          <Field label="Last day of classes" hint={!editing && endDate && endDate === defaultEnd.current ? 'The same as your other classes. The class stops showing after this date.' : 'Optional — the class stops showing after this date.'}>
             {(id) => <input id={id} className="input" type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} />}
           </Field>
         </Disclosure>

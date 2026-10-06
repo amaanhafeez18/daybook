@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { apiRequest, readPref, writePref } from './api.js'
 
 // Keep in sync with api/_reminders.js.
@@ -47,6 +48,42 @@ export function notificationPrefs(settings) {
 
 const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
 const isStandalone = () => window.matchMedia?.('(display-mode: standalone)').matches || window.navigator.standalone === true
+export const isHomeScreenApp = isStandalone
+
+// 'this iPhone' / 'this iPad' / 'this device', for hints ("Notifications are off on this iPhone").
+export function deviceName() {
+  if (/iPhone|iPod/.test(navigator.userAgent)) return 'this iPhone'
+  return isIOS() ? 'this iPad' : 'this device'
+}
+
+// Fired after notifications are turned on or off here, so every hint and row showing this
+// device's state checks it again (Settings, Today, the gym settings sheet).
+export const PUSH_CHANGED = 'daybook:push-changed'
+const announce = () => {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(PUSH_CHANGED))
+}
+
+// This device's notification state: { support (pushSupport()), subscribed (null while checking) }.
+export function usePushStatus() {
+  const [support, setSupport] = useState(pushSupport)
+  const [subscribed, setSubscribed] = useState(null)
+  useEffect(() => {
+    let live = true
+    const check = () => {
+      setSupport(pushSupport())
+      currentSubscription()
+        .then((subscription) => { if (live) setSubscribed(!!subscription) })
+        .catch(() => { if (live) setSubscribed(false) })
+    }
+    check()
+    window.addEventListener(PUSH_CHANGED, check)
+    return () => {
+      live = false
+      window.removeEventListener(PUSH_CHANGED, check)
+    }
+  }, [])
+  return { support, subscribed }
+}
 
 // 'unsupported' | 'install' (iOS: add to Home Screen first) | 'dev' | 'default' | 'denied' | 'granted'
 export function pushSupport() {
@@ -84,6 +121,14 @@ function keyMatches(subscription, publicKey) {
 
 // Must be called from a tap (iOS only shows the permission prompt for a user gesture).
 export async function enableNotifications() {
+  try {
+    return await subscribeHere()
+  } finally {
+    announce() // turned on or not, the permission may have changed
+  }
+}
+
+async function subscribeHere() {
   const support = pushSupport()
   if (support === 'install') throw new Error('On iPhone, add Daybook to your Home Screen first (Share → Add to Home Screen), then turn notifications on from the app.')
   if (support === 'unsupported') throw new Error('This browser doesn’t support notifications.')
@@ -139,6 +184,7 @@ export async function disableNotifications() {
   if (!subscription) return
   await apiRequest('/api/push', { method: 'POST', body: { action: 'unsubscribe', endpoint: subscription.endpoint } }).catch(() => {})
   await subscription.unsubscribe().catch(() => {})
+  announce()
 }
 
 export function sendTestNotification() {
