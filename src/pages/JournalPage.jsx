@@ -7,7 +7,7 @@ import AttachmentStrip from '../components/AttachmentStrip.jsx'
 import { getState, retryUnsaved, useData } from '../lib/store.js'
 import { MOODS, addNote, deleteJournalEntry, deleteNote, moodEmoji, saveJournalEntry } from '../lib/planner.js'
 import { attachmentSummary, useAttachmentsFor } from '../lib/attachments.js'
-import { addDaysISO, formatDateLong, formatDateShort, relativeDay, todayISO } from '../lib/dates.js'
+import { addDaysISO, dayHeading, formatDateLong, formatDateShort, relativeDay, todayISO } from '../lib/dates.js'
 import '../components/journal.css'
 
 const AUTOSAVE_MS = 700
@@ -137,6 +137,18 @@ function JournalEditor() {
     if (nextDate) setDate(nextDate)
   }
 
+  // A past entry tapped in the list (below the editor on phones): bring the editor up to it.
+  const editorRef = useRef(null)
+  function openEntry(nextDate) {
+    goTo(nextDate)
+    const editor = editorRef.current
+    if (!editor) return
+    const top = editor.getBoundingClientRect().top
+    if (top >= 0 && top < window.innerHeight / 3) return // already in view (e.g. side by side on desktop)
+    const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    editor.scrollIntoView({ behavior: still ? 'auto' : 'smooth', block: 'start' })
+  }
+
   // Deleting is undoable from the toast, so there's no "are you sure?" first.
   function remove() {
     if (!entry) return
@@ -157,17 +169,22 @@ function JournalEditor() {
   // The draft is loaded a render after the date changes, so whether the day already has a mood or
   // title is read from the saved entry too (that's what decides if "Mood & title" starts open).
   const extrasSet = !!extrasSummary || !!(entry?.mood || (entry?.title || '').trim())
+  // "Today" over "Tuesday, October 6"; further back "Wed, Sep 23" over "12 days ago".
+  const heading = dayHeading(date, today)
 
   return (
     <div className="journal-layout">
-      <section className="card journal-editor">
+      <section ref={editorRef} className="card journal-editor">
         <div className="journal-date-bar">
           <button type="button" className="icon-btn" onClick={() => goTo(addDaysISO(date, -1))} aria-label="Previous day"><Icon name="chevronLeft" /></button>
           <label className="journal-date">
-            <strong>{relativeDay(date, today)}</strong>
-            <span>{formatDateLong(date)}</span>
+            <strong>{heading.title}</strong>
+            <span>{heading.subtitle}</span>
             <input type="date" value={date} max={today} onChange={(event) => goTo(event.target.value)} aria-label="Choose a date" />
           </label>
+          {date !== today && (
+            <button type="button" className="chip chip-sm jr-today" onClick={() => goTo(today)} aria-label="Go to today’s entry">Today</button>
+          )}
           <button type="button" className="icon-btn" onClick={() => goTo(addDaysISO(date, 1))} aria-label="Next day" disabled={date >= today}><Icon name="chevronRight" /></button>
         </div>
 
@@ -238,7 +255,7 @@ function JournalEditor() {
               const preview = entryPreview(item)
               return (
                 <li key={item.id}>
-                  <button type="button" className={`entry-card ${item.date === date ? 'is-active' : ''}`} onClick={() => goTo(item.date)}>
+                  <button type="button" className={`entry-card ${item.date === date ? 'is-active' : ''}`} onClick={() => openEntry(item.date)}>
                     <span className="entry-mood" aria-hidden="true">{moodEmoji(item.mood) || '📝'}</span>
                     <span className="entry-text">
                       <small>{rel}{rel !== short ? ` · ${short}` : ''}</small>
