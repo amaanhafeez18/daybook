@@ -31,22 +31,39 @@
 
 /* ---- welcome ------------------------------------------------------------------------------- */
 
-/* Pill above the composer that brings the start screen (prompts) back while a chat is open. */
-.asst-dock-row { display: flex; justify-content: flex-start; padding: 0 4px 6px; }
+/* Row above the composer while a chat is open: "Prompts" (back to the start screen) and a ⋯ with the
+   header's menu, so it's in reach at the end of a long chat. Both on glass, readable over the messages. */
+.asst-dock-row { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 4px 6px; }
+.asst-start-btn, .asst-dock-more {
+  background: var(--glass-bg-strong, var(--surface));
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border, var(--border));
+  box-shadow: var(--glass-highlight, none), var(--glass-shadow, var(--shadow-md));
+  transition: transform 0.35s var(--spring, ease), background 0.2s;
+}
 .asst-start-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 40px;
-  padding: 0 14px;
+  min-height: 44px;
+  padding: 0 16px 0 14px;
   border-radius: 999px;
-  background: var(--accent-soft);
   color: var(--accent);
   font-size: 15px;
   font-weight: 600;
-  transition: transform 0.35s var(--spring, ease), background 0.2s;
 }
-.asst-start-btn:active { transform: scale(0.96); transition-duration: 0.1s; }
+.asst-dock-more { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; color: var(--text); }
+.asst-dock-more.is-active { color: var(--accent); }
+.asst-start-btn:active, .asst-dock-more:active { transform: scale(0.96); transition-duration: 0.1s; }
+/* The ⋯ menu opens upward from the right-hand button. */
+.asst-menu.is-up-end {
+  left: auto;
+  right: 4px;
+  bottom: calc(100% + 2px);
+  width: min(300px, calc(100vw - 32px));
+  transform-origin: calc(100% - 22px) 100%;
+}
 
 /* "Continue chat · N messages · last 3 h ago" + "Start fresh" on the start screen. */
 .asst-resume { display: flex; flex-direction: column; align-items: stretch; gap: 8px; width: min(100%, 420px); margin-bottom: 6px; }
@@ -66,11 +83,31 @@
 .asst-resume-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
 .asst-resume-text strong { font-size: 16px; }
 .asst-resume-text small { font-size: 13px; color: var(--text-2); }
-.asst-resume-new { align-self: center; min-height: 40px; padding: 0 12px; color: var(--text-2); font-size: 14px; }
+.asst-resume-note { margin: -2px 0 0; font-size: 13px; color: var(--text-2); text-align: center; }
+.asst-resume-new {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 18px 0 14px;
+  border-radius: 999px;
+  background: var(--card-bg);
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  transition: transform 0.35s var(--spring, ease), opacity 0.2s;
+}
+.asst-resume-new .icon { color: var(--accent); }
+.asst-resume-new:active:not(:disabled) { transform: scale(0.96); transition-duration: 0.1s; }
 .asst-resume-new:disabled { opacity: 0.5; }
 
 .chat-welcome > p { font-size: 15px; line-height: 1.45; max-width: 40ch; }
 .chat-welcome .suggestion span { line-height: 1.3; }
+/* Someone who has chatted before: no avatar or introduction, so every prompt fits above the composer. */
+.chat-welcome.is-returning { gap: 8px; padding-top: 8px; }
+.chat-welcome.is-returning h2 { font-size: 20px; }
+.chat-welcome.is-returning .suggestions { margin-top: 4px; }
 
 /* "Not sure what to ask?": one dismissible line above the composer for the first few messages. */
 .asst-tip {
@@ -147,6 +184,56 @@
 .msg-body .action-chips li { line-height: 1.35; padding-top: 6px; padding-bottom: 6px; }
 .msg-body .action-chips li .icon { flex-shrink: 0; }
 .action-chips li.is-staged { background: var(--surface-2); color: var(--text-2); }
+
+/* Undo on a create or log that ran: a small pill at the end of its chip, with a 44px hit area. */
+.msg-body .action-chips li.has-undo { padding-top: 4px; padding-bottom: 4px; padding-right: 4px; }
+.asst-chip-msg { min-width: 0; }
+.asst-undo {
+  position: relative;
+  flex-shrink: 0;
+  display: inline-grid;
+  place-items: center;
+  min-width: 56px;
+  min-height: 30px;
+  margin-left: 4px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--card-bg);
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+  -webkit-tap-highlight-color: transparent;
+}
+.asst-undo::after { content: ''; position: absolute; inset: -7px -4px; }
+.asst-undo:active:not(:disabled) { transform: scale(0.94); }
+.asst-undo:disabled { opacity: 0.7; }
+.asst-undo .spinner { width: 14px; height: 14px; border-width: 1.5px; }
+.action-chips li.is-undone { background: var(--surface-2); color: var(--text-2); }
+.action-chips li.is-undone .asst-chip-msg { text-decoration: line-through; }
+.asst-undone { flex-shrink: 0; margin-left: 2px; font-weight: 600; color: var(--text); }
+
+/* A settled card further up (replaced, expired, cancelled): one muted line that opens the card. */
+.asst-proposal-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-height: 44px;
+  padding: 0 12px 0 10px;
+  border-radius: 14px;
+  background: var(--card-bg);
+  color: var(--text-2);
+  font-size: 14px;
+  text-align: left;
+  opacity: 0.85;
+}
+.asst-proposal-line .icon { flex-shrink: 0; color: var(--text-3); }
+.asst-proposal-line-status { flex-shrink: 0; font-weight: 600; }
+.asst-proposal-line-what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asst-proposal-line-what::before { content: '· '; }
+@media (hover: hover) {
+  .asst-proposal-line:hover { background: var(--surface-2); opacity: 1; }
+}
 
 .asst-links { display: flex; flex-wrap: wrap; gap: 8px; }
 .asst-link {
@@ -232,6 +319,9 @@
 .asst-proposal-actions .btn { min-height: 46px; font-size: 16px; }
 .asst-proposal-actions .asst-proposal-no { min-width: 92px; }
 .asst-proposal-actions .btn:disabled { opacity: 0.45; }
+/* "Still want this? Check again" on an expired card (newest message only). */
+.asst-proposal-actions .asst-proposal-again { font-weight: 500; }
+.asst-proposal-again strong { color: var(--accent); font-weight: 600; }
 .asst-proposal.is-executing .asst-proposal-actions .btn-primary:disabled { opacity: 0.85; }
 .asst-proposal-alts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .asst-proposal-or { font-size: 14px; color: var(--text-2); }
