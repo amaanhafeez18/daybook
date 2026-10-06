@@ -120,12 +120,26 @@ const ATTACHMENT_KINDS = ['image', 'pdf', 'text']
 
 const cleanText = (value, max) => truncate(typeof value === 'string' ? value : '', max)
 
+// undoId: the Undo chip of a create or log that ran (see `undo` on the message); undone once tapped.
 function normalizeActions(list, max = 25) {
   return list.filter((item) => item && typeof item === 'object').slice(0, max).map((item) => ({
     tool: cleanText(item.tool, 60),
     ok: item.ok !== false,
     message: cleanText(item.message, 500),
+    ...(typeof item.undoId === 'string' && item.undoId ? { undoId: item.undoId.slice(0, 64) } : {}),
+    ...(item.undone === true ? { undone: true } : {}),
   }))
+}
+
+// The calls behind a message's Undo chips (server-only): [{ id, calls: [{ tool, args }], done? }].
+// Only delete tools, so a stored entry can never do anything but take back what was added.
+function normalizeUndo(list) {
+  return (Array.isArray(list) ? list : []).filter((item) => isPlainObject(item) && typeof item.id === 'string' && item.id).slice(0, 25).map((item) => ({
+    id: item.id.slice(0, 64),
+    calls: (Array.isArray(item.calls) ? item.calls : []).filter((call) => isPlainObject(call) && UNDO_TOOLS.has(call.tool) && isPlainObject(call.args)).slice(0, 30)
+      .map((call) => ({ tool: call.tool, args: call.args })),
+    ...(item.done === true ? { done: true } : {}),
+  })).filter((item) => item.calls.length)
 }
 
 // A confirmed proposal's outcome per action, in the order of its actions: { label, tool, ok, message }.
@@ -192,6 +206,7 @@ function normalizeMessage(message) {
     ? message.attachments.filter((item) => item && ATTACHMENT_KINDS.includes(item.kind)).slice(0, MAX_ATTACHMENTS).map((item) => ({ kind: item.kind, name: cleanText(item.name, 120) || 'file' }))
     : []
   const files = message.role === 'user' ? normalizeFiles(message.files) : []
+  const undo = message.role === 'assistant' ? normalizeUndo(message.undo) : []
   return {
     role: message.role === 'assistant' ? 'assistant' : message.role === 'summary' ? 'summary' : 'user',
     content: typeof message.content === 'string' ? (message.role === 'summary' ? truncate(message.content, SUMMARY_CHARS) : message.content) : '',
@@ -202,6 +217,7 @@ function normalizeMessage(message) {
     ...(files.length ? { files } : {}),
     ...(proposal ? { proposal } : {}),
     ...(draft ? { draft } : {}),
+    ...(undo.length ? { undo } : {}),
     ...(choices.length ? { choices } : {}),
     ...(message.role === 'assistant' && normalizeOffer(message.offer) ? { offer: normalizeOffer(message.offer) } : {}),
     // A web search the assistant asked permission for (the next "Search the web" approves it).
@@ -254,7 +270,7 @@ function gymOffer(args, data, ctx) {
 }
 
 function publicMessage(message) {
-  const { draft, files, ...rest } = message
+  const { draft, files, undo, ...rest } = message
   if (!rest.proposal) return rest
   const { staged, ...proposal } = rest.proposal
   if (proposal.status === 'pending' && Date.now() - Date.parse(proposal.createdAt) > PROPOSAL_TTL_MS) proposal.status = 'expired'
@@ -376,6 +392,14 @@ const FOOD_TOOL_NAMES = new Set(FOOD_TOOL_DEFS.map((def) => def.name))
 const isWriteTool = (name) => !UI_TOOLS.includes(name) && !LOOKUP_TOOLS.includes(name)
 // Memory is saved at once, never behind a Yes/No card (it's low-risk and can be removed in the memory sheet).
 const INSTANT_TOOLS = new Set(['remember', 'forget'])
+// settings.assistantConfirm: 'all' (default) stages every change for a Yes; 'changes' runs creates and
+// logs at once (each with an Undo chip) and stages edits, deletes and schedule changes; 'off' runs all.
+const CONFIRM_LEVELS = ['all', 'changes', 'off']
+const confirmLevel = (settings) => (CONFIRM_LEVELS.includes(settings?.assistantConfirm) ? settings.assistantConfirm : 'all')
+// What 'changes' runs at once: things that only add something, so Undo can delete it again.
+const RUN_AT_ONCE_TOOLS = new Set(['create_task', 'create_event', 'create_friend', 'create_class', 'save_note', 'log_contact', 'food_log', 'food_copy_entries', 'gym_quick_log', 'gym_log_workout', 'gym_duplicate_session', 'gym_log_bodyweight'])
+// The only tools an Undo chip may run.
+const UNDO_TOOLS = new Set(['delete_task_forever', 'delete_friend', 'delete_class', 'delete_note', 'delete_contact_log', 'food_delete_entry', 'gym_delete_session', 'weight_delete'])
 // The user asking for a web search in their own words (or tapping "Search the web" / "Look it up online").
 // "no need to look it up online", "don't search the web": a refusal, never an approval.
 const WEB_DECLINE_RE = /\b(don'?t|do not|no need|without|never|instead of|rather than)\b[^.?!\n]{0,25}\b(search|look|google|check|online|web|internet)/i
@@ -575,11 +599,11 @@ const tools = [
     type: { type: 'string', enum: ['journal', 'notes', 'completed_tasks', 'archived_tasks', 'past_events'] },
     query: { type: 'string', description: 'Optional text to filter by.' },
   }, ['type']),
-  tool('update_settings', 'Change any Daybook setting (food goals have their own food tools and food display settings food_update_prefs; gym settings gym_update_prefs). appearance: system (follow the device), light or dark. theme is the colour theme (accent colour + background tint): sunset (default, warm orange), forest (green), midnight (indigo), lagoon (teal), glacier (icy blue), blossom (rose pink), aurora (violet with green), honey (gold), citrus (lime), neon (magenta and cyan), mocha (warm brown), graphite (monochrome grey). displayName "" clears it. assistantConfirm: "all" = the assistant asks before every change (default), "off" = it acts immediately. prayerMethod: "auto" (standard authority for the location) or an Aladhan method id: 1 Karachi, 2 ISNA, 3 Muslim World League, 4 Umm al-Qura, 5 Egypt, 7 Tehran, 8 Gulf, 9 Kuwait, 10 Qatar, 11 Singapore, 12 France, 13 Turkey, 15 Moonsighting Committee, 16 Dubai, 17 Malaysia, 20 Indonesia. prayerSchool: 0 standard Asr (Shafi\'i/Maliki/Hanbali), 1 Hanafi Asr.', {
+  tool('update_settings', 'Change any Daybook setting (food goals have their own food tools and food display settings food_update_prefs; gym settings gym_update_prefs). appearance: system (follow the device), light or dark. theme is the colour theme (accent colour + background tint): sunset (default, warm orange), forest (green), midnight (indigo), lagoon (teal), glacier (icy blue), blossom (rose pink), aurora (violet with green), honey (gold), citrus (lime), neon (magenta and cyan), mocha (warm brown), graphite (monochrome grey). displayName "" clears it. assistantConfirm: "all" = the assistant asks before every change (default), "changes" = new things and logs (tasks, events, people, notes, catch-ups, food, workouts, weigh-ins) happen at once with an Undo button and it asks only before edits, deletes and schedule changes, "off" = it acts immediately. prayerMethod: "auto" (standard authority for the location) or an Aladhan method id: 1 Karachi, 2 ISNA, 3 Muslim World League, 4 Umm al-Qura, 5 Egypt, 7 Tehran, 8 Gulf, 9 Kuwait, 10 Qatar, 11 Singapore, 12 France, 13 Turkey, 15 Moonsighting Committee, 16 Dubai, 17 Malaysia, 20 Indonesia. prayerSchool: 0 standard Asr (Shafi\'i/Maliki/Hanbali), 1 Hanafi Asr.', {
     appearance: { type: 'string', enum: ['system', 'light', 'dark'] },
     theme: { type: 'string', enum: ['sunset', 'forest', 'midnight', 'lagoon', 'glacier', 'blossom', 'aurora', 'honey', 'citrus', 'neon', 'mocha', 'graphite'] },
     displayName: { type: 'string' },
-    assistantConfirm: { type: 'string', enum: ['all', 'off'] },
+    assistantConfirm: { type: 'string', enum: CONFIRM_LEVELS },
     assistantWeb: { type: 'string', enum: WEB_SETTINGS, description: 'Web searches: "ask" = ask before each (default), "always" = search when useful, "off" = never.' },
     showPrayerTimes: { type: 'boolean', description: 'Show the prayer times card on Today.' },
     prayerMethod: { type: 'string', enum: PRAYER_METHOD_IDS },
@@ -1080,7 +1104,7 @@ function buildSnapshot(data, ctx, username) {
       showPrayerTimes: data.settings.showPrayerTimes !== false,
       prayerMethod: data.settings.prayerMethod || 'auto',
       prayerSchool: Number(data.settings.prayerSchool || 0) === 1 ? 'Hanafi' : 'Standard',
-      assistantConfirm: data.settings.assistantConfirm === 'off' ? 'off' : 'all',
+      assistantConfirm: confirmLevel(data.settings),
       assistantWeb: webSetting(data.settings),
       timeZone: data.settings.timeZone || ctx.timeZone,
       // Optional areas switched off in Settings → What you use: hidden from the app, data kept.
@@ -1113,6 +1137,19 @@ const CONFIRM_RULES = `Confirming changes (the user wants to approve every chang
 
 const DIRECT_RULES = `Making changes (the user turned confirmations off): tools run immediately and several can be used in one turn. Each successful change returns a ref ($1, $2… in the order they ran): a later call in the same turn can use it for something just created (e.g. create_friend, then log_contact with friendId "$1"). Never say something was done unless the tool returned ok. For anything destructive, confirm in words first unless the user was explicit.`
 
+const CHANGES_RULES = `Making changes (the user approves edits and deletes, not new things):
+- New things and logs run at once: create_task, create_event, create_friend, create_class, save_note, log_contact (a new catch-up), food_log, food_copy_entries, gym_quick_log, gym_log_workout, gym_duplicate_session, gym_log_bodyweight (a new weigh-in). Each result says what was done; the app shows it as a chip with an Undo button. Each returns a ref ($1, $2… numbered in order together with any staged calls) that a later call in the same turn can use for its id.
+- Everything else that changes something (edits, completing, moving or archiving things, deletes, settings, gym schedule changes, a second note on a catch-up already logged that day, replacing a weigh-in) is staged, not done: its result says "Staged: waiting for the user to confirm. NOT done yet." with the label the user will see, and the app shows all staged actions as one card with Yes / No. Once anything in a turn is staged, the rest of that turn is staged too, and turns with photos, files or web results stage everything: the result tells you which happened.
+- Put everything about a new thing in its create call (e.g. currentStatus in create_friend, the time and reminder in create_task) rather than a create followed by an edit.
+- After changes that ran, reply in one short line ("Done ✓" plus only what the chips don't say, e.g. what's left today); never repeat the chips. When something is staged, write 1–3 short sentences before the staging calls (what you understood, any assumption) ending with a short question like "Shall I go ahead?", and never say a staged change was done.
+- In a turn that stages changes, the only question is whether to go ahead, and the card asks it. Ask anything else first (ask_choice) without staging: staged changes followed by ask_choice are held back, not shown, until the user answers.
+- A call that comes back with ok:false was NOT done or staged: fix the call and try again, or say plainly it wasn't saved and why, and offer another way.
+- If a developer note says an earlier proposal was waiting and the user wrote something else, or that staged changes were held back or declined, none of it was carried out: if they still want it (with their changes), stage the complete corrected set again, using the exact calls the note gives and changing only what the user asked.
+- Lookups (search, read_journal, weather, prayer times, gym schedule/history/records, person_history, food day/week) run immediately.`
+
+// Mode rules by settings.assistantConfirm level (true = 'all', false = 'off', or the level itself).
+const modeRules = (mode) => (mode === 'changes' ? CHANGES_RULES : mode === false || mode === 'off' ? DIRECT_RULES : CONFIRM_RULES)
+
 // The instructions with the snapshot appended (what the model reads; tests check it this way).
 function buildInstructions(snapshot, options = {}) {
   return `${staticInstructions(options)}\n\n${snapshotText(snapshot)}`
@@ -1122,13 +1159,14 @@ const snapshotText = (snapshot) => `Snapshot (JSON):\n${JSON.stringify(snapshot)
 
 // Kept identical between messages (no clock, no data) so OpenAI can cache it together with the
 // conversation so far: the snapshot and the current time go in developer messages right before the
-// newest user message, so only those and the new message are read fresh each turn.
+// newest user message, so only those and the new message are read fresh each turn. confirmMode: true
+// (ask before every change), false (never ask) or 'changes' (ask before edits and deletes only).
 function staticInstructions({ confirmMode = true } = {}) {
   return `You are Daybook, a personal assistant built into the user's planner: a calm, capable "Jarvis". You know their tasks, calendar, classes, the people in their life, their journal and notes, their gym plan and workouts, their food log and goals, and facts they've asked you to remember — all in the snapshot (a developer message just before their newest message; it is always current, so trust it over anything older in the conversation). Think about how things connect (a friend's birthday next week, a task that clashes with a class, someone they haven't talked to in a while, a workout day when protein is behind) and use that to be genuinely helpful.
 
 What you can do (with tools): tasks (add, edit, reschedule, complete, reopen, archive, restore, bulk changes, delete forever); calendar events; people (add, update, remove, log catch-ups with what you talked about, look up and remove catch-ups); classes; journal (read, write, append, set the title or mood, delete); notes; memories; search older history; per-task reminders and notification preferences (reminder timing, morning summary, evening check-in, people reminders, quiet hours, workout reminder, prayer reminders: on/off, minutes before, which prayers); every setting (appearance, accent colour, display name, what they use (areas: people, journal, gym, food shown or hidden; settings.areasOff lists the hidden ones: if they ask for one of those, say it's turned off and offer to turn it on), prayer times card, method and Asr, and whether you ask before changes); the gym tracker (schedule: skip, shift, swap, move, realign, undo, rotation or weekly plan, deload weeks; log workouts with sets, a quick "I trained" or body weight; history and personal records; routines, custom exercises, per-exercise notes, rest and increments; gym settings); the food tracker (log food with your own calorie and macro estimates, look at a day or week, edit or delete entries, set or calculate goals, favourites, delete a weigh-in, display settings: kcal or kJ, the ring, nutrients shown, meal names, AI review); live weather and prayer times; tap-to-answer questions (ask_choice); and Gym buttons under a reply (offer_workout: start a workout in one tap, or open the plan builder). You cannot change the password or recovery question, log out, turn push notifications on or off, change the saved location, run the welcome tour, export CSV, or edit gym warm-up schemes, plates and bars: point the user to Settings (or "Use my location" on Today, Gym settings, Food settings) for those.
 
-${confirmMode ? CONFIRM_RULES : DIRECT_RULES}
+${modeRules(confirmMode)}
 
 How to act:
 - Chat naturally. Answer questions from the snapshot directly; don't call tools just to read data you already have.
@@ -3568,7 +3606,7 @@ function settingsChanges(args) {
   }
   if (given('prayerSchool')) changes.prayerSchool = Number(args.prayerSchool) === 1 ? 1 : 0
   if (given('assistantConfirm')) {
-    if (!['all', 'off'].includes(args.assistantConfirm)) return { changes, problem: 'assistantConfirm is "all" or "off".' }
+    if (!CONFIRM_LEVELS.includes(args.assistantConfirm)) return { changes, problem: 'assistantConfirm is "all", "changes" or "off".' }
     changes.assistantConfirm = args.assistantConfirm
   }
   if (given('assistantWeb')) {
@@ -3702,7 +3740,7 @@ function settingsText(changes) {
   if (changes.showPrayerTimes !== undefined) parts.push(`prayer times card ${changes.showPrayerTimes ? 'on' : 'off'}`)
   if (changes.prayerMethod) parts.push(`prayer method ${PRAYER_METHOD_NAMES[changes.prayerMethod] || changes.prayerMethod}`)
   if (changes.prayerSchool !== undefined) parts.push(`${changes.prayerSchool === 1 ? 'Hanafi' : 'standard'} Asr`)
-  if (changes.assistantConfirm) parts.push(changes.assistantConfirm === 'off' ? 'the assistant makes changes without asking first' : 'the assistant asks before every change')
+  if (changes.assistantConfirm) parts.push({ off: 'the assistant makes changes without asking first', changes: 'the assistant adds and logs things at once and asks only before edits and deletes' }[changes.assistantConfirm] || 'the assistant asks before every change')
   for (const [key, on] of Object.entries(changes.areas || {})) parts.push(`${capitalize(key)} ${on ? 'shown' : 'hidden'}`)
   const n = changes.notifications || {}
   if (n.taskLead !== undefined) parts.push(n.taskLead < 0 ? 'no reminders for timed tasks' : n.taskLead === 0 ? 'task reminders at the time' : `task reminders ${leadText(n.taskLead)} before`)
@@ -4557,7 +4595,16 @@ function presentTense(message) {
   return first.replace(/^([A-Z][a-z]+)\b/, (word) => PAST_TO_PRESENT[word] || word)
 }
 
-const quoted = (text, max = 60) => `“${truncate(String(text ?? '').trim().replace(/\s+/g, ' '), max)}”`
+// At most `max` characters for a label, cut at a word boundary with "…" (stored values keep cleanText).
+function cutWords(value, max) {
+  const text = String(value ?? '').trim().replace(/\s+/g, ' ')
+  if (text.length <= max) return text
+  const cut = text.slice(0, max - 1)
+  const space = text[max - 1] === ' ' ? cut.length : cut.lastIndexOf(' ') // the cut may already end a word
+  return `${(space > max / 2 ? cut.slice(0, space) : cut).replace(/[\s,.;:–-]+$/, '')}…`
+}
+
+const quoted = (text, max = 60) => `“${cutWords(text, max)}”`
 
 // Where and when a task's reminder goes: { text: 'ping at 7:45 PM', warning }.
 function pingInfo(task, data, ctx) {
@@ -4843,7 +4890,8 @@ async function stageTool(supabase, userId, name, rawArgs, data, ctx, stage) {
   }
   if (!result?.ok) return { ok: false, message: result?.message || 'That change isn’t valid.' }
   if (result.noop) return { ok: false, message: `Nothing to change: ${result.message}` }
-  const ref = `$${stage.list.length + 1}`
+  // Refs number staged calls and (with the 'changes' level) calls that ran at once, in order.
+  const ref = `$${stage.list.length + (stage.direct || 0) + 1}`
   if (result.id !== undefined && result.id !== null) stage.simIds[ref] = String(result.id)
   const { label, detail } = finishLabel(name, described, result, sim, ctx)
   // A person matched by name is pinned to the one the label shows, so Yes does what the card says.
@@ -4866,6 +4914,39 @@ async function stageTool(supabase, userId, name, rawArgs, data, ctx, stage) {
   })
 }
 
+// ---- the 'changes' level: creates and logs run at once, everything else waits for Yes
+
+// A log that would change something already there: that day's weigh-in, or a catch-up already logged
+// with that person that day (the note is added to it). That's an edit, so it waits for Yes.
+function editsExisting(name, rawArgs, data, ctx) {
+  const args = isPlainObject(rawArgs) ? dateWords(rawArgs, ctx) : {}
+  if (name === 'gym_log_bodyweight') {
+    const date = gymDate(args.date, ctx.localDate)
+    return Boolean(date) && (data.body_weights || []).some((entry) => entry?.date === date)
+  }
+  if (name === 'log_contact') {
+    if (args.mode === 'replace') return true
+    const date = args.date === undefined || args.date === '' ? ctx.localDate : args.date
+    let friend
+    try {
+      ({ friend } = findFriend(data, args.friendId))
+    } catch {
+      return false // running it says what's wrong
+    }
+    return (data.contact_logs || []).some((log) => log.friend_id === friend.id && log.date === date)
+  }
+  return false
+}
+
+// Whether a write waits for the user's Yes. 'changes' runs creates and logs at once, unless the turn
+// carries photos, files or web results (`risky`), something in it already waits (`staged`: one card),
+// or the log would change something already there.
+function stagesWrite(name, args, { level = 'all', risky = false, staged = false, data, ctx }) {
+  if (INSTANT_TOOLS.has(name) || level === 'off') return false
+  if (level !== 'changes') return true
+  return risky || staged || !RUN_AT_ONCE_TOOLS.has(name) || editsExisting(name, args, data, ctx)
+}
+
 function proposalSummary(actions) {
   if (actions.length === 1) return actions[0].label
   return truncate(`${actions.length} changes: ${actions.map((action) => action.label.split(' → ')[0]).join('; ')}`, 400)
@@ -4881,6 +4962,7 @@ async function executeProposal({ supabase, userId, proposal, data, ctx, emit, de
     const label = proposal.actions?.[index]?.label || TOOL_LABELS[action.tool] || action.tool
     emit({ type: 'status', text: `${TOOL_LABELS[action.tool] || 'Working on it'}…` })
     let result
+    const before = rowIds(action.tool, data)
     const blocked = [...failedRefs].find((ref) => usesRef(action.args, ref))
     if (blocked) result = { ok: false, message: `Skipped “${truncate(label, 80)}”: it needed a step that didn’t work.` }
     else {
@@ -4895,21 +4977,33 @@ async function executeProposal({ supabase, userId, proposal, data, ctx, emit, de
       else if (!result.ok) failedRefs.add(action.ref)
     }
     debug.push({ step: 'confirmed.tool', name: action.tool, ok: result.ok, message: result.message || null })
-    results.push({ tool: action.tool, ...result, label })
+    const undo = undoCalls(action.tool, result, addedRows(action.tool, data, before))
+    results.push({ tool: action.tool, ...result, label, ...(undo.length ? { undoCalls: undo } : {}) })
     emit({ type: 'action', tool: action.tool, ok: result.ok, message: result.message || (result.ok ? 'Done.' : 'That didn’t work.') })
   }
   return results
 }
 
-// The reply after Yes: what was done, in the tools' own words (no model call).
+// The reply after Yes (no model call): short, since the card ticks each row and the chips under the
+// reply say what was done. A food log adds the day's total; what didn't work is spelled out.
 function confirmReply(results) {
   const sentences = (list) => list.map((result) => String(result.message || '').trim()).filter(Boolean).map((text) => (/[.!?)]$/.test(text) ? text : `${text}.`)).join(' ')
   const ok = results.filter((result) => result.ok)
   const failed = results.filter((result) => !result.ok)
   if (!results.length) return 'There was nothing to do.'
-  if (!failed.length) return `Done. ${sentences(ok)}`.trim()
+  if (!failed.length) return ['Done ✓', dayTotalLine(ok)].filter(Boolean).join('\n\n')
   if (!ok.length) return `That didn’t work, so nothing changed. ${sentences(failed)}`.trim()
-  return `Partly done. ${sentences(ok)} This part didn’t work: ${sentences(failed)}`.trim()
+  return `Partly done. This part didn’t work: ${sentences(failed)}`.trim()
+}
+
+// "Today: 1,450 / 2,000 kcal (550 left)." from the last food result that ends with a day total.
+function dayTotalLine(results) {
+  for (const result of [...results].reverse()) {
+    if (!FOOD_TOOL_NAMES.has(result.tool)) continue
+    const last = String(result.message || '').trim().split(/(?<=[.!?])\s+/).pop() || ''
+    if (/^[^:.]{1,40}: [\d,.]+(?: \/ [\d,.]+)? ?(?:kcal|kJ)\b/.test(last)) return last
+  }
+  return ''
 }
 
 // Only the latest assistant message can hold the proposal waiting for an answer.
@@ -4957,6 +5051,98 @@ function outcomeStatus(results) {
 
 // Per action, for the card: { label, ok, message }.
 const proposalResults = (results) => results.map(({ label, tool: toolName, ok, message }) => ({ label, tool: toolName, ok: ok !== false, message: message || (ok !== false ? 'Done.' : 'That didn’t work.') }))
+
+// ---- Undo chips: a create or log that ran can be taken back from the chat for a while
+
+const UNDO_TTL_MS = 60 * 60 * 1000 // after that, change it in the app
+// Logs that add a row to a list only when there wasn't one that day: what was added is told apart by id.
+const LOG_LISTS = { log_contact: 'contact_logs', gym_log_bodyweight: 'body_weights' }
+const rowIds = (name, data) => new Set((LOG_LISTS[name] ? data[LOG_LISTS[name]] || [] : []).map((row) => row?.id))
+const addedRows = (name, data, before) => (LOG_LISTS[name] ? (data[LOG_LISTS[name]] || []).filter((row) => row?.id && !before.has(row.id)) : [])
+
+// The delete calls that take back a create or log that ran, or [] when deleting what it added can't
+// (it changed something already there, or nothing says what it added).
+function undoCalls(name, result, added = []) {
+  if (!result?.ok || result.noop) return []
+  const id = result.id === undefined || result.id === null ? '' : String(result.id)
+  const one = (toolName, args) => (id ? [{ tool: toolName, args }] : [])
+  switch (name) {
+    case 'create_task': return one('delete_task_forever', { taskId: id })
+    // An event comes with its task: deleting the task removes both.
+    case 'create_event': return result.taskId ? [{ tool: 'delete_task_forever', args: { taskId: String(result.taskId) } }] : []
+    case 'create_friend': return one('delete_friend', { friendId: id })
+    case 'create_class': return one('delete_class', { classId: id })
+    case 'save_note': return one('delete_note', { noteId: id })
+    case 'food_log':
+    case 'food_copy_entries':
+      return (Array.isArray(result.ids) ? result.ids : id ? [id] : []).slice(0, 30).map((entryId) => ({ tool: 'food_delete_entry', args: { id: String(entryId) } }))
+    case 'gym_quick_log':
+    case 'gym_log_workout':
+    case 'gym_duplicate_session': return one('gym_delete_session', { session_id: id })
+    case 'log_contact': return added.slice(0, 1).map((log) => ({ tool: 'delete_contact_log', args: { friendId: log.friend_id, date: log.date } }))
+    case 'gym_log_bodyweight': return added.slice(0, 1).map((entry) => ({ tool: 'weight_delete', args: { date: entry.date } }))
+    default: return []
+  }
+}
+
+// Chips for the results that show as actions. One that can be taken back gets an undoId; `undo`
+// holds the calls behind those ids (server-only, saved on the message).
+function actionChips(results) {
+  const undo = []
+  const actions = results.filter(isActionResult).map(({ tool: toolName, ok, message, undoCalls: calls }) => {
+    if (!ok || !Array.isArray(calls) || !calls.length) return { tool: toolName, ok, message }
+    const id = newId()
+    undo.push({ id, calls })
+    return { tool: toolName, ok, message, undoId: id }
+  })
+  return { actions, undo }
+}
+
+// An Undo chip once used: its calls can't run again and the chip shows "Undone".
+const markUndone = (messages, undoId) => messages.map((message) => (message.undo?.some((entry) => entry.id === undoId)
+  ? {
+    ...message,
+    undo: message.undo.map((entry) => (entry.id === undoId ? { ...entry, done: true } : entry)),
+    actions: (message.actions || []).map((action) => (action.undoId === undoId ? { ...action, undone: true } : action)),
+  }
+  : message))
+
+// POST { action: 'undo', undoId }: runs the delete calls behind an Undo chip once, then saves the chip as used.
+async function runUndo({ supabase, userId, history, exists, seen, undoId, data, ctx, debug }) {
+  const id = typeof undoId === 'string' ? undoId.trim() : ''
+  const message = id ? history.find((item) => item.undo?.some((entry) => entry.id === id)) : null
+  const entry = message?.undo.find((item) => item.id === id)
+  if (!entry) return { status: 404, body: { error: 'That can’t be undone from the chat any more. Change it in the app instead.' } }
+  if (entry.done) return { status: 200, body: { ok: true, undone: true, message: 'Already undone.' } }
+  if (Date.now() - Date.parse(message.createdAt) > UNDO_TTL_MS) return { status: 410, body: { error: 'It’s too late to undo that from the chat. Change it in the app instead.' } }
+  const results = []
+  for (const call of entry.calls) {
+    let result
+    try {
+      result = await executeTool(supabase, userId, call.tool, call.args, data, ctx)
+    } catch (error) {
+      result = { ok: false, message: error.message || 'That didn’t work.' }
+    }
+    debug.push({ step: 'undo.tool', name: call.tool, ok: result.ok })
+    results.push(result)
+  }
+  if (!results.some((result) => result.ok)) return { status: 409, body: { error: `Couldn’t undo that: ${results[0]?.message || 'it may already be gone.'}` } }
+  // Saved as used even when part of it was already gone, so another tap can't run it again.
+  let state = { exists, seen, messages: markUndone(history, id) }
+  for (let attempt = 1; attempt <= SAVE_ATTEMPTS; attempt += 1) {
+    try {
+      const written = await writeConversation(supabase, userId, state)
+      if (!written.conflict) break
+      const fresh = await readConversation(supabase, userId)
+      state = { exists: fresh.exists, seen: fresh.updatedAt, messages: markUndone(fresh.messages, id) }
+    } catch (error) {
+      debug.push({ step: 'undo.save_failed', message: error?.message || String(error) })
+      break
+    }
+  }
+  const failed = results.find((result) => !result.ok)
+  return { status: 200, body: { ok: true, undone: true, message: failed ? `Partly undone. ${failed.message}` : 'Undone.', dataChanged: true } }
+}
 
 // ---- conversation saves
 // Every save is a compare-and-swap on updated_at, so overlapping requests (a stopped reply that is
@@ -5373,6 +5559,8 @@ function historyContent(message, ctx, { visible = false } = {}) {
   if (message.role === 'assistant' && message.choices?.length) content += `${content ? '\n' : ''}[Quick replies offered: ${message.choices.join(' / ')}]`
   const failed = message.role === 'assistant' ? (message.actions || []).filter((action) => !action.ok && action.message && !content.includes(action.message)) : []
   if (failed.length) content += `${content ? '\n' : ''}[Didn’t work: ${failed.map((action) => action.message).join(' ')}]`
+  const undone = message.role === 'assistant' ? (message.actions || []).filter((action) => action.undone && action.message) : []
+  if (undone.length) content += `${content ? '\n' : ''}[The user tapped Undo, so this was taken back: ${undone.map((action) => action.message).join(' ')}]`
   const day = localDateOf(message.createdAt, ctx.timeZone)
   if (isIsoDate(day) && day < ctx.localDate) {
     const [, month, date] = day.split('-').map(Number)
@@ -5465,6 +5653,13 @@ export default async function handler(req, res) {
     if (body.action === 'upload') {
       const upload = await handleUpload(supabase, user.id, body)
       return sendJson(res, upload.status, upload.body)
+    }
+    // An Undo chip: delete what a create or log added (no model call, doesn't count towards the limit).
+    if (body.action === 'undo') {
+      const ctx = readClientContext(body.context)
+      const data = Object.assign(await dataPromise, await loadFood(supabase, user.id, ctx))
+      const outcome = await runUndo({ supabase, userId: user.id, history, exists: Boolean(record), seen: record?.updated_at || null, undoId: body.undoId, data, ctx, debug })
+      return sendJson(res, outcome.status, { ...outcome.body, debug })
     }
 
     // body.stream: reply as newline-delimited JSON events (status, transcript, delta, action, staged,
@@ -5619,7 +5814,7 @@ export default async function handler(req, res) {
         }
         if (!claimed) return quickReply({ reply: 'That’s already being done.' })
         const results = await executeProposal({ supabase, userId: user.id, proposal: claimed.proposal, data, ctx, emit, debug })
-        const actions = results.filter(isActionResult).map(({ tool: toolName, ok, message }) => ({ tool: toolName, ok, message }))
+        const { actions, undo } = actionChips(results)
         const status = outcomeStatus(results)
         const perAction = proposalResults(results)
         const reply = confirmReply(results)
@@ -5628,7 +5823,7 @@ export default async function handler(req, res) {
         await saveTurn({
           base: withProposal(base, claimed.index, patch),
           patches: [{ id: proposal.id, patch, from: ['executing', 'interrupted'] }],
-          added: [userMessage(answer), { role: 'assistant', content: reply, createdAt: nowIso(), ...(actions.length ? { actions } : {}) }],
+          added: [userMessage(answer), { role: 'assistant', content: reply, createdAt: nowIso(), ...(actions.length ? { actions } : {}), ...(undo.length ? { undo } : {}) }],
         })
         return respond({
           reply,
@@ -5671,8 +5866,8 @@ export default async function handler(req, res) {
     else if (webApproved) notes.push(pendingWeb && !WEB_REQUEST_RE.test(text) ? `The user approved the web search you asked about: "${pendingWeb}". Call web_lookup for it now, then finish their original request.` : 'The user just asked for a web search, so it is allowed this turn: call web_lookup now for the item or question from the conversation (don\'t ask again), then finish their original request.')
     if (webApproved && webMode === 'ask') notes.push('For a food they ate, finishing means staging food_log (meal from the time of day unless they said) plus food_memory save in one card, not asking which meal.')
 
-    const confirmMode = data.settings.assistantConfirm !== 'off'
-    const instructions = staticInstructions({ confirmMode })
+    const level = confirmLevel(data.settings)
+    const instructions = staticInstructions({ confirmMode: level === 'changes' ? 'changes' : level !== 'off' })
     const snapshotNote = snapshotText(buildSnapshot(data, ctx, user.username))
     // The latest earlier attachment stays visible for follow-ups ("add it to my calendar"), unless this
     // message brings new ones.
@@ -5744,12 +5939,13 @@ export default async function handler(req, res) {
 
     let response = await callOpenAI(callOptions, debug)
     replyParts.push(responseText(response))
-    const results = [] // tools that ran (lookups, and writes when confirmations are off)
-    const stage = { sim: null, simIds: {}, list: [] }
-    // Confirmations off: each successful write gets a $n ref (in the order they ran), like staged
-    // calls, so a later call in the turn can point at something just created.
+    const results = [] // tools that ran (lookups, and writes that don't wait for a Yes)
+    // direct: writes that ran at once. They share the $n numbering with staged calls.
+    const stage = { sim: null, simIds: {}, list: [], direct: 0 }
+    // A write that runs at once gets a $n ref (in order, with any staged calls), so a later call in
+    // the turn can point at something just created.
     const directRefs = {}
-    let directCount = 0
+    const withDirectRefs = (args) => (isPlainObject(args) ? replaceRefs(args, directRefs) : args)
     let choice = null
     let alternatives = [] // one-tap alternatives for the proposal card (offer_alternatives)
     let workoutOffer = null // a Gym button under the reply (offer_workout)
@@ -5837,9 +6033,10 @@ export default async function handler(req, res) {
           // Asking first isn't an action; a search that ran (or failed) is recorded like a lookup.
           if (!result.needs_consent) results.push({ tool: call.name, ...result })
           if (!result.ok && !result.needs_consent) emit({ type: 'action', tool: call.name, ok: false, message: result.message })
-        } else if (confirmMode && isWriteTool(call.name) && !INSTANT_TOOLS.has(call.name)) {
+        } else if (isWriteTool(call.name) && stagesWrite(call.name, withDirectRefs(args), { level, risky: visibleFiles.length > 0 || webCount > 0, staged: stage.list.length > 0, data, ctx })) {
           emit({ type: 'status', text: 'Getting that ready…' })
-          result = await stageTool(supabase, user.id, call.name, args, data, ctx, stage)
+          // Something that ran at once earlier in the turn is staged by its real id.
+          result = await stageTool(supabase, user.id, call.name, withDirectRefs(args), data, ctx, stage)
           // A refused call's message is meant for the model (it fixes the call or asks): the app hides it.
           if (!result.duplicate) emit(result.ok ? { type: 'staged', tool: call.name, ok: true, label: result.label } : { type: 'staged', tool: call.name, ok: false, internal: true, label: TOOL_LABELS[call.name] || call.name })
           if (!result.ok || result.duplicate || result.warning || result.reminderWarning || result.assumed || result.hint || (result.detail && ['create_task', 'update_task'].includes(call.name))) roundStaged = false
@@ -5847,18 +6044,22 @@ export default async function handler(req, res) {
           roundStaged = false
           emit({ type: 'status', text: `${TOOL_LABELS[call.name] || 'Working on it'}…` })
           const write = isWriteTool(call.name)
+          const before = rowIds(call.name, data)
           try {
-            result = await executeTool(supabase, user.id, call.name, write && isPlainObject(args) ? replaceRefs(args, directRefs) : args, data, ctx, { refs: directRefs })
+            result = await executeTool(supabase, user.id, call.name, write ? withDirectRefs(args) : args, data, ctx, { refs: directRefs })
           } catch (error) {
             result = { ok: false, message: error.message || 'That action failed.' }
           }
+          let undo = []
           if (write && result.ok && !result.noop) {
-            directCount += 1
-            const ref = `$${directCount}`
+            stage.direct += 1
+            const ref = `$${stage.list.length + stage.direct}`
             if (result.id !== undefined && result.id !== null) directRefs[ref] = String(result.id)
             result = { ...result, ref }
+            undo = undoCalls(call.name, result, addedRows(call.name, data, before))
           }
-          results.push({ tool: call.name, ...result })
+          // The Undo calls stay out of what the model reads.
+          results.push({ tool: call.name, ...result, ...(undo.length ? { undoCalls: undo } : {}) })
           if (isActionResult({ tool: call.name, ok: result.ok })) emit({ type: 'action', tool: call.name, ok: result.ok, message: result.message || (result.ok ? 'Done.' : 'That didn’t work.') })
         }
         if (call.name === 'gym_quick_log' && result.ok && gymDate(args?.date, ctx.localDate) === ctx.localDate) quickLogged = args
@@ -5939,7 +6140,7 @@ export default async function handler(req, res) {
     if (!stage.list.length && !choice && alternatives.length) choice = { question: '', choices: alternatives }
     if (choice) emit({ type: 'choices', question: choice.question, choices: choice.choices })
 
-    const executed = results.filter(isActionResult).map(({ tool: toolName, ok, message }) => ({ tool: toolName, ok, message }))
+    const { actions: executed, undo } = actionChips(results)
     const parts = replyParts.filter(Boolean)
     if (cutShort) {
       const summary = results.filter((result) => isWriteTool(result.tool)).map((result) => result.message).filter(Boolean).join(' ')
@@ -5989,6 +6190,7 @@ export default async function handler(req, res) {
         content: reply,
         createdAt: nowIso(),
         ...(executed.length ? { actions: executed } : {}),
+        ...(undo.length ? { undo } : {}),
         ...(proposal ? { proposal } : {}),
         ...(heldBack ? { draft: heldBack } : {}),
         ...(choice ? { choices: choice.choices } : {}),
@@ -6044,3 +6246,5 @@ export default async function handler(req, res) {
 
 // For tests only (tests/assistant-tools.test.mjs): the tool catalogue and the pieces that run tools.
 export { tools as TOOL_DEFS, executeTool, stageTool, buildSnapshot, buildInstructions, gymOffer, normalizeOffer, LOOKUP_TOOLS, UI_TOOLS }
+// tests/assistant-confirm.test.mjs: the confirmation levels, Undo chips and short replies.
+export { confirmLevel, stagesWrite, undoCalls, rowIds, addedRows, actionChips, markUndone, runUndo, confirmReply, normalizeMessage, publicMessage, cutWords, RUN_AT_ONCE_TOOLS, UNDO_TOOLS }

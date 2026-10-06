@@ -26,6 +26,13 @@ const WEB_HINTS = {
   always: 'Searches the web without asking when it needs exact numbers or facts.',
   off: 'Never searches the web. Your saved foods and estimates still work.',
 }
+// settings.assistantConfirm: when the assistant waits for your Yes before changing something.
+const CONFIRM_OPTIONS = [{ id: 'all', label: 'Always ask' }, { id: 'changes', label: 'Only edits & deletes' }, { id: 'off', label: 'Never' }]
+const CONFIRM_HINTS = {
+  all: 'Shows what it understood and waits for your Yes before every change.',
+  changes: 'Adds and logs things straight away, with Undo. Asks before editing, moving or deleting anything.',
+  off: 'Makes every change straight away. New things can still be undone from the chat.',
+}
 
 const APPEARANCE_OPTIONS = APPEARANCES.map((item) => ({ ...item, icon: item.id === 'light' ? 'sun' : item.id === 'dark' ? 'moon' : 'settings' }))
 const ASR_OPTIONS = [{ id: 0, label: 'Standard' }, { id: 1, label: 'Hanafi' }]
@@ -168,13 +175,10 @@ export default function SettingsPage({ user, onUserChange, onSignOut }) {
       <section className="settings-group" id="assistant">
         <h2>Assistant</h2>
         <div className="card set-list">
-          <div className="set-row is-switch">
-            <Switch
-              label="Ask before making changes"
-              description="Shows what it understood and waits for your Yes"
-              checked={settings.assistantConfirm !== 'off'}
-              onChange={(checked) => updateSettings({ assistantConfirm: checked ? 'all' : 'off' })}
-            />
+          <div className="set-row is-stacked">
+            <span className="set-label" id="set-confirm-label">Ask before making changes</span>
+            <Segmented options={CONFIRM_OPTIONS} value={CONFIRM_HINTS[settings.assistantConfirm] ? settings.assistantConfirm : 'all'} onChange={(assistantConfirm) => updateSettings({ assistantConfirm })} label="Ask before making changes" />
+            <p className="set-note">{CONFIRM_HINTS[settings.assistantConfirm] || CONFIRM_HINTS.all}</p>
           </div>
           <div className="set-row is-stacked">
             <span className="set-label" id="set-web-label">Web search</span>
