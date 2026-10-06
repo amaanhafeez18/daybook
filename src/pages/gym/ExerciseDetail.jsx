@@ -6,7 +6,7 @@ import { AutoTextarea, Button, IconButton, Segmented } from '../../components/ui
 import { addDaysISO, formatDateShort, relativeDay } from '../../lib/dates.js'
 import { exerciseById } from '../../lib/gym/library.js'
 import { deleteCustomExercise, getGym, setExerciseMeta, useGym, useGymSessions } from '../../lib/gym/state.js'
-import { bestSet, computeRecords, e1rm, exerciseHistory, increment, isWorking, projectedWeight } from '../../lib/gym/stats.js'
+import { bestSet, computeRecords, e1rm, exerciseHistory, increment, isWorking, plausibleWeight, projectedWeight } from '../../lib/gym/stats.js'
 import { formatDistance, formatDuration, formatNumber, formatPace, formatWeight, fromKg, fromMeters, toKg } from '../../lib/gym/units.js'
 import { navigate } from '../../lib/router.js'
 import { LineChart } from './charts.jsx'
@@ -14,6 +14,7 @@ import { GymEmpty, SetTypeBadge, goBack } from './common.jsx'
 import CustomExerciseSheet, { CATEGORY_OPTIONS, restChoices, restText, trackingName } from './CustomExerciseSheet.jsx'
 import { equipmentLabel, muscleLabel } from './ExercisePicker.jsx'
 import ToolsSheet from './ToolsSheet.jsx'
+import { ExerciseVisualPanel } from './visuals/lazy.jsx'
 import './exercises.css'
 
 const isNum = (value) => typeof value === 'number' && Number.isFinite(value)
@@ -249,6 +250,7 @@ export default function ExerciseDetail({ param, today }) {
           {exercise.custom && <span className="meta-chip is-accent">Custom</span>}
           {exercise.hidden && <span className="meta-chip">Hidden from list</span>}
         </div>
+        {!exercise.missing && <ExerciseVisualPanel exercise={exercise} />}
       </header>
 
       <Facts history={history} exercise={exercise} tracking={tracking} sessions={sessions} prefs={prefs} today={today} />
@@ -257,7 +259,7 @@ export default function ExerciseDetail({ param, today }) {
 
       <Segmented options={TABS} value={tab} onChange={setTab} label="Exercise view" className="gym-xd-tabs" />
 
-      {tab === 'history' && <HistoryList history={history} tracking={tracking} prefs={prefs} today={today} />}
+      {tab === 'history' && <HistoryList history={history} tracking={tracking} prefs={prefs} today={today} sessions={sessions} exercise={exercise} />}
       {tab === 'chart' && <ChartPanel history={history} tracking={tracking} prefs={prefs} today={today} />}
       {tab === 'records' && <RecordsPanel sessions={sessions} exerciseId={exercise.id} tracking={tracking} prefs={prefs} hasHistory={history.length > 0} />}
 
@@ -389,7 +391,18 @@ function PinnedNote({ exerciseId, note }) {
 
 const PAGE = 20
 
-function HistoryList({ history, tracking, prefs, today }) {
+// A Best set far above the exercise's other workouts (likely a typo): never edited automatically;
+// "Fix this set" opens that workout, where Edit corrects it.
+function bestFlag(top, session, sessions, exercise, tracking) {
+  if (!top) return null
+  try {
+    return plausibleWeight({ kg: top.weightKg, exerciseId: exercise.id, sessions, equipment: exercise.equipment, tracking, excludeSessionId: session.id })
+  } catch {
+    return null
+  }
+}
+
+function HistoryList({ history, tracking, prefs, today, sessions, exercise }) {
   const [shown, setShown] = useState(PAGE)
   if (!history.length) {
     return (
@@ -404,6 +417,7 @@ function HistoryList({ history, tracking, prefs, today }) {
       <ul className="gym-xd-history">
         {history.slice(0, shown).map(({ session, entries, sets }) => {
           const top = bestSet({ tracking, sets }, prefs.e1rmFormula)
+          const flag = bestFlag(top, session, sessions, exercise, tracking)
           const notes = entries.map((entry) => (typeof entry.note === 'string' ? entry.note.trim() : '')).filter(Boolean)
           let normal = 0
           return (
@@ -431,6 +445,15 @@ function HistoryList({ history, tracking, prefs, today }) {
                 </ol>
                 {notes.length > 0 && <span className="gym-xd-session-note">{notes.join(' · ')}</span>}
               </a>
+              {flag && (
+                <button type="button" className="gym-xd-fix" onClick={() => navigate(`gym/session/${encodeURIComponent(session.id)}`)}>
+                  <Icon name="alert" size={15} strokeWidth={2.2} />
+                  <span>
+                    {formatWeight(flag.kg, unit)} looks like a typo{flag.suggestKg !== null ? ` (${formatWeight(flag.suggestKg, unit)}?)` : ''}
+                  </span>
+                  <strong>Fix this set</strong>
+                </button>
+              )}
             </li>
           )
         })}

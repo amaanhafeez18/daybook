@@ -10,13 +10,15 @@ import {
   applyTemplate, deleteFolder, deleteRoutine, duplicateRoutine, getGym, newGymId, reorderRoutines, routineById, routineColor,
   saveFolder, saveRoutine, updateGym, useBodyWeights, useGym, useGymSessions,
 } from '../../lib/gym/state.js'
-import { estimateMinutes } from '../../lib/gym/stats.js'
+import { estimateMinutes, orphanMatches, orphanSummary } from '../../lib/gym/stats.js'
+import { readPref, writePref } from '../../lib/api.js'
 import { navigate } from '../../lib/router.js'
 import { useStore } from '../../lib/store.js'
 import { ActionSheet, GymEmpty, RoutineChip, RoutineDot, SectionHeader, useSheetTarget } from './common.jsx'
 import ScheduleEditor from './ScheduleEditor.jsx'
 import SplitWizard from './SplitWizard.jsx'
 import { beginWorkout } from './startWorkout.js'
+import { linkMatches, offerRelink } from './relink.js'
 import './routines.css'
 import './wizard.css'
 import './browse.css'
@@ -56,6 +58,36 @@ export async function removeRoutine(routine, today) {
   }
   toast(inUse ? `Deleted ${name} · its days are now Rest` : `Deleted ${name}`, { action: { label: 'Undo', onClick: undo } })
   return true
+}
+
+// ---- past workouts of deleted routines -----------------------------------------------------------
+
+const RELINK_HIDDEN = 'gym.relinkHidden'
+
+// A one-time card (per device) when past workouts point at deleted routines whose names match
+// routines you have now: one tap links them all, with Undo.
+function RelinkCard({ sessions, routines }) {
+  const [hidden, setHidden] = useState(() => readPref(RELINK_HIDDEN, false) === true)
+  const matches = useMemo(() => (hidden ? [] : orphanMatches(sessions, routines)), [hidden, sessions, routines])
+  if (!matches.length) return null
+  const names = [...new Set(matches.map((match) => match.name))]
+  const hide = () => {
+    writePref(RELINK_HIDDEN, true)
+    setHidden(true)
+  }
+  return (
+    <section className="card gym-rt-relink" aria-label="Link past workouts">
+      <span className="gym-rt-relink-icon" aria-hidden="true"><Icon name="link" size={20} /></span>
+      <div className="gym-rt-relink-text">
+        <strong>Link {orphanSummary(matches)}?</strong>
+        <span>They were logged under a routine you deleted. Link them to your {names.length === 1 ? names[0] : names.join(', ')} routine{names.length === 1 ? '' : 's'} so history and targets carry on.</span>
+        <div className="gym-rt-relink-actions">
+          <Button size="sm" onClick={() => linkMatches(matches)}>Link</Button>
+          <Button size="sm" variant="ghost" onClick={hide}>Not now</Button>
+        </div>
+      </div>
+    </section>
+  )
 }
 
 // The ⋯ action sheet and its state hook live in common.jsx; re-exported for the routine editor.
@@ -261,6 +293,8 @@ export default function RoutinesTab({ today }) {
   return (
     <div className="gym-routines">
       <SplitCard gym={gym} sessions={sessions} today={today} onEdit={() => setScheduleOpen(true)} onWizard={() => setWizardOpen(true)} />
+
+      <RelinkCard sessions={sessions} routines={routines} />
 
       <SectionHeader
         title={routines.length ? `Routines · ${routines.length}` : 'Routines'}
@@ -607,6 +641,7 @@ function TemplateSheet({ open, onClose, today }) {
         })),
       },
     })
+    offerRelink(ids)
   }
 
   return (

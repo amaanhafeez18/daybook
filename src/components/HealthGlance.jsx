@@ -17,7 +17,8 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 
 function gymLine({ gym, sessions, active, today }) {
   if (active) return { icon: 'dumbbell', main: `${workoutName(active, gym)} in progress`, sub: 'Resume', href: '#/gym/workout', live: true }
-  if (!hasPlan(gym)) return { icon: 'dumbbell', main: 'Gym', sub: 'Set up your plan', href: '#/health' }
+  // Setting up happens on the Gym page itself, so go straight there.
+  if (!hasPlan(gym)) return { icon: 'dumbbell', main: 'Gym', sub: 'Set up your plan', href: '#/gym' }
   let day
   try {
     day = resolveDay(gym, sessions, today, today)

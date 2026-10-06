@@ -200,6 +200,16 @@ export function dayLabel(iso, today) {
   return shortDay(iso)
 }
 
+// A past day as "Same as …" reads it: 'today' (when planning ahead), 'yesterday', a weekday
+// within the last week ('Monday'), else 'Wed 23 Sep'.
+export function pastDayName(iso, today) {
+  const ago = diffDays(iso, today)
+  if (ago === 0) return 'today'
+  if (ago === 1) return 'yesterday'
+  if (ago > 1 && ago < 7) return dayFormat({ weekday: 'long' }).format(parseISO(iso))
+  return shortDay(iso)
+}
+
 // 'Sep 14–20' or 'Sep 28 – Oct 4'.
 export function weekRange(startIso, endIso) {
   const start = parseISO(startIso)

@@ -3,6 +3,7 @@ import Icon from '../../components/ui/Icon.jsx'
 import Sheet from '../../components/ui/Sheet.jsx'
 import { moveItem, useDragSort } from '../../components/ui/useDragSort.js'
 import { confirmAction, toast } from '../../components/ui/feedback.jsx'
+import { offerRelink } from './relink.js'
 import { WEEKDAY_SHORT } from '../../lib/dates.js'
 import { DAY_TYPES, dayTemplate, matchDayType, newRoutineExercise, parseSplit } from '../../lib/gym/library.js'
 import { addDays, editSchedule, mod, resolveRange, weekday } from '../../lib/gym/schedule.js'
@@ -355,6 +356,7 @@ export default function SplitWizard({ open, onClose, today }) {
         },
       },
     })
+    offerRelink(created)
   }
 
   // ---- render ----------------------------------------------------------------------------------

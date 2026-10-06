@@ -2,19 +2,20 @@ import { useEffect, useRef, useState } from 'react'
 import Icon from './ui/Icon.jsx'
 import { Checkbox } from './ui/primitives.jsx'
 import { toast } from './ui/feedback.jsx'
+import SnoozeSheet from './SnoozeSheet.jsx'
 import { archiveTask, isReminderMarker, restoreTask, setTaskDone, updateTask } from '../lib/planner.js'
 import { useAttachmentCount } from '../lib/attachments.js'
 import { addDaysISO, formatTime, relativeDay, todayISO } from '../lib/dates.js'
 import './today.css'
 import './tasks.css'
 
-// Swipe right to complete (or reopen); swipe left to reveal Tomorrow and Archive, or swipe all
-// the way to archive. Everything has Undo, and tapping the row still opens the full sheet.
-const ACTION_W = 72 // px per revealed button
+// Swipe right to complete (or reopen); swipe left to reveal Tomorrow, Later… and Archive, or swipe
+// all the way to archive. Everything has Undo, and tapping the row still opens the full sheet.
+const ACTION_W = 72 // px per revealed button (64 when there are three)
 const ACTION_GAP = 6
 const EDGE = 6 // inset of the action pills from the row's edges
 const DRAG_START = 10 // px of sideways movement before a swipe takes over from scrolling
-const FULL_SWIPE = 0.6 // of the row width: archive on release
+const FULL_SWIPE = 0.6 // of the row width: archive on release (and at least 48 px past the buttons)
 let openRow = null // { ref, close }: only one row stays swiped open at a time
 
 // trailing: an optional accessory after the text (e.g. a "Today" chip); tapping it doesn't open the task.
@@ -26,7 +27,11 @@ export default function TaskRow({ task, onOpen, showDate = true, trailing = null
   const details = isReminderMarker(task.details) ? '' : task.details
   const files = useAttachmentCount('task', task.id) // photos and PDFs pinned to the task
   const canTomorrow = !task.done && task.date !== tomorrow
-  const openX = (canTomorrow ? 2 : 1) * ACTION_W + (canTomorrow ? ACTION_GAP : 0) + 2 * EDGE
+  const canLater = !task.done
+  const actions = 1 + (canTomorrow ? 1 : 0) + (canLater ? 1 : 0)
+  const actionW = actions > 2 ? 64 : ACTION_W
+  const openX = actions * actionW + (actions - 1) * ACTION_GAP + 2 * EDGE
+  const fullAt = (width) => Math.max(width * FULL_SWIPE, openX + 48)
 
   const rowRef = useRef(null)
   const drag = useRef(null)
@@ -35,6 +40,7 @@ export default function TaskRow({ task, onOpen, showDate = true, trailing = null
   const suppressClickUntil = useRef(0)
   const settleTimer = useRef(0)
   const [open, setOpen] = useState(false)
+  const [snoozing, setSnoozing] = useState(null) // null until "Later…" is first used, then open or not
 
   function toggle(done) {
     setTaskDone(task.id, done)
@@ -145,7 +151,7 @@ export default function TaskRow({ task, onOpen, showDate = true, trailing = null
     d.offset = Math.min(offset, d.width * 0.6)
     row?.style.setProperty('--tr-x', `${d.offset}px`)
     flag('armed', d.offset >= commit)
-    flag('full', d.offset <= -d.width * FULL_SWIPE)
+    flag('full', d.offset <= -fullAt(d.width))
   }
 
   const finishDrag = (cancelled) => {
@@ -162,7 +168,7 @@ export default function TaskRow({ task, onOpen, showDate = true, trailing = null
       toggle(!task.done)
       return
     }
-    if (!cancelled && offset <= -d.width * FULL_SWIPE) {
+    if (!cancelled && offset <= -fullAt(d.width)) {
       // Slide it off, then archive (the row leaves the list).
       row?.style.setProperty('--tr-x', `${-d.width}px`)
       setTimeout(() => {
@@ -202,70 +208,81 @@ export default function TaskRow({ task, onOpen, showDate = true, trailing = null
   }
 
   return (
-    <li
-      ref={rowRef}
-      className={`task-row ${swipe ? 'tr-row' : ''} ${open ? 'is-open' : ''} ${task.done ? 'is-done' : ''} ${overdue ? 'is-overdue' : ''}`}
-      onPointerDown={swipe ? onPointerDown : undefined}
-      onPointerMove={swipe ? onPointerMove : undefined}
-      onPointerUp={swipe ? () => finishDrag(false) : undefined}
-      onPointerCancel={swipe ? () => finishDrag(true) : undefined}
-      onClickCapture={swipe ? onClickCapture : undefined}
-    >
-      {swipe && (
-        <span className={`tr-lead ${task.done ? 'is-reopen' : ''}`} aria-hidden="true">
-          <Icon name={task.done ? 'undo' : 'check'} size={22} strokeWidth={2.6} />
-        </span>
-      )}
-      {swipe && (
-        <span className="tr-trail" aria-hidden={!open}>
-          {canTomorrow && (
-            <button type="button" className="tr-act tr-act-later" tabIndex={open ? 0 : -1} onClick={act(moveToTomorrow)} aria-label={`Move “${task.text}” to tomorrow`}>
-              <Icon name="sunrise" size={18} />
-              <span>Tomorrow</span>
-            </button>
-          )}
-          <button type="button" className="tr-act tr-act-archive" tabIndex={open ? 0 : -1} onClick={act(archive)} aria-label={`Archive “${task.text}”`}>
-            <Icon name="archive" size={18} />
-            <span>Archive</span>
-          </button>
-        </span>
-      )}
-      <Checkbox checked={!!task.done} onChange={toggle} label={task.done ? `Mark “${task.text}” as not done` : `Complete “${task.text}”`} />
-      <button type="button" className="task-body" onClick={() => onOpen?.(task)}>
-        <span className="task-title">{task.text}</span>
-        {details && <span className="task-notes">{details}</span>}
-        {(showDate && task.date) || task.time || task.priority === 'urgent' || files > 0 ? (
-          <span className="task-meta">
-            {showDate && task.date && (
-              <span className={`meta-chip ${overdue ? 'is-danger' : task.date === today ? 'is-accent' : ''}`}>
-                <Icon name="calendar" size={13} />
-                {overdue ? `Overdue · ${relativeDay(task.date, today)}` : relativeDay(task.date, today)}
-              </span>
-            )}
-            {task.time && (
-              <span className="meta-chip">
-                <Icon name="clock" size={13} />
-                {formatTime(task.time)}
-              </span>
-            )}
-            {task.priority === 'urgent' && (
-              <span className="meta-chip is-danger">
-                <Icon name="flag" size={13} />
-                Urgent
-              </span>
-            )}
-            {files > 0 && (
-              <span className="meta-chip tr-files" aria-label={`${files} attached ${files === 1 ? 'file' : 'files'}`} title={`${files} attached ${files === 1 ? 'file' : 'files'}`}>
-                <Icon name="paperclip" size={13} />
-                {files > 1 ? files : ''}
-              </span>
-            )}
+    <>
+      <li
+        ref={rowRef}
+        className={`task-row ${swipe ? 'tr-row' : ''} ${open ? 'is-open' : ''} ${task.done ? 'is-done' : ''} ${overdue ? 'is-overdue' : ''}`}
+        onPointerDown={swipe ? onPointerDown : undefined}
+        onPointerMove={swipe ? onPointerMove : undefined}
+        onPointerUp={swipe ? () => finishDrag(false) : undefined}
+        onPointerCancel={swipe ? () => finishDrag(true) : undefined}
+        onClickCapture={swipe ? onClickCapture : undefined}
+      >
+        {swipe && (
+          <span className={`tr-lead ${task.done ? 'is-reopen' : ''}`} aria-hidden="true">
+            <Icon name={task.done ? 'undo' : 'check'} size={22} strokeWidth={2.6} />
           </span>
-        ) : null}
-      </button>
-      {trailing && <span className="task-trailing">{trailing}</span>}
-      {task.priority === 'low' && <span className="task-low" aria-label="Low priority" title="Low priority" />}
-    </li>
+        )}
+        {swipe && (
+          <span className="tr-trail" aria-hidden={!open}>
+            {canTomorrow && (
+              <button type="button" className="tr-act tr-act-later" tabIndex={open ? 0 : -1} onClick={act(moveToTomorrow)} aria-label={`Move “${task.text}” to tomorrow`}>
+                <Icon name="sunrise" size={18} />
+                <span>Tomorrow</span>
+              </button>
+            )}
+            {canLater && (
+              <button type="button" className="tr-act tr-act-snooze" tabIndex={open ? 0 : -1} onClick={act(() => setSnoozing(true))} aria-label={`Move “${task.text}” to later…`}>
+                <Icon name="clock" size={18} />
+                <span>Later…</span>
+              </button>
+            )}
+            <button type="button" className="tr-act tr-act-archive" tabIndex={open ? 0 : -1} onClick={act(archive)} aria-label={`Archive “${task.text}”`}>
+              <Icon name="archive" size={18} />
+              <span>Archive</span>
+            </button>
+          </span>
+        )}
+        <Checkbox checked={!!task.done} onChange={toggle} label={task.done ? `Mark “${task.text}” as not done` : `Complete “${task.text}”`} />
+        <button type="button" className="task-body" onClick={() => onOpen?.(task)}>
+          <span className="task-title">{task.text}</span>
+          {details && <span className="task-notes">{details}</span>}
+          {(showDate && task.date) || task.time || task.priority === 'urgent' || files > 0 ? (
+            <span className="task-meta">
+              {showDate && task.date && (
+                <span className={`meta-chip ${overdue ? 'is-danger' : task.date === today ? 'is-accent' : ''}`}>
+                  <Icon name="calendar" size={13} />
+                  {overdue ? `Overdue · ${relativeDay(task.date, today)}` : relativeDay(task.date, today)}
+                </span>
+              )}
+              {task.time && (
+                <span className="meta-chip">
+                  <Icon name="clock" size={13} />
+                  {formatTime(task.time)}
+                </span>
+              )}
+              {task.priority === 'urgent' && (
+                <span className="meta-chip is-danger">
+                  <Icon name="flag" size={13} />
+                  Urgent
+                </span>
+              )}
+              {files > 0 && (
+                <span className="meta-chip tr-files" aria-label={`${files} attached ${files === 1 ? 'file' : 'files'}`} title={`${files} attached ${files === 1 ? 'file' : 'files'}`}>
+                  <Icon name="paperclip" size={13} />
+                  {files > 1 ? files : ''}
+                </span>
+              )}
+            </span>
+          ) : null}
+        </button>
+        {trailing && <span className="task-trailing">{trailing}</span>}
+        {task.priority === 'low' && <span className="task-low" aria-label="Low priority" title="Low priority" />}
+      </li>
+      {/* Outside the row, so the sheet's touches don't reach the row's swipe handlers; only
+          rendered once used, so long lists don't carry a sheet per row. */}
+      {snoozing !== null && <SnoozeSheet task={task} open={snoozing} onClose={() => setSnoozing(false)} onPick={onOpen ? () => onOpen(task) : undefined} />}
+    </>
   )
 }
 

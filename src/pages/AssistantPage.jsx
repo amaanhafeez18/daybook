@@ -16,6 +16,7 @@ import { pushSupport } from '../lib/notifications.js'
 import { getGym, hasPlan, useGym, useGymSessions, useToday } from '../lib/gym/state.js'
 import { navigate } from '../lib/router.js'
 import { resolveDay } from '../lib/gym/schedule.js'
+import { assistantSpace, buildSuggestions, canUndo, cardExpired, collapsesCard, composerPlaceholder, proposalExpired, visibleActions } from '../lib/assistantChat.js'
 import '../components/assistant.css'
 
 const CHAT_CACHE = 'daybook.chat'
@@ -23,7 +24,10 @@ const CHAT_CACHE = 'daybook.chat'
 // middle of the old conversation; "Continue chat" brings it back and nothing is deleted.
 const START_AFTER_MS = 3 * 60 * 60 * 1000
 const lastMessageAt = (list) => Date.parse(list[list.length - 1]?.createdAt || '') || 0
-const PROPOSAL_TTL_MS = 30 * 60 * 1000
+// Set once a message has been sent on this device: the start screen then skips the introduction.
+const RETURNING_PREF = 'assistant.returning'
+// #/assistant/memory (Settings links to it) opens "What I remember".
+const MEMORY_HASH = /^#\/?assistant\/memory\b/
 // A confirmed run takes seconds; one still "executing" after this was cut off (timeout, crash).
 const EXECUTING_STALE_MS = 3 * 60 * 1000
 // After Stop or a dropped connection during Yes / No, how long to wait before each look at the server.
@@ -70,11 +74,6 @@ function loadStart() {
   return startRequest
 }
 
-const FALLBACK_SUGGESTIONS = [
-  { icon: 'calendar', text: 'Help me plan the rest of my week' },
-  { icon: 'sparkles', text: 'What can you do?' },
-  { icon: 'journal', text: 'Help me write today’s journal' },
-]
 const TIMETABLE_PROMPT = 'Add the classes from this timetable'
 // Where the "+" menu picks from. Each opens its own file input (rendered outside .shell).
 const ATTACH_SOURCES = [
@@ -105,7 +104,11 @@ export default function AssistantPage({ displayName }) {
     return !Array.isArray(cached) || !cached.length || Date.now() - lastMessageAt(cached) > START_AFTER_MS
   })
   const [memoryEnabled, setMemoryEnabled] = useState(true)
-  const [memoryOpen, setMemoryOpen] = useState(false)
+  const [memoryOpen, setMemoryOpen] = useState(() => MEMORY_HASH.test(window.location.hash))
+  // The space the Assistant was opened from: its prompts and the composer's hint follow it.
+  const [spacePref] = useState(() => readPref('space', 'plan'))
+  const settings = useData('settings')
+  const space = assistantSpace(spacePref, settings?.areas)
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [confirmingId, setConfirmingId] = useState(null) // the proposal this device is carrying out
@@ -115,12 +118,15 @@ export default function AssistantPage({ displayName }) {
   const [attachments, setAttachmentState] = useState([])
   const [attachError, setAttachError] = useState('')
   const [attachMenu, setAttachMenu] = useState(null) // the "+" menu: null, or { keyboard } while open
-  const [toolsMenu, setToolsMenu] = useState(null) // the header's ⋯ menu, likewise
+  // The ⋯ menu: null, or { keyboard, from: 'header' | 'dock' } (the same menu from the header or above the composer).
+  const [toolsMenu, setToolsMenu] = useState(null)
   const [askHintSeen, setAskHintSeen] = useState(() => readPref(ASK_HINT_PREF, false) === true)
   // Screen readers hear the finished reply once, not every streamed token.
   const [announcement, setAnnouncement] = useState('')
   const endRef = useRef(null)
   const toolsRef = useRef(null)
+  const dockToolsRef = useRef(null)
+  const dockRef = useRef(null)
   const abortRef = useRef(null)
   const busyRef = useRef(false)
   const followRef = useRef(true) // keep the newest message in view unless the user scrolled up
@@ -178,6 +184,19 @@ export default function AssistantPage({ displayName }) {
     })
     return () => { cancelled = true }
   }, [])
+
+  // #/assistant/memory opens "What I remember", also while the page is already open.
+  useEffect(() => {
+    const onHash = () => { if (MEMORY_HASH.test(window.location.hash)) setMemoryOpen(true) }
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [])
+
+  function closeMemory() {
+    setMemoryOpen(false)
+    // Back to the plain route, so the link doesn't open the sheet again.
+    if (MEMORY_HASH.test(window.location.hash)) window.history.replaceState(null, '', '#/assistant')
+  }
 
   useEffect(() => {
     const onScroll = () => {
@@ -281,18 +300,21 @@ export default function AssistantPage({ displayName }) {
     const hasAudio = !!payload.audio
     const isVoice = hasAudio || !!payload.spoken
     const confirm = payload.confirm || null
+    // A Yes to an expired card isn't carried out: the server checks it again and proposes it afresh.
+    const recheck = confirm?.decision === 'yes' && cardExpired(messages, confirm.proposalId)
     const shownAttachments = Array.isArray(shown) ? shown : Array.isArray(payload.attachments) ? payload.attachments.map(shownAttachment) : []
     setBusy(true)
-    setConfirmingId(confirm?.proposalId || null)
+    setConfirmingId(confirm && !recheck ? confirm.proposalId : null)
     setAnnouncement('')
+    if (readPref(RETURNING_PREF, false) !== true) writePref(RETURNING_PREF, true)
     followRef.current = true
     setMessages((current) => [
       ...current.filter((message) => !message.error),
       { id: userId, role: 'user', content: shownText, voice: isVoice, pending: hasAudio, createdAt: nowIso(), ...(shownAttachments.length ? { attachments: shownAttachments } : {}) },
       { id: replyId, role: 'assistant', content: '', streaming: true, status: hasAudio ? 'Listening…' : 'Thinking…', actions: [], createdAt: nowIso() },
     ])
-    // Tapped Yes / No: show the answer on the card straight away.
-    if (confirm) setProposalStatus(confirm.proposalId, confirm.decision === 'yes' ? 'executing' : 'cancelled')
+    // Tapped Yes / No: show the answer on the card straight away (an expired card stays expired).
+    if (confirm) setProposalStatus(confirm.proposalId, recheck ? 'expired' : confirm.decision === 'yes' ? 'executing' : 'cancelled')
 
     const controller = new AbortController()
     abortRef.current = controller
@@ -658,6 +680,27 @@ export default function AssistantPage({ displayName }) {
     send({ message: choice, choice }, choice)
   }
 
+  const patchAction = (undoId, patch) => setMessages((current) => current.map((message) => (
+    message.actions?.some((action) => action.undoId === undoId)
+      ? { ...message, actions: message.actions.map((action) => (action.undoId === undoId ? { ...action, ...patch } : action)) }
+      : message
+  )))
+
+  // An Undo chip: the server deletes what that action added. `quiet`: no toast (it's replaced by something else).
+  async function undo(undoId, { quiet = false } = {}) {
+    if (!undoId) return
+    patchAction(undoId, { undoing: true })
+    try {
+      const result = await apiRequest('/api/assistant', { method: 'POST', body: { action: 'undo', undoId, context: clientContext(pushRef.current) } })
+      patchAction(undoId, { undoing: false, undone: true })
+      if (!quiet) toast(result?.message || 'Undone.')
+      refresh().catch(() => {})
+    } catch (error) {
+      patchAction(undoId, { undoing: false })
+      if (!quiet) toast(error.message, { tone: 'error' })
+    }
+  }
+
   // A Gym button under a reply: start a workout (in the tap), or open the plan builder.
   function openOffer(message) {
     const offer = message?.offer
@@ -682,11 +725,12 @@ export default function AssistantPage({ displayName }) {
 
   // Stable across renders, so unchanged messages don't re-render while a reply streams.
   const actionsRef = useRef(null)
-  actionsRef.current = { retry, decide, choose, openOffer }
+  actionsRef.current = { retry, decide, choose, openOffer, undo }
   const onRetry = useCallback((message) => actionsRef.current.retry(message), [])
   const onDecide = useCallback((proposalId, decision) => actionsRef.current.decide(proposalId, decision), [])
   const onChoose = useCallback((choice) => actionsRef.current.choose(choice), [])
   const onOffer = useCallback((message) => actionsRef.current.openOffer(message), [])
+  const onUndo = useCallback((undoId) => actionsRef.current.undo(undoId), [])
 
   async function newChat() {
     if (messages.length && !(await confirmAction({ title: 'Start a new chat?', message: 'This clears the conversation. What I remember about you is kept.', confirmLabel: 'New chat', tone: 'default' }))) return
@@ -713,6 +757,19 @@ export default function AssistantPage({ displayName }) {
     writePref(ASK_HINT_PREF, true)
   }
 
+  // A starter prompt ending in "…" puts its opening words in the composer, ready to finish.
+  function fillComposer(start) {
+    setText(start)
+    const input = dockRef.current?.querySelector('textarea')
+    if (!input) return
+    input.focus({ preventScroll: true }) // inside the tap, so iOS opens the keyboard
+    requestAnimationFrame(() => input.setSelectionRange?.(start.length, start.length))
+  }
+
+  // The ⋯ menu, from the header or from the row above the composer (near the end of a long chat).
+  const toggleTools = (from) => (event) => setToolsMenu((open) => (open ? null : { keyboard: event.detail === 0, from }))
+  const toolsFrom = toolsMenu?.from || null
+
   const empty = messages.length === 0
   const lastIndex = messages.length - 1
   const showAskHint = !empty && !askHintSeen && messages.length <= ASK_HINT_UNTIL
@@ -734,17 +791,17 @@ export default function AssistantPage({ displayName }) {
           <button
             ref={toolsRef}
             type="button"
-            className={`icon-btn ${toolsMenu ? 'is-active' : ''}`}
-            onClick={(event) => setToolsMenu((open) => (open ? null : { keyboard: event.detail === 0 }))}
+            className={`icon-btn ${toolsFrom === 'header' ? 'is-active' : ''}`}
+            onClick={toggleTools('header')}
             aria-label="More"
             title="More"
             aria-haspopup="menu"
-            aria-expanded={!!toolsMenu}
-            aria-controls={toolsMenu ? 'asst-tools-menu' : undefined}
+            aria-expanded={toolsFrom === 'header'}
+            aria-controls={toolsFrom === 'header' ? 'asst-tools-menu' : undefined}
           >
             <Icon name="more" size={22} />
           </button>
-          {toolsMenu && <PopMenu id="asst-tools-menu" label="Assistant options" items={toolItems} focusFirst={!!toolsMenu.keyboard} anchorRef={toolsRef} onClose={closeToolsMenu} placement="down" />}
+          {toolsFrom === 'header' && <PopMenu id="asst-tools-menu" label="Assistant options" items={toolItems} focusFirst={!!toolsMenu.keyboard} anchorRef={toolsRef} onClose={closeToolsMenu} placement="down" />}
         </div>
       </header>
 
@@ -754,7 +811,9 @@ export default function AssistantPage({ displayName }) {
           <Welcome
             displayName={displayName}
             busy={busy}
+            space={space}
             onAsk={(prompt) => submitText(null, prompt)}
+            onFill={fillComposer}
             onTimetable={openTimetablePicker}
             messageCount={messages.length}
             lastAt={empty ? 0 : lastMessageAt(messages)}
@@ -776,6 +835,7 @@ export default function AssistantPage({ displayName }) {
               onDecide={onDecide}
               onChoose={onChoose}
               onOffer={onOffer}
+              onUndo={onUndo}
             />
           )
         })}
@@ -792,13 +852,27 @@ export default function AssistantPage({ displayName }) {
         document.body,
       )}
 
-      <div className="composer-dock">
+      <div className="composer-dock" ref={dockRef}>
         {!empty && !startOpen && !showAskHint && (
           <div className="asst-dock-row">
             <button type="button" className="asst-start-btn" onClick={() => setStartOpen(true)} title="Back to the start screen with ready-made prompts">
               <Icon name="sparkles" size={15} strokeWidth={2.2} />
               <span>Prompts</span>
             </button>
+            <button
+              ref={dockToolsRef}
+              type="button"
+              className={`asst-dock-more ${toolsFrom === 'dock' ? 'is-active' : ''}`}
+              onClick={toggleTools('dock')}
+              aria-label="More"
+              title="More"
+              aria-haspopup="menu"
+              aria-expanded={toolsFrom === 'dock'}
+              aria-controls={toolsFrom === 'dock' ? 'asst-dock-menu' : undefined}
+            >
+              <Icon name="more" size={20} />
+            </button>
+            {toolsFrom === 'dock' && <PopMenu id="asst-dock-menu" label="Assistant options" items={toolItems} focusFirst={!!toolsMenu.keyboard} anchorRef={dockToolsRef} onClose={closeToolsMenu} placement="up-end" />}
           </div>
         )}
         {showAskHint && (
@@ -813,6 +887,7 @@ export default function AssistantPage({ displayName }) {
         <Composer
           text={text}
           setText={setText}
+          placeholder={composerPlaceholder(space)}
           busy={busy}
           attachments={attachments}
           notice={attachError}
@@ -830,19 +905,26 @@ export default function AssistantPage({ displayName }) {
         />
       </div>
 
-      <MemorySheet open={memoryOpen} onClose={() => setMemoryOpen(false)} memories={memories} setMemories={setMemories} enabled={memoryEnabled} />
+      <MemorySheet open={memoryOpen} onClose={closeMemory} memories={memories} setMemories={setMemories} enabled={memoryEnabled} />
     </div>
   )
 }
 
 // ---- welcome and starter prompts ---------------------------------------------------------------
 
-function Welcome({ displayName, busy, onAsk, onTimetable, messageCount = 0, lastAt = 0, onContinue, onNewChat }) {
-  const suggestions = useSuggestions()
+// The start screen. Someone who has chatted before skips the introduction, so every prompt fits above
+// the composer. Prompts ending in "…" fill the composer instead of sending.
+function Welcome({ displayName, busy, space = 'plan', onAsk, onFill, onTimetable, messageCount = 0, lastAt = 0, onContinue, onNewChat }) {
+  const suggestions = useSuggestions(space)
+  const classes = useData('classes')
+  const settings = useData('settings')
   const firstName = String(displayName || '').trim().split(/\s+/)[0]
   const hasChat = messageCount > 0
+  const returning = hasChat || readPref(RETURNING_PREF, false) === true
+  const showTimetable = space === 'plan' && !(Array.isArray(classes) && classes.length > 0)
+  const asks = settings?.assistantConfirm === 'off' ? '' : settings?.assistantConfirm === 'changes' ? ' I check with you before changing or deleting anything.' : ' I check with you before changing anything.'
   return (
-    <div className="chat-welcome">
+    <div className={`chat-welcome ${returning ? 'is-returning' : ''}`}>
       {hasChat && (
         <div className="asst-resume">
           <button type="button" className="asst-resume-main" onClick={onContinue}>
@@ -853,24 +935,36 @@ function Welcome({ displayName, busy, onAsk, onTimetable, messageCount = 0, last
             </span>
             <Icon name="chevronRight" size={16} />
           </button>
-          <button type="button" className="asst-resume-new" onClick={onNewChat} disabled={busy}>Start fresh</button>
+          <p className="asst-resume-note">New messages continue this chat.</p>
+          <button type="button" className="asst-resume-new" onClick={onNewChat} disabled={busy}>
+            <Icon name="plus" size={16} strokeWidth={2.2} />
+            Start fresh
+          </button>
         </div>
       )}
-      <span className="assistant-avatar assistant-avatar-lg" aria-hidden="true"><Icon name="sparkles" size={30} /></span>
+      {!returning && <span className="assistant-avatar assistant-avatar-lg" aria-hidden="true"><Icon name="sparkles" size={30} /></span>}
       <h2>{firstName ? `Hi ${firstName}, how can I help?` : 'How can I help?'}</h2>
-      <p>Ask in plain words, type or talk: “move the dentist to Friday at 3”, “what’s on today?”, “had coffee with Ali”. I check with you before changing anything.</p>
+      {!returning && <p>Ask in plain words, type or talk: “move the dentist to Friday at 3”, “what’s on today?”, “had coffee with Ali”.{asks}</p>}
       <div className="suggestions">
         {suggestions.map((suggestion) => (
-          <button key={suggestion.text} type="button" className="suggestion" onClick={() => onAsk(suggestion.text)} disabled={busy}>
+          <button
+            key={suggestion.text}
+            type="button"
+            className={`suggestion ${suggestion.fill ? 'is-fill' : ''}`}
+            onClick={() => (suggestion.fill ? onFill(suggestion.fill) : onAsk(suggestion.text))}
+            disabled={busy && !suggestion.fill}
+          >
             <Icon name={suggestion.icon} size={18} />
             <span>{suggestion.text}</span>
           </button>
         ))}
       </div>
-      <button type="button" className="asst-hint" onClick={onTimetable}>
-        <Icon name="camera" size={18} />
-        <span>Snap a photo of your class timetable</span>
-      </button>
+      {showTimetable && (
+        <button type="button" className="asst-hint" onClick={onTimetable}>
+          <Icon name="camera" size={18} />
+          <span>Snap a photo of your class timetable</span>
+        </button>
+      )}
     </div>
   )
 }
@@ -886,7 +980,7 @@ function agoText(timestamp) {
   return days === 1 ? 'yesterday' : `${days} days ago`
 }
 
-function useSuggestions() {
+function useSuggestions(space) {
   const tasks = useData('tasks')
   const friends = useData('friends')
   const settings = useData('settings')
@@ -903,33 +997,13 @@ function useSuggestions() {
     } catch {
       // no plan / unreadable plan: no workout prompt
     }
-    return buildSuggestions({ tasks, friends, settings, foodEntries, gymDay, noGymPlan: !hasPlan(gym), today, hour })
-  }, [tasks, friends, settings, foodEntries, gym, sessions, today, hour])
-}
-
-// Up to four prompts, most useful first, from what's in the app right now.
-export function buildSuggestions({ tasks, friends, settings, foodEntries, gymDay = false, noGymPlan = false, today, hour = 12 }) {
-  const list = []
-  const overdue = (Array.isArray(tasks) ? tasks : [])
-    .filter((task) => task && !task.archived && !task.done && typeof task.date === 'string' && task.date && task.date < today).length
-  if (overdue > 0) list.push({ icon: 'alert', text: overdue === 1 ? 'Reschedule my overdue task' : `Reschedule my ${overdue} overdue tasks` })
-  list.push(hour >= 17 ? { icon: 'sunrise', text: 'Plan tomorrow' } : { icon: 'sun', text: 'What’s on my plate today?' })
-  const areas = settings?.areas && typeof settings.areas === 'object' ? settings.areas : {}
-  if (gymDay && areas.gym !== false) list.push({ icon: 'dumbbell', text: 'What’s today’s workout?' })
-  if (noGymPlan && areas.gym !== false) list.push({ icon: 'dumbbell', text: 'Help me set up a gym plan' })
-  const calorieGoal = Number(settings?.food?.goals?.calories)
-  if (areas.food !== false && ((Number.isFinite(calorieGoal) && calorieGoal > 0) || (Array.isArray(foodEntries) && foodEntries.length > 0))) {
-    list.push({ icon: 'utensils', text: 'How many calories do I have left?' })
-  }
-  if (areas.people !== false && Array.isArray(friends) && friends.length > 0) list.push({ icon: 'people', text: 'Who should I catch up with?' })
-  if (settings?.showPrayerTimes !== false) list.push({ icon: 'moon', text: 'What are today’s prayer times?' })
-  for (const fallback of FALLBACK_SUGGESTIONS) list.push(fallback)
-  return list.slice(0, 4)
+    return buildSuggestions({ tasks, friends, settings, foodEntries, gymDay, noGymPlan: !hasPlan(gym), today, hour, space })
+  }, [tasks, friends, settings, foodEntries, gym, sessions, today, hour, space])
 }
 
 // ---- messages ----------------------------------------------------------------------------------
 
-const Message = memo(function Message({ message, isLast, busy, onRetry, onDecide, onChoose, onOffer }) {
+const Message = memo(function Message({ message, isLast, busy, onRetry, onDecide, onChoose, onOffer, onUndo }) {
   if (message.error) {
     return (
       <div className="msg msg-assistant msg-error" role="alert">
@@ -964,6 +1038,8 @@ const Message = memo(function Message({ message, isLast, busy, onRetry, onDecide
   const text = message.content || proposal?.summary || ''
   const staged = message.streaming && !proposal && Array.isArray(message.staged) ? message.staged.filter((item) => item && item.ok !== false && !item.internal) : []
   const actions = (Array.isArray(message.actions) ? message.actions : []).filter((action) => action && (action.message || action.ok === false))
+  // A chip the reply already spells out is left out (failures and Undo chips always show).
+  const chips = message.streaming ? actions : visibleActions(actions, text, { createdAt: message.createdAt })
   const offer = message.offer && typeof message.offer === 'object' ? message.offer : null
   const links = message.streaming ? [] : deepLinks(actions).filter((link) => !(offer && link.href === '#/gym'))
   const choices = isLast && !message.streaming && Array.isArray(message.choices) ? message.choices : []
@@ -998,17 +1074,26 @@ const Message = memo(function Message({ message, isLast, busy, onRetry, onDecide
             onAlternative={onChoose}
           />
         )}
-        {actions.length > 0 && (
+        {chips.length > 0 && (
           <ul className="action-chips">
-            {actions.map((action, index) => (
-              <li key={index} className={action.ok ? 'is-ok' : 'is-failed'}>
-                <Icon name={action.ok ? 'check' : 'alert'} size={14} />
-                {action.message || 'That didn’t work.'}
-              </li>
-            ))}
+            {chips.map((action, index) => {
+              const undoable = !message.streaming && canUndo(action, message.createdAt)
+              return (
+                <li key={index} className={`${action.ok ? 'is-ok' : 'is-failed'} ${action.undone ? 'is-undone' : ''} ${undoable ? 'has-undo' : ''}`}>
+                  <Icon name={action.undone ? 'undo' : action.ok ? 'check' : 'alert'} size={14} />
+                  <span className="asst-chip-msg">{action.message || 'That didn’t work.'}</span>
+                  {action.undone && <span className="asst-undone">Undone</span>}
+                  {undoable && (
+                    <button type="button" className="asst-undo" onClick={() => onUndo?.(action.undoId)} disabled={!!action.undoing} aria-label={`Undo: ${action.message}`}>
+                      {action.undoing ? <span className="spinner" aria-hidden="true" /> : 'Undo'}
+                    </button>
+                  )}
+                </li>
+              )
+            })}
           </ul>
         )}
-        {offer && <WorkoutOffer offer={offer} proposal={proposal} createdAt={message.createdAt} disabled={!!message.streaming} onUse={() => onOffer?.(message)} />}
+        {offer && <WorkoutOffer offer={offer} proposal={proposal} actions={message.actions} createdAt={message.createdAt} disabled={!!message.streaming} onUse={() => onOffer?.(message)} />}
         {links.length > 0 && (
           <div className="asst-links">
             {links.map((link) => (
@@ -1035,12 +1120,15 @@ const Message = memo(function Message({ message, isLast, busy, onRetry, onDecide
 // Gym buttons under a reply (offer_workout): "Start Legs workout" / "Log my sets" plus Open Gym,
 // or "Build my gym plan". A start button shows on the day it was offered; "Log my sets" goes once
 // the quick log it replaces has been carried out.
-function WorkoutOffer({ offer, proposal, createdAt, disabled, onUse }) {
+function WorkoutOffer({ offer, proposal, actions, createdAt, disabled, onUse }) {
   const start = offer.action === 'start'
   const [planned, setPlanned] = useState(false) // "Build my gym plan" was tapped (a start offer's second button)
   useEffect(() => { if (start) loadStart() }, [start])
   const sameDay = typeof createdAt === 'string' && toISO(new Date(createdAt)) === todayISO()
-  const logged = offer.when === 'done' && ['done', 'partial', 'executing'].includes(proposal?.status)
+  // Once the quick log it replaces has been saved (by the card, or straight away), "Log my sets"
+  // would log the workout twice: the logged workout is edited from the Gym's History instead.
+  const quickLogged = Array.isArray(actions) && actions.some((action) => action?.tool === 'gym_quick_log' && action.ok)
+  const logged = offer.when === 'done' && (quickLogged || ['done', 'partial', 'executing'].includes(proposal?.status))
   const showStart = start && sameDay && !logged
   if (!start) {
     return (
@@ -1079,8 +1167,10 @@ function WorkoutOffer({ offer, proposal, createdAt, disabled, onUse }) {
 }
 
 // "I'll do:" with the server's labels, then Yes / No. Buttons work only on the newest message, and
-// not while a question with quick replies waits under it (the answer comes first).
+// not while a question with quick replies waits under it (the answer comes first). An expired card
+// on the newest message offers to check it again; a settled one further up is one line until tapped.
 export function ProposalCard({ proposal, createdAt, isLast, busy, question = false, onDecide, onAlternative, now = Date.now() }) {
+  const [expanded, setExpanded] = useState(false)
   const actions = (Array.isArray(proposal.actions) ? proposal.actions : [])
     .map((action, index) => ({ action, index }))
     .filter(({ action }) => action && (action.label || action.detail))
@@ -1095,11 +1185,25 @@ export function ProposalCard({ proposal, createdAt, isLast, busy, question = fal
   const open = status === 'pending' || status === 'executing'
   const waiting = status === 'pending' && question
   const canDecide = status === 'pending' && isLast && !busy && !question
+  // A Yes on an expired card: the server checks it against now and proposes it again.
+  const canRecheck = status === 'expired' && isLast && !busy && !question
   const tone = status === 'done' ? 'is-done' : open ? 'is-open' : 'is-closed'
   // Other ways to do it ("Look it up online", "Estimate instead"): a tap sends it as the reply.
   const alternatives = canDecide && onAlternative && Array.isArray(proposal.alternatives)
     ? proposal.alternatives.filter((item) => typeof item === 'string' && item.trim()).slice(0, 3)
     : []
+
+  if (collapsesCard(status, isLast) && !expanded) {
+    const first = actions[0]?.action
+    const what = actions.length === 1 ? plainText(first.label || first.detail) : actions.length ? `${actions.length} changes` : ''
+    return (
+      <button type="button" className={`asst-proposal-line is-${status}`} onClick={() => setExpanded(true)} aria-expanded="false" aria-label={`${STATUS_LABELS[status]}${what ? `: ${what}` : ''}. Show the changes`}>
+        <Icon name="chevronRight" size={14} />
+        <span className="asst-proposal-line-status">{STATUS_LABELS[status]}</span>
+        {what && <span className="asst-proposal-line-what">{what}</span>}
+      </button>
+    )
+  }
 
   return (
     <section className={`asst-proposal ${tone} is-${status}`} aria-label="Proposed changes">
@@ -1138,6 +1242,14 @@ export function ProposalCard({ proposal, createdAt, isLast, busy, question = fal
           <button type="button" className="btn btn-secondary asst-proposal-no" disabled={!canDecide} onClick={() => onDecide('no')}>No</button>
         </div>
       )}
+      {canRecheck && (
+        <div className="asst-proposal-actions">
+          <button type="button" className="btn btn-secondary btn-grow asst-proposal-again" onClick={() => onDecide('yes')}>
+            <Icon name="refresh" size={17} />
+            <span>Still want this? <strong>Check again</strong></span>
+          </button>
+        </div>
+      )}
       {alternatives.length > 0 && (
         <div className="asst-proposal-alts" role="group" aria-label="Or instead">
           <span className="asst-proposal-or">or</span>
@@ -1174,14 +1286,6 @@ export function rowOutcomes(proposal, status = proposal?.status) {
     // No result for this row: the overall status is all there is to go on.
     return status === 'done' ? 'ok' : status === 'failed' ? 'failed' : ''
   })
-}
-
-// Server stamps win; otherwise the message time. Expired after 30 min or once the local day changes.
-export function proposalExpired(proposal, createdAt, now = Date.now()) {
-  if (typeof proposal?.localDate === 'string' && proposal.localDate && proposal.localDate !== toISO(new Date(now))) return true
-  const stamp = Date.parse(proposal?.createdAt || createdAt || '')
-  if (!Number.isFinite(stamp)) return false
-  return now - stamp > PROPOSAL_TTL_MS || toISO(new Date(stamp)) !== toISO(new Date(now))
 }
 
 function SentAttachments({ items }) {
@@ -1250,7 +1354,7 @@ function inline(text) {
 // iMessage-style bar: "+" (camera, photos, files) · the message · mic, send or stop. Attachments wait
 // in a tray above the field, each with its upload progress.
 function Composer({
-  text, setText, busy, attachments, notice, menu, onSubmit, onToggleMenu, onCloseMenu, onPick,
+  text, setText, placeholder = 'Ask anything…', busy, attachments, notice, menu, onSubmit, onToggleMenu, onCloseMenu, onPick,
   onRemoveAttachment, onRetryAttachment, onPasteFiles, onAudio, onNotice, onStop,
 }) {
   // Attachments and the voice note travel in one request: the recording stops before it would overflow.
@@ -1353,7 +1457,7 @@ function Composer({
                 onSubmit(event)
               }
             }}
-            placeholder="Ask anything…"
+            placeholder={placeholder}
             aria-label="Message"
             minRows={1}
             maxRows={6}
@@ -1580,7 +1684,7 @@ function cacheMessage({ role, content, voice, actions, proposal, choices, attach
     content: typeof content === 'string' ? content : '',
     ...(createdAt ? { createdAt } : {}),
     ...(voice ? { voice } : {}),
-    ...(actions?.length ? { actions: actions.slice(0, 10).map(({ tool, ok, message }) => ({ tool, ok, message })) } : {}),
+    ...(actions?.length ? { actions: actions.slice(0, 10).map(chipFields) } : {}),
     ...(proposal?.id ? {
       proposal: {
         id: proposal.id,
@@ -1609,7 +1713,12 @@ function doneActions(done, streamed) {
     : Array.isArray(done.results) ? done.results.filter((result) => result && (!LOOKUP_TOOLS.has(result.tool) || !result.ok)) : streamed || []
   return list
     .filter((action) => action && typeof action === 'object' && (action.message || action.ok === false))
-    .map(({ tool, ok, message }) => ({ tool, ok: ok !== false, message }))
+    .map((action) => chipFields({ ...action, ok: action.ok !== false }))
+}
+
+// An action chip as kept: what it says, and its Undo (an id, or that it was undone).
+function chipFields({ tool, ok, message, undoId, undone }) {
+  return { tool, ok, message, ...(undoId ? { undoId } : {}), ...(undone ? { undone: true } : {}) }
 }
 
 // Per-action results of a confirmed proposal, bounded: { label?, ok, message? } in action order.

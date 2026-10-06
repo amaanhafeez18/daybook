@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import Icon from '../../components/ui/Icon.jsx'
 import { Segmented } from '../../components/ui/primitives.jsx'
 import { toast } from '../../components/ui/feedback.jsx'
+import { offerRelink } from './relink.js'
 import { WEEKDAY_SHORT, addDaysISO, weekdayIndex } from '../../lib/dates.js'
 import { TEMPLATES, buildTemplate } from '../../lib/gym/library.js'
 import { resolveRange } from '../../lib/gym/schedule.js'
@@ -75,6 +76,7 @@ export default function Onboarding({ today }) {
         onClick: () => updateGym((current) => ({ routines: current.routines.filter((routine) => !ids.has(routine.id)), schedule: before })),
       },
     })
+    offerRelink(ids)
   }
 
   return (

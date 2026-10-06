@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { readPref, writePref } from './api.js'
 import { getState, updateSettings, useStore } from './store.js'
 import { WEEKDAY_SHORT, todayISO, weekdayIndex } from './dates.js'
+import { savedCoords, shouldSaveLocation } from './location.js'
 
 const WEATHER_TTL_MS = 30 * 60 * 1000
 // Bumped when the request asks for more fields: an older cached payload still shows straight away,
@@ -31,23 +32,29 @@ export function useNow(intervalMs = 60000) {
 // already granted. Never shows the browser prompt unless the user taps the button.
 
 // The server needs the location too (prayer-time reminders), so it's kept in settings as well.
-function syncLocationToSettings({ lat, lon }) {
+// A city chosen by hand (manual) is only replaced when the user asks for their location (`force`).
+function syncLocationToSettings({ lat, lon }, force = false) {
   const { hydrated, data } = getState()
   if (!hydrated) return // settings not in yet; the mount effect below tries again once they are
-  const saved = data.settings?.location
-  if (saved && Math.abs(saved.lat - lat) < 0.01 && Math.abs(saved.lon - lon) < 0.01) return
-  updateSettings({ location: { lat, lon } })
+  if (!shouldSaveLocation(savedCoords(data.settings), { lat, lon }, { force })) return
+  updateSettings({ location: { lat, lon, at: Date.now() } })
 }
 
+// { coords, status, locate, stale, source, name }. coords is, in order: a city chosen by hand
+// (source 'manual', with its name), this device's position ('device'), or the one saved with the
+// account from another device or an earlier visit ('saved'), so a blocked or new device still
+// shows weather and prayer times.
 export function useLocation() {
-  const [coords, setCoords] = useState(() => readPref('location', null))
+  const [device, setDevice] = useState(() => readPref('location', null))
   const [status, setStatus] = useState(() => (typeof navigator !== 'undefined' && navigator.geolocation ? 'idle' : 'unsupported'))
   const hydrated = useStore((state) => state.hydrated)
+  const savedRaw = useStore((state) => state.data.settings?.location)
+  const saved = useMemo(() => savedCoords({ location: savedRaw }), [savedRaw])
 
   // A location saved on this device before settings knew about it still reaches the server.
   useEffect(() => {
-    if (hydrated && coords) syncLocationToSettings(coords)
-  }, [hydrated, coords])
+    if (hydrated && device) syncLocationToSettings(device)
+  }, [hydrated, device])
 
   // `quiet` refreshes (on launch) don't surface a timeout/unavailable error; the user didn't ask.
   const request = useCallback((maxAge, quiet = false) => {
@@ -57,8 +64,8 @@ export function useLocation() {
       (position) => {
         const next = { lat: Number(position.coords.latitude.toFixed(3)), lon: Number(position.coords.longitude.toFixed(3)), savedAt: Date.now() }
         writePref('location', next)
-        syncLocationToSettings(next)
-        setCoords(next)
+        syncLocationToSettings(next, !quiet)
+        setDevice(next)
         setStatus('granted')
       },
       (error) => setStatus(error.code === 1 ? 'denied' : quiet ? 'idle' : 'error'),
@@ -71,9 +78,9 @@ export function useLocation() {
 
   useEffect(() => {
     if (!navigator.geolocation) return
-    const fresh = coords && Date.now() - coords.savedAt < LOCATION_TTL_MS
+    const fresh = device && Date.now() - device.savedAt < LOCATION_TTL_MS
     if (!navigator.permissions?.query) {
-      if (coords && !fresh) request(LOCATION_TTL_MS, true)
+      if (device && !fresh) request(LOCATION_TTL_MS, true)
       return
     }
     navigator.permissions.query({ name: 'geolocation' }).then((permission) => {
@@ -83,14 +90,16 @@ export function useLocation() {
       } else if (permission.state === 'denied') {
         setStatus('denied')
       } else {
-        setStatus(coords ? 'granted' : 'prompt')
+        setStatus(device ? 'granted' : 'prompt')
       }
     }).catch(() => {})
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const source = saved?.manual ? 'manual' : device ? 'device' : saved ? 'saved' : null
+  const coords = source === 'device' ? device : saved
   // iOS reports 'prompt' on every launch, so a stale position is only refreshed when the user asks.
-  const stale = !!coords && Date.now() - coords.savedAt >= LOCATION_TTL_MS
-  return { coords, status, locate, stale }
+  const stale = source === 'device' && Date.now() - device.savedAt >= LOCATION_TTL_MS
+  return { coords, status, locate, stale, source, name: source === 'manual' ? saved.name || '' : '' }
 }
 
 // ---- weather (Open-Meteo, no key) ----------------------------------------------------------

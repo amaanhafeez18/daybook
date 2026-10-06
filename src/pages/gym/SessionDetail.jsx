@@ -11,8 +11,9 @@ import { formatVolume, formatWeight } from '../../lib/gym/units.js'
 import { tokenUserId } from '../../lib/api.js'
 import { navigate } from '../../lib/router.js'
 import { useStore } from '../../lib/store.js'
-import { GymEmpty, RoutineChip, SetTypeBadge, Stat, goBack } from './common.jsx'
+import { ActionSheet, GymEmpty, RoutineChip, SetTypeBadge, Stat, goBack } from './common.jsx'
 import { beginWorkout } from './startWorkout.js'
+import { linkMatches, offerRelink } from './relink.js'
 import ExerciseLog from './ExerciseLog.jsx'
 import { ActionRow, clockLabel, formatMinutes, formatPrValue, formatSetValue, showError, useExerciseLookup } from './HistoryTab.jsx'
 import './history.css'
@@ -158,7 +159,13 @@ function SessionView({ session, gym, sessions, bodyWeights, today, onEdit, onDel
         </p>
         {(session.routineId != null || session.isDeload) && (
           <div className="gym-sd-tags">
-            {session.routineId != null && <RoutineChip routine={routine} />}
+            {session.routineId != null && (
+              <RoutineChip
+                routine={routine}
+                onClick={!routine && gym.routines.length ? () => setSheet('link') : undefined}
+                actionLabel="Link to a routine…"
+              />
+            )}
             {session.isDeload && (
               <span className="gym-deload-badge">
                 <Icon name="arrowDown" size={13} strokeWidth={2.4} />
@@ -246,7 +253,41 @@ function SessionView({ session, gym, sessions, bodyWeights, today, onEdit, onDel
 
       <SaveRoutineSheet open={sheet === 'routine'} onClose={() => setSheet(null)} session={session} gym={gym} lookup={lookup} />
       <DuplicateSheet open={sheet === 'duplicate'} onClose={() => setSheet(null)} session={session} today={today} bodyWeights={bodyWeights} />
+      <LinkRoutineSheet open={sheet === 'link'} onClose={() => setSheet(null)} session={session} sessions={sessions} routines={gym.routines} />
     </div>
+  )
+}
+
+// "Deleted routine" → Link to a routine…: every past workout of that deleted routine moves under
+// the routine picked (routines with the same name first), with Undo.
+function LinkRoutineSheet({ open, onClose, session, sessions, routines }) {
+  const from = session.routineId
+  const linked = sessions.filter((item) => item.routineId === from)
+  const count = linked.length || 1
+  const key = (name) => String(name || '').trim().replace(/\s+/g, ' ').toLowerCase()
+  const sameName = (routine) => key(routine.name) === key(session.name)
+  const sorted = [...routines.filter(sameName), ...routines.filter((routine) => !sameName(routine))]
+  const link = (routine) => {
+    const name = routine.name?.trim() || 'Untitled routine'
+    const matches = (linked.length ? linked : [session]).map((item) => ({ sessionId: item.id, fromRoutineId: from, routineId: routine.id, name }))
+    linkMatches(matches, `${count} workout${count === 1 ? '' : 's'} to ${name}`)
+  }
+  return (
+    <ActionSheet
+      open={open}
+      onClose={onClose}
+      title="Link to a routine"
+      description={count === 1
+        ? 'This workout will show under the routine you pick.'
+        : `This workout and ${count - 1} other${count === 2 ? '' : 's'} from the deleted routine will show under the routine you pick.`}
+      actions={sorted.map((routine) => ({
+        id: routine.id,
+        label: routine.name?.trim() || 'Untitled routine',
+        icon: 'layers',
+        hint: sameName(routine) ? 'Same name' : undefined,
+        onClick: () => link(routine),
+      }))}
+    />
   )
 }
 
@@ -328,7 +369,7 @@ function ExerciseCard({ exercise, superset, exerciseLabels, setLabels, unit, dis
               return (
                 <tr key={set.id ?? index} className={`is-${type}`}>
                   <td className="col-set"><SetTypeBadge type={type} number={type === 'normal' ? normal : undefined} /></td>
-                  <td className="col-value">{formatSetValue(set, exercise.tracking, unit, distanceUnit)}</td>
+                  <td className="col-value">{formatSetValue(set, exercise.tracking, unit, distanceUnit, { withUnit: false })}</td>
                   {showRpe && <td className="col-rpe">{isNum(set.rpe) ? `@${set.rpe}` : ''}</td>}
                   {showPr && <td className="col-pr"><PrMark labels={setLabels.get(set)} /></td>}
                 </tr>
@@ -493,6 +534,7 @@ function SaveRoutineSheet({ open, onClose, session, gym, lookup }) {
         tone: 'success',
         action: { label: 'Open', onClick: () => navigate(`gym/routine/${encodeURIComponent(saved.id)}`) },
       })
+      offerRelink([saved.id])
     } catch (failure) {
       showError(failure)
     }
@@ -713,7 +755,7 @@ function cleanExercises(list) {
         if (hasValue(set)) dropped += 1
         continue
       }
-      const { target, prs, ...rest } = set // eslint-disable-line no-unused-vars
+      const { target, prs, keptKg, ...rest } = set // eslint-disable-line no-unused-vars
       sets.push({ ...rest, id: rest.id ?? newGymId(), done: true })
     }
     if (sets.length) exercises.push({ ...exercise, sets })

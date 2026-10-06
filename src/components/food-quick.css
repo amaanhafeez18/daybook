@@ -59,6 +59,31 @@
 }
 .fq-error .icon { flex-shrink: 0; margin-top: 1px; }
 
+/* ---- meal shortcut chips (MealShortcuts: the Food page's empty meals and this card) ----------- */
+
+.food-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.food-suggest {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 40px; padding: 0 14px 0 11px;
+  border-radius: 999px; background: var(--card-bg, var(--surface)); color: var(--text); font-size: 15px; font-weight: 500;
+  transition: transform 0.3s var(--spring, var(--ease));
+}
+.food-suggest .icon { flex-shrink: 0; color: var(--accent); }
+.food-suggest span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.food-suggest.is-copy .icon { color: var(--text-2); }
+.food-suggest:active { transform: scale(0.95); }
+/* "Oatmeal · 152": the calories, muted. */
+.food-suggest-kcal { flex-shrink: 0; font-size: 13px; font-weight: 400; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.food-suggest-kcal::before { content: '· '; }
+@media (pointer: coarse) {
+  .food-suggest { position: relative; }
+  .food-suggest::after { content: ''; position: absolute; inset: -2px 0; } /* a 44px target */
+}
+
+/* On the card the chips sit on the card's own colour, so they take the field's. */
+.fq-shortcuts { display: flex; flex-direction: column; gap: 8px; }
+.fq-shortcuts-label { font-size: 13px; color: var(--text-2); }
+.card.fq-card .food-suggest { background: var(--surface-2); }
+
 @media (hover: hover) {
   .fq-btn:hover:not(:disabled) { background: var(--card-bg, var(--surface)); }
   .fq-all:hover { opacity: 0.75; }

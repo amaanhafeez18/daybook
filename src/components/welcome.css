@@ -331,8 +331,16 @@ html.has-welcome { overflow: hidden; }
 .wl-kbd svg { color: var(--info, var(--accent)); }
 
 .wl-where { list-style: none; margin: 20px 0 0; padding: 2px 14px; display: grid; border-radius: 18px; background: var(--wl-card); border: 1px solid var(--border); text-align: left; }
-.wl-where li { display: flex; align-items: center; gap: 12px; min-height: 58px; padding: 8px 0; }
 .wl-where li + li { border-top: 1px solid var(--border); }
+/* Each row is a button that closes the tour on that page. */
+.wl-where-btn {
+  width: 100%; display: flex; align-items: center; gap: 12px; min-height: 58px; padding: 8px 0;
+  border: 0; background: none; color: inherit; font: inherit; text-align: left; transition: opacity 0.15s;
+}
+.wl-where-btn:active { opacity: 0.55; }
+.wl-where-btn:focus-visible { outline-offset: -2px; border-radius: 12px; }
+.wl-where-btn .wl-row-text { flex: 1; }
+.wl-where-chev { flex-shrink: 0; display: grid; place-items: center; color: var(--text-3); }
 
 /* ---- shared mock-up parts ---- */
 .wl-badge {
@@ -580,7 +588,7 @@ html.has-welcome { overflow: hidden; }
   .wl-row:nth-child(n + 4) { display: none; }
   .wl-foot-note { min-height: 28px; }
   .wl-done { height: 112px; transform: scale(0.8); }
-  .wl-where li { min-height: 52px; padding: 6px 0; }
+  .wl-where-btn { min-height: 52px; padding: 6px 0; }
 }
 /* Shorter still (small Android phones, 360×640): two rows on the Today card, so its task box and
    ideas stay above the button. */

@@ -5,12 +5,13 @@ import { IconButton, Segmented, Switch } from '../../components/ui/primitives.js
 import { confirmAction, toast } from '../../components/ui/feedback.jsx'
 import { todayISO } from '../../lib/dates.js'
 import { emptySchedule, setDeloadEvery } from '../../lib/gym/schedule.js'
-import { sessionsToCsv } from '../../lib/gym/stats.js'
+import { planWeeklyGoal, sessionsToCsv } from '../../lib/gym/stats.js'
 import { DEFAULT_PREFS, getGym, updateGym, useGym, useGymSessions } from '../../lib/gym/state.js'
 import { LB, formatDuration, formatNumber } from '../../lib/gym/units.js'
 import { navigate } from '../../lib/router.js'
 import { getState, updateSettings, useStore } from '../../lib/store.js'
 import { DurationInput, NumberInput, WeightInput } from './common.jsx'
+import NotifyOffHint from '../../components/NotifyOffHint.jsx'
 import './gym.css'
 
 // Gym settings: the basics everyone touches (units, week, rest timer, reminder) up top, and every
@@ -252,6 +253,19 @@ export default function GymSettingsSheet({ open, onClose }) {
   }
   const advanced = advancedSummary(prefs, deloadEvery)
 
+  // The weekly goal follows the plan until the stepper is touched; a set goal can go back to it.
+  const planGoal = planWeeklyGoal(gym.schedule)
+  const goalFromPlan = prefs.weeklyGoalAuto === true && prefs.weeklyGoalFromPlan === true
+  let goalHint = 'Workouts per week'
+  if (goalFromPlan) goalHint = `Weekly goal: ${prefs.weeklyGoal} (from your plan)`
+  else if (prefs.weeklyGoalAuto !== true && planGoal !== null && planGoal !== prefs.weeklyGoal) {
+    goalHint = (
+      <button type="button" className="gym-cfg-link" onClick={() => setPrefs({ weeklyGoalAuto: true })}>
+        Follow my plan ({planGoal} a week)
+      </button>
+    )
+  }
+
   return (
     <Sheet open={open} onClose={onClose} title="Gym settings" size="md" initialFocus={false}>
       <div className="gym-cfg">
@@ -268,8 +282,8 @@ export default function GymSettingsSheet({ open, onClose }) {
           <Row label="Week starts on" className="is-stacked">
             <Segmented label="First day of the week" value={prefs.firstWeekday} onChange={(value) => setPrefs({ firstWeekday: value })} options={weekdayOptions} size="sm" />
           </Row>
-          <Row label="Weekly goal" hint="Workouts per week">
-            <Stepper label="Weekly goal" value={prefs.weeklyGoal} min={1} max={14} onChange={(weeklyGoal) => setPrefs({ weeklyGoal })} />
+          <Row label="Weekly goal" hint={goalHint}>
+            <Stepper label="Weekly goal" value={prefs.weeklyGoal} min={1} max={14} onChange={(weeklyGoal) => setPrefs({ weeklyGoal, weeklyGoalAuto: false })} />
           </Row>
         </Group>
 
@@ -283,6 +297,7 @@ export default function GymSettingsSheet({ open, onClose }) {
 
         <Group title="Workout reminder" footer="Arrives on devices with notifications turned on in Settings, on planned workout days you haven’t trained yet.">
           <SwitchRow label="Remind me to train" description="Not on rest, skipped or done days" checked={reminderOn} onChange={(gymOn) => setReminder({ gym: gymOn })} />
+          {reminderOn && <NotifyOffHint className="gym-cfg-row" />}
           {reminderOn && (
             <Row label="Time" htmlFor="gym-cfg-reminder">
               <input id="gym-cfg-reminder" className="input gym-cfg-time" type="time" value={reminderTime} onChange={(event) => setReminder({ gymTime: event.target.value || DEFAULT_REMINDER_TIME })} />

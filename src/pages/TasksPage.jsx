@@ -5,9 +5,10 @@ import { Button, EmptyState, Segmented, Skeleton } from '../components/ui/primit
 import { confirmAction, toast } from '../components/ui/feedback.jsx'
 import TaskRow from '../components/TaskRow.jsx'
 import TaskSheet from '../components/TaskSheet.jsx'
+import { UnderstoodChip, useQuickParse } from '../components/QuickParse.jsx'
 import { useData, useStore } from '../lib/store.js'
 import { archiveCompletedTasks, archiveTask, compareTasks, createTask, deleteTaskForever, restoreTask, unarchiveTasks, updateTask } from '../lib/planner.js'
-import { addDaysISO, dueSentence, formatDateShort, formatDue, parseQuickAdd, toISO } from '../lib/dates.js'
+import { addDaysISO, dueSentence, formatDateShort, toISO } from '../lib/dates.js'
 import { useNow } from '../lib/environment.js'
 import '../components/tasks.css'
 
@@ -263,19 +264,16 @@ export default function TasksPage({ loaded }) {
 function QuickAddDock({ today, onAdded, onMore }) {
   const [text, setText] = useState('')
   const [pickedDate, setPickedDate] = useState('')
-  const [ignored, setIgnored] = useState('') // the parse the user dismissed, by its words
+  const quick = useQuickParse(text)
+  const { understood } = quick
   const input = useRef(null)
   const tomorrow = addDaysISO(today, 1)
-
-  const parsed = useMemo(() => parseQuickAdd(text, new Date()), [text])
-  const parseKey = parsed.matched.map((span) => span.text.toLowerCase()).join('|')
-  const understood = parsed.matched.length > 0 && parseKey !== ignored ? parsed : null
   const typing = text.trim().length > 0
 
   const reset = () => {
     setText('')
     setPickedDate('')
-    setIgnored('')
+    quick.reset()
   }
 
   const fields = () => (understood
@@ -293,9 +291,6 @@ function QuickAddDock({ today, onAdded, onMore }) {
     // The key reads "Done", so on phones the keyboard goes away; on desktop keep typing.
     if (window.matchMedia?.('(pointer: coarse)').matches) input.current?.blur()
   }
-
-  const understoodLabel = understood ? formatDue(understood.date, understood.time, today) : ''
-  const heard = understood ? understood.matched.map((span) => span.text).join(' … ') : ''
 
   return (
     <div className="tk-dock">
@@ -327,16 +322,7 @@ function QuickAddDock({ today, onAdded, onMore }) {
       {typing && (
         <div className="tk-dock-chips" id="tk-quick-hint" aria-live="polite">
           {understood ? (
-            <button
-              type="button"
-              className="chip chip-sm is-active tk-parsed"
-              onClick={() => setIgnored(parseKey)}
-              aria-label={`Due ${understoodLabel.replace(' · ', ' at ')}, from “${heard}”. Tap to keep those words in the title instead.`}
-            >
-              <Icon name="calendar" size={14} strokeWidth={2.1} />
-              <span>{understoodLabel}</span>
-              <Icon name="close" size={13} strokeWidth={2.4} className="tk-parsed-x" />
-            </button>
+            <UnderstoodChip understood={understood} today={today} onDismiss={quick.dismiss} />
           ) : (
             [{ id: today, label: 'Today' }, { id: tomorrow, label: 'Tomorrow' }].map((option) => (
               <button

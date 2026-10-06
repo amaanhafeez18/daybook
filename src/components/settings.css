@@ -111,9 +111,38 @@
 .set-inline-input::placeholder { color: var(--text-3); }
 .set-inline-input:focus, .set-inline-input:focus-visible { outline: none; color: var(--text); }
 
-/* "Add class" at the end of the class list. */
+/* "Add class" (and "Add from a photo") at the end of the class list. */
 .set-add-row .settings-row-icon { background: var(--accent-soft); color: var(--accent); }
 .set-add-row .settings-row-text strong { color: var(--accent); }
+
+/* Rows that are links (the assistant's memory, a timetable photo) look like the button rows. */
+.settings-page a.settings-row { text-decoration: none; }
+.settings-page a.settings-row:active { background: var(--surface-2); }
+@media (hover: hover) { .settings-page a.settings-row:hover { background: var(--surface-2); } }
+
+/* "What you use": a status row under an area that's on ("Gym settings · Push, Pull, Legs ›"). */
+.set-row.set-link-row { min-height: 48px; padding-left: 32px; padding-right: 12px; color: var(--text); text-decoration: none; }
+.set-row + .set-row.set-link-row::before { left: 32px; }
+.set-link-row > .set-label { font-size: 16px; }
+.set-link-value { flex: 1; min-width: 0; text-align: right; font-size: 15px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.set-link-row > .icon { flex-shrink: 0; color: var(--text-3); }
+.set-link-row:active { background: var(--surface-2); }
+@media (hover: hover) { a.set-link-row:hover { background: var(--surface-2); text-decoration: none; } }
+
+/* Prayer times → Location: what's saved, then "Use my location" and "Choose a city". */
+.set-location-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.set-row.is-stacked .set-location-head > .set-label { font-size: 17px; color: var(--text); flex-shrink: 0; }
+.set-location-value { min-width: 0; font-size: 17px; color: var(--text-2); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.set-location-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.set-location-actions .btn { min-height: 40px; }
+
+/* "Needs your location. Use my location · Choose a city" under the prayer reminder switch. */
+.set-row.set-hint-row { flex-wrap: wrap; row-gap: 0; }
+.set-hint-actions { display: flex; flex-wrap: wrap; gap: 0 16px; margin-left: auto; }
+.set-hint-actions .link-btn { min-height: 44px; font-size: 15px; }
+
+/* Help → Add to Home Screen sheet. */
+.set-install-other { margin: 16px 0 0; font-size: 14px; line-height: 1.4; color: var(--text-2); }
 
 /* ---- theme picker ----------------------------------------------------------------------------- */
 /* Each tile carries its theme's colours inline (--t-l/--t-d accents, --t-m1..3 mesh). */

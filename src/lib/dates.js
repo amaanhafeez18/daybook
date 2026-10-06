@@ -219,6 +219,106 @@ export function dueSentence(iso, time = '', today = todayISO()) {
   return time ? `${lead} at ${formatTime(time)}` : lead
 }
 
+// "18:00" -> "6 PM", "13:30" -> "1:30 PM" (chips and hints, where ":00" is noise).
+export function formatTimeShort(value) {
+  const match = String(value || '').match(/^(\d{1,2}):(\d{2})$/)
+  if (!match) return formatTime(value)
+  const hour = Number(match[1])
+  const suffix = hour >= 12 ? 'PM' : 'AM'
+  return match[2] === '00' ? `${hour % 12 || 12} ${suffix}` : `${hour % 12 || 12}:${match[2]} ${suffix}`
+}
+
+// "Wed, Oct 7" (plus the year when it isn't this one).
+export function formatDayDate(iso, today = todayISO()) {
+  if (!isISODate(iso)) return iso || ''
+  const sameYear = iso.slice(0, 4) === String(today).slice(0, 4)
+  return formatISODate(iso, sameYear ? { weekday: 'short', month: 'short', day: 'numeric' } : { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+// How far off a day is, for a sentence: "today", "tomorrow", "in 2 days", "in 3 weeks", "5 days ago".
+export function daysFromNow(iso, today = todayISO()) {
+  if (!isISODate(iso)) return ''
+  const delta = diffDays(today, iso)
+  if (delta < 0) return timeAgo(iso, today)
+  if (delta === 0) return 'today'
+  if (delta === 1) return 'tomorrow'
+  if (delta < 14) return `in ${delta} days`
+  if (delta < 60) return `in ${Math.floor(delta / 7)} weeks`
+  if (delta < 365) return `in ${Math.round(delta / 30)} months`
+  const years = Math.floor(delta / 365)
+  return `in ${years} year${years === 1 ? '' : 's'}`
+}
+
+// The task sheet's line under the Due chips: "Wed, Oct 7 · 1:30 PM · in 2 days".
+export function dueLine(iso, time = '', today = todayISO()) {
+  if (!isISODate(iso)) return ''
+  return [formatDayDate(iso, today), time && formatTime(time), daysFromNow(iso, today)].filter(Boolean).join(' · ')
+}
+
+// A day's heading and the line under it (the journal's date bar): "Today" / "Tuesday, October 6",
+// "Yesterday" / …, and further back "Wed, Sep 23" / "12 days ago" rather than the date twice.
+export function dayHeading(iso, today = todayISO()) {
+  if (!isISODate(iso)) return { title: '', subtitle: '' }
+  const delta = diffDays(today, iso)
+  if (delta === 0) return { title: 'Today', subtitle: formatDateLong(iso) }
+  if (delta === -1) return { title: 'Yesterday', subtitle: formatDateLong(iso) }
+  if (delta === 1) return { title: 'Tomorrow', subtitle: formatDateLong(iso) }
+  return { title: formatDayDate(iso, today), subtitle: daysFromNow(iso, today) }
+}
+
+// ---- day presets ----------------------------------------------------------------------------------
+// One meaning of "next week" and "the weekend" everywhere: the Due chips, "Later…" and quick add.
+
+// The Monday after this week (from a Sunday, that's tomorrow).
+export function nextWeekISO(today = todayISO()) {
+  return addDaysISO(today, 7 - ((weekdayIndex(today) + 6) % 7))
+}
+
+// Saturday of this week; at the weekend, today.
+export function weekendISO(today = todayISO()) {
+  const weekday = weekdayIndex(today)
+  return addDaysISO(today, weekday === 0 ? 0 : 6 - weekday)
+}
+
+// [{ id, label, date, day }] for today, tomorrow, the weekend and next week, without repeats
+// (on a Friday the weekend is tomorrow, so it's left out). day = "Sat", for chips that name it.
+export function dayPresets(today = todayISO()) {
+  const seen = new Set()
+  return [
+    { id: 'today', label: 'Today', date: today },
+    { id: 'tomorrow', label: 'Tomorrow', date: addDaysISO(today, 1) },
+    { id: 'weekend', label: 'Weekend', date: weekendISO(today) },
+    { id: 'next-week', label: 'Next week', date: nextWeekISO(today) },
+  ]
+    .filter((preset) => !seen.has(preset.date) && seen.add(preset.date))
+    .map((preset) => ({ ...preset, day: WEEKDAY_SHORT[weekdayIndex(preset.date)] }))
+}
+
+// "Later…" for a task: [{ id, label, hint, date, time }], soonest first, keeping only choices
+// later than when it's due now. "In 1 hour" needs a time (rounded up to 5 minutes); "This
+// evening" (6 PM) is offered until 5 PM; the day choices keep the task's time.
+const SNOOZE_LABELS = { tomorrow: 'Tomorrow', weekend: 'This weekend', 'next-week': 'Next week' }
+const EVENING = '18:00'
+
+export function snoozeOptions(task = {}, now = new Date()) {
+  const today = toISO(now)
+  const time = task.date ? task.time || '' : ''
+  const options = []
+  if (time) {
+    const at = new Date(now.getTime() + 60 * 60000)
+    at.setMinutes(Math.ceil(at.getMinutes() / 5) * 5, 0, 0)
+    options.push({ id: 'hour', label: 'In 1 hour', date: toISO(at), time: nowTimeHHMM(at), hint: formatTime(nowTimeHHMM(at)) })
+  }
+  if (nowTimeHHMM(now) < '17:00') options.push({ id: 'evening', label: 'This evening', date: today, time: EVENING, hint: formatTimeShort(EVENING) })
+  for (const preset of dayPresets(today)) {
+    if (!SNOOZE_LABELS[preset.id]) continue
+    options.push({ id: preset.id, label: SNOOZE_LABELS[preset.id], date: preset.date, time, hint: time ? `${preset.day} · ${formatTimeShort(time)}` : preset.day })
+  }
+  const at = (date, clock) => `${date}T${clock || '00:00'}`
+  const due = task.date ? at(task.date, time) : ''
+  return options.filter((option) => !due || at(option.date, option.time) > due)
+}
+
 // ---- natural-language quick add --------------------------------------------------------------
 // parseQuickAdd('Call mom tomorrow at 5pm', now) ->
 //   { title: 'Call mom', date: '2026-09-24', time: '17:00', matched: [{ start, end, text }] }
@@ -353,11 +453,10 @@ function takePhrase(text, side, found, allowWeak) {
 function resolveDay(parts, today) {
   if (Number.isInteger(parts.dayOffset)) return addDaysISO(today, parts.dayOffset)
   const weekday = weekdayIndex(today)
-  const toNextMonday = 7 - ((weekday + 6) % 7) // 1…7
-  if (parts.relative === 'next-week') return addDaysISO(today, toNextMonday)
-  if (parts.relative === 'weekend') return addDaysISO(today, weekday === 0 ? 0 : 6 - weekday)
+  if (parts.relative === 'next-week') return nextWeekISO(today)
+  if (parts.relative === 'weekend') return weekendISO(today)
   if (Number.isInteger(parts.weekday)) {
-    if (parts.which === 'next') return addDaysISO(today, toNextMonday + ((parts.weekday + 6) % 7))
+    if (parts.which === 'next') return addDaysISO(nextWeekISO(today), (parts.weekday + 6) % 7)
     const ahead = (parts.weekday - weekday + 7) % 7
     return addDaysISO(today, parts.which === 'this' ? ahead : ahead || 7)
   }

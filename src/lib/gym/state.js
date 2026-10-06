@@ -3,6 +3,7 @@ import { getToken, readJson, tokenUserId, writeJson } from '../api.js'
 import { isISODate, todayISO } from '../dates.js'
 import { getState, getSyncedSettings, newId, retryUnsaved, subscribe, updateData, updateSettings, useStore } from '../store.js'
 import * as sched from './schedule.js'
+import { weeklyGoalFor } from './stats.js'
 
 // Client glue for the gym: tolerant reads of settings.gym, actions that save through the shared
 // store (schedule actions return an undo), and the in-progress workout, which lives in
@@ -246,15 +247,31 @@ const normalizeActive = memoByRef((raw) => {
   return exercises === raw.exercises ? raw : { ...raw, exercises }
 })
 
+// The weekly goal follows the plan unless it was set by hand (stats.weeklyGoalFor). Derived prefs
+// are memoised per prefs object and goal, and carry weeklyGoalAuto: true so a later spread of prefs
+// (a unit change…) stores them as still following the plan. weeklyGoalFromPlan is for the UI.
+const goalCache = new WeakMap()
+
+function withPlanGoal(prefs, rawPrefs, schedule) {
+  const { goal, fromPlan, manual } = weeklyGoalFor(rawPrefs, schedule)
+  if (manual) return prefs
+  const cached = goalCache.get(prefs)
+  if (cached?.weeklyGoal === goal && cached.weeklyGoalFromPlan === fromPlan) return cached
+  const out = { ...prefs, weeklyGoal: goal, weeklyGoalAuto: true, weeklyGoalFromPlan: fromPlan }
+  goalCache.set(prefs, out)
+  return out
+}
+
 function buildGym(raw) {
+  const schedule = normalizeScheduleSafe(raw.schedule)
   return {
     ...raw,
-    schedule: normalizeScheduleSafe(raw.schedule),
+    schedule,
     routines: normalizeRoutines(raw.routines),
     folders: normalizeFolders(raw.folders),
     exercises: normalizeCustomExercises(raw.exercises),
     exerciseMeta: normalizeMeta(raw.exerciseMeta),
-    prefs: normalizePrefs(raw.prefs),
+    prefs: withPlanGoal(normalizePrefs(raw.prefs), raw.prefs, schedule),
     active: normalizeActive(raw.active),
   }
 }
@@ -781,6 +798,33 @@ function removeFromList(key, id) {
 
 export function deleteSession(id) {
   return removeFromList('gymSessions', id)
+}
+
+// Points past sessions back at a routine (stats.orphanMatches: [{ sessionId, fromRoutineId,
+// routineId }]) in one save. Returns an undo that restores the old ids of sessions still linked
+// the new way, or null when nothing matched.
+export function relinkSessions(matches) {
+  requireLoaded()
+  const byId = new Map((Array.isArray(matches) ? matches : []).filter((m) => isPlainObject(m) && validId(m.sessionId) && validId(m.routineId)).map((m) => [m.sessionId, m]))
+  if (!byId.size) return null
+  let changed = false
+  updateData('gymSessions', (list) => {
+    if (!Array.isArray(list)) return list
+    const next = list.map((session) => {
+      const match = isPlainObject(session) ? byId.get(session.id) : null
+      if (!match || session.routineId !== match.fromRoutineId) return session
+      changed = true
+      return { ...session, routineId: match.routineId }
+    })
+    return changed ? next : list
+  })
+  if (!changed) return null
+  return () => updateData('gymSessions', (list) => (Array.isArray(list)
+    ? list.map((session) => {
+      const match = isPlainObject(session) ? byId.get(session.id) : null
+      return match && session.routineId === match.routineId ? { ...session, routineId: match.fromRoutineId } : session
+    })
+    : list))
 }
 
 // "I trained": a session with no exercises, which still counts as done.

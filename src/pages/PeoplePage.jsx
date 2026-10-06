@@ -12,6 +12,7 @@ import {
   removeContactLog, removeFriend, updateContactNote, updateFriend,
 } from '../lib/planner.js'
 import { addDaysISO, formatDateShort, isISODate, relativeDay, timeAgo, todayISO } from '../lib/dates.js'
+import { clearDraft, peekDraft, saveDraft, takeDraft } from '../lib/drafts.js'
 import { imageToAvatarDataUrl, isInlinePhoto, photoAccept } from '../lib/media.js'
 import '../components/people.css'
 
@@ -397,11 +398,32 @@ function PersonForm({ value, onChange, onBusyChange }) {
 }
 
 const EMPTY_PERSON = { name: '', relationship: 'friend', birthday: '', organization: '', currentStatus: '', facts: '', photoUrl: '', reminderDays: '' }
+const PERSON_DRAFT = 'person:new'
+// Worth keeping as a draft: anything filled in besides the relationship (which has a default).
+const personDirty = (form) => Object.keys(EMPTY_PERSON).some((key) => key !== 'relationship' && String(form[key] ?? '').trim() !== '')
 
+// A stray tap or swipe that closes the form keeps what was typed ("Draft kept · Reopen"); the next
+// "Add person" starts from it, and adding someone clears it.
 function AddPersonSheet({ open, onClose, onAdded }) {
   const [form, setForm] = useState(EMPTY_PERSON)
   const [photoBusy, setPhotoBusy] = useState(false)
-  useEffect(() => { if (open) setForm(EMPTY_PERSON) }, [open])
+  const [reopened, setReopened] = useState(false) // from the "Draft kept" toast
+  const [formKey, setFormKey] = useState(0) // remounts the form once a draft is in, so it reads it fresh
+  const shown = open || reopened
+  useEffect(() => {
+    if (!shown) return
+    setForm({ ...EMPTY_PERSON, ...(takeDraft(PERSON_DRAFT) || {}) })
+    setFormKey((key) => key + 1)
+  }, [shown])
+
+  function dismiss() {
+    if (personDirty(form)) {
+      saveDraft(PERSON_DRAFT, form)
+      toast('Draft kept', { action: { label: 'Reopen', onClick: () => setReopened(true) } })
+    }
+    setReopened(false)
+    onClose()
+  }
 
   function submit(event) {
     event.preventDefault()
@@ -409,6 +431,8 @@ function AddPersonSheet({ open, onClose, onAdded }) {
     const { reminderDays, ...fields } = form
     const friend = addFriend(fields)
     applyReminder(friend.id, { reminderDays })
+    clearDraft(PERSON_DRAFT)
+    setReopened(false)
     toast(`Added ${friend.name}`)
     onAdded(friend)
   }
@@ -416,8 +440,8 @@ function AddPersonSheet({ open, onClose, onAdded }) {
   const blocked = !form.name.trim() ? 'Give them a name to add them.' : photoBusy ? 'Preparing the photo…' : ''
   return (
     <Sheet
-      open={open}
-      onClose={onClose}
+      open={shown}
+      onClose={dismiss}
       title="Add a person"
       footer={(
         <>
@@ -427,7 +451,7 @@ function AddPersonSheet({ open, onClose, onAdded }) {
       )}
     >
       <form id="add-person" className="form-stack ppl-form" onSubmit={submit}>
-        <PersonForm value={form} onChange={setForm} onBusyChange={setPhotoBusy} />
+        <PersonForm key={formKey} value={form} onChange={setForm} onBusyChange={setPhotoBusy} />
       </form>
     </Sheet>
   )
@@ -866,8 +890,12 @@ function NoteEditor({ note, label, onCancel, onSave, onRemove }) {
   )
 }
 
+const catchUpDraftKey = (friendId, date) => `catchup:${friendId}:${date}`
+
 // "Talked today" and "Log earlier": an optional note on what you talked about. Skip logs the
-// catch-up without one; closing the sheet logs nothing. Other pages can reuse it:
+// catch-up without one; closing the sheet logs nothing, but a note typed and closed by a stray tap
+// is kept ("Draft kept · Reopen") and comes back the next time for that person and day.
+// Other pages can reuse it:
 // <CatchUpSheet key={n} request={{ friendId, mode: 'today' | 'earlier' } | null} onClose />.
 export function CatchUpSheet({ request, onClose }) {
   const friends = useData('friends')
@@ -879,7 +907,14 @@ export function CatchUpSheet({ request, onClose }) {
   const earlier = current?.mode === 'earlier'
   const today = todayISO()
   const [date, setDate] = useState(() => (earlier ? addDaysISO(today, -1) : today))
-  const [note, setNote] = useState('')
+  // Mounted per opening (keyed by the page), so a kept draft for this person and day is read here
+  // (and taken over once mounted: initialisers may run twice).
+  const startKey = request ? catchUpDraftKey(request.friendId, date) : ''
+  const [note, setNote] = useState(() => (startKey ? peekDraft(startKey)?.note || '' : ''))
+  useEffect(() => {
+    if (startKey) clearDraft(startKey)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  const [reopened, setReopened] = useState(false) // from the "Draft kept" toast
 
   const friend = current ? friends.find((item) => item.id === current.friendId) || null : null
   const validDate = isISODate(date) && date <= today
@@ -889,6 +924,30 @@ export function CatchUpSheet({ request, onClose }) {
   const first = friend ? firstName(friend.name) : ''
 
   const saved = useRef(false)
+  const isOpen = !!request || reopened
+
+  function close() {
+    setReopened(false)
+    onClose()
+  }
+
+  // Closed by ×, a backdrop tap, Escape or a swipe: a typed note is kept for this person and day.
+  function dismiss() {
+    if (friend && note.trim() && !saved.current) {
+      const key = catchUpDraftKey(friend.id, date)
+      saveDraft(key, { note })
+      toast('Draft kept', {
+        action: {
+          label: 'Reopen',
+          onClick: () => {
+            clearDraft(key)
+            setReopened(true)
+          },
+        },
+      })
+    }
+    close()
+  }
 
   function save(withNote) {
     // Once per opening (a double tap on Save mustn't log twice).
@@ -896,7 +955,8 @@ export function CatchUpSheet({ request, onClose }) {
     saved.current = true
     const text = withNote ? note.trim() : ''
     const undo = logContact(friend.id, date, text)
-    onClose()
+    clearDraft(catchUpDraftKey(friend.id, date))
+    close()
     const suffix = date === today ? '' : ` on ${formatDateShort(date)}`
     const message = text ? `Saved your catch-up with ${first}${suffix}` : existing ? `Already logged ${when}` : `Logged a catch-up with ${first}${suffix}`
     toast(message, { action: { label: 'Undo', onClick: undo } })
@@ -912,7 +972,7 @@ export function CatchUpSheet({ request, onClose }) {
 
   // Frozen while closing, so saving doesn't flash "Already logged" as the sheet slides away.
   const hintRef = useRef('')
-  if (request) {
+  if (isOpen) {
     hintRef.current = existing
       ? existingNote ? `Already logged ${when}: “${truncate(existingNote, 90)}”. This adds to it.` : `Already logged ${when}. This adds a note to it.`
       : 'Optional. It’s saved with this catch-up.'
@@ -921,14 +981,14 @@ export function CatchUpSheet({ request, onClose }) {
 
   return (
     <Sheet
-      open={!!request && !!friend}
-      onClose={onClose}
+      open={isOpen && !!friend}
+      onClose={dismiss}
       size="sm"
       title={friend ? `Catch-up with ${first}` : undefined}
       description={friend ? (earlier ? 'Log a catch-up from an earlier day' : `Today · ${formatDateShort(today)}`) : undefined}
       footer={earlier ? (
         <>
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button variant="secondary" onClick={close}>Cancel</Button>
           <Button type="submit" form="ppl-catch-up" className="btn-grow" disabled={!validDate}>Log catch-up</Button>
         </>
       ) : (

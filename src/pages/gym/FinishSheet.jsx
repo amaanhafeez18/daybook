@@ -9,7 +9,7 @@ import { isBackfillWorkout, sessionVolume, sessionWorkingSets } from '../../lib/
 import { discardActive, finishActive, latestBodyWeight, newGymId, routineById, updateActive, useBodyWeights, useGym, useGymSessions, useToday } from '../../lib/gym/state.js'
 import { formatVolume } from '../../lib/gym/units.js'
 import { navigate } from '../../lib/router.js'
-import { fillFromPlaceholder, missingKeys, normalizeSupersets, setTypeOf, trackingOf, volumeLookup, workoutPlaceholders } from './ExerciseLog.jsx'
+import { WeightCheck, fillFromPlaceholder, implausibleSets, missingKeys, normalizeSupersets, setTypeOf, trackingOf, volumeLookup, workoutPlaceholders } from './ExerciseLog.jsx'
 import './workout.css'
 
 // Finishing a workout: settle sets that were filled in but never ticked, catch an empty workout,
@@ -89,6 +89,20 @@ function keptExercises(workout, markFilled, placeholders) {
     })
   }
   return normalizeSupersets(out)
+}
+
+// Merges patch into one set of the in-progress workout ({ exRef, setRef } from implausibleSets).
+function patchActiveSet({ exRef, setRef }, patch) {
+  const at = (list, ref) => (ref.id != null ? list.findIndex((item) => item?.id === ref.id) : ref.i)
+  updateActive((w) => {
+    const list = Array.isArray(w.exercises) ? w.exercises : []
+    const i = at(list, exRef)
+    const sets = Array.isArray(list[i]?.sets) ? list[i].sets : []
+    const j = at(sets, setRef)
+    if (!sets[j] || typeof sets[j] !== 'object') return w
+    const row = { ...list[i], sets: sets.map((set, k) => (k === j ? { ...set, ...patch } : set)) }
+    return { ...w, exercises: list.map((item, k) => (k === i ? row : item)) }
+  })
 }
 
 function defaultForm(workout, gym, today) {
@@ -193,6 +207,18 @@ export default function FinishSheet({ open, onClose, workout, onFinished }) {
     return { sets: sessionWorkingSets(session), volume: sessionVolume(session, volumeLookup(gym)), exercises: exercises.length }
   }, [current, markFilled, placeholders, gym])
 
+  // Loads that look like typos among the sets about to be saved (the same check ✓ makes).
+  const flags = useMemo(() => {
+    if (!open || !current || step !== 'form') return []
+    return implausibleSets(current, sessions, gym, (set, exercise) => {
+      if (set.done) return set
+      if (!markFilled) return null
+      const tracking = trackingOf(exercise.tracking)
+      const values = filledSet(set, tracking, placeholders)
+      return values && !missingKeys(tracking, values).length ? values : null
+    })
+  }, [open, current, step, sessions, gym, markFilled, placeholders])
+
   const setField = (key) => (event) => {
     const value = event.target.value
     setForm((previous) => ({ ...previous, [key]: value }))
@@ -290,6 +316,20 @@ export default function FinishSheet({ open, onClose, workout, onFinished }) {
           </div>
           {dropped > 0 && (
             <p className="gym-finish-sub">{plural(dropped, 'unticked set')} won’t be saved.</p>
+          )}
+          {flags.length > 0 && (
+            <div className="gym-finish-checks">
+              {flags.map((flag) => (
+                <WeightCheck
+                  key={`${flag.exRef.id ?? flag.exRef.i}:${flag.setRef.id ?? flag.setRef.i}`}
+                  flag={flag}
+                  unit={gym.prefs.unit}
+                  label={`${flag.name} · ${flag.setName.toLowerCase()}`}
+                  onFix={(kg) => patchActiveSet(flag, { weightKg: kg })}
+                  onKeep={() => patchActiveSet(flag, { keptKg: flag.kg })}
+                />
+              ))}
+            </div>
           )}
           <Disclosure
             key={errorSeq}

@@ -1,10 +1,10 @@
-import { memo, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { Fragment, memo, useEffect, useId, useMemo, useRef, useState } from 'react'
 import Icon from '../../components/ui/Icon.jsx'
 import Sheet from '../../components/ui/Sheet.jsx'
 import { toast } from '../../components/ui/feedback.jsx'
 import { AutoTextarea, Button } from '../../components/ui/primitives.jsx'
 import { MUSCLES, TRACKING, exerciseById } from '../../lib/gym/library.js'
-import { compareSessions, deloadWeight, e1rm, increment, isBackfillWorkout, livePRs, plannedWeight, previousSets, suggestNext, warmupSets } from '../../lib/gym/stats.js'
+import { compareSessions, deloadWeight, e1rm, increment, isBackfillWorkout, livePRs, plannedWeight, plausibleWeight, previousSets, suggestNext, warmupSets } from '../../lib/gym/stats.js'
 import { formatDistance, formatDuration, formatNumber, formatPace, formatVolume, formatWeight, fromMeters, toMeters } from '../../lib/gym/units.js'
 import { getActiveWorkout, getGym, newGymId, normalizeGym, routineById, saveRoutine, setExerciseMeta } from '../../lib/gym/state.js'
 import { navigate } from '../../lib/router.js'
@@ -12,6 +12,7 @@ import { ActionSheet, DurationInput, GymEmpty, NumberInput, SetTypeBadge, Weight
 import ExercisePicker from './ExercisePicker.jsx'
 import { PlateCalculatorSheet } from './ToolsSheet.jsx'
 import { unlockAudio } from './RestTimer.jsx'
+import { ExerciseVisualButton } from './visuals/lazy.jsx'
 import './workout.css'
 
 // The exercise cards of a workout: the set grid (previous values, placeholders, set types,
@@ -322,6 +323,74 @@ export function workoutPlaceholders(workout, gym, sessions) {
   return out
 }
 
+// ---- weight typos ------------------------------------------------------------------------------
+// A load far above the exercise's history (850 typed for 85) is flagged for a second look; nothing
+// is blocked or changed. "Keep" stores keptKg on the set so it isn't asked about again (Finish and
+// the session editor strip it before saving).
+
+// stats.plausibleWeight for one set; `others` = this workout's other sets of the same exercise,
+// whose loads count as history unless they repeat this load without having been kept.
+function weightFlag(set, exercise, others, sessions, customs) {
+  const kg = set?.weightKg
+  if (!isNum(kg) || kg <= 0 || set.keptKg === kg || !exercise?.exerciseId) return null
+  const entry = exerciseById(exercise.exerciseId, customs)
+  const extraKg = others.filter((other) => other !== set && isNum(other.weightKg) && (other.keptKg === other.weightKg || other.weightKg !== kg)).map((other) => other.weightKg)
+  try {
+    return plausibleWeight({ kg, exerciseId: exercise.exerciseId, sessions, equipment: entry?.equipment, tracking: trackingOf(exercise.tracking ?? entry?.tracking), extraKg })
+  } catch {
+    return null
+  }
+}
+
+// Every set of a workout worth a second look: [{ exRef, setRef, name, setName, kg, suggestKg, … }].
+// valuesOf(set, exercise) gives the values that would be saved, or null for sets left out.
+export function implausibleSets(workout, sessions, gym, valuesOf = (set) => (set.done ? set : null)) {
+  const customs = normalizeGym(gym).exercises
+  const rows = exercisesOf(workout).map((row) => (row && typeof row === 'object' ? row : {}))
+  const counted = rows.map((row) => setsOf(row).map((set) => (set && typeof set === 'object' ? valuesOf(set, row) : null)))
+  const out = []
+  rows.forEach((row, i) => {
+    if (!row.exerciseId) return
+    const same = rows.flatMap((other, k) => (other.exerciseId === row.exerciseId ? counted[k].filter(Boolean) : []))
+    const numbers = {}
+    setsOf(row).forEach((set, j) => {
+      const type = setTypeOf(set)
+      numbers[type] = (numbers[type] || 0) + 1
+      const flag = counted[i][j] ? weightFlag(counted[i][j], row, same, sessions, customs) : null
+      if (flag) {
+        const setName = type === 'normal' ? `Set ${numbers.normal}` : `${TYPE_NAME[type]} ${numbers[type]}`
+        out.push({ ...flag, exRef: { id: row.id, i }, setRef: { id: set.id, i: j }, name: row.name || 'Exercise', setName })
+      }
+    })
+  })
+  return out
+}
+
+// "Did you mean 85 kg?" [85 kg] [Keep 850] under a flagged set (or in the Finish sheet).
+export function WeightCheck({ flag, unit, onFix, onKeep, onChange, label }) {
+  const typed = formatWeight(flag.kg, unit)
+  const best = flag.referenceKg ? formatWeight(flag.referenceKg, unit) : null
+  return (
+    <div className="gym-wcheck" role="group" aria-label={`Check the weight${label ? ` for ${label}` : ''}`}>
+      <p className="gym-wcheck-text">
+        <Icon name="alert" size={16} strokeWidth={2.2} />
+        <span>
+          {label && <strong>{label}: </strong>}
+          {flag.suggestKg !== null
+            ? <>Did you mean <strong>{formatWeight(flag.suggestKg, unit)}</strong>?</>
+            : best ? `${typed} is far above your best (${best}). Typo?` : `${typed} is a lot for one set. Typo?`}
+        </span>
+      </p>
+      <div className="gym-wcheck-actions">
+        {flag.suggestKg !== null
+          ? <button type="button" className="btn btn-primary btn-sm" onClick={() => onFix(flag.suggestKg)}>{formatWeight(flag.suggestKg, unit)}</button>
+          : onChange && <button type="button" className="btn btn-primary btn-sm" onClick={onChange}>Change</button>}
+        <button type="button" className="btn btn-secondary btn-sm" onClick={onKeep}>Keep {formatWeight(flag.kg, unit, { withUnit: false })}</button>
+      </div>
+    </div>
+  )
+}
+
 // PR labels a ticked set earns: it must beat every saved session and the other sets of this
 // workout (so repeating a weight doesn't earn the same PR twice).
 function livePrLabels(sessions, exerciseId, tracking, set, others, formula) {
@@ -454,6 +523,7 @@ export default function ExerciseLog({ workout, onChange, mode = 'live', gym, ses
   const [openNotes, setOpenNotes] = useState(() => new Set())
   const [shake, setShake] = useState(null) // { ex, set, keys, n }
   const [scrollCard, setScrollCard] = useState(null)
+  const [check, setCheck] = useState(null) // { ex, set, flag }: the weight check under a just-ticked set
 
   // Sheets keep showing their last content while they animate closed.
   const lastSheets = useRef({})
@@ -595,6 +665,7 @@ export default function ExerciseLog({ workout, onChange, mode = 'live', gym, ses
         let message = null
         let scroll = null
         let doneIds = null
+        let flag = null
         update((w) => {
           const list = exercisesOf(w)
           const i = indexOf(list, exRef)
@@ -619,8 +690,11 @@ export default function ExerciseLog({ workout, onChange, mode = 'live', gym, ses
             return null
           }
           const doneSet = withPrs(w, i, j, ex, { ...filled, done: true })
-          if (doneSet.prs) message = prMessage(doneSet.prs, doneSet, tracking, prefsRef.current)
           const nextList = replaceAt(list, i, { ...ex, sets: replaceAt(sets, j, doneSet) })
+          const sameExercise = nextList.flatMap((row) => (row?.exerciseId === ex.exerciseId ? setsOf(row).filter((other) => other.done) : []))
+          flag = weightFlag(doneSet, ex, sameExercise, baseRef.current, getGym().exercises)
+          // A likely typo shouldn't be celebrated as a record before it's checked.
+          if (doneSet.prs && !flag) message = prMessage(doneSet.prs, doneSet, tracking, prefsRef.current)
           let rest = w.rest ?? null
           if (isLive()) {
             const group = supersetGroups(nextList)[i]
@@ -632,9 +706,17 @@ export default function ExerciseLog({ workout, onChange, mode = 'live', gym, ses
               // Typing in a past workout ('Add past workout') needs no rest timer.
               const seconds = isBackfillWorkout(w) ? 0 : restAfter(set, sets[j + 1], deriveRef.current(ex).rest, prefsRef.current)
               rest = seconds > 0 ? { endAt: Date.now() + seconds * 1000, durationSec: seconds, exerciseId: String(ex.id ?? i) } : null
-              if (group) {
-                const first = i - group.pos + 1
-                scroll = [first, nextOpenSet(nextList[first], j + 1)]
+              const first = group ? i - group.pos + 1 : i
+              const back = group ? nextOpenSet(nextList[first], j + 1) : null
+              if (back !== null) scroll = [first, back]
+              else {
+                // That finished the exercise (or the whole superset): on to the next one with sets left.
+                const after = group ? first + group.size : i + 1
+                const finished = nextList.slice(first, after).every((row) => nextOpenSet(row, 0) === null)
+                for (let k = after; finished && k < nextList.length && !scroll; k++) {
+                  const open = nextOpenSet(nextList[k], 0)
+                  if (open !== null) scroll = [k, open]
+                }
               }
             }
           }
@@ -650,8 +732,26 @@ export default function ExerciseLog({ workout, onChange, mode = 'live', gym, ses
           }
         }
         if (message) toast(message, { tone: 'success' })
-        if (scroll) scrollToSet(scroll[0], scroll[1])
+        if (flag) setCheck({ ex: keyOf(exRef), set: keyOf(setRef), flag })
+        else if (scroll) scrollToSet(scroll[0], scroll[1])
         if (doneIds) onSetDoneRef.current?.(doneIds[0], doneIds[1])
+      },
+
+      // The weight check's buttons: use the suggested load, or keep the typed one (asked once).
+      fixWeight(exRef, setRef, kg) {
+        setCheck(null)
+        withSet(exRef, setRef, (set, j, ex, i, w) => (set.weightKg === kg ? null : withPrs(w, i, j, ex, settle({ ...set, weightKg: kg }, trackingOf(ex.tracking)))))
+      },
+
+      keepWeight(exRef, setRef) {
+        setCheck(null)
+        withSet(exRef, setRef, (set) => (isNum(set.weightKg) && set.keptKg !== set.weightKg ? { ...set, keptKg: set.weightKg } : null))
+      },
+
+      changeWeight(exIndex, setIndex) {
+        setCheck(null)
+        const input = document.getElementById(setDomId(domPrefix, exIndex, setIndex))?.querySelector('input')
+        input?.focus()
       },
 
       setType(exRef, setRef, type) {
@@ -1056,6 +1156,7 @@ export default function ExerciseLog({ workout, onChange, mode = 'live', gym, ses
                 ssColor={group?.color ?? null}
                 ssLast={group ? group.last : null}
                 swipedSet={swipedHere}
+                check={check && check.ex === key ? check : null}
                 shake={shake && shake.ex === key ? shake : null}
                 noteOpen={openNotes.has(key)}
                 domPrefix={domPrefix}
@@ -1212,7 +1313,7 @@ function ActionList({ items }) {
 // ---- one exercise ------------------------------------------------------------------------------
 
 const ExerciseCard = memo(function ExerciseCard({
-  exercise, index, derived, live, prefs, ssLetter, ssPos, ssColor, ssLast, swipedSet, shake, noteOpen, domPrefix, actions,
+  exercise, index, derived, live, prefs, ssLetter, ssPos, ssColor, ssLast, swipedSet, check, shake, noteOpen, domPrefix, actions,
 }) {
   const exRef = { id: exercise.id, i: index }
   const exKey = keyOf(exRef)
@@ -1241,6 +1342,7 @@ const ExerciseCard = memo(function ExerciseCard({
             {ssLetter}{ssPos}
           </span>
         )}
+        <ExerciseVisualButton exerciseId={exercise.exerciseId} name={name} />
         <div className="gym-ex-title">
           <h3 className="gym-ex-name" id={`${domPrefix}-h-${index}`}>
             {live && exercise.exerciseId
@@ -1312,24 +1414,37 @@ const ExerciseCard = memo(function ExerciseCard({
           </div>
           {sets.map((set, setIndex) => {
             const setKey = keyOf({ id: set.id, i: setIndex })
+            const setRef = { id: set.id, i: setIndex }
+            // Shown while the flagged load is still the set's ticked weight.
+            const flag = check && check.set === setKey && set.done && set.weightKg === check.flag.kg ? check.flag : null
             return (
-              <SetRow
-                key={set.id ?? setIndex}
-                set={set}
-                setIndex={setIndex}
-                exRef={exRef}
-                exKey={exKey}
-                setKey={setKey}
-                row={derived.rows[setIndex]}
-                cols={cols}
-                gridClass={gridClass}
-                tracking={tracking}
-                prefs={prefs}
-                isOpen={swipedSet === setKey}
-                shake={shake && shake.set === setKey ? shake : null}
-                domId={setDomId(domPrefix, index, setIndex)}
-                actions={actions}
-              />
+              <Fragment key={set.id ?? setIndex}>
+                <SetRow
+                  set={set}
+                  setIndex={setIndex}
+                  exRef={exRef}
+                  exKey={exKey}
+                  setKey={setKey}
+                  row={derived.rows[setIndex]}
+                  cols={cols}
+                  gridClass={gridClass}
+                  tracking={tracking}
+                  prefs={prefs}
+                  isOpen={swipedSet === setKey}
+                  shake={shake && shake.set === setKey ? shake : null}
+                  domId={setDomId(domPrefix, index, setIndex)}
+                  actions={actions}
+                />
+                {flag && (
+                  <WeightCheck
+                    flag={flag}
+                    unit={unit}
+                    onFix={(kg) => actions.fixWeight(exRef, setRef, kg)}
+                    onKeep={() => actions.keepWeight(exRef, setRef)}
+                    onChange={() => actions.changeWeight(index, setIndex)}
+                  />
+                )}
+              </Fragment>
             )
           })}
         </div>

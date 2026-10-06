@@ -4,8 +4,11 @@ import Disclosure from './ui/Disclosure.jsx'
 import { AutoTextarea, Button, Field, Segmented } from './ui/primitives.jsx'
 import { toast } from './ui/feedback.jsx'
 import AttachmentStrip from './AttachmentStrip.jsx'
+import SnoozeSheet from './SnoozeSheet.jsx'
+import { UnderstoodChip, understand } from './QuickParse.jsx'
 import { archiveTask, createTask, deleteTaskForever, isReminderMarker, restoreTask, setTaskDone, updateTask } from '../lib/planner.js'
-import { addDaysISO, dueSentence, formatTime, todayISO } from '../lib/dates.js'
+import { dayPresets, dueLine, dueSentence, formatTime, formatTimeShort, todayISO } from '../lib/dates.js'
+import { clearDraft, saveDraft, takeDraft } from '../lib/drafts.js'
 import { LEAD_OPTIONS, leadLabel, notificationPrefs } from '../lib/notifications.js'
 import { attachmentSummary, useAttachmentsFor } from '../lib/attachments.js'
 import { useData } from '../lib/store.js'
@@ -18,6 +21,10 @@ const PRIORITIES = [
 ]
 
 const EMPTY = { text: '', details: '', date: '', time: '', priority: 'medium', reminderMinutes: '' }
+// Once a date is set: one tap for a usual time, or none.
+const TIME_CHIPS = ['09:00', '12:00', '15:00', '18:00']
+// A new task's unsaved form, kept when the sheet is closed by a stray tap (lib/drafts.js).
+const DRAFT_KEY = 'task:new'
 
 // What the sheet calls the thing: the Tasks page and Today say "task"; the calendar says "event"
 // (a dated task and its calendar event are the same record, kept in step by lib/planner.js).
@@ -50,38 +57,99 @@ function shortReminder(value, timed) {
   return `${minutes} min before`
 }
 
+const formFromTask = (task) => ({
+  text: task.text || '',
+  details: isReminderMarker(task.details) ? '' : task.details || '',
+  date: task.date || '',
+  time: task.time || '',
+  priority: task.priority || 'medium',
+  reminderMinutes: Number.isInteger(task.reminderMinutes) ? String(task.reminderMinutes) : '',
+})
+
+// Worth keeping as a draft: something typed that wasn't there when the sheet opened.
+const isDirty = (form, start) => (!!form.text.trim() || !!form.details.trim()) && Object.keys(EMPTY).some((key) => form[key] !== start[key])
+
 // Create a task (task = null) or edit an existing one.
-// completeFirst: opened to tick it off (e.g. from its reminder), so Complete is the main button.
+// completeFirst: opened to tick it off (e.g. from its reminder), so Complete is the main button,
+// with "Later…" beside it.
 // onSaved(task): after Save / Add task. noun: 'task' (default) or 'event' (the calendar).
+// A day or time typed into a new (or undated) task's name fills Due as you type, shown as a chip
+// that keeps the words in the name when tapped. Closing a new task with something typed keeps it
+// as a draft ("Draft kept · Reopen"); the next new task starts from it.
 export default function TaskSheet({ open, onClose, task: taskProp = null, defaults = {}, completeFirst = false, onSaved, noun = 'task' }) {
+  // Reopened from the "Draft kept" toast after the page had already closed it.
+  const [reopened, setReopened] = useState(false)
+  const isOpen = open || reopened
   // Keep the last task while the sheet animates closed, so it doesn't switch to the "New task" layout.
   const shown = useRef({ task: taskProp, completeFirst })
-  if (open) shown.current = { task: taskProp, completeFirst }
+  if (isOpen) shown.current = reopened && !open ? { task: null, completeFirst: false } : { task: taskProp, completeFirst }
   const task = shown.current.task
   const readyToComplete = Boolean(shown.current.completeFirst && task && !task.done)
   const [form, setForm] = useState(EMPTY)
   const [error, setError] = useState('')
+  const [ignored, setIgnored] = useState('') // the name's parse the user dismissed, by its words
+  const [snoozing, setSnoozing] = useState(false)
+  const start = useRef(EMPTY) // the form as it opened
+  const fill = useRef(null) // { before, applied }: the Due the name's words replaced, and what they set
+  const dateInput = useRef(null)
   const prefs = notificationPrefs(useData('settings'))
   const attachments = useAttachmentsFor('task', task?.id)
   const words = NOUNS[noun] || NOUNS.task
 
   useEffect(() => {
-    if (!open) return
+    if (!isOpen) return
     setError('')
-    setForm(task
-      ? { text: task.text || '', details: isReminderMarker(task.details) ? '' : task.details || '', date: task.date || '', time: task.time || '', priority: task.priority || 'medium', reminderMinutes: Number.isInteger(task.reminderMinutes) ? String(task.reminderMinutes) : '' }
-      : { ...EMPTY, ...defaults })
-  }, [open, task?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+    setIgnored('')
+    setSnoozing(false)
+    fill.current = null
+    // A draft is picked up unless the sheet was opened with a name already (the quick add's +).
+    const draft = !task && !defaults?.text ? takeDraft(DRAFT_KEY) : null
+    const next = task ? formFromTask(task) : { ...EMPTY, ...defaults, ...(draft || {}) }
+    // A restored draft counts as typed, so a day in its name is understood again.
+    start.current = draft ? { ...next, text: '' } : next
+    setForm(next)
+  }, [isOpen, task?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Only for a new or undated task, and only once the name has been changed here: opening an
+  // existing "Call about Friday's game" mustn't move it.
+  const parseOn = (!task || !task.date)
+  const nameParse = (text, skip = ignored) => (parseOn && text !== start.current.text ? understand(text, skip) : null)
+  const understood = nameParse(form.text)
+
+  // The name's words set Due as they're typed; when they go (deleted or dismissed), Due goes back
+  // to what it was, unless it has been changed by hand since. Called with the rendered form (not
+  // inside a state updater), since it moves `fill` along.
+  function withName(current, text, skip = ignored) {
+    const next = { ...current, text }
+    const hit = nameParse(text, skip)
+    if (hit) {
+      const before = fill.current?.before || { date: current.date, time: current.time }
+      const applied = { date: hit.date, time: hit.time || (before.date ? before.time : '') }
+      fill.current = { before, applied }
+      return { ...next, ...applied }
+    }
+    if (fill.current) {
+      const { before, applied } = fill.current
+      fill.current = null
+      if (current.date === applied.date && current.time === applied.time) return { ...next, ...before }
+    }
+    return next
+  }
+
+  function dismissParse() {
+    if (!understood) return
+    setIgnored(understood.key)
+    setForm(withName(form, form.text, understood.key))
+  }
 
   const set = (field) => (value) => setForm((current) => ({ ...current, [field]: value }))
   const reminderValue = effectiveReminder(form.reminderMinutes, Boolean(form.time))
   const customLead = form.time && reminderValue !== '' && !LEAD_OPTIONS.some((option) => String(option.value) === reminderValue)
   const today = todayISO()
-  const quickDates = [
-    { id: today, label: 'Today' },
-    { id: addDaysISO(today, 1), label: 'Tomorrow' },
-    { id: addDaysISO(today, 7), label: 'Next week' },
-  ]
+  const quickDates = dayPresets(today).map((preset) => ({
+    id: preset.date,
+    label: preset.id === 'today' || preset.id === 'tomorrow' ? preset.label : `${preset.label} · ${preset.day}`,
+  }))
 
   // Priority, reminder, notes and attached files live behind "More options"; the summary says
   // what's set there.
@@ -93,9 +161,24 @@ export default function TaskSheet({ open, onClose, task: taskProp = null, defaul
   ].filter(Boolean)
   const hasExtras = extras.length > 0
 
+  // Closed without saving (×, backdrop, Escape, swipe): a new task with something typed is kept.
+  function dismiss() {
+    if (!task && isDirty(form, start.current)) {
+      saveDraft(DRAFT_KEY, form)
+      toast('Draft kept', { action: { label: 'Reopen', onClick: () => setReopened(true) } })
+    }
+    setReopened(false)
+    onClose()
+  }
+
+  function finish() {
+    setReopened(false)
+    onClose()
+  }
+
   function submit(event) {
     event.preventDefault()
-    const text = form.text.trim()
+    const text = (understood ? understood.title : form.text).trim()
     if (!text) {
       setError(`Give the ${words.title} a name.`)
       return
@@ -109,37 +192,54 @@ export default function TaskSheet({ open, onClose, task: taskProp = null, defaul
       const saved = updateTask(task.id, fields)
       onSaved?.(saved)
     } else {
+      clearDraft(DRAFT_KEY)
       const created = createTask(fields)
       // A dated task may land out of sight (another day, group or page): say where it went.
       if (created.date) toast(`Added for ${dueSentence(created.date, created.time, today)}`, { action: { label: 'Undo', onClick: () => deleteTaskForever(created.id) } })
       onSaved?.(created)
     }
-    onClose()
+    finish()
   }
 
   function archive() {
     archiveTask(task.id)
-    onClose()
+    finish()
     toast('Archived', { action: { label: 'Undo', onClick: () => restoreTask(task.id) } })
   }
 
   function toggleDone() {
     setTaskDone(task.id, !task.done)
-    onClose()
+    finish()
     toast(task.done ? 'Marked as not done' : 'Completed', { action: { label: 'Undo', onClick: () => setTaskDone(task.id, task.done) } })
+  }
+
+  // "Pick a date…" from Later: the Due field right here, once the Later sheet has gone (it hands
+  // focus back as it closes, which would close a picker opened before).
+  function pickDate() {
+    setTimeout(() => {
+      const input = dateInput.current
+      if (!input) return
+      input.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      try {
+        input.showPicker()
+      } catch {
+        input.focus()
+      }
+    }, 220)
   }
 
   // Only a new task starts in the title field: opening one to read or tick it off shouldn't
   // bring up the keyboard.
   return (
     <Sheet
-      open={open}
-      onClose={onClose}
+      open={isOpen}
+      onClose={dismiss}
       title={task ? `Edit ${words.title}` : `New ${words.title}`}
       initialFocus={!task}
       footer={readyToComplete ? (
         <>
           <Button type="submit" form="task-form" variant="secondary">Save</Button>
+          <Button variant="secondary" icon="clock" onClick={() => setSnoozing(true)}>Later…</Button>
           <Button icon="check" className="btn-grow" onClick={toggleDone}>Complete</Button>
         </>
       ) : (
@@ -151,9 +251,30 @@ export default function TaskSheet({ open, onClose, task: taskProp = null, defaul
     >
       <form id="task-form" className="form-stack" onSubmit={submit}>
         <Field label={words.label} error={error}>
-          {(id) => <input id={id} className="input input-lg" value={form.text} onChange={(event) => { set('text')(event.target.value); setError('') }} placeholder={words.placeholder} autoComplete="off" enterKeyHint="done" data-autofocus />}
+          {(id) => (
+            <input
+              id={id}
+              className="input input-lg"
+              value={form.text}
+              onChange={(event) => {
+                setForm(withName(form, event.target.value))
+                setError('')
+              }}
+              placeholder={words.placeholder}
+              autoComplete="off"
+              enterKeyHint="done"
+              aria-describedby={understood ? 'ts-parsed' : undefined}
+              data-autofocus
+            />
+          )}
         </Field>
-        <div className="field">
+        {understood && (
+          <div className="ts-parsed-row" id="ts-parsed" aria-live="polite">
+            <UnderstoodChip understood={understood} today={today} onDismiss={dismissParse} />
+            <span className="ts-parsed-name">Saves as “{understood.title}”</span>
+          </div>
+        )}
+        <div className="field ts-when">
           <span className="field-label">{words.when}</span>
           <div className="chip-row">
             {quickDates.map((item) => (
@@ -163,10 +284,21 @@ export default function TaskSheet({ open, onClose, task: taskProp = null, defaul
             ))}
             {form.date && <button type="button" className="chip chip-quiet" onClick={() => setForm((current) => ({ ...current, date: '', time: '' }))}>No date</button>}
           </div>
-          <div className="field-row">
-            <input className="input" type="date" value={form.date} onChange={(event) => set('date')(event.target.value)} aria-label="Date" />
+          <div className="field-row ts-when-row">
+            <input ref={dateInput} className="input" type="date" value={form.date} onChange={(event) => set('date')(event.target.value)} aria-label="Date" />
             <input className="input" type="time" value={form.time} onChange={(event) => set('time')(event.target.value)} aria-label="Time" disabled={!form.date} title={form.date ? undefined : 'Pick a date first'} />
           </div>
+          {form.date && (
+            <div className="chip-row ts-time-chips" role="group" aria-label="Time">
+              {TIME_CHIPS.map((time) => (
+                <button key={time} type="button" className={`chip chip-sm ${form.time === time ? 'is-active' : ''}`} aria-pressed={form.time === time} onClick={() => set('time')(form.time === time ? '' : time)}>
+                  {formatTimeShort(time)}
+                </button>
+              ))}
+              <button type="button" className={`chip chip-sm ${!form.time ? 'is-active' : ''}`} aria-pressed={!form.time} onClick={() => set('time')('')}>Any time</button>
+            </div>
+          )}
+          {form.date && <p className="ts-due-line" aria-live="polite">{dueLine(form.date, form.time, today)}</p>}
         </div>
 
         {/* Remounts per task so a remembered or already-set state is read fresh for each one. */}
@@ -216,6 +348,7 @@ export default function TaskSheet({ open, onClose, task: taskProp = null, defaul
           )}
         </Disclosure>
       </form>
+      {task && <SnoozeSheet task={task} open={snoozing} onClose={() => setSnoozing(false)} onPick={pickDate} onDone={finish} />}
     </Sheet>
   )
 }

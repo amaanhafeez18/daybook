@@ -1,6 +1,9 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { dueDayLabel, dueSentence, formatDue, parseQuickAdd } from '../src/lib/dates.js'
+import {
+  dayHeading, dayPresets, daysFromNow, dueDayLabel, dueLine, dueSentence, formatDayDate, formatDue, formatTimeShort, nextWeekISO, parseQuickAdd,
+  snoozeOptions, weekendISO,
+} from '../src/lib/dates.js'
 
 // Local time, like the app: Wednesday 23 September 2026, 2:30 PM.
 const NOW = new Date(2026, 8, 23, 14, 30)
@@ -167,5 +170,99 @@ describe('due labels', () => {
     assert.equal(dueSentence('2026-09-24', '17:00', TODAY), 'tomorrow at 5:00 PM')
     assert.equal(dueSentence(TODAY, '', TODAY), 'today')
     assert.match(dueSentence('2026-09-25', '09:30', TODAY), /^Friday at 9:30 AM$/)
+  })
+})
+
+describe('day presets: one "next week" and "weekend" for chips, Later… and quick add', () => {
+  test('next week is the coming Monday; the weekend is this Saturday (today at the weekend)', () => {
+    assert.equal(nextWeekISO(TODAY), '2026-09-28') // from a Wednesday
+    assert.equal(nextWeekISO('2026-09-27'), '2026-09-28') // from a Sunday: tomorrow
+    assert.equal(nextWeekISO('2026-09-28'), '2026-10-05') // from a Monday: a week on
+    assert.equal(weekendISO(TODAY), '2026-09-26')
+    assert.equal(weekendISO('2026-09-26'), '2026-09-26')
+    assert.equal(weekendISO('2026-09-27'), '2026-09-27')
+  })
+
+  test('quick add agrees with the chips', () => {
+    assert.equal(parse('Pay rent next week').date, dayPresets(TODAY).find((preset) => preset.id === 'next-week').date)
+    assert.equal(parse('Clean bike this weekend').date, dayPresets(TODAY).find((preset) => preset.id === 'weekend').date)
+  })
+
+  test('presets name their day and skip repeats', () => {
+    assert.deepEqual(dayPresets(TODAY), [
+      { id: 'today', label: 'Today', date: TODAY, day: 'Wed' },
+      { id: 'tomorrow', label: 'Tomorrow', date: '2026-09-24', day: 'Thu' },
+      { id: 'weekend', label: 'Weekend', date: '2026-09-26', day: 'Sat' },
+      { id: 'next-week', label: 'Next week', date: '2026-09-28', day: 'Mon' },
+    ])
+    // Friday: the weekend is tomorrow. Sunday: the weekend is today and next week is tomorrow.
+    assert.deepEqual(dayPresets('2026-09-25').map((preset) => preset.id), ['today', 'tomorrow', 'next-week'])
+    assert.deepEqual(dayPresets('2026-09-27').map((preset) => preset.id), ['today', 'tomorrow'])
+  })
+})
+
+describe('readable due line and day headings', () => {
+  test('short times and day + date', () => {
+    assert.equal(formatTimeShort('18:00'), '6 PM')
+    assert.equal(formatTimeShort('09:00'), '9 AM')
+    assert.equal(formatTimeShort('00:00'), '12 AM')
+    assert.equal(formatTimeShort('13:30'), '1:30 PM')
+    assert.equal(formatDayDate('2026-10-07', TODAY), 'Wed, Oct 7')
+    assert.match(formatDayDate('2027-01-15', TODAY), /2027/)
+  })
+
+  test('how far off a day is', () => {
+    assert.equal(daysFromNow(TODAY, TODAY), 'today')
+    assert.equal(daysFromNow('2026-09-24', TODAY), 'tomorrow')
+    assert.equal(daysFromNow('2026-09-25', TODAY), 'in 2 days')
+    assert.equal(daysFromNow('2026-10-14', TODAY), 'in 3 weeks')
+    assert.equal(daysFromNow('2026-09-22', TODAY), 'yesterday')
+    assert.equal(daysFromNow('2026-09-11', TODAY), '12 days ago')
+  })
+
+  test('the line under the Due chips', () => {
+    assert.equal(dueLine('2026-09-25', '13:30', TODAY), 'Fri, Sep 25 · 1:30 PM · in 2 days')
+    assert.equal(dueLine(TODAY, '', TODAY), 'Wed, Sep 23 · today')
+    assert.equal(dueLine('', '', TODAY), '')
+  })
+
+  test('journal headings say the date once', () => {
+    assert.deepEqual(dayHeading(TODAY, TODAY), { title: 'Today', subtitle: 'Wednesday, September 23' })
+    assert.equal(dayHeading('2026-09-22', TODAY).title, 'Yesterday')
+    assert.deepEqual(dayHeading('2026-09-11', TODAY), { title: 'Fri, Sep 11', subtitle: '12 days ago' })
+  })
+})
+
+describe('snoozeOptions ("Later…")', () => {
+  const ids = (task, now = NOW) => snoozeOptions(task, now).map((option) => option.id)
+
+  test('a timed task due now gets every choice, soonest first', () => {
+    const options = snoozeOptions({ date: TODAY, time: '14:00' }, NOW)
+    assert.deepEqual(options.map((option) => option.id), ['hour', 'evening', 'tomorrow', 'weekend', 'next-week'])
+    assert.deepEqual(options[0], { id: 'hour', label: 'In 1 hour', date: TODAY, time: '15:30', hint: '3:30 PM' })
+    assert.deepEqual(options[1], { id: 'evening', label: 'This evening', date: TODAY, time: '18:00', hint: '6 PM' })
+    // The day choices keep the task's time.
+    assert.deepEqual(options[2], { id: 'tomorrow', label: 'Tomorrow', date: '2026-09-24', time: '14:00', hint: 'Thu · 2 PM' })
+    assert.equal(options[3].hint, 'Sat · 2 PM')
+    assert.equal(options[4].date, '2026-09-28')
+  })
+
+  test('"In 1 hour" rounds up to 5 minutes and needs a time', () => {
+    assert.equal(snoozeOptions({ date: TODAY, time: '14:00' }, new Date(2026, 8, 23, 14, 32))[0].time, '15:35')
+    assert.equal(snoozeOptions({ date: TODAY, time: '23:00' }, new Date(2026, 8, 23, 23, 30))[0].date, '2026-09-24')
+    assert.deepEqual(ids({ date: TODAY, time: '' }), ['evening', 'tomorrow', 'weekend', 'next-week'])
+    assert.deepEqual(ids({}), ['evening', 'tomorrow', 'weekend', 'next-week'])
+  })
+
+  test('"This evening" only until 5 PM', () => {
+    assert.ok(!ids({ date: TODAY }, new Date(2026, 8, 23, 17, 5)).includes('evening'))
+  })
+
+  test('only choices later than when it is due', () => {
+    assert.deepEqual(ids({ date: '2026-09-24' }), ['weekend', 'next-week'])
+    assert.deepEqual(ids({ date: TODAY, time: '19:00' }), ['tomorrow', 'weekend', 'next-week'])
+    assert.deepEqual(ids({ date: '2026-10-10' }), [])
+    // Overdue: everything.
+    assert.deepEqual(ids({ date: '2026-09-20', time: '09:00' }), ['hour', 'evening', 'tomorrow', 'weekend', 'next-week'])
   })
 })

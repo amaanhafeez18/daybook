@@ -10,6 +10,14 @@
 }
 
 /* ---- editor: date · "Mood & title" (closed by default) · the entry ---------------------------- */
+/* Opening a past entry scrolls the editor up to just under the top bar. */
+.journal-page .journal-editor { scroll-margin-top: calc(var(--topbar-h, 56px) + var(--safe-top, 0px) + 12px); }
+.journal-date-bar .journal-date { min-width: 0; }
+.journal-date-bar .journal-date strong,
+.journal-date-bar .journal-date span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* "Today" beside the date on any other day (30 px, a 44 px target). */
+.journal-date-bar .chip.jr-today { position: relative; flex-shrink: 0; }
+.journal-date-bar .chip.jr-today::after { content: ''; position: absolute; inset: -7px -2px; }
 .journal-editor .journal-extras { margin: -6px 0 -4px; }
 .journal-editor .journal-extras .disclosure-toggle { padding-left: 4px; padding-right: 4px; font-size: 14px; }
 .journal-editor .journal-extras .disclosure-body { gap: 10px; padding: 2px 0 6px; }

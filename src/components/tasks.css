@@ -10,6 +10,7 @@
   --tr-done: #248A3D;
   --tr-reopen: #6C6C70;
   --tr-later: #C93400;
+  --tr-snooze: #0F7B6C;
   --tr-archive: #5E5CE6;
   --tr-ease: var(--ios-sheet, cubic-bezier(0.32, 0.72, 0, 1));
 }
@@ -63,7 +64,8 @@
 .task-row.tr-row[data-armed] .tr-lead { opacity: 1; }
 .task-row.tr-row[data-armed] .tr-lead .icon { transform: scale(1.08); }
 
-/* Left swipe: Tomorrow + Archive; swiping on past 60% archives, and Archive fills the space.
+/* Left swipe: Tomorrow + Later… + Archive; swiping on past 60% (and well past the buttons)
+   archives, and Archive fills the space.
    (No padding on .tr-lead / .tr-trail: at width 0 they must take no room at all.) */
 .tr-trail {
   right: 6px;
@@ -91,8 +93,10 @@
 .tr-act:active { filter: brightness(0.88); }
 .tr-act:focus-visible { outline: 2px solid var(--text); outline-offset: -4px; }
 .tr-act-later { background: var(--tr-later); }
+.tr-act-snooze { background: var(--tr-snooze); }
 .tr-act-archive { background: var(--tr-archive); }
-.task-row.tr-row[data-full] .tr-act-later { flex-grow: 0; opacity: 0; margin-right: -6px; }
+.task-row.tr-row[data-full] .tr-act-later,
+.task-row.tr-row[data-full] .tr-act-snooze { flex-grow: 0; opacity: 0; margin-right: -6px; }
 
 /* 44 px targets on every task row: the 24 px checkbox gets an invisible ring around it, and the
    text button stretches into the row's own padding (margins cancel it, so rows stay the same
@@ -131,10 +135,61 @@
 /* The Due chips (36 px) keep their size; their touch targets are 44 px. */
 #task-form .chip { position: relative; }
 #task-form .chip::after { content: ''; position: absolute; inset: -4px 0; }
-/* Date and time pickers share the row (the date needs more room) and shrink with the sheet
-   instead of pushing it sideways on narrow windows. */
+/* Date and time pickers share the row (the date needs more room, the time at least 118 px so it
+   isn't clipped) and shrink with the sheet instead of pushing it sideways; on the narrowest
+   phones they stack. */
 #task-form .field-row { grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr); }
+#task-form .field-row.ts-when-row { grid-template-columns: minmax(0, 1fr) minmax(118px, 0.8fr); }
 #task-form .field-row > .input { min-width: 0; }
+@media (max-width: 359px) {
+  #task-form .field-row.ts-when-row { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Time chips once there's a date (30 px, 44 px targets), then the readable due line. */
+#task-form .ts-time-chips { margin-top: 4px; gap: 6px; }
+#task-form .ts-time-chips .chip::after { inset: -7px 0; }
+#task-form .ts-due-line { margin: 2px 2px 0; color: var(--text-2); font-size: 14px; font-variant-numeric: tabular-nums; }
+
+/* What the name's words were understood as, tucked under the name field. */
+#task-form .ts-parsed-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: -8px; }
+#task-form .ts-parsed-row .chip::after { inset: -7px 0; }
+.ts-parsed-name { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); font-size: 13px; }
+
+/* ---- "Later…" sheet (SnoozeSheet): a grouped list of where to move the task ---------------------- */
+
+.ts-snz-note { margin: 0 4px 12px; }
+.ts-snz-list { display: flex; flex-direction: column; overflow: hidden; border-radius: 18px; background: var(--surface-2); }
+.ts-snz-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 52px;
+  padding: 10px 16px;
+  color: var(--text);
+  font-size: 17px;
+  text-align: left;
+  transition: background 0.15s;
+}
+.ts-snz-row + .ts-snz-row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50px;
+  right: 0;
+  height: 1px;
+  background: var(--separator, var(--border));
+  transform: scaleY(0.5);
+  transform-origin: top;
+  pointer-events: none;
+}
+.ts-snz-row > .icon { flex-shrink: 0; color: var(--accent); }
+.ts-snz-label { flex: 1; min-width: 0; }
+.ts-snz-hint { flex-shrink: 0; color: var(--text-2); font-size: 15px; font-variant-numeric: tabular-nums; }
+.ts-snz-row:active { background: var(--surface-3); }
+@media (hover: hover) { .ts-snz-row:hover { background: var(--surface-3); } }
+.ts-snz-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 18px; }
 
 /* ---- overdue rows: one-tap "Today" -------------------------------------------------------------- */
 

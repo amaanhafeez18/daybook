@@ -110,7 +110,7 @@
   border-radius: 20px;
   background: var(--card-bg);
 }
-.gym-wo-stat span { font-size: 12px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.03em; }
+.gym-wo-stat > span { font-size: 12px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.03em; }
 .gym-wo-stat strong {
   font-family: var(--font-display, var(--font));
   font-size: 21px;
@@ -121,6 +121,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.gym-wo-stat strong small { font-size: 15px; font-weight: 600; color: var(--text-2); letter-spacing: 0; }
 .gym-wo-deload {
   align-self: center;
   flex-shrink: 0;
@@ -305,6 +306,10 @@
 .gym-set.is-swiping .gym-set-delete, .gym-set.is-open .gym-set-delete { visibility: visible; }
 
 .gym-set-num { position: relative; display: grid; place-items: center; height: 40px; border-radius: 10px; }
+/* Invisible 44px hit areas around the set-number button and ✓, so their looks don't change. */
+.gym-set-num::after, .gym-check::after { content: ''; position: absolute; inset: -3px -4px; }
+.gym-grid.rpe .gym-set-num::after { inset: -3px; }
+.gym-check::after { inset: -3px 0; }
 .gym-set-num:active { background: var(--surface-2); }
 .gym-set-pr {
   position: absolute;
@@ -367,6 +372,7 @@
 .gym-rpe:focus-within { box-shadow: 0 0 0 3px var(--accent-soft); }
 
 .gym-check {
+  position: relative;
   justify-self: end;
   width: 44px;
   height: 38px;
@@ -682,6 +688,28 @@ html.gym-has-float .toaster { bottom: calc(var(--nav-h) + var(--safe-bottom) + 9
 .gym-finish-minutes { position: relative; }
 .gym-finish-minutes .input { padding-right: 52px; font-variant-numeric: tabular-nums; }
 .gym-finish-minutes span { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); color: var(--text-2); pointer-events: none; }
+.gym-finish-checks { display: flex; flex-direction: column; gap: 8px; }
+
+/* ---- weight check: "Did you mean 85 kg?" under a set that looks like a typo ----------------- */
+
+.gym-wcheck {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 10px;
+  margin: 2px 0 4px;
+  padding: 10px 10px 10px 12px;
+  border-radius: 14px;
+  background: var(--warning-soft);
+  color: var(--text);
+  font-size: 15px;
+  animation: rise 0.2s var(--ease);
+}
+.gym-wcheck-text { flex: 1 1 180px; min-width: 0; display: flex; align-items: flex-start; gap: 8px; line-height: 1.3; }
+.gym-wcheck-text .icon { flex-shrink: 0; margin-top: 2px; color: var(--warning); }
+.gym-wcheck-actions { display: flex; gap: 8px; margin-left: auto; }
+.gym-wcheck-actions .btn { min-height: 44px; padding: 0 14px; font-variant-numeric: tabular-nums; }
 
 /* ---- summary ------------------------------------------------------------------------------- */
 
