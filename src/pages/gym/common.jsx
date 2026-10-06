@@ -62,18 +62,25 @@ export function RoutineDot({ routine, size = 10 }) {
 }
 
 // Without a routine: a plain chip when a label is given (e.g. "Rest"), else "Deleted routine".
-export function RoutineChip({ routine, label }) {
+// With onClick it's a button (actionLabel names what it does for screen readers).
+export function RoutineChip({ routine, label, onClick, actionLabel }) {
   const name = typeof routine?.name === 'string' ? routine.name.trim() : ''
   const text = label ?? (routine ? name || 'Untitled routine' : 'Deleted routine')
   const missing = !routine && label == null
-  return (
-    <span
-      className={`gym-routine-chip${routine ? ' has-color' : ''}${missing ? ' is-missing' : ''}`}
-      style={routine ? { '--gym-dot': routineColor(routine) } : undefined}
-    >
+  const className = `gym-routine-chip${routine ? ' has-color' : ''}${missing ? ' is-missing' : ''}${onClick ? ' is-button' : ''}`
+  const style = routine ? { '--gym-dot': routineColor(routine) } : undefined
+  const content = (
+    <>
       {(routine || missing) && <RoutineDot routine={routine} size={8} />}
       <span className="gym-routine-chip-label">{text}</span>
-    </span>
+    </>
+  )
+  if (!onClick) return <span className={className} style={style}>{content}</span>
+  return (
+    <button type="button" className={className} style={style} onClick={onClick} aria-label={actionLabel ? `${text}. ${actionLabel}` : undefined}>
+      {content}
+      <Icon name="chevronRight" size={13} strokeWidth={2.4} />
+    </button>
   )
 }
 

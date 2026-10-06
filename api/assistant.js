@@ -1512,7 +1512,7 @@ function normalizeGymApi(raw) {
       unit: prefs.unit === 'lb' ? 'lb' : 'kg',
       distanceUnit: prefs.distanceUnit === 'mi' ? 'mi' : 'km',
       firstWeekday: intIn(prefs.firstWeekday, 0, 6, 1),
-      weeklyGoal: intIn(prefs.weeklyGoal, 1, 14, 3),
+      weeklyGoal: gymStats.weeklyGoalFor(prefs, schedule).goal, // follows the plan unless set by hand, as in the app
       defaultRest: gymNum(prefs.defaultRest) !== null && prefs.defaultRest >= 0 && prefs.defaultRest <= 600 ? prefs.defaultRest : 120,
       e1rmFormula: E1RM_FORMULAS.includes(prefs.e1rmFormula) ? prefs.e1rmFormula : 'brzycki',
       previousSource: prefs.previousSource === 'routine' ? 'routine' : 'any',
@@ -2702,7 +2702,30 @@ async function executeGymTool(supabase, userId, name, args, data, ctx) {
     // An off-plan routine in a rotation: the Gym app offers to realign; so can the assistant.
     const offPlan = routine && date === today && day.planned?.kind === 'routine' && day.planned.routineId !== routine.id && sched.versionFor(gym.schedule, today)?.mode === 'rotation'
     const realignHint = offPlan ? ` Today’s plan was ${slotName(day.planned, gym)}: gym_realign can continue the rotation after ${routine.name.trim()}.` : ''
-    return { ok: true, message: `Logged ${logged}${said}.${prNote}${warnings.length ? ` ${warnings.join(' ')}` : ''}`, id: session.id, ...(realignHint ? { hint: realignHint.trim() } : {}) }
+    // A load far above the exercise's history (850 for 85) is logged as given, never changed, but
+    // the card and reply ask the user to confirm it (gym_edit_session fixes a typo).
+    const heavy = []
+    for (const row of rows) {
+      const entry = gymLib.exerciseById(row.exerciseId, gym.exercises)
+      const kept = []
+      for (const set of Array.isArray(row.sets) ? row.sets : []) {
+        const flag = set.done && set.weightKg > 0
+          ? gymStats.plausibleWeight({ kg: set.weightKg, exerciseId: row.exerciseId, sessions: history, equipment: entry?.equipment, tracking: row.tracking, extraKg: kept.filter((kg) => kg !== set.weightKg) })
+          : null
+        if (set.weightKg > 0) kept.push(set.weightKg)
+        if (!flag) continue
+        heavy.push(`${fmtKg(flag.kg, unit)} on ${row.name}${flag.suggestKg !== null ? ` (did you mean ${fmtKg(flag.suggestKg, unit)}?)` : flag.referenceKg ? ` (best so far ${fmtKg(flag.referenceKg, unit)})` : ''}`)
+        break
+      }
+    }
+    const weightWarning = heavy.length ? `Please confirm: ${heavy.join('; ')} looks unusually heavy.` : ''
+    return {
+      ok: true,
+      message: `Logged ${logged}${said}.${prNote}${warnings.length ? ` ${warnings.join(' ')}` : ''}`,
+      id: session.id,
+      ...(realignHint ? { hint: realignHint.trim() } : {}),
+      ...(weightWarning ? { warning: weightWarning } : {}),
+    }
   }
 
   if (name === 'gym_edit_session') {
@@ -3208,6 +3231,7 @@ async function executeGymTool(supabase, userId, name, args, data, ctx) {
     }
     if (changes.weekly_goal !== undefined) {
       prefs.weeklyGoal = clampInt(changes.weekly_goal, 1, 14, 3)
+      prefs.weeklyGoalAuto = false // set by hand: stops following the plan (lib/gym/stats weeklyGoalFor)
       said.push(`goal ${plural(prefs.weeklyGoal, 'workout')} a week`)
     }
     if (changes.default_rest !== undefined) {

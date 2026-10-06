@@ -46,10 +46,12 @@ const TABS = [
 const TAB_VIEWS = { today: TodayTab, calendar: CalendarTab, routines: RoutinesTab, history: HistoryTab }
 const PAGE_VIEWS = { exercises: ExercisesPage }
 const DETAIL_VIEWS = { workout: WorkoutScreen, session: SessionDetail, routine: RoutineEditor, exercise: ExerciseDetail, stats: StatsView }
-const knownView = (view) => !!(TAB_VIEWS[view] || PAGE_VIEWS[view] || DETAIL_VIEWS[view])
+// #/gym/settings: the Today tab with the Gym settings sheet open (linked from Settings).
+const SHEET_VIEWS = { settings: true }
+const knownView = (view) => !!(TAB_VIEWS[view] || PAGE_VIEWS[view] || DETAIL_VIEWS[view] || SHEET_VIEWS[view])
 // How deep a view sits: tabs, then the library, then details. Going deeper keeps the scroll
 // position of the view left behind; coming back up restores it.
-const viewLevel = (view) => (TAB_VIEWS[view] ? 0 : PAGE_VIEWS[view] ? 1 : 2)
+const viewLevel = (view) => (TAB_VIEWS[view] || SHEET_VIEWS[view] ? 0 : PAGE_VIEWS[view] ? 1 : 2)
 
 function parseHash() {
   const parts = window.location.hash.replace(/^#\/?/, '').split('?')[0].split('/').filter(Boolean)
@@ -94,6 +96,18 @@ export default function GymPage() {
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
 
+  // The settings route opens the sheet; closing it goes back to the Today tab.
+  useEffect(() => {
+    if (route.view !== 'settings') return
+    setSettingsUsed(true)
+    setSettingsOpen(true)
+  }, [route])
+
+  const closeSettings = () => {
+    setSettingsOpen(false)
+    if (parseHash().view === 'settings') window.location.replace('#/gym')
+  }
+
   useLayoutEffect(() => {
     const from = previous.current
     previous.current = route
@@ -119,8 +133,9 @@ export default function GymPage() {
 
   // Onboarding only for a gym that really has no plan: before the data has loaded (new device,
   // after signing in, a failed first load) it would offer templates that replace the saved plan.
-  const noPlan = route.view === 'today' && !hasPlan(gym)
-  const Tab = noPlan ? (hydrated ? Onboarding : PlanLoading) : TAB_VIEWS[route.view]
+  const tabView = TAB_VIEWS[route.view] ? route.view : 'today'
+  const noPlan = tabView === 'today' && !hasPlan(gym)
+  const Tab = noPlan ? (hydrated ? Onboarding : PlanLoading) : TAB_VIEWS[tabView]
 
   return (
     <div className="gym-shell">
@@ -146,8 +161,8 @@ export default function GymPage() {
             key={tab.id}
             type="button"
             role="tab"
-            aria-selected={route.view === tab.id}
-            className={route.view === tab.id ? 'is-active' : ''}
+            aria-selected={tabView === tab.id}
+            className={tabView === tab.id ? 'is-active' : ''}
             onClick={() => {
               if (route.view !== tab.id) window.location.replace(tab.hash)
             }}
@@ -157,14 +172,14 @@ export default function GymPage() {
         ))}
       </nav>
 
-      <div className="gym-shell-body" role="tabpanel" aria-label={TABS.find((tab) => tab.id === route.view)?.label}>
+      <div className="gym-shell-body" role="tabpanel" aria-label={TABS.find((tab) => tab.id === tabView)?.label}>
         <Tab today={today} />
       </div>
 
       <ToolsSheet open={toolsOpen} onClose={() => setToolsOpen(false)} initialTab="plates" />
       {settingsUsed && (
         <Suspense fallback={null}>
-          <GymSettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+          <GymSettingsSheet open={settingsOpen} onClose={closeSettings} />
         </Suspense>
       )}
     </div>

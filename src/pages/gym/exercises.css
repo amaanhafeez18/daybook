@@ -222,6 +222,14 @@
 .gym-xd-top-tag { padding: 1px 7px; border-radius: 999px; background: var(--gym-pr-soft); color: var(--gym-pr); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em; }
 .gym-xd-set-est { margin-left: auto; font-size: 13px; color: var(--text-3); font-variant-numeric: tabular-nums; }
 .gym-xd-session-note { display: block; margin-top: 8px; font-size: 14px; color: var(--text-2); font-style: italic; overflow-wrap: anywhere; }
+/* Under a session whose Best set looks like a typo: opens that workout to fix it. */
+.gym-xd-fix {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; margin-top: 6px; padding: 8px 12px;
+  border-radius: 12px; background: var(--warning-soft); color: var(--text); font-size: 14px; text-align: left;
+}
+.gym-xd-fix .icon { flex-shrink: 0; color: var(--warning); }
+.gym-xd-fix span { flex: 1; min-width: 0; }
+.gym-xd-fix strong { flex-shrink: 0; color: var(--accent); font-weight: 600; }
 .gym-xd-footnote { margin: 10px 4px 0; font-size: 13px; color: var(--text-2); }
 .gym-xd-more { margin-top: 12px; }
 

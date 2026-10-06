@@ -64,13 +64,14 @@ export function usePrsOf(sessions, formula) {
 const repsText = (n) => `${formatNumber(n, 0)} rep${n === 1 ? '' : 's'}`
 
 // One set as text for its tracking type: '80 kg × 8', '+20 kg × 6', '12 reps', '1:30', '5 km · 25:00'.
-export function formatSetValue(set, tracking, unit, distanceUnit) {
+// withUnit: false drops the weight unit, for rows under a 'kg × reps' header ('80 × 8').
+export function formatSetValue(set, tracking, unit, distanceUnit, { withUnit = true } = {}) {
   if (!set) return '—'
   const w = isNum(set.weightKg) ? set.weightKg : null
   const r = isNum(set.reps) ? set.reps : null
   const d = isNum(set.durationSec) && set.durationSec > 0 ? set.durationSec : null
   const m = isNum(set.distanceM) && set.distanceM > 0 ? set.distanceM : null
-  const kg = (value) => formatWeight(value, unit)
+  const kg = (value) => formatWeight(value, unit, { withUnit })
   const join = (...parts) => parts.filter(Boolean).join(' · ') || '—'
   const longUnit = distanceUnit === 'mi' ? 'mi' : 'km'
   const shortUnit = distanceUnit === 'mi' ? 'yd' : 'm'
