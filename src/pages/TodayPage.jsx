@@ -4,6 +4,8 @@ import Disclosure from '../components/ui/Disclosure.jsx'
 import { Avatar, Button, Card, Skeleton } from '../components/ui/primitives.jsx'
 import { toast } from '../components/ui/feedback.jsx'
 import ClassSheet from '../components/ClassSheet.jsx'
+import CitySheet from '../components/CitySheet.jsx'
+import TodayHint from '../components/SetupCard.jsx'
 import TaskRow from '../components/TaskRow.jsx'
 import TaskSheet from '../components/TaskSheet.jsx'
 import { readPref, writePref } from '../lib/api.js'
@@ -25,8 +27,9 @@ const TOMORROW_SHOWN = 5
 const PEOPLE_SHOWN = 3
 const DONE_LINGER_MS = 1600
 
-// Phones, top to bottom: Today, Tomorrow, Health (one line each for the gym and food; the full
-// cards live on Health → Today), Weather, Prayer, People. From 1000px the first three form the
+// Phones, top to bottom: Today, at most one hint card ("Get set up" for a new account, or a
+// reminders / Home Screen hint), Tomorrow, Health (one line each for the gym and food; the full
+// cards live on Health → Today), Weather, Prayer, People. From 1000px the first ones form the
 // main column and the rest the side column. Weather, Prayer and People are one line each; their
 // details open on a tap (remembered per device). Areas turned off (lib/areas.js) don't appear.
 export default function TodayPage({ displayName, loaded }) {
@@ -43,6 +46,7 @@ export default function TodayPage({ displayName, loaded }) {
   // null = closed; { task } edits a task; { defaults } adds one.
   const [sheet, setSheet] = useState(null)
   const [classSheet, setClassSheet] = useState(null)
+  const [cityOpen, setCityOpen] = useState(false)
 
   const active = useMemo(() => tasks.filter((task) => !task.archived), [tasks])
   const openTask = (task) => setSheet({ task })
@@ -62,6 +66,9 @@ export default function TodayPage({ displayName, loaded }) {
       <div className="today-grid">
         <div className="today-main">
           <TodayCard tasks={active} classes={classes} today={today} now={now} loaded={loaded} onOpen={openTask} onOpenClass={openClass} />
+          <CardBoundary>
+            <TodayHint areas={areas} location={location} loaded={loaded} onAddClass={() => setClassSheet({})} onChooseCity={() => setCityOpen(true)} />
+          </CardBoundary>
           <TomorrowCard tasks={active} classes={classes} tomorrow={tomorrow} loaded={loaded} onOpen={openTask} onOpenClass={openClass} onAdd={() => setSheet({ defaults: { date: tomorrow } })} />
           {(areas.gym || areas.food) && (
             <CardBoundary>
@@ -73,14 +80,15 @@ export default function TodayPage({ displayName, loaded }) {
         </div>
 
         <div className="today-side">
-          <WeatherCard location={location} today={today} />
+          <WeatherCard location={location} today={today} onChooseCity={() => setCityOpen(true)} />
           {settings?.showPrayerTimes !== false && <PrayerCard coords={location.coords} method={settings?.prayerMethod || 'auto'} school={settings?.prayerSchool || 0} />}
           {loaded && areas.people && <PeopleCard friends={friends} contactLogs={contactLogs} today={today} />}
         </div>
       </div>
 
       <TaskSheet open={!!sheet} task={sheet?.task || null} defaults={sheet?.defaults || { date: today }} onClose={() => setSheet(null)} />
-      <ClassSheet item={classSheet} onClose={() => setClassSheet(null)} />
+      <ClassSheet item={classSheet} onClose={() => setClassSheet(null)} onReopen={() => setClassSheet({})} />
+      <CitySheet open={cityOpen} onClose={() => setCityOpen(false)} />
     </div>
   )
 }
@@ -349,9 +357,10 @@ function TomorrowCard({ tasks, classes, tomorrow, loaded, onOpen, onOpenClass, o
 // ---- Weather -----------------------------------------------------------------------------------
 
 // One line ("72° Partly cloudy · H 78° L 61°") that opens to the hours, the next days and the
-// location controls.
-function WeatherCard({ location, today }) {
-  const { coords, status, locate, stale } = location
+// location controls. Without this device's position it uses the one saved with the account, and
+// a blocked location can still pick a city by name.
+function WeatherCard({ location, today, onChooseCity }) {
+  const { coords, status, locate, stale, source, name } = location
   const { weather, error } = useWeather(coords)
   const locateError = status === 'error'
     ? <p className="muted">Couldn’t get your location. Check that Location Services is on, then try again.</p>
@@ -360,28 +369,42 @@ function WeatherCard({ location, today }) {
   if (!coords) {
     return (
       <Card title="Weather" icon="cloudSun">
-        {status === 'denied' ? (
-          <p className="muted">Location is blocked for Daybook. Allow it in your browser settings to see local weather and prayer times.</p>
-        ) : status === 'unsupported' ? (
-          <p className="muted">This browser can’t share your location.</p>
+        {status === 'denied' || status === 'unsupported' ? (
+          <div className="journal-prompt">
+            <p className="muted">{status === 'denied' ? 'Location is blocked for Daybook. Choose your city instead, or allow location in your browser settings.' : 'This browser can’t share your location. Choose your city instead.'}</p>
+            <Button variant="secondary" size="sm" icon="search" onClick={onChooseCity}>Choose a city</Button>
+          </div>
         ) : (
           <div className="journal-prompt">
             {locateError || <p>See the forecast and prayer times for where you are.</p>}
-            <Button variant="secondary" size="sm" icon="pin" loading={status === 'locating'} onClick={locate}>{status === 'error' ? 'Try again' : 'Use my location'}</Button>
+            <div className="td-locate-actions">
+              <Button variant="secondary" size="sm" icon="pin" loading={status === 'locating'} onClick={locate}>{status === 'error' ? 'Try again' : 'Use my location'}</Button>
+              <button type="button" className="link-btn td-hl-link" onClick={onChooseCity}>Choose a city</button>
+            </div>
           </div>
         )}
       </Card>
     )
   }
 
-  // iOS never refreshes the saved position on its own (see useLocation), so offer it when it matters.
-  const updateAction = stale || status === 'error' || status === 'denied' || status === 'locating' ? (
+  // A city chosen by hand: its name, and Change. iOS never refreshes the saved position on its own
+  // (see useLocation), so offer it when it matters; a blocked location can only pick a city.
+  const updateAction = source === 'manual' || status === 'denied' ? (
+    <button type="button" className="link-btn td-hl-link" onClick={onChooseCity}>
+      <Icon name="pin" size={16} strokeWidth={2.1} />
+      {source === 'manual' ? 'Change city' : 'Choose a city'}
+    </button>
+  ) : source === 'saved' || stale || status === 'error' || status === 'locating' ? (
     <button type="button" className="link-btn td-hl-link" onClick={locate} disabled={status === 'locating'}>
       <Icon name="pin" size={16} strokeWidth={2.1} />
-      {status === 'locating' ? 'Locating…' : 'Update location'}
+      {status === 'locating' ? 'Locating…' : source === 'saved' ? 'Update' : 'Update location'}
     </button>
   ) : null
-  const locateNote = locateError || (status === 'denied'
+  // Where the forecast is for, when it isn't this device's position: "Using your saved location · Update".
+  const placeNote = source === 'manual' ? `Weather for ${name || 'your chosen city'}`
+    : source === 'saved' ? 'Using your saved location'
+      : ''
+  const locateNote = locateError || (status === 'denied' && source === 'device'
     ? <p className="muted">Location is blocked for Daybook, so this is for your last saved location.</p>
     : null)
 
@@ -451,12 +474,18 @@ function WeatherCard({ location, today }) {
             ))}
           </ol>
         )}
-        {(Number.isFinite(feels) || hasRain || updateAction) && (
+        {(Number.isFinite(feels) || hasRain || (updateAction && !placeNote)) && (
           <div className="td-weather-foot">
             <dl className="weather-facts td-facts">
               {Number.isFinite(feels) && <div><dt>Feels like</dt><dd>{feels}°</dd></div>}
               {hasRain && <div><dt>Chance of rain</dt><dd>{rainChance}%</dd></div>}
             </dl>
+            {!placeNote && updateAction}
+          </div>
+        )}
+        {placeNote && (
+          <div className="td-weather-foot td-place">
+            <span className="muted">{placeNote}</span>
             {updateAction}
           </div>
         )}

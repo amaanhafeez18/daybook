@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import Icon from '../components/ui/Icon.jsx'
 import Sheet from '../components/ui/Sheet.jsx'
 import Disclosure from '../components/ui/Disclosure.jsx'
@@ -6,16 +6,22 @@ import { Avatar, Button, Field, PasswordInput, Segmented, Switch } from '../comp
 import { confirmAction, toast } from '../components/ui/feedback.jsx'
 import { RECOVERY_QUESTIONS } from '../components/AuthScreen.jsx'
 import ClassSheet from '../components/ClassSheet.jsx'
+import CitySheet from '../components/CitySheet.jsx'
+import InstallSteps from '../components/InstallSteps.jsx'
+import NotifyOffHint from '../components/NotifyOffHint.jsx'
 import { authRequest, clearUserCaches, writePref } from '../lib/api.js'
 import { navigate } from '../lib/router.js'
 import { flushAll, getState, refresh, resetStore, updateSettings, useData, useStore } from '../lib/store.js'
 import { discardActive, flushActive, getActiveWorkout, updateGym } from '../lib/gym/state.js'
 import { classSchedule } from '../lib/planner.js'
 import { ACCENTS, APPEARANCES, DEFAULT_ACCENT, resolveAppearance } from '../lib/theme.js'
-import { PRAYER_METHODS } from '../lib/environment.js'
+import { PRAYER_METHODS, useLocation } from '../lib/environment.js'
 import { AREAS, areasFrom } from '../lib/areas.js'
-import { formatDateShort, formatTime } from '../lib/dates.js'
-import { DEFAULT_NOTIFICATIONS, LEAD_OPTIONS, currentSubscription, disableNotifications, enableNotifications, leadLabel, notificationPrefs, pushSupport, sendTestNotification, syncSubscription } from '../lib/notifications.js'
+import { formatDateShort, formatTime, todayISO } from '../lib/dates.js'
+import { DEFAULT_NOTIFICATIONS, LEAD_OPTIONS, currentSubscription, disableNotifications, enableNotifications, isHomeScreenApp, leadLabel, notificationPrefs, sendTestNotification, syncSubscription, usePushStatus } from '../lib/notifications.js'
+import { updatedLabel } from '../lib/location.js'
+import { hasGymPlan as gymPlanExists } from '../lib/setup.js'
+import { calorieGoalText, gymPlanSummary, savedFoodsText } from '../lib/hub.js'
 import { openWelcome } from '../components/welcome/rules.js'
 import '../components/settings.css'
 
@@ -33,8 +39,9 @@ const PRAYER_NAMES = ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha']
 const PRAYER_LEADS = [{ value: 0, label: 'At the time' }, { value: 5, label: '5 minutes before' }, { value: 10, label: '10 minutes before' }, { value: 15, label: '15 minutes before' }, { value: 30, label: '30 minutes before' }]
 
 // #/settings/<id> opens Settings scrolled to that section (e.g. the prayer card's "Method" link).
-// 'security' is the Change password row inside Account & security.
-const SECTION_IDS = new Set(['areas', 'notifications', 'assistant', 'classes', 'prayer', 'appearance', 'profile', 'security', 'account', 'danger'])
+// 'security' is the Change password row inside Account & security; 'help' has the Welcome tour and
+// the Add to Home Screen steps.
+const SECTION_IDS = new Set(['areas', 'notifications', 'assistant', 'classes', 'prayer', 'appearance', 'profile', 'security', 'account', 'help', 'danger'])
 
 // The section a deep link points at, read before useSectionLink clears it from the hash, so a
 // disclosure it points into (the prayer method) can start open.
@@ -87,7 +94,11 @@ export default function SettingsPage({ user, onUserChange, onSignOut }) {
   const [nameDraft, setNameDraft] = useState(settings.displayName || '')
   const [classSheet, setClassSheet] = useState(null)
   const [securitySheet, setSecuritySheet] = useState(null) // 'password' | 'recovery'
+  const [cityOpen, setCityOpen] = useState(false)
+  const [installOpen, setInstallOpen] = useState(false)
   const [landed] = useState(landingSection)
+  const location = useLocation()
+  const chooseCity = () => setCityOpen(true)
 
   useSectionLink()
   useEffect(() => { setNameDraft(settings.displayName || '') }, [settings.displayName])
@@ -163,7 +174,7 @@ export default function SettingsPage({ user, onUserChange, onSignOut }) {
 
       <AreaSettings settings={settings} />
 
-      <NotificationSettings settings={settings} />
+      <NotificationSettings settings={settings} location={location} onChooseCity={chooseCity} />
 
       <section className="settings-group" id="assistant">
         <h2>Assistant</h2>
@@ -182,7 +193,13 @@ export default function SettingsPage({ user, onUserChange, onSignOut }) {
             <p className="set-note">{WEB_HINTS[settings.assistantWeb] || WEB_HINTS.ask}</p>
           </div>
         </div>
-        <p className="set-footnote">What the assistant remembers about you is in the Assistant tab, under ⋯ → What I remember.</p>
+        <div className="card settings-card settings-list">
+          <a className="settings-row" href="#/assistant/memory">
+            <span className="settings-row-icon"><Icon name="bookmark" size={18} /></span>
+            <span className="settings-row-text"><strong>What the assistant remembers</strong><small>See or remove what you’ve told it</small></span>
+            <Icon name="chevronRight" size={18} />
+          </a>
+        </div>
       </section>
 
       <section className="settings-group" id="appearance">
@@ -217,6 +234,11 @@ export default function SettingsPage({ user, onUserChange, onSignOut }) {
             <span className="settings-row-icon"><Icon name="plus" size={18} /></span>
             <span className="settings-row-text"><strong>Add class</strong></span>
           </button>
+          {/* The assistant's attach flow: the photo picker still opens from the user's own tap there. */}
+          <a className="settings-row set-add-row" href="#/assistant/timetable">
+            <span className="settings-row-icon"><Icon name="camera" size={18} /></span>
+            <span className="settings-row-text"><strong>Add from a photo of your timetable</strong><small>The assistant reads it and adds your classes</small></span>
+          </a>
         </div>
         {classes.length === 0 && <p className="set-footnote">Add your timetable and it shows up on Today and the calendar.</p>}
       </section>
@@ -227,6 +249,7 @@ export default function SettingsPage({ user, onUserChange, onSignOut }) {
           <div className="set-row is-switch">
             <Switch label="Show on Today" description="Today’s five prayer times for where you are" checked={prayerOn} onChange={(checked) => updateSettings({ showPrayerTimes: checked })} />
           </div>
+          <LocationRow location={location} onChooseCity={chooseCity} />
         </div>
         {prayerOn && (
           <Disclosure
@@ -254,6 +277,25 @@ export default function SettingsPage({ user, onUserChange, onSignOut }) {
         )}
       </section>
 
+      <section className="settings-group" id="help">
+        <h2>Help</h2>
+        <div className="card settings-card settings-list">
+          <button type="button" className="settings-row" onClick={openWelcome}>
+            <span className="settings-row-icon"><Icon name="sparkles" size={18} /></span>
+            <span className="settings-row-text"><strong>Welcome tour</strong><small>A quick look at what Daybook can do</small></span>
+            <Icon name="chevronRight" size={18} />
+          </button>
+          <button type="button" className="settings-row" onClick={() => setInstallOpen(true)}>
+            <span className="settings-row-icon"><Icon name="home" size={18} /></span>
+            <span className="settings-row-text">
+              <strong>Add Daybook to your Home Screen</strong>
+              <small>{isHomeScreenApp() ? 'You’re using the Home Screen app' : 'Opens like an app, with reminders on iPhone'}</small>
+            </span>
+            <Icon name="chevronRight" size={18} />
+          </button>
+        </div>
+      </section>
+
       <section className="settings-group" id="account">
         <h2>Account &amp; security</h2>
         <div className="card settings-card settings-list">
@@ -279,11 +321,6 @@ export default function SettingsPage({ user, onUserChange, onSignOut }) {
             {!user.hasRecovery && <span className="badge badge-warning">Set up</span>}
             <Icon name="chevronRight" size={18} />
           </button>
-          <button type="button" className="settings-row" onClick={openWelcome}>
-            <span className="settings-row-icon"><Icon name="sparkles" size={18} /></span>
-            <span className="settings-row-text"><strong>Welcome tour</strong><small>A quick look at what Daybook can do</small></span>
-            <Icon name="chevronRight" size={18} />
-          </button>
           <button type="button" className="settings-row is-danger" onClick={signOut}>
             <span className="settings-row-icon"><Icon name="logout" size={18} /></span>
             <span className="settings-row-text"><strong>Log out</strong></span>
@@ -295,7 +332,12 @@ export default function SettingsPage({ user, onUserChange, onSignOut }) {
 
       <p className="settings-footnote">Daybook · Your data syncs across your devices.</p>
 
-      <ClassSheet item={classSheet} onClose={() => setClassSheet(null)} />
+      <ClassSheet item={classSheet} onClose={() => setClassSheet(null)} onReopen={() => setClassSheet({})} />
+      <CitySheet open={cityOpen} onClose={() => setCityOpen(false)} />
+      <Sheet open={installOpen} onClose={() => setInstallOpen(false)} title="Add Daybook to your Home Screen" description="It then opens like an app, full screen. On iPhone, reminders need it." size="sm">
+        <InstallSteps />
+        <p className="set-install-other">On Android or a computer, open your browser’s menu and choose Install app or Add to Home screen.</p>
+      </Sheet>
       <PasswordSheet open={securitySheet === 'password'} onClose={() => setSecuritySheet(null)} onUserChange={onUserChange} />
       <RecoverySheet open={securitySheet === 'recovery'} onClose={() => setSecuritySheet(null)} onUserChange={onUserChange} />
     </div>
@@ -515,18 +557,37 @@ const DEVICE_STATUS = {
 }
 
 // Which optional areas show (lib/areas.js). Off hides the area from the tab bar, the top bar and
-// Today; the data stays and the area comes straight back when switched on.
+// Today; the data stays and the area comes straight back when switched on. Under each area that's
+// on, a row with its status leads to that area's own settings, so Settings is the one place to look.
 function AreaSettings({ settings }) {
   const areas = areasFrom(settings)
   const set = (id, on) => updateSettings({ areas: { ...(settings.areas && typeof settings.areas === 'object' ? settings.areas : {}), [id]: on } })
+  const links = {
+    gym: [gymPlanExists(settings.gym)
+      ? { href: '#/gym/settings', label: 'Gym settings', value: gymPlanSummary(settings.gym, todayISO()) }
+      : { href: '#/gym', label: 'Gym settings', value: 'No plan yet · Set up' }],
+    food: [
+      { href: '#/food/goals', label: 'Food goals', value: calorieGoalText(settings.food) || 'No goal yet' },
+      { href: '#/food/foods', label: 'My foods', value: savedFoodsText(settings.food) },
+    ],
+  }
   return (
     <section className="settings-group" id="areas">
       <h2>What you use</h2>
       <div className="card set-list">
         {AREAS.map((area) => (
-          <div key={area.id} className="set-row is-switch">
-            <Switch label={area.label} description={area.text} checked={areas[area.id]} onChange={(on) => set(area.id, on)} />
-          </div>
+          <Fragment key={area.id}>
+            <div className="set-row is-switch">
+              <Switch label={area.label} description={area.text} checked={areas[area.id]} onChange={(on) => set(area.id, on)} />
+            </div>
+            {areas[area.id] && (links[area.id] || []).map((link) => (
+              <a key={link.href + link.label} className="set-row set-link-row" href={link.href}>
+                <span className="set-label">{link.label}</span>
+                <span className="set-link-value">{link.value}</span>
+                <Icon name="chevronRight" size={18} />
+              </a>
+            ))}
+          </Fragment>
         ))}
       </div>
       <p className="set-footnote">Today, Tasks, Calendar and the Assistant are always there. Gym and Food live in Health, one tap from the top. Turning something off only hides it; nothing is deleted.</p>
@@ -534,13 +595,37 @@ function AreaSettings({ settings }) {
   )
 }
 
-function NotificationSettings({ settings }) {
-  const prefs = notificationPrefs(settings)
-  const [support, setSupport] = useState(pushSupport)
-  const [enabledHere, setEnabledHere] = useState(false)
-  const [busy, setBusy] = useState(false)
+// Settings → Prayer times → Location: where weather, prayer times and prayer reminders are for.
+// "Use my location" replaces a chosen city; "Choose a city" picks one by name (CitySheet), which
+// the phone's position then leaves alone.
+function LocationRow({ location, onChooseCity }) {
+  const { coords, source, name, status, locate } = location
+  const value = source === 'manual' ? name || 'Chosen city' : coords ? 'Current location' : 'Not set'
+  const note = status === 'error' ? 'Couldn’t get your location. Check that Location Services is on, then try again.'
+    : source === 'manual' ? 'Chosen by you. Your phone’s location won’t change it.'
+      : !coords ? (status === 'denied' ? 'Location is blocked for Daybook: choose your city instead.' : 'Needed for prayer times, prayer reminders and weather.')
+        : updatedLabel(coords.savedAt || coords.at) || 'Saved with your account'
+  const canLocate = status !== 'unsupported' && status !== 'denied'
+  return (
+    <div className="set-row is-stacked set-location">
+      <div className="set-location-head">
+        <span className="set-label">Location</span>
+        <span className="set-location-value">{value}</span>
+      </div>
+      <p className="set-note">{note}</p>
+      <div className="set-location-actions">
+        {canLocate && <Button variant="secondary" size="sm" icon="pin" loading={status === 'locating'} onClick={locate}>Use my location</Button>}
+        <Button variant="secondary" size="sm" icon="search" onClick={onChooseCity}>Choose a city</Button>
+      </div>
+    </div>
+  )
+}
 
-  useEffect(() => { currentSubscription().then((subscription) => setEnabledHere(!!subscription)).catch(() => {}) }, [])
+function NotificationSettings({ settings, location, onChooseCity }) {
+  const prefs = notificationPrefs(settings)
+  // Shared with the hints under the reminder switches and on Today: turning on in one updates all.
+  const { support, subscribed } = usePushStatus()
+  const [busy, setBusy] = useState(false)
 
   const set = (patch) => updateSettings({ notifications: { ...prefs, ...patch } })
 
@@ -548,12 +633,10 @@ function NotificationSettings({ settings }) {
     setBusy(true)
     try {
       await enableNotifications()
-      setEnabledHere(true)
       toast('Notifications are on for this device', { tone: 'success' })
     } catch (error) {
       toast(error.message, { tone: 'error', duration: 7000 })
     } finally {
-      setSupport(pushSupport())
       setBusy(false)
     }
   }
@@ -561,7 +644,6 @@ function NotificationSettings({ settings }) {
   async function disable() {
     setBusy(true)
     await disableNotifications()
-    setEnabledHere(false)
     setBusy(false)
     toast('Notifications are off for this device')
   }
@@ -575,7 +657,8 @@ function NotificationSettings({ settings }) {
     }
   }
 
-  const on = support === 'granted' && enabledHere
+  const on = support === 'granted' && subscribed === true
+  const canLocate = location.status !== 'unsupported' && location.status !== 'denied'
   // The server only sends workout reminders once a gym schedule exists.
   const gymVersions = settings.gym?.schedule?.versions
   const hasGymPlan = Array.isArray(gymVersions) && gymVersions.length > 0
@@ -649,10 +732,14 @@ function NotificationSettings({ settings }) {
         </div>
         {prefs.prayer && (
           <>
+            <NotifyOffHint className="set-row" />
             {!hasLocation && (
-              <div className="set-row">
-                <span className="set-hint">Needs your location: tap “Use my location” on Today.</span>
-                <button type="button" className="link-btn" onClick={() => navigate('today')}>Today</button>
+              <div className="set-row set-hint-row">
+                <span className="set-hint">Needs your location.</span>
+                <span className="set-hint-actions">
+                  {canLocate && <button type="button" className="link-btn" onClick={location.locate} disabled={location.status === 'locating'}>{location.status === 'locating' ? 'Locating…' : 'Use my location'}</button>}
+                  <button type="button" className="link-btn" onClick={onChooseCity}>Choose a city</button>
+                </span>
               </div>
             )}
             <div className="set-row">
@@ -704,6 +791,7 @@ function NotificationSettings({ settings }) {
           </div>
           {prefs.gym && (
             <>
+              <NotifyOffHint className="set-row" />
               <div className="set-row">
                 <label htmlFor="pref-gym">Time</label>
                 <input id="pref-gym" className="input" type="time" value={prefs.gymTime} onChange={(event) => set({ gymTime: event.target.value || '17:00' })} />

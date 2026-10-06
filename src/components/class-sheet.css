@@ -26,6 +26,9 @@
 #class-form .chip::after { content: ''; position: absolute; inset: -4px 0; }
 #class-form .chip.chip-sm::after { inset: -7px 0; }
 
+/* "Save & add another" beside "Add class": it keeps its label on one line; Add class takes the rest. */
+.btn.cs-again { flex-shrink: 0; white-space: nowrap; }
+
 /* Rooms behind "More options": one field per meeting, labelled by its day and start time. */
 .cs-rooms { display: flex; flex-direction: column; gap: 8px; }
 .cs-room { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; align-items: center; }

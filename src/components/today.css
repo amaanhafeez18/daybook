@@ -215,6 +215,13 @@
 .td-weather .td-facts div { gap: 6px; }
 .link-btn.td-hl-link { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; margin: -2px 0; margin-left: auto; padding: 0 2px; font-size: 15px; font-weight: 600; }
 .link-btn.td-hl-link:disabled { opacity: 0.6; }
+/* "Using your saved location · Update" / "Weather for Lahore · Change city". */
+.td-weather .td-weather-foot.td-place { flex-wrap: nowrap; font-size: 15px; }
+.td-weather .td-weather-foot.td-place > .muted { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.td-weather .td-weather-foot.td-place > .td-hl-link { flex-shrink: 0; }
+/* No location yet: "Use my location" with "Choose a city" beside it. */
+.journal-prompt .td-locate-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 16px; }
+.journal-prompt .td-locate-actions > .link-btn.td-hl-link { margin-left: 0; }
 
 /* Prayer: "Next Asr 3:45 PM · in 1h 20m". */
 .td-prayer .disclosure-toggle { container: td-prayer / inline-size; }
