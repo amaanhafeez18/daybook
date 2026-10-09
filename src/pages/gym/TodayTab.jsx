@@ -21,7 +21,7 @@ import ChangeWorkoutSheet from './ChangeWorkoutSheet.jsx'
 import ScheduleEditor from './ScheduleEditor.jsx'
 import SkipSheet from './SkipSheet.jsx'
 import { beginWorkout } from './startWorkout.js'
-import { ExerciseThumb } from './visuals/lazy.jsx'
+import { ExerciseVisualButton } from './visuals/lazy.jsx'
 import './gym.css'
 
 const num = (value) => (typeof value === 'number' && Number.isFinite(value) ? value : null)
@@ -646,23 +646,36 @@ function ExerciseList({ routine, gym, sessions, deload }) {
         const label = labels.get(plan.row.id)
         return (
           <li key={plan.row.id} className={`gym-td-ex${open ? ' is-open' : ''}${label ? ' in-superset' : ''}`}>
-            <button type="button" className="gym-td-ex-row" aria-expanded={open} onClick={() => setOpenId(open ? null : plan.row.id)}>
-              <span className="gym-td-ex-num" aria-hidden="true">{label || index + 1}</span>
-              <ExerciseThumb exercise={plan.entry} size={36} animate={open} />
-              <span className="gym-td-ex-text">
-                <span className="gym-td-ex-name">{plan.name}</span>
-                <span className="gym-td-ex-line">
-                  {plan.line}
-                  {plan.warmups > 0 && <span className="gym-td-ex-warm"> · {plan.warmups} W</span>}
+            {/* The row opens its targets; the picture, its own button laid over the row, pops up how it's done. */}
+            <div className="gym-td-ex-head">
+              <button type="button" className="gym-td-ex-row" aria-expanded={open} onClick={() => setOpenId(open ? null : plan.row.id)}>
+                <span className="gym-td-ex-num" aria-hidden="true">{label || index + 1}</span>
+                {plan.entry && <span className="gym-td-ex-slot" aria-hidden="true" />}
+                <span className="gym-td-ex-text">
+                  <span className="gym-td-ex-name">{plan.name}</span>
+                  <span className="gym-td-ex-line">
+                    {plan.line}
+                    {plan.warmups > 0 && <span className="gym-td-ex-warm"> · {plan.warmups} W</span>}
+                  </span>
                 </span>
-              </span>
-              {plan.badge && (
-                <span className={`gym-td-badge is-${plan.badge.kind}`} title={plan.badge.title}>
-                  <Icon name={plan.badge.icon} size={12} strokeWidth={2.6} />{plan.badge.text}
-                </span>
+                {plan.badge && (
+                  <span className={`gym-td-badge is-${plan.badge.kind}`} title={plan.badge.title}>
+                    <Icon name={plan.badge.icon} size={12} strokeWidth={2.6} />{plan.badge.text}
+                  </span>
+                )}
+                <Icon name="chevronDown" size={18} className="gym-td-ex-chevron" />
+              </button>
+              {plan.entry && (
+                <ExerciseVisualButton
+                  exercise={plan.entry}
+                  name={plan.name}
+                  size={36}
+                  className="gym-td-ex-pic"
+                  animate={open}
+                  onDetails={plan.row.exerciseId ? () => navigate(`gym/exercise/${encodeURIComponent(plan.row.exerciseId)}`) : undefined}
+                />
               )}
-              <Icon name="chevronDown" size={18} className="gym-td-ex-chevron" />
-            </button>
+            </div>
             {open && <TargetEditor routine={routine} plan={plan} gym={gym} deload={deload} />}
           </li>
         )

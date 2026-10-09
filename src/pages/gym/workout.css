@@ -436,8 +436,13 @@
 .gym-log-reorder-bar > div { display: flex; flex-direction: column; min-width: 0; }
 .gym-log-reorder-bar strong { font-size: 16px; }
 .gym-log-reorder-bar span { font-size: 13px; color: var(--text-2); }
-.gym-log-reorder { display: flex; flex-direction: column; border-radius: 24px; background: var(--card-bg); overflow: hidden; }
+/* The list doesn't clip, so a row dragged past either end stays visible; its end rows round their
+   own corners (the superset stripe follows them). */
+.gym-log-reorder { display: flex; flex-direction: column; border-radius: 24px; background: var(--card-bg); }
 .gym-log-reorder-row { position: relative; display: flex; align-items: center; gap: 8px; min-height: 60px; padding: 6px 8px 6px 16px; }
+.gym-log-reorder-row:first-child { border-top-left-radius: 24px; border-top-right-radius: 24px; }
+.gym-log-reorder-row:last-child { border-bottom-left-radius: 24px; border-bottom-right-radius: 24px; }
+.gym-log-reorder-row.has-grip { padding-left: 6px; }
 .gym-log-reorder-row + .gym-log-reorder-row::before {
   content: '';
   position: absolute;
@@ -449,7 +454,11 @@
   transform: scaleY(0.5);
   transform-origin: top;
 }
+.gym-log-reorder-row.has-grip::before { left: 46px; }
 .gym-log-reorder-row.has-ss { box-shadow: inset 4px 0 0 var(--gym-ss); }
+/* The row being dragged (useDragSort): the card's background, so it covers the rows it passes. */
+.gym-log-reorder-row[data-dragging] { background: var(--card-bg); border-radius: 16px; }
+.gym-log-reorder-row[data-dragging]::before { opacity: 0; }
 .gym-log-reorder-name { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .gym-log-reorder-name span { font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gym-log-reorder-name small { font-size: 13px; color: var(--text-2); }
@@ -651,8 +660,9 @@
 .gym-rest-controls { display: grid; grid-template-columns: 1fr 1.25fr 1fr; gap: 10px; }
 .gym-rest-controls .btn { padding: 0 10px; font-variant-numeric: tabular-nums; }
 
-/* Toasts sit above the rest bar / the summary's Done button while they show. */
-html.gym-has-float .toaster { bottom: calc(var(--nav-h) + var(--safe-bottom) + 92px); }
+/* Toasts sit above the rest bar / the summary's Done button while they show (at the top while a
+   sheet is open: shell.css). :where keeps the specificity, so the keyboard rule still wins. */
+html.gym-has-float:where(:not(.has-sheet)) .toaster { bottom: calc(var(--nav-h) + var(--safe-bottom) + 92px); }
 
 /* ---- finish sheet -------------------------------------------------------------------------- */
 
@@ -811,7 +821,7 @@ html.gym-has-float .toaster { bottom: calc(var(--nav-h) + var(--safe-bottom) + 9
   html.is-focus .gym-wo-bar { top: calc(var(--safe-top) + 4px); }
   html.is-focus .gym-ex { scroll-margin-top: calc(var(--safe-top) + 84px); }
   html.is-focus .gym-rest-bar, html.is-focus .gym-rest-over { bottom: calc(var(--safe-bottom) + 12px); }
-  html.is-focus.gym-has-float .toaster { bottom: calc(var(--safe-bottom) + 84px); }
+  html.is-focus.gym-has-float:where(:not(.has-sheet)) .toaster { bottom: calc(var(--safe-bottom) + 84px); }
   html.is-focus .gym-summary-done { bottom: calc(var(--safe-bottom) + 12px); }
 }
 
@@ -821,7 +831,7 @@ html.gym-has-float .toaster { bottom: calc(var(--nav-h) + var(--safe-bottom) + 9
   .gym-wo-bar { top: 12px; }
   .gym-ex { scroll-margin-top: 96px; }
   .gym-rest-bar, .gym-rest-over { bottom: 24px; left: calc(50% + 126px); width: min(460px, calc(100% - 252px - 48px)); }
-  html.gym-has-float .toaster { bottom: 98px; }
+  html.gym-has-float:where(:not(.has-sheet)) .toaster { bottom: 98px; }
   .gym-summary-done { bottom: 24px; }
 }
 

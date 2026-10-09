@@ -34,6 +34,10 @@ let state = {
   lastSyncedAt: null,
   pendingSaves: 0,
   saveError: '',
+  // { [key]: message }: every list (or settings) whose save the server turned down, until it saves.
+  // saveError above is the newest of them, for the sync badge; a page that cares about one list
+  // (e.g. food's "needs a database update" note) reads that list's own entry here.
+  saveErrors: {},
   // { [key]: [field] }: fields a save this session couldn't store because the database doesn't have
   // the column yet (a migration not yet run). Their values are kept on this device (see "held").
   droppedFields: {},
@@ -45,7 +49,8 @@ const saveTimers = {}
 const inFlight = {}
 const saveAgain = {}
 // Saves the server turned down, per key (its message). state.saveError shows the newest one and
-// stays until every one of those keys has saved, so a retry of one list can't hide another's failure.
+// stays until every one of those keys has saved, so a retry of one list can't hide another's failure;
+// state.saveErrors has them all.
 const failedSaves = new Map()
 let retryTimer = null
 let retryAttempt = 0
@@ -121,6 +126,8 @@ function sameRow(base, row) {
 }
 
 function diffList(base, next) {
+  // The same list (the record and the cache share it when nothing is unsaved): nothing to compare.
+  if (base === next) return { upsert: [], remove: [] }
   const baseById = new Map((base || []).map((item) => [item.id, item]))
   const upsert = []
   const nextIds = new Set()
@@ -131,6 +138,14 @@ function diffList(base, next) {
   }
   const remove = (base || []).filter((item) => !nextIds.has(item.id)).map((item) => item.id)
   return { upsert, remove }
+}
+
+// Whether the server's rows are the recorded list, row for row and in the same order. Compared per
+// row, so a record of fingerprints (see FINGERPRINTED) can match too.
+function sameList(server, base) {
+  if (server === base) return true
+  if (!Array.isArray(base) || server.length !== base.length) return false
+  return server.every((row, index) => base[index]?.id === row?.id && sameRow(base[index], row))
 }
 
 function applyDiff(list, { upsert, remove }) {
@@ -316,12 +331,29 @@ function refillRow(row, fields) {
 
 // ---- loading -----------------------------------------------------------------------------
 
+function readRaw(key) {
+  try {
+    return localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function parseJson(raw) {
+  try {
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
 // Show whatever this device already has, instantly.
 export function hydrateFromCache() {
   const data = emptyData()
   let found = false
   for (const key of ALL_KEYS) {
-    const cached = readJson(CACHE_PREFIX + key)
+    const rawCache = readRaw(CACHE_PREFIX + key)
+    const cached = parseJson(rawCache)
     const hasCache = isValid(key, cached)
     if (hasCache) {
       data[key] = cached
@@ -330,9 +362,11 @@ export function hydrateFromCache() {
     } else {
       uncached.add(key)
     }
-    const confirmed = readJson(SYNCED_PREFIX + key)
     // The record only counts next to a cache (see above). Without one, assume the cache
-    // matches the server.
+    // matches the server. A record that reads the same as the cache (nothing unsaved) is parsed
+    // once and shares its rows, so finding unsaved edits needs no row-by-row comparison.
+    const rawRecord = hasCache ? readRaw(SYNCED_PREFIX + key) : null
+    const confirmed = rawRecord === rawCache ? data[key] : parseJson(rawRecord)
     synced[key] = hasCache && isValid(key, confirmed) ? confirmed : data[key]
   }
   loadHeld()
@@ -359,12 +393,18 @@ export function refresh() {
       const unchanged = new Set()
       for (const key of ALL_KEYS) {
         let server = isValid(key, result[key]) ? result[key] : emptyData()[key]
-        if (!uncached.has(key) && sameValue(server, base[key])) {
+        // Fingerprinted records (right after a launch) are compared row by row, by hash.
+        const sameAsBase = FINGERPRINTED.has(key) ? sameList(server, base[key]) : sameValue(server, base[key])
+        if (!uncached.has(key) && sameAsBase) {
           const shown = key === 'settings' ? data.settings : state.data[key]
           const local = key === 'settings' ? settingsChanges(base.settings || {}, shown) : diffList(base[key] || [], shown)
           const same = key === 'settings' ? !Object.keys(local).length : !local.upsert.length && !local.remove.length
           if (same && !(key !== 'settings' && held[key] && Object.keys(held[key]).length)) {
             unchanged.add(key)
+            // The shown list is the server's: record that very list, so later checks for unsaved
+            // edits (every save, and every time the app is hidden) match it at once. Not if a save
+            // landed during the read (synced moved on): that save's record must stay.
+            if (key !== 'settings' && synced[key] === base[key]) synced[key] = shown
             continue
           }
         }
@@ -459,12 +499,12 @@ async function flush(key) {
       else storeRecord(key)
       retryAttempt = 0
       failedSaves.delete(key)
-      setState({ saveError: latestSaveFailure(), offline: false })
+      setState({ ...saveFailures(), offline: false })
     } catch (error) {
       if (startedIn !== generation || error.status === 401) return
       // Offline isn't a rejection: the list keeps whatever failure it had before.
       if (error.status !== 0) failedSaves.set(key, error.message || 'Something went wrong. Please try again.')
-      setState({ saveError: latestSaveFailure(), offline: error.status === 0 })
+      setState({ ...saveFailures(), offline: error.status === 0 })
       scheduleRetry()
     } finally {
       if (startedIn === generation) {
@@ -480,24 +520,30 @@ async function flush(key) {
   return inFlight[key]
 }
 
-function latestSaveFailure() {
-  return [...failedSaves.values()].pop() || ''
+// state.saveError (the newest failure) and state.saveErrors (all of them) from failedSaves.
+// saveErrors keeps its object while nothing in it changed, so a page watching it doesn't re-render.
+function saveFailures() {
+  const saveErrors = Object.fromEntries(failedSaves)
+  const keys = Object.keys(saveErrors)
+  const same = keys.length === Object.keys(state.saveErrors).length && keys.every((key) => state.saveErrors[key] === saveErrors[key])
+  return { saveError: [...failedSaves.values()].pop() || '', saveErrors: same ? state.saveErrors : saveErrors }
 }
 
-// Records (message) or clears ('') a failed save of `key` and updates state.saveError.
+// Records (message) or clears ('') a failed save of `key` and updates state.saveError(s).
 function noteSaveFailure(key, message) {
   if (message) failedSaves.set(key, message)
   else if (!failedSaves.delete(key)) return
-  const saveError = latestSaveFailure()
-  if (saveError !== state.saveError) setState({ saveError })
+  const next = saveFailures()
+  if (next.saveError !== state.saveError || next.saveErrors !== state.saveErrors) setState(next)
 }
 
-// What the sync badge shows: 'offline', 'error' (the server turned a save down; until it saves),
-// 'saving' (only once a save has taken a while: `slow`) or 'saved'. Refreshes never show.
+// What the sync badge shows: 'offline', 'saving' (only once a save has taken a while: `slow`; also
+// over an error, so tapping Retry visibly does something), 'error' (the server turned a save down;
+// until it saves) or 'saved'. Refreshes never show.
 export function saveStatus({ offline, saveError, pendingSaves }, slow = false) {
   if (offline) return 'offline'
-  if (saveError) return 'error'
-  return pendingSaves > 0 && slow ? 'saving' : 'saved'
+  if (pendingSaves > 0 && slow) return 'saving'
+  return saveError ? 'error' : 'saved'
 }
 
 export async function flushAll() {
@@ -512,9 +558,13 @@ function scheduleRetry() {
   retryTimer = setTimeout(retryUnsaved, delay)
 }
 
-export function retryUnsaved() {
+// Sends every unsaved change now (the saves start right away). Resolves once they're done, so a
+// Retry button can tell whether they got through (state.saveError). A list that was turned down
+// but has nothing left to send has its failure cleared.
+export async function retryUnsaved() {
   clearTimeout(retryTimer)
-  for (const key of ALL_KEYS) if (hasLocalChanges(key)) flush(key)
+  await Promise.all(ALL_KEYS.filter((key) => failedSaves.has(key) || hasLocalChanges(key)).map((key) => flush(key)))
+  await Promise.all(ALL_KEYS.map((key) => inFlight[key])) // a save queued behind one in flight
 }
 
 export function hasUnsavedChanges() {
@@ -536,7 +586,7 @@ export function resetStore() {
   synced = {}
   held = {}
   for (const key of ALL_KEYS) uncached.add(key)
-  setState({ data: emptyData(), loaded: false, hydrated: false, syncing: false, lastSyncedAt: null, pendingSaves: 0, saveError: '', droppedFields: {}, offline: false })
+  setState({ data: emptyData(), loaded: false, hydrated: false, syncing: false, lastSyncedAt: null, pendingSaves: 0, saveError: '', saveErrors: {}, droppedFields: {}, offline: false })
 }
 
 export function newId() {

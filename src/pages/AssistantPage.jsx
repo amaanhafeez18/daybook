@@ -16,7 +16,7 @@ import { pushSupport } from '../lib/notifications.js'
 import { getGym, hasPlan, useGym, useGymSessions, useToday } from '../lib/gym/state.js'
 import { navigate } from '../lib/router.js'
 import { resolveDay } from '../lib/gym/schedule.js'
-import { assistantSpace, buildSuggestions, canUndo, cardExpired, collapsesCard, composerPlaceholder, proposalExpired, visibleActions } from '../lib/assistantChat.js'
+import { assistantSpace, buildSuggestions, canUndo, cardExpired, collapsesCard, composerPlaceholder, proposalExpired, setsOffer, undoRefused, visibleActions } from '../lib/assistantChat.js'
 import '../components/assistant.css'
 
 const CHAT_CACHE = 'daybook.chat'
@@ -28,6 +28,9 @@ const lastMessageAt = (list) => Date.parse(list[list.length - 1]?.createdAt || '
 const RETURNING_PREF = 'assistant.returning'
 // #/assistant/memory (Settings links to it) opens "What I remember".
 const MEMORY_HASH = /^#\/?assistant\/memory\b/
+// #/assistant/timetable ("From a photo" on the Get set up card and in Settings) opens the "+" menu for
+// a timetable photo, like the start screen's timetable hint.
+const TIMETABLE_HASH = /^#\/?assistant\/timetable\b/
 // A confirmed run takes seconds; one still "executing" after this was cut off (timeout, crash).
 const EXECUTING_STALE_MS = 3 * 60 * 1000
 // After Stop or a dropped connection during Yes / No, how long to wait before each look at the server.
@@ -186,8 +189,19 @@ export default function AssistantPage({ displayName }) {
   }, [])
 
   // #/assistant/memory opens "What I remember", also while the page is already open.
+  // #/assistant/timetable opens the "+" menu for a timetable photo (it opens on screen, so no tap is
+  // needed; the picker itself opens from the tap on a menu item), then the link goes back to #/assistant.
   useEffect(() => {
-    const onHash = () => { if (MEMORY_HASH.test(window.location.hash)) setMemoryOpen(true) }
+    const onHash = () => {
+      if (MEMORY_HASH.test(window.location.hash)) setMemoryOpen(true)
+      if (TIMETABLE_HASH.test(window.location.hash)) {
+        timetableRef.current = true
+        setAttachError('')
+        setAttachMenu({ keyboard: false })
+        window.history.replaceState(null, '', '#/assistant')
+      }
+    }
+    if (TIMETABLE_HASH.test(window.location.hash)) onHash()
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
@@ -358,7 +372,8 @@ export default function AssistantPage({ displayName }) {
         actions: doneActions(done, message.actions),
         ...(proposal ? { proposal } : {}),
         ...(choices.length ? { choices } : {}),
-        ...(done.offer && typeof done.offer === 'object' ? { offer: done.offer } : {}),
+        // The finished reply decides (a "Log my sets" streamed early is dropped when the card has other changes).
+        offer: done.offer && typeof done.offer === 'object' ? done.offer : undefined,
       }))
       const updates = [done.proposalUpdate].flat().filter((update) => update?.id && update.status)
       // The Yes just carried out: per-action results, from the update or (older server) the reply's actions.
@@ -691,12 +706,17 @@ export default function AssistantPage({ displayName }) {
     if (!undoId) return
     patchAction(undoId, { undoing: true })
     try {
-      const result = await apiRequest('/api/assistant', { method: 'POST', body: { action: 'undo', undoId, context: clientContext(pushRef.current) } })
+      // ?undo=1: the server loads only what this chip touches, not everything a message needs.
+      const result = await apiRequest('/api/assistant?undo=1', { method: 'POST', body: { action: 'undo', undoId, context: clientContext(pushRef.current) } })
       patchAction(undoId, { undoing: false, undone: true })
+      // Chips that went with it (a catch-up with a person just removed).
+      for (const id of Array.isArray(result?.alsoUndone) ? result.alsoUndone : []) patchAction(id, { undone: true })
       if (!quiet) toast(result?.message || 'Undone.')
       refresh().catch(() => {})
     } catch (error) {
-      patchAction(undoId, { undoing: false })
+      // Refused for good (too old, or already gone): the chip stops offering Undo. "Changed since"
+      // keeps it, since undoing what changed it makes it possible again (see undoRefused).
+      patchAction(undoId, { undoing: false, ...(undoRefused(error) ? { undoBlocked: true } : {}) })
       if (!quiet) toast(error.message, { tone: 'error' })
     }
   }
@@ -709,15 +729,22 @@ export default function AssistantPage({ displayName }) {
       navigate(hasPlan(getGym()) ? 'gym/routines' : 'gym')
       return
     }
-    // "Log my sets" replaces the quick log waiting on this reply's card.
-    const proposal = message.proposal
-    if (offer.when === 'done' && proposal?.id && proposal.status === 'pending') {
-      setProposalStatus(proposal.id, 'cancelled')
-      apiRequest('/api/assistant', { method: 'POST', body: { confirm: { proposalId: proposal.id, decision: 'no', silent: true }, context: clientContext(pushRef.current) } }).catch(() => {})
-    }
-    const run = (module) => {
-      if (module) module.beginOffer(offer)
-      else toast('Couldn’t open the workout. Check your connection and try again.', { tone: 'error' })
+    // "Log my sets" replaces the quick log waiting on this reply's card (only a card that holds just
+    // that), once the workout has really started: Resume or closing the "Workout in progress" dialog
+    // leaves the card as it was.
+    const { cancels } = setsOffer(offer, message.proposal, message.actions)
+    const run = async (module) => {
+      if (!module) {
+        toast('Couldn’t open the workout. Check your connection and try again.', { tone: 'error' })
+        return
+      }
+      const workout = await module.beginOffer(offer)
+      if (!workout || !cancels) return
+      setProposalStatus(cancels, 'cancelled', { from: 'pending' })
+      // The workout screen replaces this page, so the cached chat is updated here as well.
+      const cached = readJson(CHAT_CACHE, [])
+      if (Array.isArray(cached)) writeJson(CHAT_CACHE, cached.map((item) => (item?.proposal?.id === cancels && item.proposal.status === 'pending' ? { ...item, proposal: { ...item.proposal, status: 'cancelled' } } : item)))
+      apiRequest('/api/assistant', { method: 'POST', body: { confirm: { proposalId: cancels, decision: 'no', silent: true }, context: clientContext(pushRef.current) } }).catch(() => {})
     }
     if (startModule) run(startModule)
     else loadStart().then(run)
@@ -1119,17 +1146,13 @@ const Message = memo(function Message({ message, isLast, busy, onRetry, onDecide
 
 // Gym buttons under a reply (offer_workout): "Start Legs workout" / "Log my sets" plus Open Gym,
 // or "Build my gym plan". A start button shows on the day it was offered; "Log my sets" goes once
-// the quick log it replaces has been carried out.
+// the quick log it replaces has been saved (and comes back if that's undone), see setsOffer.
 function WorkoutOffer({ offer, proposal, actions, createdAt, disabled, onUse }) {
   const start = offer.action === 'start'
   const [planned, setPlanned] = useState(false) // "Build my gym plan" was tapped (a start offer's second button)
   useEffect(() => { if (start) loadStart() }, [start])
   const sameDay = typeof createdAt === 'string' && toISO(new Date(createdAt)) === todayISO()
-  // Once the quick log it replaces has been saved (by the card, or straight away), "Log my sets"
-  // would log the workout twice: the logged workout is edited from the Gym's History instead.
-  const quickLogged = Array.isArray(actions) && actions.some((action) => action?.tool === 'gym_quick_log' && action.ok)
-  const logged = offer.when === 'done' && (quickLogged || ['done', 'partial', 'executing'].includes(proposal?.status))
-  const showStart = start && sameDay && !logged
+  const showStart = start && sameDay && setsOffer(offer, proposal, actions).show
   if (!start) {
     return (
       <div className="asst-links asst-offer">
@@ -1696,6 +1719,7 @@ function cacheMessage({ role, content, voice, actions, proposal, choices, attach
         actions: (Array.isArray(proposal.actions) ? proposal.actions : []).slice(0, 12).map((action) => ({
           label: String(action?.label || '').slice(0, 300),
           ...(action?.detail ? { detail: String(action.detail).slice(0, 300) } : {}),
+          ...(action?.tool ? { tool: String(action.tool).slice(0, 60) } : {}),
         })),
         ...(Array.isArray(proposal.results) ? { results: cleanResults(proposal.results) } : {}),
       },

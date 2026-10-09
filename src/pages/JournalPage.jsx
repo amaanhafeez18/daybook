@@ -7,10 +7,13 @@ import AttachmentStrip from '../components/AttachmentStrip.jsx'
 import { getState, retryUnsaved, useData } from '../lib/store.js'
 import { MOODS, addNote, deleteJournalEntry, deleteNote, moodEmoji, saveJournalEntry } from '../lib/planner.js'
 import { attachmentSummary, useAttachmentsFor } from '../lib/attachments.js'
-import { addDaysISO, dayHeading, formatDateLong, formatDateShort, relativeDay, todayISO } from '../lib/dates.js'
+import { addDaysISO, dayHeading, formatDateLong, formatDateShort, relativeDay, toISO } from '../lib/dates.js'
+import { useNow } from '../lib/environment.js'
 import '../components/journal.css'
 
 const AUTOSAVE_MS = 700
+// How long the editor must sit untouched before it moves on from yesterday to the new today.
+const FOLLOW_TODAY_IDLE_MS = 10 * 60 * 1000
 // Search appears once there's enough to search through.
 const SEARCH_FROM = 4
 
@@ -62,7 +65,9 @@ export default function JournalPage() {
 
 function JournalEditor() {
   const entries = useData('journalEntries')
-  const today = todayISO()
+  // Re-rendered every minute (and on coming back to the app), so "today" moves on at midnight.
+  const now = useNow(60000)
+  const today = toISO(now)
   const [date, setDate] = useState(today)
   const [query, setQuery] = useState('')
   const entry = entries.find((item) => item.date === date) || null
@@ -70,6 +75,7 @@ function JournalEditor() {
   const [saveState, setSaveState] = useState('idle') // idle | pending | saved
   const timer = useRef(null)
   const pending = useRef(null)
+  const lastEdit = useRef(0) // when something was last typed or picked here
   const baseId = useRef(entry?.id || null) // id of the entry the draft was loaded from
   // Remounts "Mood & title" (so it can open by itself) when an entry for the shown day comes from
   // elsewhere — not when this editor's own autosave creates it: that would drop focus (and the
@@ -90,6 +96,19 @@ function JournalEditor() {
   }, [date, entry?.id, entry?.title, entry?.body, entry?.mood]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => () => flush(), []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Left open overnight, or resumed from memory a day later: an editor that was on today moves on
+  // to the new today, once nothing is waiting to save and nothing has been typed for a while
+  // (someone still writing past midnight keeps their day). A day picked by hand stays.
+  const followedDay = useRef(today) // the last day the editor showed as today
+  useEffect(() => {
+    if (date === today) {
+      followedDay.current = today
+      return
+    }
+    if (date !== followedDay.current || pending.current || Date.now() - lastEdit.current < FOLLOW_TODAY_IDLE_MS) return
+    setDate(today)
+  }, [date, today, now])
 
   // iOS may suspend or kill the app once it's hidden: save the draft and send it right away.
   useEffect(() => {
@@ -127,6 +146,7 @@ function JournalEditor() {
     const next = { ...draft, [field]: value }
     setDraft(next)
     pending.current = { date, fields: next, baseId: baseId.current }
+    lastEdit.current = Date.now()
     setSaveState('pending')
     clearTimeout(timer.current)
     timer.current = setTimeout(flush, field === 'mood' ? 0 : AUTOSAVE_MS)

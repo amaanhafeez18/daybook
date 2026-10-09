@@ -69,6 +69,13 @@ const SPACES = [{ id: 'plan', label: 'Plan', home: 'today' }, { id: 'health', la
 // The space a page belongs to; the Assistant and Settings stay in the space you came from.
 const SPACE_OF = { today: 'plan', tasks: 'plan', calendar: 'plan', people: 'plan', journal: 'plan', health: 'health', gym: 'health', food: 'health' }
 const pageOn = (areas) => (item) => !item.area || areas[item.area]
+// Whether a page's area is on right now (Health's own Today needs Gym or Food).
+function pageInUse(id) {
+  const areas = areasFrom(getState().data.settings)
+  if (id === 'health') return healthOn(areas)
+  const page = PAGES.find((item) => item.id === id)
+  return !page || pageOn(areas)(page)
+}
 const LEGACY_ROUTES = { summary: 'today', ai: 'assistant', friends: 'people' }
 
 // Tapping the link of the page already showing (same hash, so nothing would happen) scrolls it
@@ -229,9 +236,11 @@ function Shell({ user, onUserChange, onSignOut }) {
   useEffect(() => {
     let index = 0
     let timer = setTimeout(function next() {
-      const id = PREFETCH_ORDER[index++]
+      // Pages of areas turned off in Settings → "What you use" are skipped: no tab leads there.
+      const id = PREFETCH_ORDER.slice(index).find((item) => item !== route && pageInUse(item))
       if (!id) return
-      if (id !== route) PAGE_LOADERS[id]().catch(() => {})
+      index = PREFETCH_ORDER.indexOf(id) + 1
+      PAGE_LOADERS[id]().catch(() => {})
       timer = setTimeout(next, 400)
     }, 1500)
     return () => clearTimeout(timer)
@@ -253,15 +262,6 @@ function Shell({ user, onUserChange, onSignOut }) {
     const page = PAGES.find((item) => item.id === route)
     document.title = `${page?.title || page?.label || 'Daybook'} · Daybook`
   }, [route])
-
-  // iOS-style navigation bar: once the large page title scrolls away, a compact title appears.
-  const [scrolled, setScrolled] = useState(false)
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 44)
-    onScroll()
-    window.addEventListener('scroll', onScroll, { passive: true })
-    return () => window.removeEventListener('scroll', onScroll)
-  }, [])
 
   const displayName = rawName?.trim() || user.username
   const routeLabel = PAGES.find((item) => item.id === route)?.label || 'Daybook'
@@ -311,40 +311,7 @@ function Shell({ user, onUserChange, onSignOut }) {
       </nav>
 
       <div className="shell-main">
-        <header className={`topbar ${scrolled ? 'is-scrolled' : ''} ${health ? 'has-spaces' : ''}`}>
-          <a
-            href="#/settings"
-            className={`topbar-brand td-avatar-btn ${route === 'settings' ? 'is-active' : ''}`}
-            aria-label="Settings"
-            title="Settings"
-            aria-current={route === 'settings' ? 'page' : undefined}
-            onClick={(event) => scrollIfCurrent(event, 'settings')}
-          >
-            <Avatar name={displayName} size={32} />
-          </a>
-          {health
-            ? <SpaceSwitch space={spaceNow} areas={areas} />
-            : <span className="topbar-title" aria-hidden={!scrolled}>{routeLabel}</span>}
-          <SaveErrors />
-          {/* On the right, clear of the centred Plan | Health pill (alone there in Health). */}
-          <div className="topbar-actions">
-            <SyncStatus />
-            {spaceNow === 'plan' && EXTRAS.filter(pageOn(areas)).map((item) => (
-              <a
-                key={item.id}
-                href={`#/${item.id}`}
-                className={`icon-btn ${route === item.id ? 'is-active' : ''}`}
-                title={item.label}
-                aria-current={route === item.id ? 'page' : undefined}
-                onClick={(event) => scrollIfCurrent(event, item.id)}
-              >
-                <Icon name={item.icon} size={21} />
-                <span className="sr-only">{item.label}</span>
-                {item.id === 'journal' && <JournalDot />}
-              </a>
-            ))}
-          </div>
-        </header>
+        <TopBar route={route} health={health} space={spaceNow} areas={areas} displayName={displayName} routeLabel={routeLabel} />
 
         <main id="main" className={`page page-${route}`} tabIndex={-1}>
           <ErrorBoundary key={route}>
@@ -366,6 +333,55 @@ function Shell({ user, onUserChange, onSignOut }) {
       </div>
       <Welcome user={user} />
     </div>
+  )
+}
+
+// iOS-style navigation bar: once the large page title scrolls away, a compact title appears. It
+// follows the scroll itself, so crossing that point re-renders only the bar, not the page.
+function TopBar({ route, health, space, areas, displayName, routeLabel }) {
+  const [scrolled, setScrolled] = useState(false)
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 44)
+    onScroll()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+
+  return (
+    <header className={`topbar ${scrolled ? 'is-scrolled' : ''} ${health ? 'has-spaces' : ''}`}>
+      <a
+        href="#/settings"
+        className={`topbar-brand td-avatar-btn ${route === 'settings' ? 'is-active' : ''}`}
+        aria-label="Settings"
+        title="Settings"
+        aria-current={route === 'settings' ? 'page' : undefined}
+        onClick={(event) => scrollIfCurrent(event, 'settings')}
+      >
+        <Avatar name={displayName} size={32} />
+      </a>
+      {health
+        ? <SpaceSwitch space={space} areas={areas} />
+        : <span className="topbar-title" aria-hidden={!scrolled}>{routeLabel}</span>}
+      <SaveErrors />
+      {/* On the right, clear of the centred Plan | Health pill (alone there in Health). */}
+      <div className="topbar-actions">
+        <SyncStatus />
+        {space === 'plan' && EXTRAS.filter(pageOn(areas)).map((item) => (
+          <a
+            key={item.id}
+            href={`#/${item.id}`}
+            className={`icon-btn ${route === item.id ? 'is-active' : ''}`}
+            title={item.label}
+            aria-current={route === item.id ? 'page' : undefined}
+            onClick={(event) => scrollIfCurrent(event, item.id)}
+          >
+            <Icon name={item.icon} size={21} />
+            <span className="sr-only">{item.label}</span>
+            {item.id === 'journal' && <JournalDot />}
+          </a>
+        ))}
+      </div>
+    </header>
   )
 }
 
@@ -425,8 +441,17 @@ function useAfter(on, ms) {
 const saveErrorToast = (message) => toast(`Some changes aren’t saved: ${message}`, {
   tone: 'error',
   key: 'save-error', // the badge's tap shows the same toast again instead of stacking a second
-  action: { label: 'Retry', onClick: retryUnsaved },
+  action: { label: 'Retry', onClick: retrySaves },
 })
+
+// Retry closes the toast, and the badge spins if it takes a while. Turned down again, it says so
+// again (the same message leaves saveError as it was, so SaveErrors wouldn't).
+function retrySaves() {
+  retryUnsaved().then(() => {
+    const { saveError, offline } = getState()
+    if (saveError && !offline) saveErrorToast(saveError)
+  }, () => {})
+}
 
 // A newly rejected save says so once; the badge then stays until a save gets through.
 function SaveErrors() {

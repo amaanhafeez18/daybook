@@ -182,6 +182,12 @@
 .gym-td-ex-warm { color: var(--gym-warmup); font-weight: 600; }
 .gym-td-ex-chevron { flex-shrink: 0; color: var(--text-3); transition: transform 0.3s var(--ease); }
 .gym-td-ex.is-open .gym-td-ex-chevron { transform: rotate(180deg); }
+/* The picture is its own button (how-to pop-up), laid over the row's picture place in the same grid
+   cell: 16px padding + 32px number + 12px gap. */
+.gym-td-ex-head { display: grid; }
+.gym-td-ex-head > .gym-td-ex-row, .gym-td-ex-head > .gym-td-ex-pic { grid-area: 1 / 1; }
+.gym-td-ex-slot { flex-shrink: 0; width: 36px; height: 36px; }
+.gym-td-ex-pic { z-index: 1; align-self: center; justify-self: start; margin-left: 60px; }
 @supports (background: color-mix(in srgb, red 50%, blue)) {
   .gym-td-ex:not(.in-superset) .gym-td-ex-num { background: color-mix(in srgb, var(--gym-rc, var(--accent)) 14%, transparent); }
 }

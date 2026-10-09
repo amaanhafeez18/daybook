@@ -5,6 +5,8 @@ const USER_CACHE_PREFIXES = ['daybook.data.', 'daybook.synced.', 'daybook.chat',
 // Gym and food keep drafts and state under their own prefixes. A sign-out leaves them: the active
 // workout there is tied to its account and resumes when that account signs in again.
 const FEATURE_PREFIXES = ['daybook.gym.', 'daybook.food.']
+// Unsaved form drafts in sessionStorage (lib/drafts.js).
+const DRAFT_PREFIX = 'daybook.draft.'
 
 export const SESSION_EXPIRED_EVENT = 'daybook:session-expired'
 // A request that never answers (a connection dropped while the app was in the background) would
@@ -153,8 +155,9 @@ export async function fetchSession() {
 }
 
 // Removes everything this device caches for the signed-in user. By default (sign-out) the session
-// goes too, so the next person on the device starts clean. keepSession (after "Clear all data")
-// keeps the session and also drops gym and food state and this tab's unsaved drafts.
+// goes too, so the next person on the device starts clean, and so do this tab's unsaved form drafts
+// (lib/drafts.js; they don't say whose they are). keepSession (after "Clear all data") keeps the
+// session and also drops gym and food state and the gym's drafts (those are tied to their account).
 export function clearUserCaches({ keepSession = false } = {}) {
   if (!keepSession) setToken('')
   const prefixes = keepSession ? [...USER_CACHE_PREFIXES, ...FEATURE_PREFIXES] : USER_CACHE_PREFIXES
@@ -170,10 +173,10 @@ export function clearUserCaches({ keepSession = false } = {}) {
   } catch {
     // ignore
   }
-  if (!keepSession) return
+  const sessionPrefix = keepSession ? 'daybook.' : DRAFT_PREFIX
   try {
     for (const key of Object.keys(sessionStorage)) {
-      if (key.startsWith('daybook.')) sessionStorage.removeItem(key)
+      if (key.startsWith(sessionPrefix)) sessionStorage.removeItem(key)
     }
   } catch {
     // ignore

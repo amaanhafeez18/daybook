@@ -34,15 +34,24 @@ export function formatNumber(n, dp = 2) {
   return String(roundTo(value, places))
 }
 
-// Display precision for a weight: kg-stored values shown in lb land just off whole numbers (20 kg =
-// 44.09 lb), so near-whole values show whole, 1 decimal when that's (almost) exact, else 2 (1.25 kg
-// plates). The whole-number tolerance shrinks for light weights so 2.1 kg stays 2.1.
+// Display precision for a weight. A value with at most 2 decimals (what was typed, in either unit:
+// 80.1 kg, 180.1 lb) shows as is. So does one within a hair of 1 decimal: body weights are saved
+// rounded to 3 decimals in kg, which moves a typed 180.1 lb by up to 0.0011 lb (to 180.10003).
+// Others are conversion noise or computed: kg-stored values shown in lb land just off whole numbers
+// (20 kg = 44.09 lb), so near-whole values show whole, 1 decimal when that's (almost) exact, else 2
+// (1.25 kg plates). The whole-number tolerance shrinks for light weights so 2.1 kg stays 2.1.
 export function tidyWeight(value) {
   const n = finite(value)
   if (n === null) return null
+  const exact = roundTo(n, 2)
+  if (Math.abs(n - exact) <= 1e-7) {
+    const dp = Math.abs(exact - Math.round(exact)) <= 1e-9 ? 0 : Math.abs(exact - roundTo(exact, 1)) <= 1e-9 ? 1 : 2
+    return { value: roundTo(exact, dp), dp }
+  }
+  const one = roundTo(n, 1)
+  if (Math.abs(n - one) <= 0.0012) return { value: one, dp: Number.isInteger(one) ? 0 : 1 }
   const whole = Math.round(n)
   if (Math.abs(n - whole) <= Math.min(0.15, Math.abs(n) * 0.005) + 1e-9) return { value: whole, dp: 0 }
-  const one = roundTo(n, 1)
   if (Math.abs(n - one) <= 0.03) return { value: one, dp: 1 }
   return { value: roundTo(n, 2), dp: 2 }
 }

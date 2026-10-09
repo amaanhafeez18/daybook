@@ -19,6 +19,7 @@ import ScheduleEditor from './ScheduleEditor.jsx'
 import SplitWizard from './SplitWizard.jsx'
 import { beginWorkout } from './startWorkout.js'
 import { linkMatches, offerRelink } from './relink.js'
+import { orderByIds, useLocalReorder } from './reorder.js'
 import './routines.css'
 import './wizard.css'
 import './browse.css'
@@ -206,6 +207,12 @@ export default function RoutinesTab({ today }) {
     reorderRoutines(groups.flatMap((item) => (item === group ? ids : item.routines.map((entry) => entry.id))))
   }
 
+  // A drag (or an arrow key on a grip) in one group: that group in `ids` order, the rest as they are.
+  const saveGroupOrder = (folderId, ids) => {
+    const now = getGym()
+    reorderRoutines(groupRoutines(now.routines, now.folders).flatMap((item) => ((item.folder?.id ?? null) === folderId ? ids : item.routines.map((entry) => entry.id))))
+  }
+
   const toggleFolder = (id) => setCollapsed((list) => (list.includes(id) ? list.filter((item) => item !== id) : [...list, id]))
 
   if (!loaded && !routines.length) {
@@ -311,7 +318,7 @@ export default function RoutinesTab({ today }) {
         </div>
       )}
 
-      {reordering && <p className="gym-rt-hint">Use the arrows to change the order. Folders keep their own order.</p>}
+      {reordering && <p className="gym-rt-hint">Drag the handles or use the arrows to change the order. Folders keep their own order.</p>}
 
       {groups.map((group) => {
         const { folder } = group
@@ -351,16 +358,7 @@ export default function RoutinesTab({ today }) {
             {isCollapsed ? null : !group.routines.length ? (
               <p className="gym-rt-folder-empty">Empty folder. Move a routine here from its <span aria-hidden="true">•••</span><span className="sr-only">More</span> menu.</p>
             ) : reordering ? (
-              <ul className="card-list gym-reorder-list">
-                {group.routines.map((routine, index) => (
-                  <li key={routine.id} className="gym-reorder-row">
-                    <RoutineDot routine={routine} size={12} />
-                    <span className="gym-reorder-name">{routineName(routine)}</span>
-                    <IconButton icon="arrowUp" label={`Move ${routineName(routine)} up`} disabled={index === 0} onClick={() => moveInGroup(routine, -1)} />
-                    <IconButton icon="arrowDown" label={`Move ${routineName(routine)} down`} disabled={index === group.routines.length - 1} onClick={() => moveInGroup(routine, 1)} />
-                  </li>
-                ))}
-              </ul>
+              <ReorderGroup routines={group.routines} onStep={moveInGroup} onCommit={(ids) => saveGroupOrder(folder?.id ?? null, ids)} />
             ) : (
               <ul className="gym-rt-list">
                 {group.routines.map((routine) => (
@@ -385,6 +383,31 @@ export default function RoutinesTab({ today }) {
 
       {sheets}
     </div>
+  )
+}
+
+// Reorder mode, one group (loose routines or a folder): drag a routine by its grip (or arrow keys on
+// the grip), saved once on drop; the arrows move it one place.
+function ReorderGroup({ routines, onStep, onCommit }) {
+  const { keys, sort } = useLocalReorder(routines.map((routine) => routine.id), onCommit)
+  const shown = orderByIds(routines, keys)
+  return (
+    <ul className="card-list gym-reorder-list">
+      {shown.map((routine, index) => {
+        const name = routineName(routine)
+        return (
+          <li key={routine.id} className="gym-reorder-row" {...sort.item(routine.id)}>
+            <button type="button" className="drag-grip" aria-label={`Move ${name}: drag, or use the arrow keys`} {...sort.handle(routine.id)}>
+              <Icon name="grip" size={18} />
+            </button>
+            <RoutineDot routine={routine} size={12} />
+            <span className="gym-reorder-name">{name}</span>
+            <IconButton icon="arrowUp" label={`Move ${name} up`} disabled={index === 0} onClick={() => onStep(routine, -1)} />
+            <IconButton icon="arrowDown" label={`Move ${name} down`} disabled={index === shown.length - 1} onClick={() => onStep(routine, 1)} />
+          </li>
+        )
+      })}
+    </ul>
   )
 }
 

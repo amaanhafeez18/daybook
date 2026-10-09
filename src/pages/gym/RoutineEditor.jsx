@@ -8,12 +8,14 @@ import { ROUTINE_COLORS, deleteRoutine, duplicateRoutine, getGym, newGymId, rout
 import { estimateMinutes } from '../../lib/gym/stats.js'
 import { formatDuration, fromMeters, toMeters } from '../../lib/gym/units.js'
 import { tokenUserId } from '../../lib/api.js'
+import { navigate } from '../../lib/router.js'
 import { useStore } from '../../lib/store.js'
 import { DurationInput, GymEmpty, NumberInput, SectionHeader, SetTypeBadge, WeightInput, goBack } from './common.jsx'
 import { offerRelink } from './relink.js'
 import ExercisePicker from './ExercisePicker.jsx'
+import { joinDropped, orderByIds, useLocalReorder } from './reorder.js'
 import { ActionSheet, removeRoutine, routineName, useSheetTarget } from './RoutinesTab.jsx'
-import { ExerciseThumb } from './visuals/lazy.jsx'
+import { ExerciseVisualThumbButton, useExerciseVisual } from './visuals/lazy.jsx'
 import './routines.css'
 
 // #/gym/routine/<id> ('new' creates one). Edits a draft in component state; nothing reaches the
@@ -286,7 +288,20 @@ function Editor({ param, today }) {
     setScrollTo(null)
   }, [scrollTo])
 
-  const groups = useMemo(() => (draft ? supersetInfo(draft.exercises) : new Map()), [draft])
+  // Drag to reorder (the grip on each card, and in Reorder): the order changes on screen while
+  // dragging and reaches the draft once, on drop. A card dropped inside a superset joins it; one
+  // moved away from its partners leaves theirs.
+  const { keys: rowOrder, sort } = useLocalReorder(
+    draft ? draft.exercises.map((row) => row.id) : [],
+    (order, movedId, dragged) => setState((current) => {
+      if (!current.draft) return current
+      const ordered = orderByIds(current.draft.exercises, order)
+      if (ordered === current.draft.exercises) return current
+      return { ...current, draft: { ...current.draft, exercises: normalizeSupersets(dragged ? joinDropped(ordered, movedId) : ordered) } }
+    }),
+  )
+  const shownRows = draft ? orderByIds(draft.exercises, rowOrder) : []
+  const groups = useMemo(() => supersetInfo(shownRows), [shownRows])
 
   if (!draft) {
     if (!loaded) return <div className="gym-re"><Skeleton lines={6} /></div>
@@ -581,6 +596,7 @@ function Editor({ param, today }) {
           {rows.length} exercise{rows.length === 1 ? '' : 's'} · {totalSets} set{totalSets === 1 ? '' : 's'}{minutes ? ` · ~${minutes} min` : ''}
         </p>
       )}
+      {reordering && rows.length > 1 && <p className="gym-rt-hint">Drag the handles or use the arrows to change the order.</p>}
 
       {!rows.length ? (
         <div className="card gym-re-empty">
@@ -594,24 +610,28 @@ function Editor({ param, today }) {
         </div>
       ) : reordering ? (
         <ul className="card-list gym-reorder-list">
-          {rows.map((row, index) => {
+          {shownRows.map((row, index) => {
             const group = groups.get(row.id)
+            const name = exerciseName(row)
             return (
-              <li key={row.id} className="gym-reorder-row">
+              <li key={row.id} className="gym-reorder-row" {...sort.item(row.id)}>
+                <button type="button" className="drag-grip" aria-label={`Move ${name}: drag, or use the arrow keys`} {...sort.handle(row.id)}>
+                  <Icon name="grip" size={18} />
+                </button>
                 {group
                   ? <span className="gym-re-ss-tag" style={{ '--gym-ss': group.color }}>{group.letter}{group.position}</span>
                   : <span className="gym-reorder-index" aria-hidden="true">{index + 1}</span>}
-                <span className="gym-reorder-name">{exerciseName(row)}</span>
-                <IconButton icon="arrowUp" label={`Move ${exerciseName(row)} up`} disabled={index === 0} onClick={() => moveRow(row.id, -1)} />
-                <IconButton icon="arrowDown" label={`Move ${exerciseName(row)} down`} disabled={index === rows.length - 1} onClick={() => moveRow(row.id, 1)} />
+                <span className="gym-reorder-name">{name}</span>
+                <IconButton icon="arrowUp" label={`Move ${name} up`} disabled={index === 0} onClick={() => moveRow(row.id, -1)} />
+                <IconButton icon="arrowDown" label={`Move ${name} down`} disabled={index === shownRows.length - 1} onClick={() => moveRow(row.id, 1)} />
               </li>
             )
           })}
         </ul>
       ) : (
         <ol className="gym-re-list">
-          {rows.map((row) => (
-            <li key={row.id} data-row-id={row.id}>
+          {shownRows.map((row) => (
+            <li key={row.id} data-row-id={row.id} {...sort.item(row.id)}>
               <ExerciseCard
                 row={row}
                 group={groups.get(row.id) || null}
@@ -620,6 +640,7 @@ function Editor({ param, today }) {
                 distanceUnit={distanceUnit}
                 showRpe={prefs.showRpe}
                 defaultRest={restFallback(row, gym.exercises, prefs.defaultRest)}
+                grip={shownRows.length > 1 ? sort.handle(row.id) : null}
                 onChange={(fn) => updateRow(row.id, fn)}
                 onMenu={() => showRowMenu(row.id)}
               />
@@ -684,8 +705,16 @@ function Editor({ param, today }) {
 
 // ---- one exercise ----------------------------------------------------------------------------------
 
-function ExerciseCard({ row, group, muscles, unit, distanceUnit, showRpe, defaultRest, onChange, onMenu }) {
+// grip: useDragSort handle props for the card's drag handle (null with a single exercise).
+function ExerciseCard({ row, group, muscles, unit, distanceUnit, showRpe, defaultRest, grip, onChange, onMenu }) {
   const name = exerciseName(row)
+  // The picture pops up how the exercise is done; its page is a button inside (unsaved edits are
+  // kept while you look, see the draft notes at the top).
+  const visual = useExerciseVisual({
+    exerciseId: row.exerciseId,
+    name,
+    onDetails: row.exerciseId ? () => navigate(`gym/exercise/${encodeURIComponent(row.exerciseId)}`) : undefined,
+  })
   const rest = Number.isFinite(row.restSec) ? row.restSec : defaultRest
   const stepRest = (delta) => {
     const next = delta > 0 ? Math.floor(rest / REST_STEP) * REST_STEP + REST_STEP : Math.ceil(rest / REST_STEP) * REST_STEP - REST_STEP
@@ -707,14 +736,20 @@ function ExerciseCard({ row, group, muscles, unit, distanceUnit, showRpe, defaul
         </p>
       )}
       <header className="gym-re-ex-head">
+        {grip && (
+          <button type="button" className="drag-grip gym-re-grip" aria-label={`Move ${name}: drag, or use the arrow keys`} {...grip}>
+            <Icon name="grip" size={18} />
+          </button>
+        )}
         {group && <span className="gym-re-ss-tag">{group.letter}{group.position}</span>}
-        <ExerciseThumb exerciseId={row.exerciseId} size={40} />
+        <ExerciseVisualThumbButton visual={visual} size={40} />
         <div className="gym-re-ex-title">
           <h3>{name}</h3>
           {muscles && <p>{muscles}</p>}
         </div>
         <IconButton icon="more" label={`Options for ${name}`} className="gym-re-ex-more" onClick={onMenu} />
       </header>
+      {visual.sheet}
 
       <SetsTable row={row} unit={unit} distanceUnit={distanceUnit} showRpe={showRpe} onSets={setSets} />
 

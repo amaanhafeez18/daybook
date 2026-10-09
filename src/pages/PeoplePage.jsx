@@ -936,18 +936,17 @@ export function CatchUpSheet({ request, onClose }) {
     if (friend && note.trim() && !saved.current) {
       const key = catchUpDraftKey(friend.id, date)
       saveDraft(key, { note })
-      toast('Draft kept', {
-        action: {
-          label: 'Reopen',
-          onClick: () => {
-            clearDraft(key)
-            setReopened(true)
-          },
-        },
-      })
+      toast('Draft kept', { action: { label: 'Reopen', onClick: () => setReopened(true) } })
     }
     close()
   }
+
+  // Back from "Draft kept · Reopen": this sheet has the note again, so the kept copy goes. Cleared
+  // here, not in the toast: if this sheet has gone meanwhile (another person's catch-up, another
+  // page), nothing reopens and the draft must stay for next time.
+  useEffect(() => {
+    if (reopened && friend) clearDraft(catchUpDraftKey(friend.id, date))
+  }, [reopened]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function save(withNote) {
     // Once per opening (a double tap on Save mustn't log twice).

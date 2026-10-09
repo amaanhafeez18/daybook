@@ -6,7 +6,7 @@ import { toast } from '../../components/ui/feedback.jsx'
 import { useAreas } from '../../lib/areas.js'
 import { addDaysISO, diffDays } from '../../lib/dates.js'
 import { activityForWorkouts, planWorkoutsPerWeek } from '../../lib/food/activity.js'
-import { ACTIVITY_LEVELS, KCAL_PER_G, RATE_OPTIONS, calcGoals, energyInUnit, energyToKcal } from '../../lib/food/nutrition.js'
+import { ACTIVITY_LEVELS, KCAL_PER_G, RATE_OPTIONS, appliedGoal, calcGoals, currentApplied, energyInUnit, energyToKcal } from '../../lib/food/nutrition.js'
 import { addBodyWeight, deleteBodyWeight, getFood, latestBodyWeight, setGoals, updateFood, useBodyWeights, useFood, useWeightUnit } from '../../lib/food/state.js'
 import { hasPlan, useGym } from '../../lib/gym/state.js'
 import { refresh, useStore } from '../../lib/store.js'
@@ -40,6 +40,12 @@ function paceLabel(kg, weightUnit) {
   if (weightUnit !== 'lb') return `${fmtNum(abs, 2)} kg`
   const known = Object.keys(LB_LABELS).find((key) => Math.abs(Number(key) - abs) < 0.005)
   return `${known ? LB_LABELS[known] : fmtNum(kgToUnit(abs, 'lb'), 2)} lb`
+}
+
+// "Lose 0.5 kg a week", or "Keep my weight steady" for maintain (or no pace).
+function aimText(goal, kg, weightUnit) {
+  if (goal === 'maintain' || !isNum(kg) || Math.abs(kg) < 0.01) return 'Keep my weight steady'
+  return `${goal === 'lose' ? 'Lose' : 'Gain'} ${paceLabel(kg, weightUnit)} a week`
 }
 
 // Thousands grouped while the field isn't being edited ('2,730'); the raw digits while it is.
@@ -165,10 +171,16 @@ export default function GoalWizard({ today }) {
     const values = Object.fromEntries(Object.entries(macros).map(([key, value]) => [key, toNum(value)]))
     const kcal = isNum(values.calories) ? energyToKcal(values.calories, unit) : null
     const beforeProfile = getFood().profile
+    const newWeight = isNum(weightKg) && (!isNum(latestKg) || Math.abs(weightKg - latestKg) > 0.05)
+    // What the goal was worked out with (the pace after any cap or block, the weight used), for
+    // the summary.
+    const applied = appliedGoal(result, {
+      calories: kcal, weightKg, weighedOn: newWeight ? today : latestWeighIn?.date || today, goal: profile.goal, rateKgPerWeek: profile.rateKgPerWeek,
+    })
     const undoGoals = setGoals({ calories: kcal, protein: values.protein, carbs: values.carbs, fat: values.fat, fiber: values.fiber, source: 'calculator' })
-    updateFood((current) => ({ profile: { ...current.profile, ...profile } }))
+    updateFood((current) => ({ profile: { ...current.profile, ...profile, applied } }))
     let undoWeight = null
-    if (isNum(weightKg) && (!isNum(latestKg) || Math.abs(weightKg - latestKg) > 0.05)) {
+    if (newWeight) {
       try {
         const existing = bodyWeights.find((entry) => entry.date === today)
         const saved = addBodyWeight(today, Math.round(weightKg * 1000) / 1000)
@@ -236,7 +248,6 @@ export default function GoalWizard({ today }) {
           unit={unit}
           weightUnit={weightUnit}
           weighIn={latestWeighIn}
-          weightOld={weightOld}
           today={today}
           onAdjust={() => switchMode('manual')}
           onRecalculate={() => switchMode('calc')}
@@ -353,9 +364,10 @@ export default function GoalWizard({ today }) {
   )
 }
 
-// The goal as it stands (calories, macros) and what it was worked out from, with the two ways to
-// change it.
-function GoalSummary({ food, unit, weightUnit, weighIn, weightOld, today, onAdjust, onRecalculate }) {
+// The goal as it stands (calories, macros) and what it was worked out from (the pace and weight
+// the calculation used, when saved with it; else what was asked for and the latest weigh-in), with
+// the two ways to change it.
+function GoalSummary({ food, unit, weightUnit, weighIn, today, onAdjust, onRecalculate }) {
   const { goals, profile } = food
   const e = unitLabel(unit)
   const u = weightUnitLabel(weightUnit)
@@ -363,14 +375,19 @@ function GoalSummary({ food, unit, weightUnit, weighIn, weightOld, today, onAdju
   const limits = ['sugar', 'sodium'].filter((key) => isNum(goals[key]))
   const calculated = goals.source === 'calculator'
   const activity = ACTIVITY_LEVELS.find((level) => level.id === profile.activity)
-  const aim = profile.goal === 'maintain' || !isNum(profile.rateKgPerWeek)
-    ? 'Keep my weight steady'
-    : `${profile.goal === 'lose' ? 'Lose' : 'Gain'} ${paceLabel(profile.rateKgPerWeek, weightUnit)} a week`
+  const applied = calculated ? currentApplied(profile, goals) : null
+  const asked = aimText(profile.goal, profile.rateKgPerWeek, weightUnit)
+  const aim = applied ? aimText(applied.pace < 0 ? 'lose' : 'gain', applied.pace, weightUnit) : asked
+  // e.g. "You asked to lose 1 kg a week" when the pace was capped or weight loss wasn't set.
+  const askedNote = aim === asked ? null : profile.goal === 'maintain' ? 'You asked to keep it steady' : `You asked to ${asked.charAt(0).toLowerCase()}${asked.slice(1)}`
+  const basis = applied && isNum(applied.weightKg) ? { kg: applied.weightKg, date: applied.weighedOn } : weighIn
+  const basisAge = basis?.date ? diffDays(basis.date, today) : null
+  const basisOld = basisAge !== null && basisAge > WEIGHT_OLD_DAYS
   const rows = calculated
     ? [
         { label: 'Activity', value: activity?.label },
-        { label: 'Goal', value: aim },
-        weighIn && { label: 'Weight', value: `${fmtWeight(weighIn.kg, weightUnit)} ${u}`, note: dayLabel(weighIn.date, today), old: weightOld },
+        { label: 'Goal', value: aim, note: askedNote },
+        basis && { label: 'Weight', value: `${fmtWeight(basis.kg, weightUnit)} ${u}`, note: basis.date ? dayLabel(basis.date, today) : null, old: basisOld },
         isNum(profile.targetKg) && profile.goal !== 'maintain' && { label: 'Goal weight', value: `${fmtWeight(profile.targetKg, weightUnit)} ${u}` },
       ].filter(Boolean)
     : [{ label: 'Set by you', value: 'Your own numbers' }]
@@ -413,8 +430,8 @@ function GoalSummary({ food, unit, weightUnit, weighIn, weightOld, today, onAdju
             </div>
           ))}
         </div>
-        {calculated && weightOld && (
-          <p className="food-cfg-foot">Your last weigh-in was {diffDays(weighIn.date, today)} days ago. If your weight has changed, recalculate with today’s.</p>
+        {calculated && basisOld && (
+          <p className="food-cfg-foot">{applied ? `This goal used your weight from ${basisAge} days ago.` : `Your last weigh-in was ${basisAge} days ago.`} If your weight has changed, recalculate with today’s.</p>
         )}
       </section>
 

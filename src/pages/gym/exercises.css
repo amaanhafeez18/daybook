@@ -81,6 +81,14 @@
 .gym-lib-count { flex-shrink: 0; font-size: 14px; color: var(--text-2); font-variant-numeric: tabular-nums; }
 .gym-lib-chevron { flex-shrink: 0; color: var(--text-3); }
 
+/* ExerciseRow: the picture is its own button (opens the how-to pop-up), laid over the row's first
+   place in the same grid cell, so the row stays one tap target and the picture another (36 px tile,
+   44+ px target from .gvis-btn::after). */
+.gym-lib-item { display: grid; }
+.gym-lib-item > .gym-lib-row, .gym-lib-item > .gym-lib-pic { grid-area: 1 / 1; }
+.gym-lib-pic { z-index: 1; align-self: center; justify-self: start; margin-left: 16px; }
+.gym-lib-slot { flex-shrink: 0; width: 36px; height: 36px; }
+
 .gym-lib-summary {
   display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 36px;
   margin: 4px 16px 0; font-size: 13px; color: var(--text-2); font-variant-numeric: tabular-nums;
@@ -130,6 +138,7 @@
 .gym-pk-row.is-selected { background: var(--accent-soft); }
 .gym-pk-row:disabled { cursor: default; }
 .gym-pk-row:disabled > :not(.gym-pk-added) { opacity: 0.45; }
+.gym-lib-pic.is-dim .gvis-tile, .gym-lib-pic.is-dim .gym-lib-avatar { opacity: 0.45; }
 .gym-pk-check {
   flex-shrink: 0; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%;
   border: 1.5px solid var(--text-3); font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums;

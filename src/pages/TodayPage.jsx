@@ -43,13 +43,14 @@ export default function TodayPage({ displayName, loaded }) {
   const tomorrow = addDaysISO(today, 1)
   const location = useLocation()
   const areas = useAreas()
-  // null = closed; { task } edits a task; { defaults } adds one.
+  // null = closed; { task } edits a task (pickDate: straight to its date); { defaults } adds one.
   const [sheet, setSheet] = useState(null)
   const [classSheet, setClassSheet] = useState(null)
   const [cityOpen, setCityOpen] = useState(false)
 
   const active = useMemo(() => tasks.filter((task) => !task.archived), [tasks])
-  const openTask = (task) => setSheet({ task })
+  // intent: { pickDate: true } from a row's Later… → "Pick a date…".
+  const openTask = (task, intent) => setSheet({ task, ...intent })
   // Class rows carry the class id; the sheet edits the whole class.
   const openClass = (id) => {
     const record = classes.find((item) => item.id === id)
@@ -86,7 +87,7 @@ export default function TodayPage({ displayName, loaded }) {
         </div>
       </div>
 
-      <TaskSheet open={!!sheet} task={sheet?.task || null} defaults={sheet?.defaults || { date: today }} onClose={() => setSheet(null)} />
+      <TaskSheet open={!!sheet} task={sheet?.task || null} defaults={sheet?.defaults || { date: today }} pickingDate={!!sheet?.pickDate} onClose={() => setSheet(null)} />
       <ClassSheet item={classSheet} onClose={() => setClassSheet(null)} onReopen={() => setClassSheet({})} />
       <CitySheet open={cityOpen} onClose={() => setCityOpen(false)} />
     </div>

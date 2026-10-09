@@ -88,6 +88,13 @@ export default function DayView({ date, today, loaded }) {
     setSheet({ type: 'entry', defaults: { meal: currentMeal, date, ...defaults } })
   }
 
+  // A meal picked with '+' or in the tray is for that one add: once the tray is put away (or
+  // "Add by hand" took it), the next one starts from the meal of the moment again.
+  function manualFromBar(defaults) {
+    openEntry(defaults)
+    setTargetMeal(null)
+  }
+
   function addTo(mealId) {
     setTargetMeal(mealId)
     // Inside the tap, so iOS opens the keyboard.
@@ -173,11 +180,12 @@ export default function DayView({ date, today, loaded }) {
         meal={currentMeal}
         mealChosen={!!targetMeal}
         onMealChange={setTargetMeal}
+        onDismiss={() => setTargetMeal(null)}
         entries={entries}
         food={food}
         controlRef={barRef}
         onEstimate={startEstimate}
-        onManual={openEntry}
+        onManual={manualFromBar}
       />
 
       <EntrySheet
@@ -357,6 +365,10 @@ function Stat({ label, value, over = false }) {
 function MealSection({ meal, rows, kcal, date, today, allEntries, food, onAdd, onOpen, onMore, onDelete, onEstimate }) {
   const unit = food.prefs.energyUnit
   const headingId = `food-meal-${meal.id}`
+  const empty = rows.length === 0
+  // The chips are worked out for an empty meal; once one is tapped they stay (above the food it
+  // logged) until the day changes, so a quick second tap doesn't land on the new row.
+  const shortcuts = useMealShortcuts({ entries: allEntries, meal, date, today, meals: food.prefs.meals, active: empty })
   return (
     <section className="food-meal" aria-labelledby={headingId}>
       <div className="food-meal-head">
@@ -364,14 +376,13 @@ function MealSection({ meal, rows, kcal, date, today, allEntries, food, onAdd, o
         {rows.length > 0 && <span className="food-meal-kcal">{energyNumber(kcal, unit)} <small>{unitLabel(unit)}</small></span>}
         <IconButton icon="plus" label={`Add to ${meal.name}`} className="food-meal-add" size={20} onClick={onAdd} />
       </div>
-      {rows.length ? (
+      {(empty || shortcuts.held) && <EmptyMeal shortcuts={shortcuts} meal={meal} date={date} today={today} food={food} onAdd={onAdd} />}
+      {!empty && (
         <ul className="card-list food-list">
           {rows.map((entry) => (
             <EntryRow key={entry.id} entry={entry} unit={unit} onOpen={() => onOpen(entry)} onMore={() => onMore(entry)} onDelete={() => onDelete(entry)} onEstimate={() => onEstimate(entry)} />
           ))}
         </ul>
-      ) : (
-        <EmptyMeal meal={meal} date={date} today={today} allEntries={allEntries} food={food} onAdd={onAdd} />
       )}
     </section>
   )
@@ -422,8 +433,7 @@ function EntryRow({ entry, unit, onOpen, onMore, onDelete, onEstimate }) {
 }
 
 // Chips for foods usually logged in this meal and "Same as <day>"; a plain "Add" without any.
-function EmptyMeal({ meal, date, today, allEntries, food, onAdd }) {
-  const shortcuts = useMealShortcuts({ entries: allEntries, meal, date, today, meals: food.prefs.meals })
+function EmptyMeal({ shortcuts, meal, date, today, food, onAdd }) {
   if (!hasShortcuts(shortcuts)) {
     return (
       <button type="button" className="food-meal-ghost" onClick={onAdd}>

@@ -3,7 +3,7 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  PROPOSAL_TTL_MS, UNDO_TTL_MS, assistantSpace, buildSuggestions, canUndo, cardExpired, collapsesCard, composerPlaceholder, proposalExpired, visibleActions,
+  PROPOSAL_TTL_MS, UNDO_TTL_MS, assistantSpace, buildSuggestions, canUndo, cardExpired, collapsesCard, composerPlaceholder, proposalExpired, setsOffer, undoRefused, visibleActions,
 } from '../src/lib/assistantChat.js'
 import { toISO } from '../src/lib/dates.js'
 
@@ -78,6 +78,18 @@ describe('chips under a reply', () => {
     assert.equal(canUndo({ ...action, ok: false }, createdAt, now), false)
     assert.equal(canUndo({ ...action, undoId: undefined }, createdAt, now), false)
     assert.equal(canUndo(action, new Date(now - UNDO_TTL_MS - 1000).toISOString(), now), false)
+    assert.equal(canUndo({ ...action, undoBlocked: true }, createdAt, now), false, 'refused for good on this visit')
+  })
+
+  test('a refusal stops the chip offering Undo only when a retry can’t help', () => {
+    assert.equal(undoRefused({ status: 410 }), true)
+    assert.equal(undoRefused({ status: 404 }), true)
+    // Undoing what changed it (another chip, or in the app) makes it possible again.
+    assert.equal(undoRefused({ status: 409, payload: { changed: true } }), false, 'changed since: not for good')
+    assert.equal(undoRefused({ status: 409, payload: { gone: true } }), true)
+    assert.equal(undoRefused({ status: 409, payload: {} }), false, 'couldn’t run right now')
+    assert.equal(undoRefused({ status: 0 }), false, 'offline')
+    assert.equal(undoRefused(null), false)
   })
 
   test('settled cards collapse only when they are not on the newest message', () => {
@@ -113,5 +125,39 @@ describe('expired cards', () => {
     assert.equal(cardExpired(messages, 'p3', now), true)
     assert.equal(cardExpired(messages, 'p4', now), false, 'a card that ran is not expired')
     assert.equal(cardExpired(messages, 'nope', now), false)
+  })
+})
+
+describe('"Log my sets"', () => {
+  const done = { action: 'start', name: 'Legs', when: 'done' }
+  const quickCard = (status = 'pending') => ({ id: 'p1', status, actions: [{ label: 'Log Legs today', tool: 'gym_quick_log' }] })
+
+  test('it cancels a card that is only the quick log', () => {
+    assert.deepEqual(setsOffer(done, quickCard(), []), { show: true, cancels: 'p1' })
+    assert.deepEqual(setsOffer(done, { id: 'p1', status: 'pending', actions: [{ label: 'Log Legs today' }] }, []), { show: true, cancels: 'p1' }, 'a cached card without tool names')
+  })
+
+  test('a card with other changes on it is never cancelled by it (the button hides)', () => {
+    const mixed = { id: 'p1', status: 'pending', actions: [{ label: 'Log Legs today', tool: 'gym_quick_log' }, { label: 'Log 2 eggs', tool: 'food_log' }] }
+    assert.deepEqual(setsOffer(done, mixed, []), { show: false, cancels: null })
+    assert.deepEqual(setsOffer(done, { id: 'p1', status: 'pending', actions: [{ label: 'Log Legs today' }, { label: 'Log 2 eggs' }] }, []), { show: false, cancels: null }, 'a cached card without tool names')
+  })
+
+  test('a card without the quick log on it is left alone (the button still shows)', () => {
+    assert.deepEqual(setsOffer(done, { id: 'p1', status: 'pending', actions: [{ label: 'Log 2 eggs', tool: 'food_log' }] }, []), { show: true, cancels: null })
+  })
+
+  test('hidden once the quick log is saved; back (cancelling nothing) once it is undone', () => {
+    const chip = { tool: 'gym_quick_log', ok: true, message: 'Logged Legs today.', undoId: 'u1' }
+    assert.equal(setsOffer(done, null, [chip]).show, false)
+    assert.deepEqual(setsOffer(done, null, [{ ...chip, undone: true }]), { show: true, cancels: null })
+    const other = { id: 'p2', status: 'pending', actions: [{ label: 'Archive task', tool: 'update_task' }] }
+    assert.deepEqual(setsOffer(done, other, [{ ...chip, undone: true }]), { show: true, cancels: null })
+    for (const status of ['done', 'partial', 'executing']) assert.equal(setsOffer(done, quickCard(status), []).show, false, status)
+    for (const status of ['cancelled', 'expired', 'failed']) assert.deepEqual(setsOffer(done, quickCard(status), []), { show: true, cancels: null }, status)
+  })
+
+  test('a "Start … workout" button is never held back', () => {
+    assert.deepEqual(setsOffer({ action: 'start', name: 'Legs', when: 'now' }, quickCard(), []), { show: true, cancels: null })
   })
 })

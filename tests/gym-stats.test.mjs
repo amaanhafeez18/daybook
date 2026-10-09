@@ -45,10 +45,13 @@ const routineEx = (exerciseId, repsMin, repsMax, count = 3, weightKg = null) => 
 
 // ---- library -------------------------------------------------------------------------------
 
+// 124 built-ins, plus 38 added in October 2026 (Bayesian curl and friends).
+const LIBRARY_SIZE = 162
+
 describe('library', () => {
-  test('124 entries with unique ids and valid fields', () => {
-    assert.equal(EXERCISES.length, 124)
-    assert.equal(new Set(EXERCISES.map((e) => e.id)).size, 124)
+  test(`${LIBRARY_SIZE} entries with unique ids and valid fields`, () => {
+    assert.equal(EXERCISES.length, LIBRARY_SIZE)
+    assert.equal(new Set(EXERCISES.map((e) => e.id)).size, LIBRARY_SIZE)
     assert.equal(MUSCLES.length, 18)
     assert.equal(new Set(MUSCLES.map((m) => m.id)).size, 18)
     assert.equal(EQUIPMENT.length, 8)
@@ -87,9 +90,9 @@ describe('library', () => {
     assert.equal(exerciseById(undefined), null)
     assert.equal(exerciseById('constructor'), null)
     const all = allExercises(customs)
-    assert.equal(all.length, 125)
+    assert.equal(all.length, LIBRARY_SIZE + 1)
     assert.ok(all.some((e) => e.id === 'custom-1') && !all.some((e) => e.id === 'custom-2'))
-    assert.equal(allExercises('bad').length, 124)
+    assert.equal(allExercises('bad').length, LIBRARY_SIZE)
     assert.ok(searchExercises('zottman', { customExercises: customs }).some((e) => e.id === 'custom-1'))
     assert.equal(searchExercises('old thing', { customExercises: customs }).length, 0)
   })
@@ -116,12 +119,53 @@ describe('library', () => {
     assert.ok(chest.every((e) => e.primary === 'chest' || e.secondary.includes('chest')))
     const kettlebell = searchExercises('', { equipment: 'kettlebell' })
     assert.deepEqual(kettlebell.map((e) => e.id), ['kettlebell-swing'])
-    assert.deepEqual(searchExercises('squat', { muscle: 'quads', equipment: 'machine' }).map((e) => e.id), ['hack-squat'])
-    assert.equal(searchExercises('').length, 124)
-    assert.equal(searchExercises(null, null).length, 124)
+    assert.deepEqual(searchExercises('squat', { muscle: 'quads', equipment: 'machine' }).map((e) => e.id), ['belt-squat', 'hack-squat', 'pendulum-squat'])
+    assert.equal(searchExercises('').length, LIBRARY_SIZE)
+    assert.equal(searchExercises(null, null).length, LIBRARY_SIZE)
     assert.equal(searchExercises('zzzz').length, 0)
     const all = searchExercises('')
     assert.deepEqual(all.map((e) => e.name), [...all.map((e) => e.name)].sort((a, b) => a.localeCompare(b)))
+  })
+
+  test('names are unique, ignoring case and punctuation', () => {
+    const key = (name) => name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+    const names = EXERCISES.map((e) => key(e.name))
+    assert.deepEqual(names.filter((name, i) => names.indexOf(name) !== i), [])
+  })
+
+  test('the October 2026 additions come up first for their usual names', () => {
+    const cases = [
+      ['bayesian', 'bayesian-curl'], ['bayesian curl', 'bayesian-curl'], ['spider curl', 'spider-curl'], ['drag curl', 'drag-curl'],
+      ['preacher curl machine', 'machine-preacher-curl'], ['rope pushdown', 'rope-pushdown'], ['single arm pushdown', 'single-arm-pushdown'],
+      ['cross body', 'cross-body-cable-extension'], ['jm press', 'jm-press'], ['low to high', 'low-to-high-cable-fly'],
+      ['high to low', 'high-to-low-cable-fly'], ['incline fly', 'incline-dumbbell-fly'], ['incline smith', 'incline-smith-press'],
+      ['pendlay', 'pendlay-row'], ['seal row', 'seal-row'], ['meadows', 'meadows-row'], ['single arm pulldown', 'single-arm-lat-pulldown'],
+      ['close grip pulldown', 'close-grip-lat-pulldown'], ['kneeling pullover', 'kneeling-cable-pullover'], ['rack pull', 'rack-pull'],
+      ['y raise', 'y-raise'], ['pendulum', 'pendulum-squat'], ['belt squat', 'belt-squat'], ['sissy', 'sissy-squat'],
+      ['box jump', 'box-jump'], ['glute ham', 'glute-ham-raise'], ['hip thrust machine', 'hip-thrust-machine'],
+      ['pull through', 'cable-pull-through'], ['calf press', 'leg-press-calf-raise'], ['tibialis', 'tibialis-raise'],
+      ['sit up', 'sit-up'], ['situp', 'sit-up'], ['decline sit up', 'decline-sit-up'], ['lying leg raise', 'lying-leg-raise'],
+      ['woodchop', 'cable-woodchop'], ['thruster', 'thruster'], ['sled', 'sled-push'], ['incline walk', 'incline-treadmill-walk'],
+      ['jump rope', 'jump-rope'],
+    ]
+    for (const [query, id] of cases) assert.equal(searchExercises(query)[0]?.id, id, query)
+    // Filters see them too.
+    assert.ok(searchExercises('curl', { muscle: 'biceps', equipment: 'cable' }).some((e) => e.id === 'bayesian-curl'))
+    assert.ok(searchExercises('', { muscle: 'calves' }).some((e) => e.id === 'tibialis-raise'))
+  })
+
+  test('every library exercise makes a routine row that matches its tracking', () => {
+    for (const entry of EXERCISES) {
+      const row = newRoutineExercise(entry, counter())
+      assert.equal(row.exerciseId, entry.id)
+      assert.equal(row.tracking, entry.tracking)
+      assert.equal(row.restSec, entry.rest)
+      const fields = TRACKING[entry.tracking].fields
+      for (const s of row.sets) {
+        if (fields.includes('reps')) assert.ok(s.repsMin > 0 && s.repsMax >= s.repsMin, entry.id)
+        if (fields.includes('duration') && !fields.includes('distance')) assert.equal(s.durationSec, 60, entry.id)
+      }
+    }
   })
 
   test('newRoutineExercise defaults per tracking type', () => {
@@ -434,11 +478,37 @@ describe('units', () => {
     assert.equal(formatWeight(1.25, 'kg'), '1.25 kg')
     assert.equal(formatWeight(61.25, 'kg'), '61.25 kg')
     assert.equal(formatWeight(2.1, 'kg'), '2.1 kg')
-    assert.equal(formatWeight(60.1, 'kg'), '60 kg')
+    assert.equal(formatWeight(60.0333, 'kg'), '60 kg') // computed (an average): near-whole shows whole
     assert.equal(formatWeight(toKg(47.5, 'lb'), 'lb'), '47.5 lb')
     assert.equal(formatWeight(0, 'kg'), '0 kg')
     assert.equal(formatWeight(-0.001, 'kg'), '0 kg')
     assert.equal(formatWeight(0.25, 'kg', { withUnit: false }), '0.25')
+  })
+
+  test('formatWeight keeps typed decimals (body weights)', () => {
+    assert.equal(formatWeight(80.1, 'kg'), '80.1 kg')
+    assert.equal(formatWeight(79.9, 'kg'), '79.9 kg')
+    assert.equal(formatWeight(60.1, 'kg'), '60.1 kg')
+    assert.equal(formatWeight(80.05, 'kg'), '80.05 kg')
+    assert.equal(formatWeight(toKg(180.1, 'lb'), 'lb'), '180.1 lb')
+    assert.equal(formatWeight(toKg(179.9, 'lb'), 'lb'), '179.9 lb')
+    assert.equal(formatWeight(toKg(45, 'lb'), 'kg'), '20.4 kg') // typed in lb, shown in kg: still tidied
+  })
+
+  test('formatWeight keeps a typed lb body weight that was saved rounded to 3 decimals in kg', () => {
+    // The weigh-in sheet and goal wizard save Math.round(kg * 1000) / 1000.
+    const saved = (lb) => Math.round(toKg(lb, 'lb') * 1000) / 1000
+    assert.equal(saved(180.1), 81.692)
+    assert.equal(formatWeight(saved(180.1), 'lb'), '180.1 lb')
+    assert.equal(formatWeight(saved(179.9), 'lb'), '179.9 lb')
+    assert.equal(formatWeight(saved(180), 'lb'), '180 lb')
+    for (let tenths = 500; tenths <= 5000; tenths += 1) {
+      const lb = tenths / 10
+      assert.equal(formatWeight(saved(lb), 'lb', { withUnit: false }), new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(lb), `${lb} lb`)
+    }
+    // Conversion noise still tidies: 20 kg plates show whole in lb, a 45 lb plate as 20.4 kg.
+    assert.equal(formatWeight(20, 'lb'), '44 lb')
+    assert.equal(formatWeight(toKg(45, 'lb'), 'kg'), '20.4 kg')
   })
 
   test('numbers, decimals and durations', () => {

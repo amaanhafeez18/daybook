@@ -119,6 +119,11 @@ export function useWeather(coords) {
     if (cached && sameSpot(cached.coords, coords)) {
       setWeather(cached.data)
       if (cached.v === WEATHER_CACHE_VERSION && Date.now() - cached.savedAt < WEATHER_TTL_MS) return undefined
+    } else {
+      // Another place (e.g. a city just chosen): a skeleton, then its own forecast or the error,
+      // never the last place's weather under the new name.
+      setWeather(null)
+      setError('')
     }
     const controller = new AbortController()
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}`
@@ -249,6 +254,12 @@ export function usePrayerTimes(coords, { method = 'auto', school = 0 } = {}) {
     if (cached?.key === cacheKey) {
       setTimings(cached.timings)
       return undefined
+    }
+    // Another place, method or school: a skeleton, then its own times or the error, never the last
+    // place's. A new day at the same place keeps yesterday's (minutes apart) until today's arrive.
+    if (!String(cached?.key || '').endsWith(cacheKey.slice(cacheKey.indexOf('|')))) {
+      setTimings(null)
+      setError('')
     }
     const controller = new AbortController()
     const [year, month, day] = date.split('-')

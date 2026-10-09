@@ -14,7 +14,7 @@ class MemoryStorage {
 globalThis.localStorage = new MemoryStorage()
 globalThis.window = { dispatchEvent() {} }
 
-const { apiRequest, ApiError } = await import('../src/lib/api.js')
+const { apiRequest, ApiError, clearUserCaches } = await import('../src/lib/api.js')
 
 const realFetch = globalThis.fetch
 const realTimeout = AbortSignal.timeout
@@ -68,5 +68,47 @@ describe('apiRequest timeouts', () => {
   test('a dropped connection is still reported as offline (status 0)', async () => {
     globalThis.fetch = async () => { throw new TypeError('Failed to fetch') }
     await assert.rejects(apiRequest('/api/data'), (error) => error instanceof ApiError && error.status === 0)
+  })
+})
+
+// clearUserCaches: like the browser's storage, Object.keys() lists what's stored.
+function plainStorage(entries = {}) {
+  const store = { ...entries }
+  Object.defineProperties(store, {
+    getItem: { value: (key) => (Object.hasOwn(store, key) ? store[key] : null) },
+    setItem: { value: (key, value) => { store[key] = String(value) } },
+    removeItem: { value: (key) => { delete store[key] } },
+  })
+  return store
+}
+
+describe('clearUserCaches', () => {
+  const realLocal = globalThis.localStorage
+  afterEach(() => {
+    globalThis.localStorage = realLocal
+    delete globalThis.sessionStorage
+  })
+
+  const session = () => ({
+    'daybook.draft.person:new': '{"value":{"name":"Sam"}}',
+    'daybook.draft.task:new': '{"value":{"title":"Call"}}',
+    'daybook.gym.routineDraft.r1': '{"user":"u1"}',
+    'other.app': 'kept',
+  })
+
+  test('signing out removes the unsaved form drafts, so the next account doesn’t see them', () => {
+    globalThis.localStorage = plainStorage({ 'daybook.session.token': 'x', 'daybook.data.tasks': '[]', 'daybook.gym.active': '{}', 'daybook.prefs.theme': '"blue"' })
+    globalThis.sessionStorage = plainStorage(session())
+    clearUserCaches()
+    assert.deepEqual(Object.keys(sessionStorage).sort(), ['daybook.gym.routineDraft.r1', 'other.app'])
+    assert.deepEqual(Object.keys(localStorage).sort(), ['daybook.gym.active', 'daybook.prefs.theme'])
+  })
+
+  test('"Clear all data" keeps the session and removes every draft and the gym state', () => {
+    globalThis.localStorage = plainStorage({ 'daybook.session.token': 'x', 'daybook.data.tasks': '[]', 'daybook.gym.active': '{}' })
+    globalThis.sessionStorage = plainStorage(session())
+    clearUserCaches({ keepSession: true })
+    assert.deepEqual(Object.keys(sessionStorage), ['other.app'])
+    assert.deepEqual(Object.keys(localStorage), ['daybook.session.token'])
   })
 })

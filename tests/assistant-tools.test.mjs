@@ -1019,7 +1019,7 @@ const CASES = [
         assert.deepEqual(entry.secondary, ['chest', 'triceps'])
         assert.ok(d.gym.exercises.some((item) => item.id === r.id))
       } },
-      { args: { name: 'Box Jump', primary: 'quads', equipment: 'bodyweight' }, check(s, d, r) { assert.equal(settingsOf(s).gym.exercises.find((item) => item.id === r.id).tracking, 'bodyweight_reps') } },
+      { args: { name: 'Broad Jump', primary: 'quads', equipment: 'bodyweight' }, check(s, d, r) { assert.equal(settingsOf(s).gym.exercises.find((item) => item.id === r.id).tracking, 'bodyweight_reps') } },
       { args: { name: 'Assault Bike Intervals', primary: 'cardio', equipment: 'machine' }, check(s, d, r) { const entry = settingsOf(s).gym.exercises.find((item) => item.id === r.id); assert.equal(entry.category, 'cardio'); assert.equal(entry.tracking, 'duration') } },
     ],
     invalid: [{}, { name: 'X' }, { name: 'X', primary: 'wings', equipment: 'barbell' }, { name: 'X', primary: 'chest', equipment: 'rope' }, { name: 'Bench Press (Barbell)', primary: 'chest', equipment: 'barbell' }, { name: 'Dumbbell Bench Press', primary: 'chest', equipment: 'dumbbell' }, { name: 'Cable Woodchops', primary: 'abs', equipment: 'cable' }, { name: 'X', primary: 'chest', equipment: 'barbell', tracking: 'vibes' }],

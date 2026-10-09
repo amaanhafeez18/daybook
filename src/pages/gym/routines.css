@@ -9,8 +9,12 @@
 
 .sheet .gym-tpl, .sheet .gym-tpl-routines { background: var(--surface-2); }
 
-.gym-reorder-list { --sep-inset: 44px; }
-.gym-reorder-row { display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 6px 8px 6px 18px; }
+/* Reorder rows: drag grip (components/ui/drag.css) · name · arrows. The list doesn't clip, so a row
+   dragged past either end stays visible; the lifted row gets the card's own background. */
+.gym-reorder-list { --sep-inset: 48px; overflow: visible; }
+.gym-reorder-row { display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 6px 8px 6px 6px; }
+.gym-reorder-row[data-dragging] { background: var(--card-bg, var(--surface)); border-radius: 16px; }
+.gym-reorder-row[data-dragging]::before { opacity: 0; }
 .gym-reorder-name { flex: 1; min-width: 0; font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gym-reorder-index {
   flex-shrink: 0; width: 24px; text-align: center; color: var(--text-3);
@@ -235,6 +239,8 @@
   background: var(--gym-ss); color: #fff; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums;
 }
 .gym-re-ex-head { display: flex; align-items: flex-start; gap: 10px; }
+/* Drag handle at the card's start, tucked into its padding, level with the 40px picture. */
+.gym-re-ex-head > .gym-re-grip { margin: -2px -4px -2px -8px; }
 .gym-re-ex-head .gym-re-ss-tag { margin-top: 1px; }
 .gym-re-ex-title { flex: 1; min-width: 0; }
 .gym-re-ex-title h3 { font-size: 17px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.3; overflow-wrap: anywhere; }

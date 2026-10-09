@@ -14,7 +14,7 @@ process.env.SUPABASE_URL ||= 'http://x'
 process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'k'
 process.env.JWT_SECRET ||= 's'
 process.env.OPENAI_API_KEY ||= 'sk-test'
-const { TOOL_DEFS, executeTool, stageTool, LOOKUP_TOOLS } = await import('../api/assistant.js')
+const { TOOL_DEFS, executeTool, stageTool, LOOKUP_TOOLS, exerciseMatches } = await import('../api/assistant.js')
 
 console.warn = () => {}
 console.error = () => {}
@@ -656,5 +656,31 @@ describe('gym_skip note', () => {
     assert.equal((await run(supabase, data, 'gym_skip', { date: '2026-09-25', note: 'x' })).ok, false)
     const past = await run(supabase, data, 'gym_skip', { date: YESTERDAY }).catch((error) => ({ ok: false, message: error.message }))
     assert.equal(past.ok, false)
+  })
+})
+
+describe('spoken exercise names', () => {
+  const gym = { exercises: [], routines: [] }
+  const said = (query, sessions = []) => {
+    const result = exerciseMatches(gym, { gym_sessions: sessions }, query)
+    return result.match?.id ?? (result.ambiguous ? 'ambiguous' : 'none')
+  }
+
+  test('the everyday name picks the usual exercise even though variants exist', () => {
+    for (const query of ['pushdowns', 'tricep pushdowns', 'triceps pushdowns', 'cable pushdown']) assert.equal(said(query), 'triceps-pushdown', query)
+    assert.equal(said('leg raises'), 'hanging-leg-raise')
+    assert.equal(said('situps'), 'sit-up')
+    assert.equal(said('treadmill'), 'treadmill')
+    assert.equal(said('low to high fly'), 'low-to-high-cable-fly')
+    assert.equal(said('high to low fly'), 'high-to-low-cable-fly')
+  })
+
+  test('a named variant still wins, and so does the one they log', () => {
+    assert.equal(said('rope pushdown'), 'rope-pushdown')
+    assert.equal(said('lying leg raises'), 'lying-leg-raise')
+    assert.equal(said('decline situps'), 'decline-sit-up')
+    assert.equal(said('bayesian curls'), 'bayesian-curl')
+    const ropeUser = [{ exercises: [{ exerciseId: 'rope-pushdown', name: 'Triceps Pushdown (Rope)' }] }]
+    assert.equal(said('pushdowns', ropeUser), 'rope-pushdown')
   })
 })

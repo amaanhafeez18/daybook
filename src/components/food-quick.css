@@ -71,6 +71,9 @@
 .food-suggest span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .food-suggest.is-copy .icon { color: var(--text-2); }
 .food-suggest:active { transform: scale(0.95); }
+/* Logged from here: a check instead of the plus; tap again to take it back out. */
+.food-suggest.is-added, .card.fq-card .food-suggest.is-added { background: var(--accent-soft); color: var(--accent); }
+.food-suggest.is-added .icon { color: var(--accent); }
 /* "Oatmeal · 152": the calories, muted. */
 .food-suggest-kcal { flex-shrink: 0; font-size: 13px; font-weight: 400; color: var(--text-3); font-variant-numeric: tabular-nums; }
 .food-suggest-kcal::before { content: '· '; }

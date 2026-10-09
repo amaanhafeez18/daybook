@@ -321,16 +321,18 @@ export function snoozeOptions(task = {}, now = new Date()) {
 
 // ---- natural-language quick add --------------------------------------------------------------
 // parseQuickAdd('Call mom tomorrow at 5pm', now) ->
-//   { title: 'Call mom', date: '2026-09-24', time: '17:00', matched: [{ start, end, text }] }
+//   { title: 'Call mom', date: '2026-09-24', time: '17:00', matched: [{ start, end, text }], hasDay: true }
 // Only words at the very start or end of the text count, so titles such as "Call Friday's
 // contact" or "Plan the Monday meeting" keep their words. When nothing is recognised (or nothing
-// would be left of the title) the result is { title: text, date: '', time: '', matched: [] }.
+// would be left of the title) the result is { title: text, date: '', time: '', matched: [], hasDay: false }.
 //   days:  today, tomorrow/tmrw, mon…sunday (the next one after today), this fri (today on a
 //          Friday), next fri (Friday of next week), next week (Monday), this weekend,
 //          oct 2 / 2nd of october, in 3 days / in 2 weeks
 //   times: 5pm, 5:30 pm, 17:30, at 5 (1–6 mean PM), noon, in 20 min / in 2 hours / in an hour,
 //          tonight (8 PM), this morning / tomorrow evening
-// A time without a day means today, or tomorrow once that time has passed. No AI: plain patterns.
+// hasDay: the words named a day (or "in 2 hours", "tonight"), not just a clock time. A time without
+// a day is on `day` when given (the day a form already has: the calendar's selected day, a picked
+// "Tomorrow"), else today, or tomorrow once that time has passed. No AI: plain patterns.
 
 const WEEKDAY_WORDS = 'sun(?:day)?|mon(?:day)?|tue(?:s|sday)?|wed(?:s|nesday)?|thu(?:r|rs|rsday)?|fri(?:day)?|sat(?:urday)?'
 const MONTH_WORDS = 'jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?'
@@ -485,7 +487,7 @@ function resolveClock({ hour, minute, meridiem }, dayPart, date, today, nowHHMM)
   return hour <= 9 && (!date || date === today) && morning <= nowHHMM && evening > nowHHMM ? evening : morning
 }
 
-function parseOnce(text, now, allowWeak) {
+function parseOnce(text, now, allowWeak, day) {
   const today = toISO(now)
   const nowHHMM = nowTimeHHMM(now)
   const found = { day: null, clock: null, dayPart: null, offsetMinutes: 0, weak: false }
@@ -529,20 +531,22 @@ function parseOnce(text, now, allowWeak) {
       date = resolveDay(found.day, today)
       if (!date) return null
     }
-    if (found.clock) time = resolveClock(found.clock, found.dayPart, date, today, nowHHMM)
+    if (found.clock) time = resolveClock(found.clock, found.dayPart, date || day, today, nowHHMM)
     else if (found.dayPart) time = hhmm(DAY_PARTS[found.dayPart], 0)
-    if (time && !date) date = time > nowHHMM ? today : addDaysISO(today, 1)
+    if (time && !date) date = day || (time > nowHHMM ? today : addDaysISO(today, 1))
   }
-  return { title, date, time, matched: matched.sort((a, b) => a.start - b.start), weak: found.weak }
+  return { title, date, time, matched: matched.sort((a, b) => a.start - b.start), weak: found.weak, hasDay: !!found.day }
 }
 
-export function parseQuickAdd(text, now = new Date()) {
+// options.day: the day a time on its own goes on (see above); ignored unless it's a YYYY-MM-DD.
+export function parseQuickAdd(text, now = new Date(), { day = '' } = {}) {
   const source = String(text ?? '')
-  const none = { title: source.trim(), date: '', time: '', matched: [] }
+  const none = { title: source.trim(), date: '', time: '', matched: [], hasDay: false }
   if (!source.trim()) return none
-  let result = parseOnce(source, now, true)
+  const preset = isISODate(day) ? day : ''
+  let result = parseOnce(source, now, true, preset)
   // A bare "sun"/"sat" is only a day next to a time ("brunch sat 10am"), not in "Sun cream".
-  if (result?.weak && !result.time) result = parseOnce(source, now, false)
+  if (result?.weak && !result.time) result = parseOnce(source, now, false, preset)
   if (!result) return none
-  return { title: result.title, date: result.date, time: result.time, matched: result.matched }
+  return { title: result.title, date: result.date, time: result.time, matched: result.matched, hasDay: result.hasDay }
 }

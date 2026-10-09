@@ -1,6 +1,6 @@
 // Everything the components need for one exercise, computed without React: the pattern and its
 // keyframes, the scene at any moment of the loop, and stable view boxes.
-import { GROUND, poseAt, solvePose } from './rig.js'
+import { GROUND, lerpPose, poseAt, solvePose, stops } from './rig.js'
 import { PATTERNS, cuesFor, patternInfo } from './patterns.js'
 import { figureScene, muscleSets, sceneBounds, seg, squareBox } from './scene.js'
 import { motionFor } from './motion.js'
@@ -75,6 +75,28 @@ export function viewBox(vis, still = null) {
   return memo(vis, 'box', () => {
     const box = [Infinity, Infinity, -Infinity, -Infinity]
     for (let i = 0; i <= 24; i += 1) sceneBounds(phaseScene(vis, i / 24).items, box)
+    return squareBox(box, 3, 44)
+  })
+}
+
+// The loop box (to within a hair) from the key poses and the pose halfway through each move between
+// them: 3-8 solves instead of 25, for lists of hover thumbnails. It still holds the whole loop.
+export function keysBox(vis) {
+  return memo(vis, 'keysBox', () => {
+    const { keys, loop } = vis.info
+    const box = [Infinity, Infinity, -Infinity, -Infinity]
+    keys.forEach((_, i) => sceneBounds(keyScene(vis, i).items, box))
+    const order = stops(keys.length, loop)
+    const moves = loop === 'spin' ? order.length - 1 : order.length
+    const done = new Set()
+    for (let s = 0; s < moves; s += 1) {
+      const a = order[s]
+      const b = order[(s + 1) % order.length]
+      const id = `${Math.min(a, b)}-${Math.max(a, b)}`
+      if (a === b || done.has(id)) continue
+      done.add(id)
+      sceneBounds(poseScene(vis, lerpPose(keys[a], keys[b], 0.5)).items, box)
+    }
     return squareBox(box, 3, 44)
   })
 }

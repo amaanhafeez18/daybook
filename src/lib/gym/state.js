@@ -3,7 +3,6 @@ import { getToken, readJson, tokenUserId, writeJson } from '../api.js'
 import { isISODate, todayISO } from '../dates.js'
 import { getState, getSyncedSettings, newId, retryUnsaved, subscribe, updateData, updateSettings, useStore } from '../store.js'
 import * as sched from './schedule.js'
-import { weeklyGoalFor } from './stats.js'
 
 // Client glue for the gym: tolerant reads of settings.gym, actions that save through the shared
 // store (schedule actions return an undo), and the in-progress workout, which lives in
@@ -247,13 +246,14 @@ const normalizeActive = memoByRef((raw) => {
   return exercises === raw.exercises ? raw : { ...raw, exercises }
 })
 
-// The weekly goal follows the plan unless it was set by hand (stats.weeklyGoalFor). Derived prefs
+// The weekly goal follows the plan unless it was set by hand (schedule.weeklyGoalFor; not imported
+// from stats.js, which would pull the exercise library into the first bundle). Derived prefs
 // are memoised per prefs object and goal, and carry weeklyGoalAuto: true so a later spread of prefs
 // (a unit change…) stores them as still following the plan. weeklyGoalFromPlan is for the UI.
 const goalCache = new WeakMap()
 
 function withPlanGoal(prefs, rawPrefs, schedule) {
-  const { goal, fromPlan, manual } = weeklyGoalFor(rawPrefs, schedule)
+  const { goal, fromPlan, manual } = sched.weeklyGoalFor(rawPrefs, schedule)
   if (manual) return prefs
   const cached = goalCache.get(prefs)
   if (cached?.weeklyGoal === goal && cached.weeklyGoalFromPlan === fromPlan) return cached
