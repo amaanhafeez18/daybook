@@ -41,7 +41,8 @@ globalThis.localStorage = storage
 
 // missingColumns: { [key]: [field] } — columns the fake database doesn't have yet (a migration not
 // run): saves leave them out and reply with `dropped`, like api/data.js.
-const server = { data: {}, requests: [], down: false, missingColumns: {} }
+// afterRead: runs once a GET has read the data and before it answers (things happening meanwhile).
+const server = { data: {}, requests: [], down: false, missingColumns: {}, afterRead: null }
 
 function applyPatch({ key, upsert, delete: remove, set }) {
   if (key === 'settings') {
@@ -76,8 +77,12 @@ globalThis.fetch = async (url, { method = 'GET', body } = {}) => {
   const parsed = body ? JSON.parse(body) : undefined
   server.requests.push({ url, method, body: parsed })
   let payload = {}
-  if (method === 'GET') payload = structuredClone(server.data)
-  else if (method === 'PATCH') payload = applyPatch(parsed) || { ok: true }
+  if (method === 'GET') {
+    payload = structuredClone(server.data)
+    const hook = server.afterRead
+    server.afterRead = null
+    if (hook) await hook()
+  } else if (method === 'PATCH') payload = applyPatch(parsed) || { ok: true }
   return { ok: true, status: 200, text: async () => JSON.stringify(payload) }
 }
 
@@ -139,6 +144,7 @@ beforeEach(() => {
   server.down = false
   server.requests = []
   server.missingColumns = {}
+  server.afterRead = null
   server.data = {
     tasks: [{ id: 't1', title: 'Task one' }],
     gymSessions: [session('s1', '2026-09-20')],
@@ -460,6 +466,92 @@ describe('fields the database has no column for yet', () => {
 
     store.resetStore()
     assert.deepEqual(store.getState().droppedFields, {})
+  })
+})
+
+describe('launch and refresh without changes', () => {
+  const meal = (id, date) => ({ id, date, meal: 'lunch', name: `Food ${id}`, calories: 400, proteinG: 20, extra: {}, createdAt: `${date}T12:30:00.000Z` })
+
+  // Counts localStorage writes per key while `run` runs.
+  async function writesDuring(run) {
+    const writes = []
+    const setItem = storage.setItem
+    storage.setItem = function (key, value) {
+      writes.push(key)
+      return setItem.call(this, key, value)
+    }
+    try {
+      await run()
+    } finally {
+      storage.setItem = setItem
+    }
+    return writes
+  }
+
+  test('a launch with nothing unsaved uses one copy for the cache and the record', async () => {
+    store.hydrateFromCache()
+    await store.refresh()
+    await relaunch()
+    assert.equal(store.getSyncedSettings(), store.getState().data.settings)
+    assert.equal(store.hasUnsavedChanges(), false)
+  })
+
+  test('the first refresh after a launch keeps unchanged lists (fingerprinted ones too) and rewrites nothing', async () => {
+    server.data.foodEntries = [meal('f2', '2026-09-21'), meal('f1', '2026-09-20')]
+    server.data.gymSessions = [session('s2', '2026-09-21'), session('s1', '2026-09-20')]
+    store.hydrateFromCache()
+    await store.refresh()
+    await relaunch()
+    const before = store.getState().data
+
+    server.requests = []
+    const writes = await writesDuring(() => store.refresh())
+    const after = store.getState().data
+    for (const key of ['tasks', 'gymSessions', 'foodEntries', 'settings']) assert.equal(after[key], before[key], `${key} keeps its object`)
+    assert.deepEqual(writes.filter((key) => key.startsWith(CACHE) || key.startsWith(RECORD)), [])
+    assert.deepEqual(patches(), [])
+
+    // Edits after that are still found and sent, and only what changed.
+    store.updateData('foodEntries', (list) => list.map((row) => (row.id === 'f1' ? { ...row, calories: 500 } : row)))
+    store.updateData('tasks', (list) => list.filter((row) => row.id !== 't1'))
+    await settle()
+    assert.deepEqual(patches().map((request) => [request.body.key, request.body.upsert.map((row) => row.id), request.body.delete]).sort(), [['foodEntries', ['f1'], []], ['tasks', [], ['t1']]])
+    assert.equal(server.data.foodEntries.find((row) => row.id === 'f1').calories, 500)
+    server.requests = []
+    await relaunch()
+    assert.deepEqual(patches(), [])
+  })
+
+  test('a list the server changed is still replaced and cached', async () => {
+    server.data.foodEntries = [meal('f1', '2026-09-20')]
+    store.hydrateFromCache()
+    await store.refresh()
+    await relaunch()
+    server.data.foodEntries = [meal('f2', '2026-09-21'), meal('f1', '2026-09-20')]
+    await store.refresh()
+    assert.deepEqual(ids(store.getState().data.foodEntries), ['f1', 'f2'])
+    assert.deepEqual(ids(stored(CACHE + 'foodEntries')), ['f1', 'f2'])
+    server.requests = []
+    await relaunch()
+    assert.deepEqual(patches(), [])
+  })
+
+  test('an edit saved and then undone while the refresh reads still sends the undo', async () => {
+    store.hydrateFromCache()
+    await store.refresh()
+    const before = store.getState().data.tasks
+    // The read sees the server before the save lands; the device ends up showing the list as it was.
+    server.afterRead = async () => {
+      store.updateData('tasks', (list) => [...list, { id: 't2', title: 'Task two' }])
+      await store.flushAll()
+      assert.deepEqual(ids(server.data.tasks), ['t1', 't2'])
+      store.updateData('tasks', before)
+    }
+    await store.refresh()
+    await settle()
+    assert.deepEqual(ids(store.getState().data.tasks), ['t1'])
+    assert.deepEqual(ids(server.data.tasks), ['t1'])
+    assert.equal(store.hasUnsavedChanges(), false)
   })
 })
 

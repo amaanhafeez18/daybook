@@ -2,7 +2,7 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  ACTIVITY_LEVELS, KCAL_PER_G, KJ_PER_KCAL, MEALS_DEFAULT, amountText, calcBmr, calcGoals, clampEstimateItem, cleanEntry, dayTotals, energyToKcal, entryCalories, entryMeal, entryTemplate, findFavorite, foodKey, formatEnergy, frequent, logStreak, macroCalories, mealForTime, mealTotals, normalizeFood, recents, remaining, scaleEntry, sortDayEntries, suggestions, unitFor, weeklyInsights, weightSeries, weightTrend, matchSavedFoods,
+  ACTIVITY_LEVELS, KCAL_PER_G, KJ_PER_KCAL, MEALS_DEFAULT, amountText, appliedGoal, calcBmr, calcGoals, currentApplied, clampEstimateItem, cleanEntry, dayTotals, energyToKcal, entryCalories, entryMeal, entryTemplate, findFavorite, foodKey, formatEnergy, frequent, logStreak, macroCalories, mealForTime, mealTotals, normalizeFood, recents, remaining, scaleEntry, sortDayEntries, suggestions, unitFor, weeklyInsights, weightSeries, weightTrend, matchSavedFoods,
 } from '../src/lib/food/nutrition.js'
 
 const close = (actual, expected, tolerance = 1e-6) => {
@@ -255,6 +255,50 @@ describe('goal calculator', () => {
     assert.equal(calcBmr({ weightKg: 80 }), null)
     const weird = calcGoals({ sex: 'x', birthYear: 'abc', heightCm: '180', activity: 'toString', goal: 'bulk' }, { weightKg: '80', today: 'bad' })
     assert.deepEqual(weird.missing, ['birth year'])
+  })
+
+  test('appliedGoal: the pace actually used (capped, blocked, or from edited calories)', () => {
+    const female = { sex: 'female', birthYear: 1998, heightCm: 165, activity: 'light', goal: 'lose', rateKgPerWeek: 0.75 }
+    const capped = calcGoals(female, { weightKg: 62, today })
+    const applied = appliedGoal(capped, { calories: capped.calories, weightKg: 62, weighedOn: '2026-09-20', goal: 'lose', rateKgPerWeek: 0.75 })
+    assert.deepEqual(applied, { pace: -0.6, calories: 1200, weightKg: 62, weighedOn: '2026-09-20', askedGoal: 'lose', askedRate: 0.75 })
+
+    const teen = calcGoals({ ...male, birthYear: 2010 }, { weightKg: 80, today })
+    const blocked = appliedGoal(teen, { calories: teen.calories, weightKg: 80, weighedOn: today, goal: 'lose', rateKgPerWeek: 0.5 })
+    assert.equal(blocked.pace, 0)
+    assert.equal(blocked.askedGoal, 'lose')
+
+    // Calories edited before saving: the pace they give (2759 maintenance − 2400 ≈ 0.33 kg a week).
+    const plain = calcGoals(male, { weightKg: 80, today })
+    assert.equal(appliedGoal(plain, { calories: 2400 }).pace, -0.33)
+    // A kJ round trip (under 1 kcal off) keeps the calculator's own pace.
+    assert.equal(appliedGoal(plain, { calories: plain.calories + 0.2 }).pace, -0.5)
+    assert.equal(appliedGoal(plain, {}).calories, 2210)
+
+    assert.equal(appliedGoal(null, { calories: 2000 }), null)
+    assert.equal(appliedGoal(calcGoals({}, {}), { calories: 2000 }), null)
+    const junk = appliedGoal(plain, { calories: 2210, weightKg: 'x', weighedOn: 'soon', goal: 'bulk', rateKgPerWeek: 9 })
+    assert.equal(junk.weightKg, null)
+    assert.equal(junk.weighedOn, null)
+    assert.equal(junk.askedGoal, null)
+    assert.equal(junk.askedRate, null)
+  })
+
+  test('currentApplied: only while it still matches the saved goal', () => {
+    const applied = { pace: -0.6, calories: 1200, weightKg: 62, weighedOn: '2026-09-20', askedGoal: 'lose', askedRate: 0.75 }
+    const profile = { goal: 'lose', rateKgPerWeek: 0.75, applied }
+    const goals = { calories: 1200, source: 'calculator' }
+    assert.equal(currentApplied(profile, goals), applied)
+    assert.equal(currentApplied(profile, { ...goals, calories: 1200.4 }), applied)
+    assert.equal(currentApplied(profile, { ...goals, calories: 1500 }), null, 'recalculated since (e.g. by the assistant)')
+    assert.equal(currentApplied(profile, { ...goals, source: 'manual' }), null)
+    assert.equal(currentApplied({ ...profile, rateKgPerWeek: 0.5 }, goals), null, 'pace changed since')
+    assert.equal(currentApplied({ ...profile, goal: 'gain' }, goals), null, 'goal changed since')
+    const maintain = { goal: 'maintain', rateKgPerWeek: 0.5, applied: { ...applied, pace: 0.05, askedGoal: 'maintain', askedRate: null } }
+    assert.equal(currentApplied(maintain, goals), maintain.applied)
+    assert.equal(currentApplied({ goal: 'lose' }, goals), null)
+    assert.equal(currentApplied(null, goals), null)
+    assert.equal(currentApplied(profile, null), null)
   })
 })
 

@@ -6,7 +6,7 @@ import { useGym, useGymSessions } from '../../lib/gym/state.js'
 import { navigate } from '../../lib/router.js'
 import { GymEmpty } from './common.jsx'
 import CustomExerciseSheet from './CustomExerciseSheet.jsx'
-import { ExerciseFilters, ExerciseRowBody, exerciseUsage, groupByLetter, recentExercises } from './ExercisePicker.jsx'
+import { ExerciseFilters, ExerciseRow, exerciseUsage, groupByLetter, recentExercises } from './ExercisePicker.jsx'
 import './exercises.css'
 
 // The search and filters survive a trip to an exercise and back (GymPage restores the scroll).
@@ -36,13 +36,16 @@ export default function ExercisesTab() {
 
   const open = (id) => navigate(`gym/exercise/${id}`)
 
+  // The row opens the exercise's page; its picture pops up how it's done.
   const row = (exercise) => (
-    <li key={exercise.id}>
-      <button type="button" className="gym-lib-row" onClick={() => open(exercise.id)}>
-        <ExerciseRowBody exercise={exercise} count={usage.counts.get(exercise.id) || 0} />
-        <Icon name="chevronRight" size={18} className="gym-lib-chevron" />
-      </button>
-    </li>
+    <ExerciseRow
+      key={exercise.id}
+      exercise={exercise}
+      count={usage.counts.get(exercise.id) || 0}
+      onClick={() => open(exercise.id)}
+      onDetails={() => open(exercise.id)}
+      trailing={<Icon name="chevronRight" size={18} className="gym-lib-chevron" />}
+    />
   )
 
   const clearFilters = () => {

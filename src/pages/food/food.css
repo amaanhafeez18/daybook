@@ -183,7 +183,8 @@
 .icon-btn.food-row-more::after { content: ''; position: absolute; inset: -4px; } /* a 44px target */
 
 /* .food-chips / .food-suggest (meal shortcut chips) live in components/food-quick.css, shared
-   with the Health card. */
+   with the Health card. Chips that were tapped stay above the food they logged. */
+.food-meal > .food-chips + .food-list { margin-top: 10px; }
 .food-meal-ghost {
   display: flex; align-items: center; gap: 8px; width: 100%; min-height: 50px; padding: 0 16px; border-radius: 18px;
   border: 1.5px dashed var(--border-strong); color: var(--text-2); font-size: 15px; text-align: left;
@@ -298,8 +299,9 @@
 .food-tray-done::after { content: ''; position: absolute; inset: -2px 0; } /* a 44px target */
 .food-tray-done:active { transform: scale(0.96); }
 
-/* Toasts float above the dock while it is on screen. */
-html:has(.food-dock) .toaster { bottom: calc(var(--nav-h) + var(--safe-bottom) + 84px + var(--gymw-pill-space, 0px)); }
+/* Toasts float above the dock while it is on screen; with a sheet open they stay at the top
+   (shell.css). :where adds no specificity, so shell.css's keyboard rule still wins while typing. */
+html:where(:not(.has-sheet)):has(.food-dock) .toaster { bottom: calc(var(--nav-h) + var(--safe-bottom) + 84px + var(--gymw-pill-space, 0px)); }
 /* During a workout the dock sits above the workout pill; this outranks the pill's own toaster rule
    (gym-widget.css), which would otherwise put toasts over the dock's field and buttons. */
 html.has-workout-pill:has(.food-dock):not(.has-sheet) .toaster { bottom: calc(var(--nav-h) + var(--safe-bottom) + 84px + var(--gymw-pill-space, 0px)); }
@@ -314,7 +316,7 @@ html.has-workout-pill:has(.food-dock):not(.has-sheet) .toaster { bottom: calc(va
 @media (min-width: 900px) {
   /* The workout pill (bottom 24px, centred on the same column) would sit on the dock: lift it. */
   .food-dock { bottom: calc(16px + var(--gymw-pill-space, 0px)); max-width: 720px; margin-left: auto; margin-right: auto; }
-  html:has(.food-dock) .toaster { bottom: 88px; }
+  html:where(:not(.has-sheet)):has(.food-dock) .toaster { bottom: 88px; }
   html.has-workout-pill:has(.food-dock):not(.has-sheet) .toaster { bottom: calc(88px + var(--gymw-pill-space, 0px)); }
 }
 

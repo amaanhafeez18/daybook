@@ -123,10 +123,15 @@ describe('toasts', () => {
 })
 
 describe('saveStatus', () => {
-  test('offline wins, then a rejected save, then a save that is taking a while', () => {
+  test('offline wins, then a save that is taking a while, then a rejected save', () => {
     assert.equal(saveStatus({ offline: true, saveError: 'Nope', pendingSaves: 1 }, true), 'offline')
-    assert.equal(saveStatus({ offline: false, saveError: 'Nope', pendingSaves: 1 }, true), 'error')
     assert.equal(saveStatus({ offline: false, saveError: '', pendingSaves: 1 }, true), 'saving')
+    assert.equal(saveStatus({ offline: false, saveError: 'Nope', pendingSaves: 0 }, true), 'error')
+  })
+
+  test('a retry of a rejected save shows it is running once it takes a while', () => {
+    assert.equal(saveStatus({ offline: false, saveError: 'Nope', pendingSaves: 1 }, true), 'saving')
+    assert.equal(saveStatus({ offline: false, saveError: 'Nope', pendingSaves: 1 }, false), 'error')
   })
 
   test('a quick save, or nothing to save, shows nothing', () => {

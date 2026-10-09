@@ -4,6 +4,7 @@ import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { orphanMatches, orphanSummary, planWeeklyGoal, plausibleWeight, weeklyGoalFor } from '../src/lib/gym/stats.js'
 import { toKg } from '../src/lib/gym/units.js'
+import * as sched from '../src/lib/gym/schedule.js'
 
 const set = (weightKg, reps = 5, extra = {}) => ({ type: 'normal', weightKg, reps, done: true, ...extra })
 const session = (id, date, exercises, extra = {}) => ({ id, date, name: 'Workout', routineId: null, exercises, ...extra })
@@ -149,5 +150,10 @@ describe('weekly goal from the plan', () => {
     assert.deepEqual(weeklyGoalFor({ weeklyGoal: 4, weeklyGoalAuto: true }, plan), { goal: 5, fromPlan: true, manual: false })
     assert.deepEqual(weeklyGoalFor({}, null), { goal: 3, fromPlan: false, manual: false })
     assert.deepEqual(weeklyGoalFor(null, plan), { goal: 5, fromPlan: true, manual: false })
+  })
+
+  test('lives in schedule.js (no library import for state.js); stats.js re-exports it', () => {
+    assert.equal(sched.weeklyGoalFor, weeklyGoalFor)
+    assert.equal(sched.planWeeklyGoal, planWeeklyGoal)
   })
 })

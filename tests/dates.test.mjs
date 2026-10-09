@@ -13,6 +13,11 @@ const parse = (text, now = NOW) => {
   const { title, date, time } = parseQuickAdd(text, now)
   return { title, date, time }
 }
+// With the day a form already has (parseQuickAdd's options.day).
+const parse3 = (text, day) => {
+  const { title, date, time } = parseQuickAdd(text, NOW, { day })
+  return { title, date, time }
+}
 
 describe('parseQuickAdd: days', () => {
   test('today, tomorrow and their spellings, at either end', () => {
@@ -105,6 +110,34 @@ describe('parseQuickAdd: times', () => {
   })
 })
 
+describe('parseQuickAdd: a time on its own keeps the day already set', () => {
+  const DAY = '2026-10-20' // e.g. the calendar's selected day, or a picked "Tomorrow"
+
+  test('hasDay says whether the words named a day', () => {
+    assert.equal(parseQuickAdd('Dentist 3pm', NOW).hasDay, false)
+    assert.equal(parseQuickAdd('Dentist tomorrow 3pm', NOW).hasDay, true)
+    assert.equal(parseQuickAdd('Dentist fri', NOW).hasDay, true)
+    assert.equal(parseQuickAdd('Buy milk tonight', NOW).hasDay, true)
+    assert.equal(parseQuickAdd('Report in 2 hours', NOW).hasDay, true)
+  })
+
+  test('a time alone goes on the given day, even one that is today and already past', () => {
+    assert.deepEqual(parse3('Dentist 3pm', DAY), { title: 'Dentist', date: DAY, time: '15:00' })
+    assert.deepEqual(parse3('Standup 9am', TODAY), { title: 'Standup', date: TODAY, time: '09:00' })
+    // Without am/pm, 7–9 are read against that day, not against the clock now.
+    assert.equal(parse3('Gym at 7', DAY).time, '07:00')
+    assert.equal(parse3('Gym at 7', TODAY).time, '19:00')
+  })
+
+  test('a day in the words still wins; no day given (or a bad one) behaves as before', () => {
+    assert.deepEqual(parse3('Dentist tomorrow 3pm', DAY), { title: 'Dentist', date: '2026-09-24', time: '15:00' })
+    assert.deepEqual(parse3('Report in 2 hours', DAY), { title: 'Report', date: TODAY, time: '16:30' })
+    assert.deepEqual(parse3('Standup 9am', ''), { title: 'Standup', date: '2026-09-24', time: '09:00' })
+    assert.deepEqual(parse3('Standup 9am', 'soon'), { title: 'Standup', date: '2026-09-24', time: '09:00' })
+    assert.deepEqual(parse3('Read chapter 5', DAY), { title: 'Read chapter 5', date: '', time: '' })
+  })
+})
+
 describe('parseQuickAdd: leaves titles alone', () => {
   const untouched = [
     "Call Friday's contact",
@@ -124,7 +157,7 @@ describe('parseQuickAdd: leaves titles alone', () => {
   ]
   for (const text of untouched) {
     test(JSON.stringify(text), () => {
-      assert.deepEqual(parseQuickAdd(text, NOW), { title: text, date: '', time: '', matched: [] })
+      assert.deepEqual(parseQuickAdd(text, NOW), { title: text, date: '', time: '', matched: [], hasDay: false })
     })
   }
 

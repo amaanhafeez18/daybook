@@ -23,17 +23,25 @@ import '../../components/food-quick.css'
 
 // The camera button: a small menu with "Photo of food" and "Scan barcode" (both open the same
 // hidden photo picker; call it inside the tap so iOS allows it). onPick('photo' | 'barcode').
-// placement: 'up' (menu above the button) or 'down'.
-export function CameraChoice({ onPick, onOpen, disabled = false, preparing = false, buttonClass, iconSize = 20, placement = 'up' }) {
+// placement: 'up' (menu above the button) or 'down'. onClose(target): the menu was put away
+// without a pick (target: what a tap outside it landed on, else null).
+export function CameraChoice({ onPick, onOpen, onClose, disabled = false, preparing = false, buttonClass, iconSize = 20, placement = 'up' }) {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
+  const closeRef = useRef(onClose)
+  closeRef.current = onClose
   useEffect(() => {
     if (!open) return undefined
     const onDown = (event) => {
-      if (!ref.current?.contains(event.target)) setOpen(false)
+      if (ref.current?.contains(event.target)) return
+      setOpen(false)
+      closeRef.current?.(event.target)
     }
     const onKey = (event) => {
-      if (event.key === 'Escape') setOpen(false)
+      if (event.key === 'Escape') {
+        setOpen(false)
+        closeRef.current?.(null)
+      }
     }
     document.addEventListener('pointerdown', onDown)
     document.addEventListener('keydown', onKey)
@@ -51,10 +59,11 @@ export function CameraChoice({ onPick, onOpen, disabled = false, preparing = fal
       <button
         type="button"
         className={buttonClass}
-        onClick={() => setOpen((value) => {
-          if (!value) onOpen?.()
-          return !value
-        })}
+        onClick={() => {
+          if (open) onClose?.(null)
+          else onOpen?.()
+          setOpen(!open)
+        }}
         disabled={disabled || preparing}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -145,8 +154,10 @@ function useTrayRoom(dockRef, open) {
 const keepFocus = (event) => event.preventDefault()
 
 // controlRef.current.open() focuses the field and opens the tray (call it inside a tap so iOS
-// shows the keyboard).
-export default function QuickAddBar({ date, today, meal, mealChosen = false, onMealChange, entries, food, controlRef, onEstimate, onManual }) {
+// shows the keyboard). onDismiss: the tray was put away without adding anything more (Done, a tap
+// outside, Escape, or the camera or microphone it made way for ended without an estimate), e.g.
+// to forget a meal chosen for it.
+export default function QuickAddBar({ date, today, meal, mealChosen = false, onMealChange, onDismiss, entries, food, controlRef, onEstimate, onManual }) {
   const { meals, energyUnit: unit } = food.prefs
   const [text, setText] = useState('')
   const [trayOpen, setTrayOpen] = useState(false)
@@ -159,6 +170,8 @@ export default function QuickAddBar({ date, today, meal, mealChosen = false, onM
   const fileRef = useRef(null)
   const photoMode = useRef('photo') // 'photo' | 'barcode': what the picked photo shows
   const input = useRef(null)
+  const dismissRef = useRef(onDismiss)
+  dismissRef.current = onDismiss
 
   useImperativeHandle(controlRef, () => ({
     open() {
@@ -178,7 +191,17 @@ export default function QuickAddBar({ date, today, meal, mealChosen = false, onM
     if (!recorder.error) return
     toast(recorder.error, { tone: 'error' })
     recorder.clearError()
+    dismissRef.current?.() // no estimate is coming from this recording
   }, [recorder.error]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The photo picker was closed without a photo: no estimate is coming either.
+  useEffect(() => {
+    const node = fileRef.current
+    if (!node) return undefined
+    const onCancel = () => dismissRef.current?.()
+    node.addEventListener('cancel', onCancel)
+    return () => node.removeEventListener('cancel', onCancel)
+  }, [])
 
   useTrayRoom(dockRef, trayOpen)
 
@@ -212,12 +235,15 @@ export default function QuickAddBar({ date, today, meal, mealChosen = false, onM
   useEffect(() => {
     if (!trayOpen) return undefined
     const onDown = (event) => {
-      if (!dockRef.current?.contains(event.target)) setTrayOpen(false)
+      if (dockRef.current?.contains(event.target)) return
+      setTrayOpen(false)
+      dismissRef.current?.()
     }
     const onKey = (event) => {
       if (event.key === 'Escape') {
         setTrayOpen(false)
         input.current?.blur()
+        dismissRef.current?.()
       }
     }
     document.addEventListener('pointerdown', onDown)
@@ -236,15 +262,22 @@ export default function QuickAddBar({ date, today, meal, mealChosen = false, onM
 
   const query = text.trim().toLowerCase()
   const code = barcodeDigits(text)
-  const lists = useMemo(() => {
+  // Recent and Suggested don't depend on what's typed: worked out once per tray, not per keystroke.
+  const quickLists = useMemo(() => {
     if (!trayOpen) return null
     const hhmm = date === today ? nowTimeHHMM() : mealTime(meal)
-    const recent = recents(shownEntries, today, { limit: 25 })
+    return {
+      suggested: suggestions(shownEntries, meal, hhmm, today, 8),
+      recent: recents(shownEntries, today, { limit: 25 }),
+    }
+  }, [trayOpen, shownEntries, meal, date, today])
+  const lists = useMemo(() => {
+    if (!quickLists) return null
     const favorites = food.favorites
     let matches = []
     if (query) {
       const seen = new Set()
-      for (const item of [...favorites, ...recent]) {
+      for (const item of [...favorites, ...quickLists.recent]) {
         const key = foodKey(item.name, item.brand)
         if (!key || seen.has(key)) continue
         const haystack = [item.name, item.brand, item.barcode, ...(item.aliases || [])].filter(Boolean).join(' ').toLowerCase()
@@ -254,19 +287,17 @@ export default function QuickAddBar({ date, today, meal, mealChosen = false, onM
         if (matches.length >= 6) break
       }
     }
-    return {
-      suggested: suggestions(shownEntries, meal, hhmm, today, 8),
-      recent,
-      favorites,
-      matches,
-    }
-  }, [trayOpen, shownEntries, food.favorites, meal, date, today, query, code])
+    return { ...quickLists, favorites, matches }
+  }, [quickLists, food.favorites, query, code])
 
   const foodId = (item) => foodKey(item.name, item.brand)
+  // "Added" is per meal and day: after switching "Add to", the same food can be added there too.
+  const addedId = (item) => `${meal}|${date}|${foodId(item)}`
 
-  // Logs a food and keeps the tray open for the next; a food added already comes back out.
+  // Logs a food and keeps the tray open for the next; a food added already (to this meal) comes
+  // back out.
   function toggle(template) {
-    const key = foodId(template)
+    const key = addedId(template)
     const done = addedRef.current.find((item) => item.key === key)
     if (done) {
       done.undo()
@@ -282,6 +313,7 @@ export default function QuickAddBar({ date, today, meal, mealChosen = false, onM
   function closeTray() {
     setTrayOpen(false)
     input.current?.blur()
+    onDismiss?.()
   }
 
   function manual(defaults) {
@@ -313,7 +345,10 @@ export default function QuickAddBar({ date, today, meal, mealChosen = false, onM
   async function onPhoto(event) {
     const file = event.target.files?.[0]
     event.target.value = ''
-    if (!file) return
+    if (!file) {
+      dismissRef.current?.()
+      return
+    }
     const barcode = photoMode.current === 'barcode'
     photoMode.current = 'photo'
     setPreparing(true)
@@ -325,6 +360,7 @@ export default function QuickAddBar({ date, today, meal, mealChosen = false, onM
       setTrayOpen(false)
     } catch (error) {
       toast(error?.message || 'Couldn’t use that photo.', { tone: 'error' })
+      dismissRef.current?.()
     } finally {
       setPreparing(false)
     }
@@ -343,7 +379,9 @@ export default function QuickAddBar({ date, today, meal, mealChosen = false, onM
     <div className={`food-dock${trayOpen ? ' has-tray' : ''}`} ref={dockRef}>
       {trayOpen && (
         <div className="food-tray" role="dialog" aria-label="Quick add">
-          <div className={`food-tray-head${query ? ' is-search' : ''}`}>
+          {/* A tap on the tabs keeps the keyboard up, like the rows (the meal picker is a select,
+              which needs the focus to open). */}
+          <div className={`food-tray-head${query ? ' is-search' : ''}`} onMouseDown={(event) => { if (!event.target.closest?.('.food-pick')) keepFocus(event) }}>
             <span className="food-tray-to">Add to</span>
             <MealSelect meals={meals} value={meal} onChange={onMealChange} className="food-tray-meal" />
             {!query && <Segmented options={TABS} value={tab} onChange={setTab} label="Quick add lists" className="food-tray-tabs" />}
@@ -364,7 +402,7 @@ export default function QuickAddBar({ date, today, meal, mealChosen = false, onM
             {list.map((item) => {
               const kcal = entryCalories(item)
               const portion = portionText(item)
-              const isAdded = addedKeys.has(foodId(item))
+              const isAdded = addedKeys.has(addedId(item))
               return (
                 <li key={item.id || item.key || foodId(item)}>
                   <button type="button" className={`food-tray-row${isAdded ? ' is-added' : ''}`} aria-pressed={isAdded} onMouseDown={keepFocus} onClick={() => toggle(item)}>
@@ -418,7 +456,7 @@ export default function QuickAddBar({ date, today, meal, mealChosen = false, onM
 
       {recorder.recording ? (
         <div className="food-bar is-recording">
-          <button type="button" className="food-bar-btn" onClick={() => recorder.stop(true)} aria-label="Cancel recording">
+          <button type="button" className="food-bar-btn" onClick={() => { recorder.stop(true); dismissRef.current?.() }} aria-label="Cancel recording">
             <Icon name="close" size={20} />
           </button>
           <div className="recorder">
@@ -447,13 +485,24 @@ export default function QuickAddBar({ date, today, meal, mealChosen = false, onM
               }
             }}
             onFocus={() => setTrayOpen(true)}
+            // iOS can close the tray (a touch outside that turned into a scroll) without the field
+            // losing focus; tapping it then fires no focus event, so a tap opens it too.
+            onClick={() => setTrayOpen(true)}
             placeholder="What did you eat?"
             aria-label={`What did you eat${mealChosen ? ` for ${mealName(meals, meal).toLowerCase()}` : ''}? You can also type a barcode number.`}
             enterKeyHint="send"
             autoComplete="off"
             maxLength={1000}
           />
-          <CameraChoice buttonClass="food-bar-btn" iconSize={21} preparing={preparing} onPick={pickPhoto} onOpen={() => setTrayOpen(false)} />
+          {/* The camera menu put away without a pick ends the add, unless the tap was back on the bar. */}
+          <CameraChoice
+            buttonClass="food-bar-btn"
+            iconSize={21}
+            preparing={preparing}
+            onPick={pickPhoto}
+            onOpen={() => setTrayOpen(false)}
+            onClose={(target) => { if (!dockRef.current?.contains(target)) dismissRef.current?.() }}
+          />
           {text.trim() ? (
             <button type="submit" className="food-bar-send" aria-label="Estimate">
               <Icon name="send" size={20} strokeWidth={2.2} />

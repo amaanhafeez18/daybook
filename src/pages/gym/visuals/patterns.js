@@ -11,6 +11,8 @@ const FOOT = G - 1.8 // ankle height with the foot flat on the floor
 const PALM = G - 2.3 // a hand resting on the floor
 const BENCH = 76.5 // top of a flat bench
 const SEAT = 72 // hip height when seated on a bench or machine seat
+const SEAL_BENCH = 60 // top of a seal-row bench (high enough for the bar to hang below)
+const BOX = 66 // top of a plyo box
 
 const stand = (x = 50, extra = {}) => ({ anchor: 'ankle', at: [x, FOOT], trunk: 180, leg: [0, 0, 90], arm: [0, 0], ...extra })
 const seated = (x = 44, extra = {}) => ({ at: [x, SEAT], trunk: 182, leg: { to: [x + 17, FOOT], bend: 1, foot: 90 }, arm: [0, 0], ...extra })
@@ -39,6 +41,8 @@ const box = (x0, x1, top) => poly([[x0, top], [x1, top], [x1, G], [x0, G]], 'pad
 const pullupBar = (c) => [post([c[0] - 8, c[1]], [c[0] + 13, c[1]], 2.4), post([c[0] + 13, c[1]], [c[0] + 13, G], 1.6)]
 const lever = (pivot, end, padR = 2.8) => [seg(pivot, end, 2.2, 'gear'), dot(pivot, 1.6, 'gear'), dot(end, padR, 'pad')]
 const pick = (v, key, fallback) => (v && v[key] !== undefined ? v[key] : fallback)
+// A curl machine is a preacher bench unless the variant says otherwise.
+const curlStyle = (v) => pick(v, 'style', pick(v, 'gear') === 'machine' ? 'preacher' : 'standing')
 
 function handGear(v, j, skel, j0) {
   const gear = pick(v, 'gear', 'barbell')
@@ -58,7 +62,10 @@ export const PATTERNS = {
       const bench = pick(v, 'bench', 'flat')
       if (bench === 'incline') {
         const base = { at: [57, 70], trunk: -128, leg: { to: [74, FOOT], bend: 1, foot: 90 } }
-        return [{ ...base, arm: { to: [43, 33], bend: -1 } }, { ...base, arm: { to: [46.5, 50], bend: -1 } }]
+        // A Smith bar runs straight up and down its rails.
+        const low = pick(v, 'gear') === 'smith' ? [44.5, 50] : [46.5, 50]
+        const high = pick(v, 'gear') === 'smith' ? [44.5, 33] : [43, 33]
+        return [{ ...base, arm: { to: high, bend: -1 } }, { ...base, arm: { to: low, bend: -1 } }]
       }
       if (bench === 'decline') {
         const base = { at: [60, 63], trunk: -70, leg: [125, 12, 100] }
@@ -98,6 +105,11 @@ export const PATTERNS = {
       const gear = pick(v, 'gear', 'dumbbell')
       if (gear === 'cable') {
         const base = { at: [50, 56.7], trunk: 180, leg: [4, 0, 90] }
+        // Low to high: hands sweep up from beside the thighs to meet in front of the upper chest
+        // (arms reaching toward the viewer, so drawn short).
+        if (pick(v, 'angle') === 'low') {
+          return [{ ...base, arm: { to: [73, 70], bend: 1 }, fs: { arm: [1, 1] } }, { ...base, arm: { to: [52.5, 38], bend: 1 }, fs: { arm: [0.5, 0.5] } }]
+        }
         return [{ ...base, arm: [118, 125] }, { ...base, arm: [-18, -42] }]
       }
       if (gear === 'machine') {
@@ -110,7 +122,10 @@ export const PATTERNS = {
     },
     gear: ({ v, j }) => {
       const gear = pick(v, 'gear', 'dumbbell')
-      if (gear === 'cable') return { back: [...cableColumn(90, 10), ...cableColumn(10, 10)], front: [...cable([88.5, 14], j.hand), ...cable([11.5, 14], j.hand2)] }
+      if (gear === 'cable') {
+        const y = pick(v, 'angle') === 'low' ? 84 : 14
+        return { back: [...cableColumn(90, 10), ...cableColumn(10, 10)], front: [...cable([88.5, y], j.hand), ...cable([11.5, y], j.hand2)] }
+      }
       if (gear === 'machine') return { back: [pad([35, 77], [65, 77], 5), pad([50, 76], [50, 40], 9)], front: [dot(j.hand, 2, 'gear'), dot(j.hand2, 2, 'gear')] }
       return { back: [pad([42, 52], [76, 52], 11)], front: [...dumbbell(j.hand), ...dumbbell(j.hand2)] }
     },
@@ -119,6 +134,9 @@ export const PATTERNS = {
       default: ['Slight bend in the elbows', 'Open wide until you feel a stretch', 'Hug the weights back together'],
       cable: ['Step forward, soft elbows', 'Bring hands together low', 'Slow on the way back'],
       machine: ['Elbows at shoulder height', 'Squeeze the pads together', 'Let them open slowly'],
+      incline: ['Bench at a low incline', 'Open wide until you feel a stretch', 'Bring the weights together over your chest'],
+      low: ['Pulleys low, one step forward', 'Sweep the hands up to chest height', 'Lower slowly, soft elbows'],
+      high: ['Pulleys high, one step forward', 'Sweep the hands down to your hips', 'Slow on the way back'],
     },
   },
 
@@ -194,13 +212,23 @@ export const PATTERNS = {
           { ...stand(48), trunk: 100, leg: [22, 2, 90], leg2: [-78, -82, 5], arm: [6, 6] },
         ]
       }
+      // Bar on the safety pins just above the knees.
+      if (style === 'rack') return [{ ...stand(48), trunk: 132, leg: [32, -4, 90], arm: { to: [51, 67], bend: -1 } }, top]
+      // Facing away from a low pulley, the rope pulled back between the legs.
+      if (style === 'pull_through') {
+        return [{ ...stand(48), trunk: 112, leg: [30, 2, 90], arm: { to: [44, 77], bend: -1 } }, stand(48, { arm: { to: [53, 60], bend: -1 } })]
+      }
       const deep = style === 'trap' || style === 'sumo'
       return [{ ...stand(48), trunk: deep ? 128 : 120, leg: deep ? [70, -16, 90] : [75, -15, 90], arm: { to: [51, G - PLATE_R], bend: -1 } }, top]
     },
     gear: ({ v, j, skel, j0 }) => {
       const style = pick(v, 'style', 'deadlift')
       if (style === 'good_morning') return barOnBack({ j, skel })
-      return handGear(v, j, skel, j0)
+      if (style === 'pull_through') return { back: cableColumn(14, 60), front: cable([15.5, 86], hand(j)) }
+      const hands = handGear(v, j, skel, j0)
+      if (style !== 'rack') return hands
+      const [x, y] = j0.hand
+      return { ...hands, back: [post([x + 7, 22], [x + 7, G], 2), post([x - 6, y + 2.4], [x + 9, y + 2.4], 1.6), ...(hands.back || [])] }
     },
     thumb: 0,
     thumbFor: { rdl: 1, good_morning: 1, single_leg: 1 },
@@ -211,12 +239,25 @@ export const PATTERNS = {
       single_leg: ['Stand on one leg, soft knee', 'Tip forward, back leg straight behind', 'Return to standing tall'],
       sumo: ['Wide stance, toes out', 'Hands inside the knees', 'Push the knees out as you stand'],
       trap: ['Stand inside the bar', 'Hips down, chest up', 'Drive up through the whole foot'],
+      rack: ['Bar on the pins near your knees', 'Back flat, chest up', 'Drive the hips forward, stand tall'],
+      pull_through: ['Face away from a low pulley', 'Hips back, rope between the legs', 'Snap the hips forward to stand tall'],
     },
   },
 
   row_bent: {
     label: 'Bent-over row',
-    keys: () => {
+    keys: (v) => {
+      const style = pick(v, 'style')
+      // Back flat and level, the bar back on the floor every rep.
+      if (style === 'pendlay') {
+        const base = { ...stand(50), trunk: 98, leg: [52, -14, 90] }
+        return [{ ...base, arm: { to: [56, G - PLATE_R], bend: -1 } }, { ...base, arm: { to: [53, 69], bend: -1 } }]
+      }
+      // One arm on a landmine, staggered stance, the other forearm on the front knee.
+      if (style === 'meadows') {
+        const base = { ...stand(56), trunk: 118, leg: [40, -6, 90], leg2: [-22, -30, 70], arm2: { to: [59, 71], bend: -1 } }
+        return [{ ...base, arm: [-4, -4] }, { ...base, arm: [-104, 0] }]
+      }
       const base = { ...stand(52), trunk: 120, leg: [35, -10, 90] }
       return [{ ...base, arm: [-4, -4] }, { ...base, arm: [-100, 0] }]
     },
@@ -225,10 +266,15 @@ export const PATTERNS = {
         const end = add(j.hand, [8, 1.5])
         return { back: [seg([16, G - 1], end, 1.6, 'gear'), ...barbell(add(end, [0, 0]), 6.4)] }
       }
+      if (pick(v, 'gear') === 'dumbbell') return dumbbells({ j })
       return barAtHands({ j })
     },
     thumb: 1,
-    cues: { default: ['Hinge forward, back flat', 'Pull to the belly', 'Elbows go back, not out'] },
+    cues: {
+      default: ['Hinge forward, back flat', 'Pull to the belly', 'Elbows go back, not out'],
+      pendlay: ['Back flat, almost level with the floor', 'Row the bar from the floor to your belly', 'Set it down every rep'],
+      meadows: ['Staggered stance beside the bar end', 'Row the bar end up to your hip', 'Lower until the arm is long, then switch'],
+    },
   },
 
   row_one_arm: {
@@ -244,13 +290,31 @@ export const PATTERNS = {
 
   row_supported: {
     label: 'Chest-supported row',
-    keys: () => {
+    keys: (v) => {
+      const style = pick(v, 'style')
+      // Seal row: face down on a high flat bench, the bar hanging below it.
+      if (style === 'seal') {
+        const base = { at: [40, SEAL_BENCH - 4.9], trunk: 90, leg: [-90, -90, -10] }
+        return [{ ...base, arm: [0, 0] }, { ...base, arm: [-110, 0] }]
+      }
       const base = { at: [44, 63], trunk: 125, leg: { to: [28, FOOT], bend: 1, foot: 80 } }
+      // Y-raise: straight arms from hanging to overhead, in line with the body.
+      if (style === 'y_raise') return [{ ...base, arm: [4, 4], fs: { arm: [1, 1] } }, { ...base, arm: [126, 128], fs: { arm: [0.92, 0.92] } }]
       return [{ ...base, arm: [0, 0] }, { ...base, arm: [-116, 0] }]
     },
-    gear: ({ j, skel0 }) => ({ back: [trunkPad(skel0, -3, 22, 1), post(trunkPoint(skel0, 4, 7), [52, G])], ...dumbbells({ j }) }),
+    gear: ({ v, j, skel0 }) => {
+      if (pick(v, 'style') === 'seal') {
+        const bench = [pad([10, SEAL_BENCH + 2], [64, SEAL_BENCH + 2]), post([16, SEAL_BENCH + 4], [16, G]), post([58, SEAL_BENCH + 4], [58, G])]
+        return { back: [...bench, ...barbell(hand(j))] }
+      }
+      return { back: [trunkPad(skel0, -3, 22, 1), post(trunkPoint(skel0, 4, 7), [52, G])], ...dumbbells({ j }) }
+    },
     thumb: 1,
-    cues: { default: ['Chest on the incline pad', 'Row both elbows back', 'Squeeze the shoulder blades'] },
+    cues: {
+      default: ['Chest on the incline pad', 'Row both elbows back', 'Squeeze the shoulder blades'],
+      seal: ['Lie face down on a high bench', 'Row the bar up to the bench', 'Lower until the arms are straight'],
+      y_raise: ['Chest on an incline bench', 'Raise straight arms into a Y', 'Thumbs up, lower slowly'],
+    },
   },
 
   row_seated: {
@@ -287,28 +351,50 @@ export const PATTERNS = {
 
   pulldown: {
     label: 'Lat pulldown',
-    keys: () => {
+    keys: (v) => {
       const base = { at: [46, SEAT], trunk: 190, leg: { to: [62, FOOT], bend: 1, foot: 90 } }
+      // One handle, one arm; the other hand rests on the thigh.
+      if (pick(v, 'single')) {
+        const one = { ...base, arm2: [30, 84] }
+        return [{ ...one, arm: { to: [47, 25], bend: -1 } }, { ...one, arm: { to: [51, 47], bend: -1 } }]
+      }
       return [{ ...base, arm: { to: [47, 25], bend: -1 } }, { ...base, arm: { to: [50, 49], bend: -1 } }]
     },
     gear: ({ v, j, j0 }) => {
       const frame = [...seat(46), dot(add(j0.knee, [-1, -5]), 3, 'pad'), post(add(j0.knee, [-1, -5]), [j0.knee[0] - 1, G], 1.4)]
       if (pick(v, 'gear') === 'machine') return { back: frame, front: [...lever([72, 14], j.hand, 1.8)] }
-      return { back: [...frame, ...cableColumn(66, 4)], front: [seg([j.hand[0] - 7, j.hand[1]], [j.hand[0] + 7, j.hand[1]], 1.6, 'gear'), ...cable([j.hand[0] + 1, 6], j.hand)] }
+      if (pick(v, 'single')) return { back: [...frame, ...cableColumn(66, 4)], front: cable([j.hand[0] + 1, 6], j.hand) }
+      // A close-grip (V) handle is short; a lat bar is wide.
+      const half = pick(v, 'grip') === 'close' ? 2.8 : 7
+      return { back: [...frame, ...cableColumn(66, 4)], front: [seg([j.hand[0] - half, j.hand[1]], [j.hand[0] + half, j.hand[1]], 1.6, 'gear'), ...cable([j.hand[0] + 1, 6], j.hand)] }
     },
     thumb: 1,
-    cues: { default: ['Thighs under the pad', 'Pull the bar to your upper chest', 'Elbows down and back'] },
+    cues: {
+      default: ['Thighs under the pad', 'Pull the bar to your upper chest', 'Elbows down and back'],
+      single: ['One handle, sit tall', 'Pull the elbow down to your side', 'Let the arm reach all the way up'],
+      close: ['V-handle, palms facing each other', 'Pull it to your upper chest', 'Elbows down, close to the body'],
+    },
   },
 
   straight_arm_pulldown: {
     label: 'Straight-arm pulldown',
-    keys: () => {
+    keys: (v) => {
+      // Kneeling pullover: tall kneel facing a high pulley, hips back a little.
+      if (pick(v, 'style') === 'kneeling') {
+        const base = { anchor: 'knee', at: [38, G - 3.4], trunk: 148, leg: [12, -90, -100] }
+        return [{ ...base, arm: [164, 168] }, { ...base, arm: [18, 22] }]
+      }
       const base = { ...stand(46), trunk: 162, leg: [10, -4, 90] }
       return [{ ...base, arm: [148, 152] }, { ...base, arm: [12, 16] }]
     },
-    gear: ({ j }) => ({ back: cableColumn(84, 6), front: cable([82.5, 12], j.hand) }),
+    gear: ({ v, j }) => (pick(v, 'style') === 'kneeling'
+      ? { back: [pad([14, G - 0.6], [52, G - 0.6], 1.6), ...cableColumn(86, 4)], front: cable([84.5, 8], j.hand) }
+      : { back: cableColumn(84, 6), front: cable([82.5, 12], j.hand) }),
     thumb: 1,
-    cues: { default: ['Arms long, slight bend', 'Sweep the bar down to your thighs', 'Feel it in the lats'] },
+    cues: {
+      default: ['Arms long, slight bend', 'Sweep the bar down to your thighs', 'Feel it in the lats'],
+      kneeling: ['Kneel facing a high pulley', 'Straight arms, pull down to your thighs', 'Let the arms rise slowly overhead'],
+    },
   },
 
   pull_up: {
@@ -426,16 +512,19 @@ export const PATTERNS = {
       }
       const sit = pick(v, 'seat')
       const base = sit ? seated(44, { trunk: 184 }) : stand(50)
+      // Thruster: a front squat that drives straight into the press.
+      const squat = pick(v, 'thruster') && !sit ? { trunk: 154, leg: [86, -28, 90] } : {}
       if (gear !== 'barbell') {
         // Dumbbells or handles start beside the head: elbows out to the sides (short upper arm in
         // this view), forearms upright. Arnold starts with the elbows in front.
         const start = pick(v, 'arnold') ? [62, 176] : [100, 182]
         const startFs = pick(v, 'arnold') ? [0.9, 1] : [0.4, 1]
-        return [{ ...base, arm: start, fs: { arm: startFs } }, { ...base, arm: [182, 182], fs: { arm: [1, 1] } }]
+        return [{ ...base, ...squat, arm: start, fs: { arm: startFs } }, { ...base, arm: [182, 182], fs: { arm: [1, 1] } }]
       }
       const start = { from: 'shoulder', local: [0.5, 4.4] }
       const keys = [{ ...base, arm: { to: start, bend: -1 } }, { ...base, arm: { to: { from: 'shoulder', local: [24.3, 1.5] }, bend: -1 } }]
       if (pick(v, 'dip')) return [keys[0], { ...base, leg: [30, -24, 90], arm: { to: start, bend: -1 } }, keys[1]]
+      if (pick(v, 'thruster')) return [{ ...base, ...squat, arm: { to: start, bend: -1 } }, keys[1]]
       return keys
     },
     loopFor: { dip: 'cycle' },
@@ -455,6 +544,7 @@ export const PATTERNS = {
       seat: ['Back against the pad', 'Press up until arms are straight', 'Lower to ear height'],
       dip: ['Dip the knees a little', 'Drive up with the legs', 'Finish the press overhead'],
       landmine: ['Bar end at your shoulder', 'Press up and forward', 'Lower to the shoulder'],
+      thruster: ['Weight at the front of the shoulders', 'Squat, then drive up into the press', 'Lower to the shoulders as you squat'],
     },
   },
 
@@ -521,7 +611,19 @@ export const PATTERNS = {
   curl: {
     label: 'Curl',
     keys: (v) => {
-      const style = pick(v, 'style', 'standing')
+      const style = curlStyle(v)
+      // Bayesian: facing away from a low pulley, the upper arm angled back behind the body.
+      if (style === 'bayesian') {
+        const base = { ...stand(56), trunk: 174, leg: [12, -4, 90], leg2: [-14, -18, 80], arm2: [4, 4] }
+        return [{ ...base, arm: [-30, -36] }, { ...base, arm: [-30, 100] }]
+      }
+      // Spider: chest on an incline bench, arms hanging straight down.
+      if (style === 'spider') {
+        const base = { at: [44, 63], trunk: 125, leg: { to: [28, FOOT], bend: 1, foot: 80 } }
+        return [{ ...base, arm: [0, 2] }, { ...base, arm: [0, 136] }]
+      }
+      // Drag: the bar slides up the body as the elbows travel back.
+      if (style === 'drag') return [stand(50, { arm: [2, 6] }), stand(50, { arm: [-34, 92] })]
       if (style === 'incline') {
         const base = { ...seated(48), trunk: 214 }
         return [{ ...base, arm: [-2, 2] }, { ...base, arm: [-2, 136] }]
@@ -537,12 +639,19 @@ export const PATTERNS = {
       return [stand(50, { arm: [2, 6] }), stand(50, { arm: [2, 148] })]
     },
     gear: ({ v, j, skel, j0, skel0 }) => {
-      const style = pick(v, 'style', 'standing')
+      const style = curlStyle(v)
       const gear = pick(v, 'gear', 'barbell')
       const frame = style === 'incline' ? [...seat(48), ...backrest(skel0, -1, 27)]
         : style === 'preacher' ? [...seat(40), pad(add(j0.shoulder, dir(48), 4), add(add(j0.elbow, dir(-42), 3.4), dir(48), 1), 4.2), post([54, 64], [54, G])]
-          : style === 'concentration' ? seat(42) : []
-      if (gear === 'cable') return { back: [...frame, ...cableColumn(80, 70)], front: cable([78.5, 86], hand(j)) }
+          : style === 'concentration' ? seat(42)
+            : style === 'spider' ? [trunkPad(skel0, -3, 22, 1), post(trunkPoint(skel0, 4, 7), [52, G])] : []
+      if (gear === 'cable') {
+        // The Bayesian curl's pulley is low behind the body.
+        if (style === 'bayesian') return { back: [...frame, ...cableColumn(16, 70)], front: cable([17.5, 86], hand(j)) }
+        return { back: [...frame, ...cableColumn(80, 70)], front: cable([78.5, 86], hand(j)) }
+      }
+      // A curl machine's arm turns around the elbow.
+      if (gear === 'machine') return { back: frame, front: lever(j0.elbow, hand(j), 1.8) }
       const hands = gear === 'dumbbell' ? (style === 'concentration' ? { front: dumbbell(hand(j)) } : dumbbells({ j })) : barAtHands({ j })
       return { ...hands, back: [...frame, ...(hands.back || [])] }
     },
@@ -554,6 +663,9 @@ export const PATTERNS = {
       preacher: ['Upper arms flat on the pad', 'Curl up, don’t lift the elbows', 'Lower slowly to almost straight'],
       concentration: ['Elbow against the inner thigh', 'Curl to the shoulder', 'Lower slowly'],
       reverse: ['Palms facing down', 'Curl up, wrists straight', 'Lower with control'],
+      bayesian: ['Face away from a low pulley', 'Arm behind you, elbow stays back', 'Curl up, then lower to a full stretch'],
+      spider: ['Chest on an incline bench', 'Arms hang straight down', 'Curl up without swinging the elbows'],
+      drag: ['Bar touches your body all the way', 'Pull the elbows back as you curl', 'Lower along the same path'],
     },
   },
 
@@ -576,14 +688,41 @@ export const PATTERNS = {
         return [{ ...base, arm: [28, 160] }, { ...base, arm: [28, 34] }]
       }
       const base = { ...stand(48), trunk: 172 }
+      // Single arm: the other arm hangs still.
+      if (pick(v, 'single')) return [{ ...base, arm: [6, 150], arm2: [4, 4] }, { ...base, arm: [6, 6], arm2: [4, 4] }]
       return [{ ...base, arm: [6, 150] }, { ...base, arm: [6, 6] }]
     },
     gear: ({ v, j, j0, skel0 }) => {
       if (pick(v, 'seat')) return { back: [...seat(44), ...backrest(skel0, 0, 26), pad(add(j0.shoulder, dir(28), 4), add(j0.elbow, dir(-62), 3.2), 4)], front: lever(j0.elbow, hand(j), 1.8) }
-      return { back: cableColumn(62, 4), front: cable([j0.hand[0] + 4, 8], hand(j)) }
+      const out = { back: cableColumn(62, 4), front: cable([j0.hand[0] + 4, 8], hand(j)) }
+      // A rope's two ends hang below the hands.
+      if (pick(v, 'grip') === 'rope') out.front.push(seg(hand(j), add(hand(j), [-1.3, 3.4]), 1.1, 'gear'), seg(hand(j), add(hand(j), [1.5, 3.2]), 1.1, 'gear'))
+      return out
     },
     thumb: 1,
-    cues: { default: ['Elbows tucked at your sides', 'Push down until arms are straight', 'Only the forearms move'] },
+    cues: {
+      default: ['Elbows tucked at your sides', 'Push down until arms are straight', 'Only the forearms move'],
+      rope: ['Elbows tucked at your sides', 'Push down and spread the rope apart', 'Only the forearms move'],
+      single: ['Elbow tucked at your side', 'Push down until the arm is straight', 'One arm, then switch'],
+    },
+  },
+
+  cross_extension: {
+    label: 'Cross-body extension',
+    view: 'front',
+    keys: () => {
+      // The elbow points forward and out; the forearm swings from across the chest (turning toward
+      // the viewer halfway, so drawn short) to straight out to the side.
+      const base = { at: [50, 56.7], trunk: 180, leg: [4, 0, 90], arm2: [8, 4] }
+      return [
+        { ...base, arm: [74, -82], fs: { arm: [0.5, 0.95], arm2: [1, 1] } },
+        { ...base, arm: [77, -8], fs: { arm: [0.52, 0.2], arm2: [1, 1] } },
+        { ...base, arm: [82, 86], fs: { arm: [0.56, 0.62], arm2: [1, 1] } },
+      ]
+    },
+    gear: ({ j }) => ({ back: cableColumn(8, 20), front: cable([9.5, 34], j.hand) }),
+    thumb: 0,
+    cues: { default: ['Cable from the other side at chest height', 'Elbow still, sweep the hand out', 'Straighten the arm out to the side'] },
   },
 
   overhead_extension: {
@@ -606,10 +745,16 @@ export const PATTERNS = {
 
   skull_crusher: {
     label: 'Skull crusher',
-    keys: () => [lyingBack(58, { arm: [188, 186] }), lyingBack(58, { arm: [188, 304] })],
+    // JM press: the elbows drift toward the feet and the bar comes down over the chin.
+    keys: (v) => (pick(v, 'style') === 'jm'
+      ? [lyingBack(58, { arm: [182, 182] }), lyingBack(58, { arm: [132, 256] })]
+      : [lyingBack(58, { arm: [188, 186] }), lyingBack(58, { arm: [188, 304] })]),
     gear: ({ j }) => ({ back: [...flatBench(), ...barbell(hand(j))] }),
     thumb: 1,
-    cues: { default: ['Arms straight up over the chest', 'Bend the elbows to bring the bar to your forehead', 'Extend back up'] },
+    cues: {
+      default: ['Arms straight up over the chest', 'Bend the elbows to bring the bar to your forehead', 'Extend back up'],
+      jm: ['Close grip, bar over the chest', 'Lower toward the chin, elbows forward', 'Press back up to straight arms'],
+    },
   },
 
   kickback: {
@@ -627,11 +772,21 @@ export const PATTERNS = {
     label: 'Squat',
     keys: (v) => {
       const hold = pick(v, 'hold', 'back')
-      if (hold === 'hack') {
+      if (hold === 'hack' || hold === 'pendulum') {
         return [
           { anchor: 'ankle', at: [64, 84], trunk: 208, leg: [28, 28, 120], arm: onBack },
           { anchor: 'ankle', at: [64, 84], trunk: 196, leg: [118, -12, 120], arm: onBack },
         ]
+      }
+      // Sissy: up on the toes, knees forward, knees-hips-shoulders in one leaning line.
+      if (hold === 'sissy') {
+        const base = { anchor: 'toe', at: [58, G - 1], arm: [84, 86] }
+        return [{ ...base, trunk: 180, leg: [0, 0, 74] }, { ...base, trunk: 226, leg: [46, -64, 52] }]
+      }
+      // Belt squat: the load hangs from a belt at the hips, hands on the front rail.
+      if (hold === 'belt') {
+        const rail = { to: [64, 54], bend: -1 }
+        return [stand(50, { arm: rail }), { ...stand(50), trunk: 166, leg: [86, -28, 90], arm: rail }]
       }
       const arms = hold === 'front' ? frontRack : hold === 'goblet' ? atChest : hold === 'none' ? [5, 5] : onBack
       const armsDown = hold === 'none' ? [88, 90] : arms
@@ -642,8 +797,14 @@ export const PATTERNS = {
     gear: ({ v, j, skel, j0, skel0 }) => {
       const hold = pick(v, 'hold', 'back')
       if (hold === 'hack') return { back: [trunkPad(skel, -3, 25), seg([20, 26], [64, G - 6], 2, 'frame'), pad(add(j0.heel, [-2, 3]), add(j0.toe, [3, 3]), 2.6)] }
+      // The pendulum's pad swings on an arm from a pivot high behind the lifter.
+      if (hold === 'pendulum') {
+        const pivot = [14, 22]
+        return { back: [post(pivot, [pivot[0], G], 2.4), seg(pivot, trunkPoint(skel, 20, -7), 2.2, 'gear'), dot(pivot, 1.8, 'gear'), trunkPad(skel, -3, 25), pad(add(j0.heel, [-2, 3]), add(j0.toe, [3, 3]), 2.6)] }
+      }
+      if (hold === 'belt') return { back: [seg([60, 54], [66, 54], 1.8, 'gear'), post([66, 54], [66, G], 1.8)], front: lever([14, G - 6], add(j.hip, [1.5, 2.4]), 2.2) }
       if (hold === 'goblet') return { front: dumbbell(hand(j)) }
-      if (hold === 'none') return {}
+      if (hold === 'none' || hold === 'sissy') return {}
       const bar = hold === 'front' ? barbell(trunkPoint(skel, 22, 5.4)) : barbell(trunkPoint(skel, 22.6, -5.6))
       if (hold === 'smith') return { back: [post([trunkPoint(skel0, 22.6, -5.6)[0], 4], [trunkPoint(skel0, 22.6, -5.6)[0], G], 1.4), ...bar] }
       return { back: bar }
@@ -654,21 +815,35 @@ export const PATTERNS = {
       front: ['Bar on the front of the shoulders, elbows high', 'Sit straight down, chest up', 'Drive up through the whole foot'],
       goblet: ['Hold the weight at your chest', 'Sit down between the knees', 'Stand up tall'],
       hack: ['Back flat against the pad', 'Lower until thighs are level', 'Push the platform away'],
+      pendulum: ['Back on the pad, shoulders under the pads', 'Sink deep, knees forward', 'Drive up through the whole foot'],
+      belt: ['Belt around the hips, hands on the rail', 'Sit straight down, chest up', 'Stand up through the whole foot'],
+      sissy: ['Rise onto the balls of the feet', 'Knees forward, lean back in a straight line', 'Hold something for balance'],
     },
   },
 
   leg_press: {
     label: 'Leg press',
-    keys: () => {
+    keys: (v) => {
       const base = { at: [34, 72], trunk: 238 }
+      // Calf press: legs straight, only the ankles move (balls of the feet on the platform's edge).
+      if (pick(v, 'style') === 'calf') return [{ ...base, leg: [131, 129, 247] }, { ...base, leg: [131, 129, 183] }]
       return [{ ...base, leg: { to: [68, 41], bend: 1, foot: 218 } }, { ...base, leg: { to: [56, 52], bend: 1, foot: 218 } }]
     },
-    gear: ({ j, skel0 }) => {
+    gear: ({ v, j, skel, skel0 }) => {
       const sole = (p) => add(p, dir(125), -2.4)
-      return { back: [...backrest(skel0, -2, 25), pad([26, 79], [40, 79]), post([33, 80], [33, G]), seg([50, 62], [88, 27], 2, 'frame')], front: [pad(sole(add(j.heel, dir(215), -1.5)), sole(add(j.toe, dir(215), 2)), 2.8)] }
+      const frame = [...backrest(skel0, -2, 25), pad([26, 79], [40, 79]), post([33, 80], [33, G]), seg([50, 62], [88, 27], 2, 'frame')]
+      if (pick(v, 'style') === 'calf') {
+        // The platform stays square to the sled and moves with the balls of the feet.
+        const ball = add(add(j.ankle, dir(skel.angles.leg[2]), 3.6), dir(131), 2.6)
+        return { back: frame, front: [pad(add(ball, dir(221), -3), add(ball, dir(221), 8), 2.8)] }
+      }
+      return { back: frame, front: [pad(sole(add(j.heel, dir(215), -1.5)), sole(add(j.toe, dir(215), 2)), 2.8)] }
     },
     thumb: 1,
-    cues: { default: ['Feet flat on the platform', 'Lower until knees reach about 90°', 'Push away without locking the knees'] },
+    cues: {
+      default: ['Feet flat on the platform', 'Lower until knees reach about 90°', 'Push away without locking the knees'],
+      calf: ['Balls of the feet on the platform edge', 'Legs straight, let the heels drop back', 'Push through the toes as far as you can'],
+    },
   },
 
   lunge: {
@@ -745,13 +920,30 @@ export const PATTERNS = {
 
   nordic: {
     label: 'Nordic curl',
-    keys: () => [
-      { anchor: 'knee', at: [40, G - 3.4], trunk: 180, leg: [0, -90, -100], arm: [70, 150] },
-      { anchor: 'knee', at: [40, G - 3.4], trunk: 118, leg: [-62, -90, -100], arm: [70, 110] },
-    ],
-    gear: ({ j0 }) => ({ back: [pad([10, G - 1], [44, G - 1], 2.4)], front: [dot(add(j0.ankle, [0, -4]), 2.4, 'pad')] }),
+    keys: (v) => {
+      // Glute-ham raise: thighs over a raised pad, feet locked in; from level to upright.
+      if (pick(v, 'style') === 'ghr') {
+        const base = { anchor: 'knee', at: [46, 64] }
+        return [{ ...base, trunk: 95, leg: [-84, -96, -104], arm: crossed(95) }, { ...base, trunk: 176, leg: [-6, -96, -104], arm: crossed(176) }]
+      }
+      return [
+        { anchor: 'knee', at: [40, G - 3.4], trunk: 180, leg: [0, -90, -100], arm: [70, 150] },
+        { anchor: 'knee', at: [40, G - 3.4], trunk: 118, leg: [-62, -90, -100], arm: [70, 110] },
+      ]
+    },
+    gear: ({ v, j0 }) => {
+      if (pick(v, 'style') === 'ghr') {
+        const knee = add(j0.knee, [1.6, 4.6])
+        const heel = add(j0.ankle, [-0.6, -3.6])
+        return { back: [post(knee, [knee[0] - 4, G], 2), post(add(heel, [0, 3]), [heel[0] + 2, G], 1.6), post([knee[0] - 4, G - 1], [heel[0] + 2, G - 1], 1.6)], front: [dot(knee, 3.6, 'pad'), dot(heel, 2.2, 'pad')] }
+      }
+      return { back: [pad([10, G - 1], [44, G - 1], 2.4)], front: [dot(add(j0.ankle, [0, -4]), 2.4, 'pad')] }
+    },
     thumb: 1,
-    cues: { default: ['Kneel with the ankles held down', 'Lean forward slowly, hips straight', 'Pull back up with the hamstrings'] },
+    cues: {
+      default: ['Kneel with the ankles held down', 'Lean forward slowly, hips straight', 'Pull back up with the hamstrings'],
+      ghr: ['Thighs on the pad, feet locked in', 'Lower until your body is level', 'Curl back up with the hamstrings'],
+    },
   },
 
   hip_thrust: {
@@ -770,12 +962,15 @@ export const PATTERNS = {
     },
     gear: ({ v, j, skel }) => {
       if (pick(v, 'style') === 'floor') return {}
+      // Machine: a padded arm over the hips instead of a bar.
+      if (pick(v, 'style') === 'machine') return { back: flatBench(6, 32), mid: lever([82, 64], trunkPoint(skel, 0, 7.6), 3.2) }
       return { back: flatBench(6, 32), mid: barbell(trunkPoint(skel, 0, 7.6)) }
     },
     thumb: 1,
     cues: {
       default: ['Upper back on the bench', 'Drive the hips up until level', 'Squeeze the glutes at the top'],
       floor: ['Lie with knees bent, feet flat', 'Lift the hips off the floor', 'Squeeze the glutes, then lower'],
+      machine: ['Back on the pad, belt or pad over the hips', 'Drive the hips up until level', 'Squeeze the glutes at the top'],
     },
   },
 
@@ -828,19 +1023,31 @@ export const PATTERNS = {
         const base = { anchor: 'toe', at: [64, G - 7], trunk: 182, arm: [20, 80] }
         return [{ ...base, leg: [90, 0, 118] }, { ...base, leg: [90, 0, 52] }]
       }
+      // Tibialis raise: back against a wall, feet out in front, toes lifted (heels stay down).
+      if (pick(v, 'style') === 'tibialis') {
+        const base = { anchor: 'heel', at: [58, FOOT], trunk: 183, arm: [4, 4] }
+        return [{ ...base, leg: [15, 15, 92] }, { ...base, leg: [15, 15, 128] }]
+      }
       const one = pick(v, 'gear') === 'dumbbell'
       const base = { anchor: 'toe', at: [57, G - 9], trunk: 180, leg: [0, 0, 118], arm: one ? [2, 2] : [-20, 140] }
       const legs2 = one ? { leg2: [6, -60, 40] } : {}
       return [{ ...base, ...legs2 }, { ...base, ...legs2, leg: [0, 0, 52], ...(one ? { leg2: [6, -60, 40] } : {}) }]
     },
-    gear: ({ v, j }) => {
+    gear: ({ v, j, skel0 }) => {
+      if (pick(v, 'style') === 'tibialis') {
+        const x = trunkPoint(skel0, 20, -4.6)[0] - 1.8
+        return { back: [post([x, 16], [x, G], 3)] }
+      }
       const step = box(54, 70, G - 7.5)
       if (pick(v, 'seat')) return { back: [step, ...seat(40, 18, 77)], front: [dot(add(j.knee, [-2, -4.6]), 3, 'pad')] }
       if (pick(v, 'gear') === 'dumbbell') return { back: [step], front: dumbbell(j.hand), far: [] }
       return { back: [step, post([62, 26], [62, G])], front: [seg(add(j.shoulder, [0, -4]), [62, j.shoulder[1] - 4], 2, 'gear'), dot(add(j.shoulder, [0, -4]), 2.8, 'pad')] }
     },
     thumb: 1,
-    cues: { default: ['Balls of the feet on the edge', 'Lower the heels for a stretch', 'Rise up as high as you can'] },
+    cues: {
+      default: ['Balls of the feet on the edge', 'Lower the heels for a stretch', 'Rise up as high as you can'],
+      tibialis: ['Back against a wall, feet out in front', 'Lift the toes as high as you can', 'Lower slowly, heels stay down'],
+    },
   },
 
   plank: {
@@ -878,13 +1085,20 @@ export const PATTERNS = {
         const base = seated(44, { arm: { to: { from: 'shoulder', local: [4, 4] }, bend: -1 } })
         return [{ ...base, trunk: 184, head: 0 }, { ...base, trunk: 140, head: 12 }]
       }
+      // Sit-ups go all the way up; the decline one starts head-down on the bench.
+      if (style === 'decline') {
+        const base = { at: [60, 63], leg: [125, 12, 100] }
+        return [{ ...base, trunk: -70, head: 0, arm: crossed(-70) }, { ...base, trunk: -168, head: -8, arm: crossed(-168) }]
+      }
       const base = { at: [52, G - 4.6], leg: { to: [70, FOOT], bend: 1, foot: 90 } }
+      if (style === 'situp') return [{ ...base, trunk: -88, head: 0, arm: crossed(-88) }, { ...base, trunk: -166, head: -8, arm: crossed(-166) }]
       return [{ ...base, trunk: -88, head: 0, arm: crossed(-88) }, { ...base, trunk: -126, head: -12, arm: crossed(-126) }]
     },
-    gear: ({ v, j, skel0 }) => {
+    gear: ({ v, j, j0, skel0 }) => {
       const style = pick(v, 'style', 'floor')
       if (style === 'cable') return { back: cableColumn(70, 2), front: cable([68.5, 8], j.hand) }
       if (style === 'machine') return { back: [...seat(44), ...backrest(skel0, 0, 25)], front: [dot(j.hand, 2, 'gear')] }
+      if (style === 'decline') return { back: [...backrest(skel0, -3, 28), post([52, 70], [52, G])], front: [dot(add(j0.ankle, [1, -3.4]), 2.6, 'pad')] }
       return { back: [pad([20, G - 0.6], [80, G - 0.6], 1.6)] }
     },
     thumb: 1,
@@ -892,23 +1106,31 @@ export const PATTERNS = {
       default: ['Knees bent, lower back down', 'Curl the shoulders up off the floor', 'Lower slowly'],
       cable: ['Kneel, rope by your head', 'Curl down, elbows toward the knees', 'Hips stay still'],
       machine: ['Hold the handles', 'Curl the chest toward the hips', 'Return slowly'],
+      situp: ['Knees bent, feet flat or anchored', 'Sit all the way up to your knees', 'Roll back down slowly'],
+      decline: ['Hook your feet under the pads', 'Sit up toward your knees', 'Lower slowly, don’t drop back'],
     },
   },
 
   hanging_raise: {
     label: 'Hanging raise',
     keys: (v) => {
+      // Lying: flat on the floor, straight legs up to vertical.
+      if (pick(v, 'style') === 'lying') {
+        const base = { at: [50, G - 4.6], trunk: -90, head: 0, arm: [88, 88] }
+        return [{ ...base, leg: [88, 88, 178] }, { ...base, leg: [174, 174, 264] }]
+      }
       const knees = pick(v, 'style') === 'knee'
       return [
         { anchor: 'hand', at: [50, 10], trunk: 180, arm: [180, 180], leg: [2, 0, 70] },
         { anchor: 'hand', at: [50, 10], trunk: 186, arm: [184, 180], leg: knees ? [104, 6, 80] : [96, 96, 170] },
       ]
     },
-    gear: () => ({ back: pullupBar([50, 10]) }),
+    gear: ({ v }) => (pick(v, 'style') === 'lying' ? { back: [pad([14, G - 0.6], [86, G - 0.6], 1.6)] } : { back: pullupBar([50, 10]) }),
     thumb: 1,
     cues: {
       default: ['Hang from the bar', 'Raise straight legs to hip height', 'Lower without swinging'],
       knee: ['Hang from the bar', 'Bring the knees up to the chest', 'Lower without swinging'],
+      lying: ['Lie flat, hands by your hips', 'Raise straight legs up to vertical', 'Lower slowly, lower back stays down'],
     },
   },
 
@@ -934,7 +1156,12 @@ export const PATTERNS = {
       const base = { at: [50, 80], leg: [24, -8, 90], fs: { trunk: 0.86, leg: [0.4, 0.75] } }
       return [{ ...base, trunk: 194, arm: [12, -36], arm2: [-52, -84] }, { ...base, trunk: 166, arm: [-52, -84], arm2: [12, -36] }]
     },
-    gear: ({ v, j }) => (pick(v, 'style') === 'woodchop' ? { front: dumbbell(j.hand) } : { front: [dot([(j.hand[0] + j.hand2[0]) / 2, (j.hand[1] + j.hand2[1]) / 2], 3.4, 'gear')] }),
+    gear: ({ v, j }) => {
+      if (pick(v, 'style') !== 'woodchop') return { front: [dot([(j.hand[0] + j.hand2[0]) / 2, (j.hand[1] + j.hand2[1]) / 2], 3.4, 'gear')] }
+      // Cable woodchop: from a high pulley on the side the chop starts.
+      if (pick(v, 'gear') === 'cable') return { back: cableColumn(92, 8), front: cable([90.5, 12], j.hand) }
+      return { front: dumbbell(j.hand) }
+    },
     smooth: false,
     cues: {
       default: ['Sit back, feet up', 'Turn the shoulders side to side', 'Move the weight from hip to hip'],
@@ -1004,12 +1231,36 @@ export const PATTERNS = {
   run: {
     label: 'Run',
     smooth: true,
-    keys: () => [
-      { at: [48, 57], trunk: 172, leg: [40, -10, 100], leg2: [-24, -95, 10], arm: [-38, 50], arm2: [36, 120] },
-      { at: [48, 57], trunk: 172, leg: [-24, -95, 10], leg2: [40, -10, 100], arm: [36, 120], arm2: [-38, 50] },
-    ],
-    gear: () => ({ back: [pad([16, G + 0.4], [82, G + 0.4], 2.4), post([80, G], [74, 46], 2.4), post([74, 46], [62, 50], 2)] }),
-    cues: { default: ['Run tall, relaxed shoulders', 'Land softly under your hips', 'Steady breathing'] },
+    loopFor: { walk: 'spin' },
+    thumbFor: { walk: 1 },
+    keys: (v) => {
+      if (pick(v, 'walk')) {
+        // Walking: each foot goes round a flat loop (back along the belt, forward just lifted) and
+        // the arms swing against the legs. An incline raises the belt, so the loop sits higher.
+        const up = pick(v, 'incline') ? 3 : 0
+        return [0, -120, -240, -360].map((a) => ({
+          at: [48, 57 - up],
+          trunk: up ? 174 : 177,
+          leg: { to: { c: [48, 87.6 - up], r: [10, 2.6], a }, bend: 1, foot: 92 },
+          leg2: { to: { c: [48, 87.6 - up], r: [10, 2.6], a: a + 180 }, bend: 1, foot: 92 },
+          arm: [-22 * dir(a)[0], 22 - 22 * dir(a)[0]],
+          arm2: [22 * dir(a)[0], 22 + 22 * dir(a)[0]],
+        }))
+      }
+      return [
+        { at: [48, 57], trunk: 172, leg: [40, -10, 100], leg2: [-24, -95, 10], arm: [-38, 50], arm2: [36, 120] },
+        { at: [48, 57], trunk: 172, leg: [-24, -95, 10], leg2: [40, -10, 100], arm: [36, 120], arm2: [-38, 50] },
+      ]
+    },
+    gear: ({ v }) => {
+      if (pick(v, 'incline')) return { back: [pad([14, G + 0.4], [84, G - 5.2], 2.4), post([82, G - 5], [76, 42], 2.4), post([76, 42], [64, 46], 2)] }
+      return { back: [pad([16, G + 0.4], [82, G + 0.4], 2.4), post([80, G], [74, 46], 2.4), post([74, 46], [62, 50], 2)] }
+    },
+    cues: {
+      default: ['Run tall, relaxed shoulders', 'Land softly under your hips', 'Steady breathing'],
+      walk: ['Stand tall, relaxed shoulders', 'Heel down, roll through the foot', 'Brisk, steady pace'],
+      incline: ['Set the incline, then a brisk pace', 'Stand tall, don’t hang on the rails', 'Push through the whole foot'],
+    },
   },
 
   bike: {
@@ -1078,6 +1329,35 @@ export const PATTERNS = {
     ],
     gear: ({ j }) => ({ back: [ring([j.hip[0], j.hip[1] - 4], 30, 1, 'thin')] }),
     cues: { default: ['Small jumps on the balls of the feet', 'Turn the rope with the wrists', 'Elbows close to the body'] },
+  },
+
+  sled: {
+    label: 'Sled push',
+    loop: 'spin',
+    smooth: true,
+    // Leaning into the poles, the feet driving back in short steps (the same loop as walking).
+    keys: () => [0, -120, -240, -360].map((a) => ({
+      at: [40, 60],
+      trunk: 130,
+      leg: { to: { c: [33, 87.6], r: [11, 2.6], a }, bend: 1, foot: 74 + 16 * dir(a)[0] },
+      leg2: { to: { c: [33, 87.6], r: [11, 2.6], a: a + 180 }, bend: 1, foot: 74 - 16 * dir(a)[0] },
+      arm: { to: [72, 60], bend: -1 },
+    })),
+    gear: () => ({ back: [poly([[62, G - 6], [92, G - 6], [92, G], [64, G]], 'frame'), post([68, G - 6], [72, 58], 2.2), ...barbell([82, G - 12], 5.6)] }),
+    thumb: 1,
+    cues: { default: ['Lean in, arms long on the poles', 'Drive with short, powerful steps', 'Hips low, back flat'] },
+  },
+
+  box_jump: {
+    label: 'Box jump',
+    keys: () => [
+      { anchor: 'ankle', at: [28, FOOT], trunk: 136, leg: [80, -22, 90], arm: [-50, -34] },
+      { anchor: 'ankle', at: [46, 58], trunk: 162, leg: [104, -6, 70], arm: [150, 160] },
+      { anchor: 'ankle', at: [64, BOX - 1.8], trunk: 148, leg: [72, -16, 90], arm: [74, 84] },
+    ],
+    gear: () => ({ back: [box(54, 84, BOX)] }),
+    thumb: 1,
+    cues: { default: ['Quarter squat, swing the arms back', 'Jump and land softly on the box', 'Stand tall, then step down'] },
   },
 }
 

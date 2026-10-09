@@ -1,7 +1,7 @@
 // SVG rendering for exercise visuals: scenes → elements, the (animated) figure and the muscle map.
 // Written with createElement rather than JSX so node tests can render it to a string.
 import { createElement as h, useEffect, useMemo, useRef, useState } from 'react'
-import { LOOP_MS, groundLine, keyScene, phaseScene, viewBox } from './visual.js'
+import { LOOP_MS, groundLine, keyScene, keysBox, phaseScene, viewBox } from './visual.js'
 import { bestSide, muscleMapScene } from './musclemap.js'
 
 const r2 = (n) => Math.round(n * 100) / 100
@@ -77,18 +77,20 @@ function useOnScreen(ref, enabled) {
   useEffect(() => {
     if (!enabled) return undefined
     const onChange = () => setPageVisible(document.visibilityState !== 'hidden')
+    onChange() // it may have changed while this was off
     document.addEventListener('visibilitychange', onChange)
     return () => document.removeEventListener('visibilitychange', onChange)
   }, [enabled])
   return enabled && seen && pageVisible
 }
 
-// Hover or press on the row the thumbnail sits in.
+// Hover or press on the row the thumbnail sits in. A list row (.gym-lib-item) wins over the
+// picture's own button, so hovering anywhere on the row plays it.
 function useRowHover(ref, enabled) {
   const [active, setActive] = useState(false)
   useEffect(() => {
     if (!enabled) return undefined
-    const row = ref.current?.closest('button, a, li, [role="button"]')
+    const row = ref.current?.closest('.gym-lib-item') || ref.current?.closest('button, a, li, [role="button"]')
     if (!row) return undefined
     const on = () => setActive(true)
     const off = () => setActive(false)
@@ -135,10 +137,13 @@ export function Figure({ vis, size = 120, animate = false, tight = false, label,
   const info = vis.info
   const still = info.thumb
   const hover = useRowHover(ref, animate === 'hover' && !reduced)
-  const onScreen = useOnScreen(ref, Boolean(animate) && !reduced)
+  // 'hover' rows only watch the screen while hovered: a list of them needs no observer per row.
+  const onScreen = useOnScreen(ref, (animate === true || hover) && !reduced)
   const playing = !reduced && onScreen && (animate === true || hover)
-  // A still thumbnail crops tightly; anything that can move keeps one box for the whole loop.
-  const box = useMemo(() => (tight && !animate ? viewBox(vis, still) : viewBox(vis)), [vis, still, tight, animate])
+  // A still thumbnail crops tightly; anything that can move keeps one box for the whole loop, at
+  // rest and while playing. A 'hover' one uses the box from its key poses: the loop box takes 25
+  // scene solves, too many for a whole list at once.
+  const box = useMemo(() => (animate === 'hover' ? keysBox(vis) : tight && !animate ? viewBox(vis, still) : viewBox(vis)), [vis, still, tight, animate])
   const duration = info.hold ? LOOP_MS * 1.6 : LOOP_MS
   const phase = usePhase(playing, duration)
 

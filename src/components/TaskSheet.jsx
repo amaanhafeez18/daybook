@@ -8,7 +8,7 @@ import SnoozeSheet from './SnoozeSheet.jsx'
 import { UnderstoodChip, understand } from './QuickParse.jsx'
 import { archiveTask, createTask, deleteTaskForever, isReminderMarker, restoreTask, setTaskDone, updateTask } from '../lib/planner.js'
 import { dayPresets, dueLine, dueSentence, formatTime, formatTimeShort, todayISO } from '../lib/dates.js'
-import { clearDraft, saveDraft, takeDraft } from '../lib/drafts.js'
+import { peekDraft, saveDraft, takeDraft } from '../lib/drafts.js'
 import { LEAD_OPTIONS, leadLabel, notificationPrefs } from '../lib/notifications.js'
 import { attachmentSummary, useAttachmentsFor } from '../lib/attachments.js'
 import { useData } from '../lib/store.js'
@@ -73,10 +73,12 @@ const isDirty = (form, start) => (!!form.text.trim() || !!form.details.trim()) &
 // completeFirst: opened to tick it off (e.g. from its reminder), so Complete is the main button,
 // with "Later…" beside it.
 // onSaved(task): after Save / Add task. noun: 'task' (default) or 'event' (the calendar).
+// pickingDate: opened from a row's Later… → "Pick a date…", so the date picker comes straight up.
 // A day or time typed into a new (or undated) task's name fills Due as you type, shown as a chip
-// that keeps the words in the name when tapped. Closing a new task with something typed keeps it
-// as a draft ("Draft kept · Reopen"); the next new task starts from it.
-export default function TaskSheet({ open, onClose, task: taskProp = null, defaults = {}, completeFirst = false, onSaved, noun = 'task' }) {
+// that keeps the words in the name when tapped; a time on its own keeps the day already set.
+// Closing a new task with something typed keeps it as a draft ("Draft kept · Reopen"); the next
+// new task starts from it, unless that one opens for another day (see the open effect).
+export default function TaskSheet({ open, onClose, task: taskProp = null, defaults = {}, completeFirst = false, onSaved, noun = 'task', pickingDate = false }) {
   // Reopened from the "Draft kept" toast after the page had already closed it.
   const [reopened, setReopened] = useState(false)
   const isOpen = open || reopened
@@ -102,34 +104,40 @@ export default function TaskSheet({ open, onClose, task: taskProp = null, defaul
     setIgnored('')
     setSnoozing(false)
     fill.current = null
-    // A draft is picked up unless the sheet was opened with a name already (the quick add's +).
-    const draft = !task && !defaults?.text ? takeDraft(DRAFT_KEY) : null
+    // A draft is picked up unless the sheet was opened with a name already (the quick add's +), or
+    // for a day other than the draft's own (the calendar's selected day, the Tomorrow card's Add):
+    // that opener's day comes first, and the draft stays kept for later. "Reopen" always brings it
+    // back. Taking it removes it, so saving needs no clean-up and a draft left elsewhere survives.
+    const kept = !task && !defaults?.text ? peekDraft(DRAFT_KEY) : null
+    const draft = kept && ((reopened && !open) || !defaults?.date || kept.date === defaults.date) ? takeDraft(DRAFT_KEY) : null
     const next = task ? formFromTask(task) : { ...EMPTY, ...defaults, ...(draft || {}) }
     // A restored draft counts as typed, so a day in its name is understood again.
     start.current = draft ? { ...next, text: '' } : next
     setForm(next)
+    if (open && pickingDate) pickDate()
   }, [isOpen, task?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Only for a new or undated task, and only once the name has been changed here: opening an
-  // existing "Call about Friday's game" mustn't move it.
+  // existing "Call about Friday's game" mustn't move it. day: the Due the words would replace; a
+  // time on its own ("Dentist 3pm") stays on it (e.g. the calendar's selected day).
   const parseOn = (!task || !task.date)
-  const nameParse = (text, skip = ignored) => (parseOn && text !== start.current.text ? understand(text, skip) : null)
-  const understood = nameParse(form.text)
+  const nameParse = (text, skip, day) => (parseOn && text !== start.current.text ? understand(text, skip, day) : null)
+  const understood = nameParse(form.text, ignored, (fill.current?.before || form).date)
 
   // The name's words set Due as they're typed; when they go (deleted or dismissed), Due goes back
   // to what it was, unless it has been changed by hand since. Called with the rendered form (not
   // inside a state updater), since it moves `fill` along.
   function withName(current, text, skip = ignored) {
     const next = { ...current, text }
-    const hit = nameParse(text, skip)
+    const before = fill.current?.before || { date: current.date, time: current.time }
+    const hit = nameParse(text, skip, before.date)
     if (hit) {
-      const before = fill.current?.before || { date: current.date, time: current.time }
       const applied = { date: hit.date, time: hit.time || (before.date ? before.time : '') }
       fill.current = { before, applied }
       return { ...next, ...applied }
     }
     if (fill.current) {
-      const { before, applied } = fill.current
+      const { applied } = fill.current
       fill.current = null
       if (current.date === applied.date && current.time === applied.time) return { ...next, ...before }
     }
@@ -192,7 +200,6 @@ export default function TaskSheet({ open, onClose, task: taskProp = null, defaul
       const saved = updateTask(task.id, fields)
       onSaved?.(saved)
     } else {
-      clearDraft(DRAFT_KEY)
       const created = createTask(fields)
       // A dated task may land out of sight (another day, group or page): say where it went.
       if (created.date) toast(`Added for ${dueSentence(created.date, created.time, today)}`, { action: { label: 'Undo', onClick: () => deleteTaskForever(created.id) } })

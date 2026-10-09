@@ -74,6 +74,8 @@ function keptExercises(workout, markFilled, placeholders) {
         durationSec: numOrNull(set.durationSec),
         distanceM: numOrNull(set.distanceM),
         rpe: numOrNull(set.rpe),
+        // "Keep" on a load that looked like a typo stays, so the exercise page doesn't flag it again.
+        ...(typeof set.keptKg === 'number' && set.keptKg === set.weightKg ? { keptKg: set.keptKg } : {}),
         done: true,
       }))
     if (!sets.length) continue

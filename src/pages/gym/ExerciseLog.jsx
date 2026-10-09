@@ -13,6 +13,7 @@ import ExercisePicker from './ExercisePicker.jsx'
 import { PlateCalculatorSheet } from './ToolsSheet.jsx'
 import { unlockAudio } from './RestTimer.jsx'
 import { ExerciseVisualThumbButton, useExerciseVisual } from './visuals/lazy.jsx'
+import { joinDropped, orderByIds, useLocalReorder } from './reorder.js'
 import './workout.css'
 
 // The exercise cards of a workout: the set grid (previous values, placeholders, set types,
@@ -325,18 +326,21 @@ export function workoutPlaceholders(workout, gym, sessions) {
 
 // ---- weight typos ------------------------------------------------------------------------------
 // A load far above the exercise's history (850 typed for 85) is flagged for a second look; nothing
-// is blocked or changed. "Keep" stores keptKg on the set so it isn't asked about again (Finish and
-// the session editor strip it before saving).
+// is blocked or changed. "Keep" stores keptKg on the set so it isn't asked about again; Finish and
+// the session editor save it only while it still matches the load, and the exercise page skips it.
 
-// stats.plausibleWeight for one set; `others` = this workout's other sets of the same exercise,
-// whose loads count as history unless they repeat this load without having been kept.
+// stats.plausibleWeight for one set; `others` = this workout's other sets of the same exercise.
+// Their loads count as history only when kept, or when believable against saved sessions alone, so
+// a ramp of the same slip (600, 625, 650 for 60, 62.5, 65) can't vouch for itself.
 function weightFlag(set, exercise, others, sessions, customs) {
   const kg = set?.weightKg
   if (!isNum(kg) || kg <= 0 || set.keptKg === kg || !exercise?.exerciseId) return null
   const entry = exerciseById(exercise.exerciseId, customs)
-  const extraKg = others.filter((other) => other !== set && isNum(other.weightKg) && (other.keptKg === other.weightKg || other.weightKg !== kg)).map((other) => other.weightKg)
+  const base = { exerciseId: exercise.exerciseId, sessions, equipment: entry?.equipment, tracking: trackingOf(exercise.tracking ?? entry?.tracking) }
   try {
-    return plausibleWeight({ kg, exerciseId: exercise.exerciseId, sessions, equipment: entry?.equipment, tracking: trackingOf(exercise.tracking ?? entry?.tracking), extraKg })
+    const vouches = (other) => other.keptKg === other.weightKg || (other.weightKg !== kg && !plausibleWeight({ ...base, kg: other.weightKg }))
+    const extraKg = others.filter((other) => other !== set && isNum(other.weightKg) && vouches(other)).map((other) => other.weightKg)
+    return plausibleWeight({ ...base, kg, extraKg })
   } catch {
     return null
   }
@@ -900,6 +904,17 @@ export default function ExerciseLog({ workout, onChange, mode = 'live', gym, ses
         })
       },
 
+      // Reorder mode's drag (or an arrow key on a grip): the exercises in `ids` order, saved once on
+      // drop. A dragged exercise dropped inside a superset joins it; links stay valid.
+      reorder(ids, movedId, dragged) {
+        update((w) => {
+          const list = exercisesOf(w)
+          const ordered = orderByIds(list, ids)
+          if (ordered === list) return null
+          return { ...w, exercises: normalizeSupersets(dragged ? joinDropped(ordered, movedId) : ordered) }
+        })
+      },
+
       linkNext(exRef) {
         update((w) => {
           const list = exercisesOf(w)
@@ -1037,39 +1052,7 @@ export default function ExerciseLog({ workout, onChange, mode = 'live', gym, ses
 
   // ---- reorder mode ----
   if (reorder && exercises.length) {
-    return (
-      <div className="gym-log">
-        <div className="gym-log-reorder-bar">
-          <div>
-            <strong>Reorder exercises</strong>
-            <span>Move exercises with the arrows</span>
-          </div>
-          <button type="button" className="btn btn-primary btn-sm" onClick={() => setReorder(false)}>Done</button>
-        </div>
-        <ol className="gym-log-reorder">
-          {exercises.map((exercise, index) => {
-            const group = groups[index]
-            const ref = { id: exercise.id, i: index }
-            const name = exercise.name || 'Exercise'
-            return (
-              <li key={exercise.id ?? index} className={`gym-log-reorder-row${group ? ' has-ss' : ''}`} style={group ? { '--gym-ss': group.color } : undefined}>
-                {group && <span className="gym-ss-tag">{group.letter}{group.pos}</span>}
-                <span className="gym-log-reorder-name">
-                  <span>{name}</span>
-                  <small>{plural(setsOf(exercise).length, 'set')}</small>
-                </span>
-                <button type="button" className="icon-btn" onClick={() => actions.move(ref, -1)} disabled={index === 0} aria-label={`Move ${name} up`}>
-                  <Icon name="arrowUp" size={20} />
-                </button>
-                <button type="button" className="icon-btn" onClick={() => actions.move(ref, 1)} disabled={index === exercises.length - 1} aria-label={`Move ${name} down`}>
-                  <Icon name="arrowDown" size={20} />
-                </button>
-              </li>
-            )
-          })}
-        </ol>
-      </div>
-    )
+    return <ReorderExercises exercises={exercises} actions={actions} onDone={() => setReorder(false)} />
   }
 
   // ---- sheets ----
@@ -1271,6 +1254,60 @@ export default function ExerciseLog({ workout, onChange, mode = 'live', gym, ses
           exercise={plates.exercise}
         />
       )}
+    </div>
+  )
+}
+
+// Reorder mode: drag an exercise by its grip (or arrow keys on the grip), saved once on drop; the
+// arrows move it one place. Rows without an id (old logs) can't be told apart while they move, so
+// such a list keeps just the arrows.
+function ReorderExercises({ exercises, actions, onDone }) {
+  const ids = exercises.map((exercise) => exercise?.id)
+  const draggable = ids.every((id) => id != null) && new Set(ids).size === ids.length
+  const { keys, sort } = useLocalReorder(draggable ? ids : [], (order, movedId, dragged) => actions.reorder(order, movedId, dragged))
+  const shown = draggable ? orderByIds(exercises, keys) : exercises
+  const groups = supersetGroups(shown)
+  return (
+    <div className="gym-log">
+      <div className="gym-log-reorder-bar">
+        <div>
+          <strong>Reorder exercises</strong>
+          <span>{draggable ? 'Drag the handles or use the arrows' : 'Move exercises with the arrows'}</span>
+        </div>
+        <button type="button" className="btn btn-primary btn-sm" onClick={onDone}>Done</button>
+      </div>
+      <ol className="gym-log-reorder">
+        {shown.map((exercise, index) => {
+          const group = groups[index]
+          const ref = { id: exercise.id, i: index }
+          const name = exercise.name || 'Exercise'
+          return (
+            <li
+              key={exercise.id ?? index}
+              className={`gym-log-reorder-row${group ? ' has-ss' : ''}${draggable ? ' has-grip' : ''}`}
+              style={group ? { '--gym-ss': group.color } : undefined}
+              {...(draggable ? sort.item(exercise.id) : {})}
+            >
+              {draggable && (
+                <button type="button" className="drag-grip" aria-label={`Move ${name}: drag, or use the arrow keys`} {...sort.handle(exercise.id)}>
+                  <Icon name="grip" size={18} />
+                </button>
+              )}
+              {group && <span className="gym-ss-tag">{group.letter}{group.pos}</span>}
+              <span className="gym-log-reorder-name">
+                <span>{name}</span>
+                <small>{plural(setsOf(exercise).length, 'set')}</small>
+              </span>
+              <button type="button" className="icon-btn" onClick={() => actions.move(ref, -1)} disabled={index === 0} aria-label={`Move ${name} up`}>
+                <Icon name="arrowUp" size={20} />
+              </button>
+              <button type="button" className="icon-btn" onClick={() => actions.move(ref, 1)} disabled={index === shown.length - 1} aria-label={`Move ${name} down`}>
+                <Icon name="arrowDown" size={20} />
+              </button>
+            </li>
+          )
+        })}
+      </ol>
     </div>
   )
 }

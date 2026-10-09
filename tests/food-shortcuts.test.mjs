@@ -38,6 +38,19 @@ describe('mealChips', () => {
     assert.ok(chips.length > 0)
   })
 
+  test('a new entries list is read afresh (the per-list cache never goes stale)', () => {
+    const first = mealChips(entries, 'snack', { hhmm: '15:30', today: TODAY, meals })
+    assert.deepEqual(first, [])
+    const withSnack = [...entries, entry(addDays(TODAY, -1), 'Apple', 95, 'snack', { time: '15:30' })]
+    assert.deepEqual(mealChips(withSnack, 'snack', { hhmm: '15:30', today: TODAY, meals }).map((item) => item.name), ['Apple'])
+    // The same list again gives the same chips, for any meal.
+    assert.deepEqual(mealChips(entries, 'snack', { hhmm: '15:30', today: TODAY, meals }), [])
+    assert.deepEqual(
+      mealChips(withSnack, 'breakfast', { hhmm: '08:00', today: TODAY, meals }).map((item) => item.name),
+      mealChips(entries, 'breakfast', { hhmm: '08:00', today: TODAY, meals }).map((item) => item.name),
+    )
+  })
+
   test('nothing for a meal never logged; tolerant of junk', () => {
     assert.deepEqual(mealChips(entries, 'snack', { hhmm: '15:30', today: TODAY, meals }), [])
     assert.deepEqual(mealChips(null, 'breakfast', { today: TODAY, meals }), [])

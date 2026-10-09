@@ -771,6 +771,46 @@ export function calcGoals(profile, options) {
   })
 }
 
+// What a calculated goal was actually worked out with, kept as settings.food.profile.applied so
+// the goal summary shows that rather than what was asked for: calcGoals can block weight loss, cap
+// the pace or raise the calories to a floor, and the calories can be edited before saving (then
+// the pace is the one they give). options: { calories (kcal saved), weightKg, weighedOn (the
+// weigh-in's date), goal, rateKgPerWeek (what was asked for) }. → { pace (kg a week, negative =
+// losing), calories, weightKg, weighedOn, askedGoal, askedRate } or null.
+export function appliedGoal(result, options) {
+  const r = isObj(result) ? result : {}
+  const o = isObj(options) ? options : {}
+  const tdee = num(r.tdee)
+  const calculated = num(r.calories)
+  const kcal = num(o.calories) ?? calculated
+  if (tdee === null || kcal === null || kcal <= 0) return null
+  const pace = calculated !== null && Math.abs(kcal - calculated) < 1 && num(r.pace) !== null
+    ? num(r.pace)
+    : round(((kcal - tdee) * 7) / KCAL_PER_KG, 2)
+  const kg = numIn(o.weightKg, 20, 700)
+  return {
+    pace,
+    calories: round(kcal, 1),
+    weightKg: kg === null ? null : round(kg, 2),
+    weighedOn: dayOf(o.weighedOn) !== null ? o.weighedOn : null,
+    askedGoal: GOALS.includes(o.goal) ? o.goal : null,
+    askedRate: numIn(o.rateKgPerWeek, 0, 2),
+  }
+}
+
+// profile.applied while it still describes the saved goal (calculated, same calories, same goal
+// and pace asked for), else null: the assistant or "Adjust numbers" may have changed it since.
+export function currentApplied(profile, goals) {
+  const p = isObj(profile) ? profile : {}
+  const a = isObj(p.applied) ? p.applied : null
+  if (!a || !isObj(goals) || goals.source !== 'calculator' || num(a.pace) === null) return null
+  const kcal = num(goals.calories)
+  if (kcal === null || num(a.calories) === null || Math.abs(num(a.calories) - kcal) >= 1) return null
+  if (a.askedGoal !== p.goal) return null
+  if (p.goal !== 'maintain' && !(num(a.askedRate) !== null && num(p.rateKgPerWeek) !== null && Math.abs(num(a.askedRate) - num(p.rateKgPerWeek)) < 0.001)) return null
+  return a
+}
+
 // Goal minus eaten (negative = over); null where there is no goal.
 export function remaining(goals, totals) {
   const g = isObj(goals) ? goals : {}

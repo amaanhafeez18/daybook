@@ -101,6 +101,9 @@
 /* ---- sheets: the × keeps its 32px look (apple.css) with a 44px touch target, above the grab row */
 .sheet .sheet-header .icon-btn { z-index: 2; }
 .sheet .sheet-header .icon-btn::after { content: ''; position: absolute; inset: -6px; border-radius: 50%; }
+/* A sheet animating out (Sheet.jsx, EXIT_MS) takes no more taps: a double-clicked Add doesn't add
+   twice, and a quick tap on the fading backdrop goes to the page. */
+.sheet-layer.is-closing, .sheet-layer.is-closing * { pointer-events: none !important; }
 
 /* ---- the on-screen keyboard (lib/keyboard.js sets --kb, --vvh and html.kb-open) ----------------
    Sheets sit on top of the keyboard instead of behind it, fit the visible height, and drop the

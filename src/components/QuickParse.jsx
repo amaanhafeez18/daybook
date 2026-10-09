@@ -4,18 +4,19 @@ import { formatDue, parseQuickAdd } from '../lib/dates.js'
 import './tasks.css'
 
 // A day and time typed into a task's name ("Call mom tomorrow 5pm"), shared by the Tasks quick add
-// and the task sheet: the parse ({ title, date, time, matched, key }) or null when nothing was
-// recognised or the user tapped the chip to keep those words (`ignored` = that parse's key).
-export function understand(text, ignored = '') {
-  const parsed = parseQuickAdd(text, new Date())
+// and the task sheet: the parse ({ title, date, time, matched, hasDay, key }) or null when nothing
+// was recognised or the user tapped the chip to keep those words (`ignored` = that parse's key).
+// day: the day the form already has; a time typed on its own ("Dentist 3pm") stays on it.
+export function understand(text, ignored = '', day = '') {
+  const parsed = parseQuickAdd(text, new Date(), { day })
   const key = parsed.matched.map((span) => span.text.toLowerCase()).join('|')
   return parsed.matched.length > 0 && key !== ignored ? { ...parsed, key } : null
 }
 
 // understand() for a field as it's typed. enabled: false turns it off (understood is null).
-export function useQuickParse(text, enabled = true) {
+export function useQuickParse(text, enabled = true, day = '') {
   const [ignored, setIgnored] = useState('')
-  const understood = useMemo(() => (enabled ? understand(text, ignored) : null), [text, enabled, ignored])
+  const understood = useMemo(() => (enabled ? understand(text, ignored, day) : null), [text, enabled, ignored, day])
   return {
     understood,
     ignored,

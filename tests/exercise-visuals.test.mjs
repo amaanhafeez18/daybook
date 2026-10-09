@@ -7,18 +7,33 @@ import { EXERCISES } from '../src/lib/gym/library.js'
 import { EXERCISE_MOTION, guessMotion, motionFor } from '../src/pages/gym/visuals/motion.js'
 import { PATTERNS, cuesFor, patternInfo } from '../src/pages/gym/visuals/patterns.js'
 import { LIMBS, anchorNames, lerpPose, limbSpec, normDeg, poseAt, reach, sameShape, solvePose, stops } from '../src/pages/gym/visuals/rig.js'
-import { keyScene, phaseScene, viewBox, visualFor } from '../src/pages/gym/visuals/visual.js'
+import { keyScene, keysBox, phaseScene, viewBox, visualFor } from '../src/pages/gym/visuals/visual.js'
 import { muscleMapScene } from '../src/pages/gym/visuals/musclemap.js'
-import { muscleSets } from '../src/pages/gym/visuals/scene.js'
+import { muscleSets, sceneBounds } from '../src/pages/gym/visuals/scene.js'
 import { Figure, MuscleMap } from '../src/pages/gym/visuals/render.js'
 
 const finite = (p) => Array.isArray(p) && p.length === 2 && p.every(Number.isFinite)
 
-// Every pattern with every variant the library uses (plus its default).
+// Variants only a custom exercise's guess produces (the name or equipment picks them).
+const GUESS_ONLY = [
+  ['curl', { gear: 'machine' }],
+  ['curl', { style: 'bayesian', gear: 'cable' }],
+  ['overhead_press', { thruster: true, gear: 'dumbbell' }],
+  ['overhead_press', { thruster: true, gear: 'kettlebell' }],
+  ['run', { walk: true }],
+  ['row_bent', { style: 'pendlay', gear: 'dumbbell' }],
+  ['pushdown', { grip: 'rope', single: true }],
+  ['pulldown', { single: true, gear: 'machine' }],
+  ['chest_fly', { angle: 'low' }],
+  ['twist', { style: 'woodchop' }],
+  ['hinge', { style: 'rack', gear: 'dumbbell' }],
+]
+
+// Every pattern with every variant the library uses (plus its default and the guess-only ones).
 function variantsInUse() {
   const out = new Map()
   for (const id of Object.keys(PATTERNS)) out.set(`${id}|{}`, [id, {}])
-  for (const [pattern, variant] of Object.values(EXERCISE_MOTION)) out.set(`${pattern}|${JSON.stringify(variant)}`, [pattern, variant])
+  for (const [pattern, variant] of [...Object.values(EXERCISE_MOTION), ...GUESS_ONLY]) out.set(`${pattern}|${JSON.stringify(variant)}`, [pattern, variant])
   return [...out.values()]
 }
 
@@ -65,6 +80,41 @@ describe('exercise visuals: mapping', () => {
     assert.notDeepEqual(cuesFor('overhead_press', { gear: 'dumbbell', seat: true }), cuesFor('overhead_press', {}))
     assert.deepEqual(cuesFor('squat', { hold: 'back' }), cuesFor('squat', {}))
   })
+
+  // The October 2026 additions: each one shows its own variant's cues (the variant's key order
+  // decides which cue set wins, e.g. a fly's angle before its gear).
+  const OWN_CUES = {
+    'bayesian-curl': 'bayesian', 'spider-curl': 'spider', 'drag-curl': 'drag', 'machine-preacher-curl': 'preacher',
+    'rope-pushdown': 'rope', 'single-arm-pushdown': 'single', 'jm-press': 'jm', 'incline-dumbbell-fly': 'incline',
+    'low-to-high-cable-fly': 'low', 'high-to-low-cable-fly': 'high', 'pendlay-row': 'pendlay', 'meadows-row': 'meadows',
+    'seal-row': 'seal', 'y-raise': 'y_raise', 'single-arm-lat-pulldown': 'single', 'close-grip-lat-pulldown': 'close',
+    'kneeling-cable-pullover': 'kneeling', 'rack-pull': 'rack', 'cable-pull-through': 'pull_through', 'pendulum-squat': 'pendulum',
+    'belt-squat': 'belt', 'sissy-squat': 'sissy', 'glute-ham-raise': 'ghr', 'hip-thrust-machine': 'machine',
+    'leg-press-calf-raise': 'calf', 'tibialis-raise': 'tibialis', 'sit-up': 'situp', 'decline-sit-up': 'decline',
+    'lying-leg-raise': 'lying', 'cable-woodchop': 'woodchop', 'thruster': 'thruster', 'incline-treadmill-walk': 'incline',
+  }
+  test('new library exercises get their own variant cues', () => {
+    for (const [id, key] of Object.entries(OWN_CUES)) {
+      const [pattern, variant] = EXERCISE_MOTION[id]
+      assert.ok(PATTERNS[pattern].cues[key], `${pattern} has no ${key} cues`)
+      assert.deepEqual(cuesFor(pattern, variant), PATTERNS[pattern].cues[key], id)
+    }
+  })
+
+  test('the Bayesian curl: facing away from a low pulley, the upper arm angled back behind the body', () => {
+    const entry = EXERCISES.find((item) => item.id === 'bayesian-curl')
+    assert.deepEqual([entry.name, entry.primary, entry.equipment, entry.tracking], ['Bayesian Curl (Cable)', 'biceps', 'cable', 'weight_reps'])
+    const vis = visualFor(entry)
+    assert.deepEqual([vis.motion.pattern, vis.variant.style, vis.variant.gear], ['curl', 'bayesian', 'cable'])
+    const [bottom, top] = vis.info.keys.map((key) => solvePose(key, vis.info.view).joints)
+    for (const j of [bottom, top]) assert.ok(j.elbow[0] < j.shoulder[0] - 3 && j.elbow[1] > j.shoulder[1], 'elbow behind and below the shoulder')
+    // Stretched behind the body at the bottom, curled up in front of the elbow at the top.
+    assert.ok(bottom.hand[0] < bottom.elbow[0] && bottom.hand[1] > bottom.elbow[1])
+    assert.ok(top.hand[0] > top.elbow[0] && top.hand[1] < bottom.hand[1] - 10)
+    // The face points forward (+x), so a pulley behind the body is to the left of it, low down.
+    const pulley = keyScene(vis, 0).items.find((item) => item.k === 'ring' && item.fill === 'plate')
+    assert.ok(pulley.c[0] < bottom.hip[0] - 20 && pulley.c[1] > bottom.hip[1] + 20, `pulley at ${pulley.c}`)
+  })
 })
 
 describe('exercise visuals: custom exercise fallback', () => {
@@ -72,15 +122,16 @@ describe('exercise visuals: custom exercise fallback', () => {
   const cases = [
     ['Incline Smith Press', 'bench_press', { bench: 'incline' }],
     ['Floor Press', 'bench_press', {}],
-    ['Cable Fly (low to high)', 'chest_fly', {}],
+    ['Cable Fly (low to high)', 'chest_fly', { angle: 'low' }],
+    ['High to Low Cable Fly', 'chest_fly', { angle: 'high' }],
     ['Zercher Squat', 'squat', {}],
-    ['Sissy squat', 'squat', {}],
+    ['Sissy squat', 'squat', { hold: 'sissy' }],
     ['Kettlebell Goblet Squat', 'squat', { hold: 'goblet' }],
     ['Seated Hamstring Curl', 'leg_curl', { style: 'seated' }],
-    ['Spider Curl', 'curl', {}],
+    ['Spider Curl', 'curl', { style: 'spider' }],
     ['Rope Hammer Curls', 'curl', { grip: 'hammer' }],
     ['Landmine Row', 'row_bent', { gear: 'landmine' }],
-    ['Meadows Row', 'row_bent', {}],
+    ['Meadows Row', 'row_bent', { style: 'meadows', gear: 'landmine' }],
     ['Banded Hip Abduction', 'hip_machine', { dir: 'out' }],
     ['Copenhagen adduction', 'hip_machine', { dir: 'in' }],
     ['Stiff-legged deadlift', 'hinge', { style: 'rdl' }],
@@ -90,14 +141,46 @@ describe('exercise visuals: custom exercise fallback', () => {
     ['Concept2 Erg', 'rower', {}],
     ['Hanging Knee Tucks', 'hanging_raise', { style: 'knee' }],
     ['Weighted Chin-Ups', 'pull_up', { grip: 'chin' }],
-    ['Cable Woodchop', 'twist', { style: 'woodchop' }],
+    ['Cable Woodchop', 'twist', { style: 'woodchop', gear: 'cable' }],
     ['Lying Triceps Extension', 'skull_crusher', {}],
-    ['JM Press', 'bench_press', {}],
+    ['JM Press', 'skull_crusher', { style: 'jm' }],
+    // Customs people may have made before these were in the library.
+    ['Bayesian curl', 'curl', { style: 'bayesian', gear: 'cable' }],
+    ['Drag Curl', 'curl', { style: 'drag' }],
+    ['Rope Pushdown', 'pushdown', { grip: 'rope' }],
+    ['Single Arm Cable Pushdown', 'pushdown', { single: true }],
+    ['Cross-Body Cable Extension', 'cross_extension', {}],
+    ['Pendlay Row', 'row_bent', { style: 'pendlay', gear: 'barbell' }],
+    ['Seal Row', 'row_supported', { style: 'seal' }],
+    ['Y Raise', 'row_supported', { style: 'y_raise' }],
+    ['Close Grip Lat Pulldown', 'pulldown', { grip: 'close' }],
+    ['Single Arm Lat Pulldown', 'pulldown', { single: true }],
+    ['Kneeling Cable Pullover', 'straight_arm_pulldown', { style: 'kneeling' }],
+    ['Dumbbell Pullover', 'pullover', {}],
+    ['Rack Pulls', 'hinge', { style: 'rack' }],
+    ['Cable Pull-Through', 'hinge', { style: 'pull_through', gear: 'cable' }],
+    ['Pendulum Squat', 'squat', { hold: 'pendulum' }],
+    ['Belt Squat', 'squat', { hold: 'belt' }],
+    ['Glute Ham Raise', 'nordic', { style: 'ghr' }],
+    ['Hip Thrust Machine', 'hip_thrust', { style: 'machine' }],
+    ['Leg Press Calf Raise', 'leg_press', { style: 'calf' }],
+    ['Tib Raise', 'calf_raise', { style: 'tibialis' }],
+    ['Sit-Ups', 'crunch', { style: 'situp' }],
+    ['GHD Sit-Up', 'crunch', { style: 'situp' }],
+    ['Decline Sit-Up', 'crunch', { style: 'decline' }],
+    ['Lying Leg Raises', 'hanging_raise', { style: 'lying' }],
+    ['Hanging Leg Raise', 'hanging_raise', { style: 'leg' }],
+    ['Thrusters', 'overhead_press', { thruster: true }],
+    ['Sled Push', 'sled', {}],
+    ['Box Jumps', 'box_jump', {}],
+    ['Incline Treadmill Walk', 'run', { incline: true, walk: true }],
+    ['Walking', 'run', { walk: true }],
+    ['Walking Lunges', 'lunge', { style: 'walking' }],
+    ["Farmer's Walk", 'carry', {}],
   ]
   for (const [name, pattern, variant] of cases) {
     test(`"${name}" → ${pattern}`, () => {
-      const primary = name === 'JM Press' ? 'chest' : null
-      const found = guessMotion(custom(name, { primary }))
+      const found = guessMotion(custom(name))
       assert.ok(found, `nothing for ${name}`)
       assert.equal(found.pattern, pattern)
       for (const [key, value] of Object.entries(variant)) assert.equal(found.variant[key], value, `${name}: ${key}`)
@@ -111,6 +194,13 @@ describe('exercise visuals: custom exercise fallback', () => {
     assert.equal(guessMotion(custom('Chest press', { equipment: 'machine' })).pattern, 'machine_press')
     assert.equal(guessMotion(custom('Row', { equipment: 'cable' })).pattern, 'row_seated')
     assert.equal(guessMotion(custom('Row', { equipment: 'dumbbell' })).pattern, 'row_one_arm')
+    assert.deepEqual(guessMotion(custom('Bent Over Row', { equipment: 'dumbbell' })).variant, { gear: 'dumbbell' })
+    assert.equal(guessMotion(custom('Bent Over Row', { equipment: 'dumbbell' })).pattern, 'row_bent')
+    // A curl machine draws as a preacher machine: a lever turning around the elbow.
+    const machineCurl = visualFor(custom('Bicep Curl Machine', { equipment: 'machine', primary: 'biceps' }))
+    assert.deepEqual(machineCurl.variant, { style: 'preacher', gear: 'machine' })
+    assert.deepEqual(machineCurl.cues, cuesFor('curl', { style: 'preacher' }))
+    assert.ok(keyScene(machineCurl, 1).items.some((item) => item.k === 'seg' && item.role === 'gear'))
   })
 
   test('no keyword: the primary muscle decides; nothing at all: no pattern', () => {
@@ -245,6 +335,32 @@ describe('exercise visuals: scenes and SVG', () => {
     assert.ok(whole.filter((item) => item.role === 'hot').length > 20)
     const cardio = muscleMapScene(muscleSets({ primary: 'cardio', secondary: ['quads'] }))
     assert.ok(cardio.some((item) => item.role === 'hot') && cardio.some((item) => item.role === 'warm'))
+  })
+
+  test('hover thumbnails use the key-pose box (not the 25-solve loop box), at rest and playing', () => {
+    const vis = visualFor(EXERCISES.find((item) => item.id === 'bench-press'))
+    const boxOf = (props) => server.renderToString(createElement(Figure, { vis, size: 36, ...props })).match(/viewBox="([^"]+)"/)[1]
+    const text = (box) => box.map((n) => Math.round(n * 100) / 100).join(' ')
+    assert.notEqual(text(viewBox(vis)), text(viewBox(vis, vis.info.thumb)))
+    // The box doesn't depend on hover, so it can't shrink or re-crop when a row is hovered.
+    assert.equal(boxOf({ tight: true, animate: 'hover' }), text(keysBox(vis)))
+    assert.equal(boxOf({ animate: 'hover' }), text(keysBox(vis)))
+    assert.equal(boxOf({ tight: true }), text(viewBox(vis, vis.info.thumb)))
+    assert.equal(boxOf({ tight: true, animate: true }), text(viewBox(vis)))
+  })
+
+  test('the key-pose box holds the whole loop and is about the loop box size', () => {
+    for (const entry of EXERCISES) {
+      const vis = visualFor(entry)
+      const box = keysBox(vis)
+      const [x, y, size] = box
+      assert.ok(box.every(Number.isFinite) && size === box[3], `${entry.id} box`)
+      const loop = [Infinity, Infinity, -Infinity, -Infinity]
+      for (let i = 0; i < 40; i += 1) sceneBounds(phaseScene(vis, (i + 0.5) / 40).items, loop)
+      assert.ok(loop[0] >= x && loop[1] >= y && loop[2] <= x + size && loop[3] <= y + size, `${entry.id}: the loop leaves the box`)
+      const full = viewBox(vis)[2]
+      assert.ok(Math.abs(size - full) <= full * 0.03, `${entry.id}: ${size} vs loop box ${full}`)
+    }
   })
 
   for (const id of ['bench-press', 'lateral-raise', 'pull-up', 'stationary-bike', 'side-plank', 'power-clean']) {

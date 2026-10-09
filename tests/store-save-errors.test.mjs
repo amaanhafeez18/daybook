@@ -89,6 +89,55 @@ test('undoing the edit that was turned down clears the failure', async () => {
   assert.equal(store.getState().saveError, '')
 })
 
+test('saveErrors keeps each list’s failure until that list saves, whichever failed last', async () => {
+  // e.g. food entries turned down because the food migration hasn't been run, then a task save
+  // fails too: the food failure must stay visible to the food page.
+  server.reject.set('foodEntries', 'Food data needs a database update')
+  store.updateData('foodEntries', [{ id: 'f1', date: '2026-10-06', name: 'Toast' }])
+  await settle()
+  assert.deepEqual(store.getState().saveErrors, { foodEntries: 'Food data needs a database update' })
+
+  server.reject.set('tasks', 'Title is too long')
+  store.updateData('tasks', (tasks) => [...tasks, { id: 't2', title: 'Two' }])
+  await settle()
+  assert.equal(store.getState().saveError, 'Title is too long')
+  assert.deepEqual(store.getState().saveErrors, { foodEntries: 'Food data needs a database update', tasks: 'Title is too long' })
+
+  // Turned down again with the same messages: the same object, so nothing re-renders.
+  const errors = store.getState().saveErrors
+  await store.retryUnsaved()
+  assert.equal(store.getState().saveErrors, errors)
+
+  server.reject.delete('tasks')
+  await store.retryUnsaved()
+  assert.deepEqual(store.getState().saveErrors, { foodEntries: 'Food data needs a database update' })
+  assert.equal(store.getState().saveError, 'Food data needs a database update')
+
+  store.resetStore()
+  assert.deepEqual(store.getState().saveErrors, {})
+})
+
+test('retryUnsaved resolves once the saves are done, and clears a failure with nothing left to send', async () => {
+  server.reject.set('tasks', 'Nope')
+  store.updateData('tasks', (tasks) => [...tasks, { id: 't2', title: 'Two' }])
+  await settle()
+  assert.equal(store.getState().saveError, 'Nope')
+
+  // Still turned down: known as soon as the retry resolves.
+  await store.retryUnsaved()
+  assert.equal(store.getState().saveError, 'Nope')
+  assert.equal(store.getState().pendingSaves, 0)
+
+  // The same task was saved from another device: after a refresh there's nothing left to send here.
+  server.data.tasks = [...server.data.tasks, { id: 't2', title: 'Two' }]
+  await store.refresh()
+  assert.equal(store.hasUnsavedChanges(), false)
+  assert.equal(store.getState().saveError, 'Nope')
+  await store.retryUnsaved()
+  assert.equal(store.getState().saveError, '')
+  assert.deepEqual(store.getState().saveErrors, {})
+})
+
 test('offline is not a rejection, and signing out forgets failures', async () => {
   server.down = true
   store.updateData('tasks', (tasks) => [...tasks, { id: 't2', title: 'Two' }])

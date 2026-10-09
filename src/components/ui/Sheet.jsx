@@ -37,6 +37,12 @@ export default function Sheet({ open, onClose, title, description, children, foo
   const titleId = useId()
   const descId = useId()
   const drag = useDragToClose(panelRef, backdropRef, onCloseRef, openRef)
+  // While it animates out (EXIT_MS) the sheet is still there: a second tap on the backdrop or × must
+  // not close it again (a form would keep what it just saved as a draft). shell.css also stops the
+  // closing sheet taking taps, so a double-clicked Add doesn't add twice.
+  const close = () => {
+    if (openRef.current) onCloseRef.current?.()
+  }
 
   useEffect(() => {
     if (open) {
@@ -76,7 +82,7 @@ export default function Sheet({ open, onClose, title, description, children, foo
       if (event.key === 'Escape' && !handledEscapes.has(event)) {
         handledEscapes.add(event)
         event.stopPropagation()
-        onCloseRef.current?.()
+        close()
       }
       if (event.key === 'Tab') trapFocus(event, panelRef.current)
     }
@@ -116,7 +122,7 @@ export default function Sheet({ open, onClose, title, description, children, foo
 
   return createPortal(
     <div className={`sheet-layer ${closing ? 'is-closing' : ''}`}>
-      <div ref={backdropRef} className="sheet-backdrop" onClick={onClose} aria-hidden="true" />
+      <div ref={backdropRef} className="sheet-backdrop" onClick={close} aria-hidden="true" />
       <div
         ref={panelRef}
         className={`sheet sheet-${size}`}
@@ -136,7 +142,7 @@ export default function Sheet({ open, onClose, title, description, children, foo
               <h2 id={titleId}>{title}</h2>
               {description && <p id={descId}>{description}</p>}
             </div>
-            <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">
+            <button type="button" className="icon-btn" onClick={close} aria-label="Close">
               <Icon name="close" />
             </button>
           </header>

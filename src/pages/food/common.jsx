@@ -255,10 +255,21 @@ export function StatTile({ label, value, sub, tone }) {
   )
 }
 
-// The sync error from a save that needs a database update (food table or body weights).
+const MIGRATION_ERROR = /Food data|Gym data/
+const isMigrationError = (message) => typeof message === 'string' && MIGRATION_ERROR.test(message)
+
+// The sync error from a save that needs a database update (food table or body weights). Read per
+// list (state.saveErrors), so another list's failure (a timeout on settings) can't hide it; a store
+// without saveErrors only has the newest failure (saveError).
+function selectMigrationError(state) {
+  const errors = state.saveErrors
+  if (!errors || typeof errors !== 'object') return isMigrationError(state.saveError) ? state.saveError : ''
+  return [errors.foodEntries, errors.bodyWeights, errors.gymSessions].find(isMigrationError) || ''
+}
+
 export function MigrationNote() {
-  const error = useStore((state) => state.saveError)
-  if (!error || !/Food data|Gym data/.test(error)) return null
+  const error = useStore(selectMigrationError)
+  if (!error) return null
   return (
     <p className="food-note is-warning" role="status">
       <Icon name="alert" size={18} />

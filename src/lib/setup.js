@@ -19,25 +19,30 @@ const list = (value) => (Array.isArray(value) ? value : [])
 
 // Whole days since the account's oldest row, 0 for an account with nothing in it yet, or null when
 // it has rows but none says when it was made (rows from before createdAt: an established account).
-export function accountAgeDays(data, now = Date.now()) {
+// enough: stop at the first row at least that many days old and return its age (all a caller like
+// setupVisible needs), so an established account isn't a Date.parse of every row on each update.
+export function accountAgeDays(data, now = Date.now(), enough = Infinity) {
+  const lists = AGE_LISTS.map((key) => list(data?.[key])).filter((rows) => rows.length)
+  if (!lists.length) return 0
   let oldest = Infinity
-  let rows = 0
-  for (const key of AGE_LISTS) {
-    for (const row of list(data?.[key])) {
-      rows += 1
-      const at = Date.parse(row?.createdAt || '')
-      if (Number.isFinite(at) && at < oldest) oldest = at
-    }
+  const age = () => Math.max(0, Math.floor((now - oldest) / DAY_MS))
+  const isEnough = (row) => {
+    const at = Date.parse(row?.createdAt || '')
+    if (Number.isFinite(at) && at < oldest) oldest = at
+    return now - oldest >= enough * DAY_MS
   }
-  if (!rows) return 0
-  if (oldest === Infinity) return null
-  return Math.max(0, Math.floor((now - oldest) / DAY_MS))
+  // Lists are kept newest or oldest first, so the ends of each are looked at first.
+  if (lists.some((rows) => isEnough(rows[0]) || isEnough(rows[rows.length - 1]))) return age()
+  for (const rows of lists) {
+    for (const row of rows) if (isEnough(row)) return age()
+  }
+  return oldest === Infinity ? null : age()
 }
 
 // The card is for new accounts (under SETUP_DAYS old) until it's hidden (settings.setupHidden).
 export function setupVisible(data, now = Date.now()) {
   if (data?.settings?.setupHidden === true) return false
-  const age = accountAgeDays(data, now)
+  const age = accountAgeDays(data, now, SETUP_DAYS)
   return age !== null && age < SETUP_DAYS
 }
 

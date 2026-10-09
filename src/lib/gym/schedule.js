@@ -703,3 +703,38 @@ export function setDeloadEvery(schedule, everyWeeks, today) {
   const s = normalizeSchedule(schedule)
   return { ...s, deload: { ...s.deload, everyWeeks: every, programStart: s.deload.programStart || today } }
 }
+
+// ---- weekly goal ------------------------------------------------------------------------------
+// Lives here (not stats.js) because state.js is in the first bundle and stats.js carries the
+// exercise library; stats.js re-exports both for the app and the API.
+
+const goalText = (value) => (typeof value === 'string' ? value : '')
+
+// Workouts a week the plan asks for, from its newest version: a weekly plan counts its workout
+// days; a rotation gives round(workouts × 7 / cycle length). 1-14, or null with no workouts planned.
+export function planWeeklyGoal(schedule) {
+  const versions = isObject(schedule) && Array.isArray(schedule.versions) ? schedule.versions.filter(isObject) : []
+  const version = versions.reduce((latest, v) => (!latest || goalText(v.effectiveFrom) >= goalText(latest.effectiveFrom) ? v : latest), null)
+  if (!version) return null
+  const rotation = version.mode === 'rotation' || (version.mode !== 'weekly' && Array.isArray(version.cycle) && version.cycle.length)
+  const slots = (rotation ? version.cycle : version.weekly) || []
+  if (!Array.isArray(slots) || !slots.length) return null
+  const workouts = slots.filter((slot) => isObject(slot) && slot.kind === 'routine').length
+  if (!workouts) return null
+  const perWeek = rotation ? Math.round((workouts * 7) / slots.length) : workouts
+  return Math.min(14, Math.max(1, perWeek))
+}
+
+const DEFAULT_GOAL = 3
+
+// The weekly goal to show: { goal, fromPlan, manual }. It follows the plan unless set by hand
+// (prefs.weeklyGoalAuto false). Older data has no flag: a missing goal, or the old default 3 that
+// every prefs write used to store, follows the plan; any other stored number stays manual.
+export function weeklyGoalFor(prefs, schedule) {
+  const p = isObject(prefs) ? prefs : {}
+  const stored = Number.isInteger(p.weeklyGoal) && p.weeklyGoal >= 1 && p.weeklyGoal <= 14 ? p.weeklyGoal : null
+  const follow = typeof p.weeklyGoalAuto === 'boolean' ? p.weeklyGoalAuto : stored === null || stored === DEFAULT_GOAL
+  if (!follow) return { goal: stored ?? DEFAULT_GOAL, fromPlan: false, manual: true }
+  const planned = planWeeklyGoal(schedule)
+  return { goal: planned ?? stored ?? DEFAULT_GOAL, fromPlan: planned !== null, manual: false }
+}

@@ -392,9 +392,9 @@ function PinnedNote({ exerciseId, note }) {
 const PAGE = 20
 
 // A Best set far above the exercise's other workouts (likely a typo): never edited automatically;
-// "Fix this set" opens that workout, where Edit corrects it.
+// "Fix this set" opens that workout, where Edit corrects it. Loads kept on purpose (keptKg) are fine.
 function bestFlag(top, session, sessions, exercise, tracking) {
-  if (!top) return null
+  if (!top || (typeof top.keptKg === 'number' && top.keptKg === top.weightKg)) return null
   try {
     return plausibleWeight({ kg: top.weightKg, exerciseId: exercise.id, sessions, equipment: exercise.equipment, tracking, excludeSessionId: session.id })
   } catch {

@@ -5,7 +5,7 @@ import { Button } from '../../components/ui/primitives.jsx'
 import { EQUIPMENT, MUSCLES, exerciseById, searchExercises } from '../../lib/gym/library.js'
 import { useGym, useGymSessions } from '../../lib/gym/state.js'
 import CustomExerciseSheet from './CustomExerciseSheet.jsx'
-import { ExerciseThumb } from './visuals/lazy.jsx'
+import { ExerciseThumb, ExerciseVisualButton } from './visuals/lazy.jsx'
 import './exercises.css'
 
 // ---- shared by the Exercises tab and the picker ---------------------------------------------
@@ -142,11 +142,13 @@ export function ExerciseFilters({ query, onQuery, muscle, onMuscle, equipment, o
 }
 
 // Row internals: picture (the initial until it loads), name (+ Custom tag), primary muscle ·
-// equipment, times performed.
-export function ExerciseRowBody({ exercise, count = 0 }) {
+// equipment, times performed. picture={false} keeps its place empty for ExerciseRow's own button.
+export function ExerciseRowBody({ exercise, count = 0, picture = true }) {
   return (
     <>
-      <ExerciseThumb exercise={exercise} size={36} animate="hover" className="gym-lib-avatar" fallback={letterOf(exercise.name)} />
+      {picture
+        ? <ExerciseThumb exercise={exercise} size={36} animate="hover" className="gym-lib-avatar" fallback={letterOf(exercise.name)} />
+        : <span className="gym-lib-slot" aria-hidden="true" />}
       <span className="gym-lib-text">
         <span className="gym-lib-name">
           <span className="gym-lib-name-text">{exercise.name}</span>
@@ -161,6 +163,30 @@ export function ExerciseRowBody({ exercise, count = 0 }) {
         </span>
       )}
     </>
+  )
+}
+
+// A whole list row (Exercises tab, picker): the row button does `onClick`; the picture is its own
+// button laid over the row's first place (a sibling, not nested), and pops up how the exercise is
+// done. trailing = what ends the row (chevron, check).
+export function ExerciseRow({ exercise, count = 0, onClick, className = '', disabled = false, pressed, onDetails, trailing = null }) {
+  return (
+    <li className="gym-lib-item">
+      <button type="button" className={`gym-lib-row ${className}`.trim()} disabled={disabled} aria-pressed={pressed} onClick={onClick}>
+        <ExerciseRowBody exercise={exercise} count={count} picture={false} />
+        {trailing}
+      </button>
+      <ExerciseVisualButton
+        exercise={exercise}
+        name={exercise.name}
+        size={36}
+        className={`gym-lib-pic${disabled ? ' is-dim' : ''}`}
+        tileClassName="gym-lib-avatar"
+        animate="hover"
+        fallback={letterOf(exercise.name)}
+        onDetails={onDetails}
+      />
+    </li>
   )
 }
 
@@ -234,26 +260,24 @@ export default function ExercisePicker({ open, onClose, onPick, multi = true, ti
     const order = selected.indexOf(exercise.id)
     const isSelected = order >= 0
     return (
-      <li key={exercise.id}>
-        <button
-          type="button"
-          className={`gym-lib-row gym-pk-row${isSelected ? ' is-selected' : ''}`}
-          disabled={isExcluded}
-          aria-pressed={multi && !isExcluded ? isSelected : undefined}
-          onClick={() => choose(exercise)}
-        >
-          <ExerciseRowBody exercise={exercise} count={usage.counts.get(exercise.id) || 0} />
-          {isExcluded ? (
-            <span className="gym-pk-added">{multi ? 'Added' : 'Current'}</span>
-          ) : multi ? (
-            <span className={`gym-pk-check${isSelected ? ' is-on' : ''}`} aria-hidden="true">
-              {isSelected ? order + 1 : ''}
-            </span>
-          ) : (
-            <Icon name="plus" size={18} className="gym-pk-plus" />
-          )}
-        </button>
-      </li>
+      <ExerciseRow
+        key={exercise.id}
+        exercise={exercise}
+        count={usage.counts.get(exercise.id) || 0}
+        className={`gym-pk-row${isSelected ? ' is-selected' : ''}`}
+        disabled={isExcluded}
+        pressed={multi && !isExcluded ? isSelected : undefined}
+        onClick={() => choose(exercise)}
+        trailing={isExcluded ? (
+          <span className="gym-pk-added">{multi ? 'Added' : 'Current'}</span>
+        ) : multi ? (
+          <span className={`gym-pk-check${isSelected ? ' is-on' : ''}`} aria-hidden="true">
+            {isSelected ? order + 1 : ''}
+          </span>
+        ) : (
+          <Icon name="plus" size={18} className="gym-pk-plus" />
+        )}
+      />
     )
   }
 

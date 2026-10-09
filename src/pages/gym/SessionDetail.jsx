@@ -756,7 +756,9 @@ function cleanExercises(list) {
         continue
       }
       const { target, prs, keptKg, ...rest } = set // eslint-disable-line no-unused-vars
-      sets.push({ ...rest, id: rest.id ?? newGymId(), done: true })
+      // A kept load ("Keep" on a likely typo) stays marked only while the weight is unchanged.
+      const kept = typeof keptKg === 'number' && keptKg === rest.weightKg ? { keptKg } : {}
+      sets.push({ ...rest, ...kept, id: rest.id ?? newGymId(), done: true })
     }
     if (sets.length) exercises.push({ ...exercise, sets })
   }

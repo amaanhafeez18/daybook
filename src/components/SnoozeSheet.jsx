@@ -18,9 +18,13 @@ export function snoozeTask(task, { date, time = '' }) {
 // "Later…": the choices from snoozeOptions (in 1 hour, this evening, tomorrow, the weekend, next
 // week), plus "Pick a date…" (onPick) for anything else. A choice applies at once, then onDone.
 export default function SnoozeSheet({ task, open, onClose, onPick, onDone }) {
-  // Frozen while open, so the list doesn't change under the finger or while it slides away.
-  const shown = useRef({ task, options: [] })
-  if (open && task) shown.current = { task, options: snoozeOptions(task, new Date()) }
+  // The choices are worked out as it opens and frozen until it closes, so a re-render (the page's
+  // minute tick, a sync) can't change them under the finger, nor while it slides away.
+  const shown = useRef({ task, options: [], open: false })
+  if (open && task) {
+    const opening = !shown.current.open || shown.current.task?.id !== task.id
+    shown.current = { task, options: opening ? snoozeOptions(task, new Date()) : shown.current.options, open: true }
+  } else if (!open) shown.current.open = false
   const { task: current, options } = shown.current
   if (!current) return null
 

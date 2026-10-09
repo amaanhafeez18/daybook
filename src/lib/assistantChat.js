@@ -61,9 +61,10 @@ export const composerPlaceholder = (space) => (space === 'health' ? 'Log food, a
 
 const sameText = (text) => String(text || '').toLowerCase().replace(/[“”"‘’']/g, '').replace(/\s+/g, ' ').replace(/[.!\s]+$/, '').trim()
 
-// An Undo chip that can still be tapped (the action worked, wasn't undone, and isn't too old).
+// An Undo chip that can still be tapped (the action worked, wasn't undone, the server hasn't refused
+// it for good on this visit, and it isn't too old).
 export function canUndo(action, createdAt, now = Date.now()) {
-  if (!action?.ok || !action.undoId || action.undone) return false
+  if (!action?.ok || !action.undoId || action.undone || action.undoBlocked) return false
   const stamp = Date.parse(createdAt || '')
   return !Number.isFinite(stamp) || now - stamp < UNDO_TTL_MS
 }
@@ -78,6 +79,33 @@ export function visibleActions(actions, reply = '', { createdAt, now = Date.now(
     const text = sameText(action.message)
     return !text || !said.includes(text)
   })
+}
+
+// An Undo the server refused for good (too old, or already gone): the chip stops offering it. A
+// refusal that might pass later doesn't count: a network or server error, or "changed since" (undoing
+// the catch-up or edit that changed it, here or in the app, makes it possible again).
+export const undoRefused = (error) => error?.status === 404 || error?.status === 410 || (error?.status === 409 && !!error.payload?.gone)
+
+// "Log my sets" (offer_workout with when 'done') under a reply stands in for that reply's quick log.
+// show: the quick log hasn't been saved (or its Undo chip was used): once saved, the sets are added
+// by editing that workout in Gym → History, or it would be logged twice. cancels: the waiting card
+// it replaces, only a card whose one action is that quick log (never one with other changes on it),
+// to cancel once the workout has actually started.
+export function setsOffer(offer, proposal, actions) {
+  if (offer?.when !== 'done') return { show: true, cancels: null }
+  const quickLogs = (Array.isArray(actions) ? actions : []).filter((action) => action?.tool === 'gym_quick_log' && action.ok)
+  if (quickLogs.some((action) => !action.undone)) return { show: false, cancels: null }
+  // It ran at once and was undone: any card on this reply holds other changes.
+  if (quickLogs.length || !proposal) return { show: true, cancels: null }
+  if (['done', 'partial', 'executing'].includes(proposal.status)) return { show: false, cancels: null }
+  if (proposal.status !== 'pending') return { show: true, cancels: null } // nothing was logged
+  const rows = Array.isArray(proposal.actions) ? proposal.actions : []
+  const onlyQuickLog = rows.length === 1 && (!rows[0]?.tool || rows[0].tool === 'gym_quick_log')
+  if (onlyQuickLog) return { show: true, cancels: proposal.id }
+  // A card known not to hold a quick log (every row names its tool) is left alone.
+  const tools = rows.map((row) => row?.tool)
+  if (tools.length && tools.every(Boolean) && !tools.includes('gym_quick_log')) return { show: true, cancels: null }
+  return { show: false, cancels: null }
 }
 
 // A settled card that's no longer on the newest message shows as one line until tapped.

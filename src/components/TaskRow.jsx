@@ -18,6 +18,7 @@ const DRAG_START = 10 // px of sideways movement before a swipe takes over from 
 const FULL_SWIPE = 0.6 // of the row width: archive on release (and at least 48 px past the buttons)
 let openRow = null // { ref, close }: only one row stays swiped open at a time
 
+// onOpen(task, intent?): a tap opens the task; Later… → "Pick a date…" adds { pickDate: true }.
 // trailing: an optional accessory after the text (e.g. a "Today" chip); tapping it doesn't open the task.
 // swipe: false turns the swipe actions off.
 export default function TaskRow({ task, onOpen, showDate = true, trailing = null, swipe = true }) {
@@ -45,6 +46,8 @@ export default function TaskRow({ task, onOpen, showDate = true, trailing = null
   function toggle(done) {
     setTaskDone(task.id, done)
     if (done) toast(`Completed “${truncate(task.text, 32)}”`, { action: { label: 'Undo', onClick: () => setTaskDone(task.id, false) } })
+    // Reopened (a right swipe or the checkbox on a done row): it may leave the list it's in.
+    else toast(`Marked “${truncate(task.text, 28)}” as not done`, { action: { label: 'Undo', onClick: () => setTaskDone(task.id, true) } })
   }
 
   function moveToTomorrow() {
@@ -281,7 +284,7 @@ export default function TaskRow({ task, onOpen, showDate = true, trailing = null
       </li>
       {/* Outside the row, so the sheet's touches don't reach the row's swipe handlers; only
           rendered once used, so long lists don't carry a sheet per row. */}
-      {snoozing !== null && <SnoozeSheet task={task} open={snoozing} onClose={() => setSnoozing(false)} onPick={onOpen ? () => onOpen(task) : undefined} />}
+      {snoozing !== null && <SnoozeSheet task={task} open={snoozing} onClose={() => setSnoozing(false)} onPick={onOpen ? () => onOpen(task, { pickDate: true }) : undefined} />}
     </>
   )
 }

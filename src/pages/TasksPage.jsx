@@ -35,7 +35,9 @@ export default function TasksPage({ loaded }) {
   const tasks = useData('tasks')
   const [view, setView] = useState('open')
   const [query, setQuery] = useState('')
-  const [sheet, setSheet] = useState(null) // { task?, defaults?, completeFirst?, fromDock? }
+  const [sheet, setSheet] = useState(null) // { task?, defaults?, completeFirst?, fromDock?, pickDate? }
+  // A row's tap opens its task; Later… → "Pick a date…" passes { pickDate: true } to go straight to the date.
+  const openTask = (task, intent) => setSheet({ task, ...intent })
   const [linkedId, setLinkedId] = useState(linkedTaskId)
   const [allArchived, setAllArchived] = useState(false)
   const [dockKey, setDockKey] = useState(0) // bumping it empties the quick-add
@@ -170,7 +172,7 @@ export default function TasksPage({ loaded }) {
                   <TaskRow
                     key={task.id}
                     task={task}
-                    onOpen={(item) => setSheet({ task: item })}
+                    onOpen={openTask}
                     showDate={group.id !== 'today' && group.id !== 'tomorrow'}
                     trailing={group.id === 'overdue' ? (
                       <button type="button" className="tk-chip-today" onClick={() => moveToToday([task])} aria-label={`Move “${task.text}” to today`}>Today</button>
@@ -193,7 +195,7 @@ export default function TasksPage({ loaded }) {
                   <button type="button" className="link-btn" onClick={clearCompleted}>Archive all</button>
                 </div>
                 <ul className="task-list card-list">
-                  {done.map((task) => <TaskRow key={task.id} task={task} onOpen={(item) => setSheet({ task: item })} />)}
+                  {done.map((task) => <TaskRow key={task.id} task={task} onOpen={openTask} />)}
                 </ul>
               </section>
             )}
@@ -248,6 +250,7 @@ export default function TasksPage({ loaded }) {
         task={sheet?.task || null}
         defaults={sheet?.defaults}
         completeFirst={!!sheet?.completeFirst}
+        pickingDate={!!sheet?.pickDate}
         onSaved={sheet?.fromDock ? () => setDockKey((key) => key + 1) : undefined}
         onClose={() => setSheet(null)}
       />
@@ -264,7 +267,8 @@ export default function TasksPage({ loaded }) {
 function QuickAddDock({ today, onAdded, onMore }) {
   const [text, setText] = useState('')
   const [pickedDate, setPickedDate] = useState('')
-  const quick = useQuickParse(text)
+  // A time typed on its own ("5pm") stays on the day picked here (Tomorrow).
+  const quick = useQuickParse(text, true, pickedDate)
   const { understood } = quick
   const input = useRef(null)
   const tomorrow = addDaysISO(today, 1)

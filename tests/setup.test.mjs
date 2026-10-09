@@ -30,6 +30,24 @@ describe('get set up: who sees it', () => {
   test('hidden stays hidden', () => {
     assert.equal(setupVisible({ settings: { setupHidden: true } }, NOW), false)
   })
+
+  test('"enough" stops at the first row that old, without reading every row', () => {
+    let reads = 0
+    const row = (n) => ({ get createdAt() { reads += 1; return daysAgo(n) } })
+    const tasks = [row(1), ...Array.from({ length: 500 }, () => row(2)), row(30)]
+    const data = { tasks, foodEntries: [row(40)], settings: {} }
+    assert.equal(accountAgeDays(data, NOW), 40) // the full answer is still the oldest
+    reads = 0
+    assert.ok(accountAgeDays(data, NOW, 14) >= 14)
+    assert.ok(reads <= 4, `read ${reads} rows`)
+    reads = 0
+    assert.equal(setupVisible(data, NOW), false)
+    assert.ok(reads <= 4, `read ${reads} rows`)
+    // Young rows only: every row is read and the card shows.
+    assert.equal(setupVisible({ tasks: [row(1), row(3), row(2)], settings: {} }, NOW), true)
+    assert.equal(accountAgeDays({ tasks: [row(1), row(3), row(2)] }, NOW, 14), 3)
+    assert.equal(accountAgeDays({ tasks: [{ text: 'old' }] }, NOW, 14), null)
+  })
 })
 
 describe('get set up: the rows', () => {
