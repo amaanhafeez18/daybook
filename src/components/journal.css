@@ -25,8 +25,8 @@
 /* Big, quiet writing area: the body is the point of the screen. */
 .journal-editor .journal-body { min-height: 190px; font-size: 17px; line-height: 1.6; }
 .journal-editor .journal-footer .btn-ghost { color: var(--danger); }
+/* Small buttons keep the app's 36 px size; their 44 px touch target comes from the global .btn-sm. */
 @media (pointer: coarse) {
-  .journal-editor .journal-footer .btn-sm { min-height: 44px; padding: 0 14px; }
   .journal-editor .mood { min-height: 56px; }
 }
 
@@ -43,6 +43,5 @@
 .note-card .note-card-actions .icon-btn-sm { width: 40px; height: 40px; margin: -8px 0; }
 .note-card .att-strip { margin: -2px 0; }
 @media (pointer: coarse) {
-  .note-composer .btn-sm { min-height: 44px; padding: 0 16px; }
   .note-card .note-card-actions .icon-btn-sm { width: 44px; height: 44px; margin: -8px 0; }
 }

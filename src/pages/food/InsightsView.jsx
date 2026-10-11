@@ -234,7 +234,7 @@ function FoodsCard({ week, unit }) {
     <Card title="Foods" icon="utensils">
       {week.topFoods.length > 0 && (
         <>
-          <h3 className="food-ins-sub">Most logged</h3>
+          <h3 className="ui-label food-ins-sub">Most logged</h3>
           <ol className="food-ins-list">
             {week.topFoods.map((item, index) => (
               <li key={item.key}>
@@ -248,7 +248,7 @@ function FoodsCard({ week, unit }) {
       )}
       {week.biggestSources.length > 0 && (
         <>
-          <h3 className="food-ins-sub">Biggest calorie sources</h3>
+          <h3 className="ui-label food-ins-sub">Biggest calorie sources</h3>
           <ol className="food-ins-list">
             {week.biggestSources.map((item, index) => (
               <li key={item.key}>

@@ -4,6 +4,7 @@ import Sheet from '../components/ui/Sheet.jsx'
 import Disclosure from '../components/ui/Disclosure.jsx'
 import { AutoTextarea, Avatar, Button, EmptyState, Field, IconButton, Segmented, Skeleton } from '../components/ui/primitives.jsx'
 import { confirmAction, toast } from '../components/ui/feedback.jsx'
+import { ActionSheet } from '../components/ui/ActionSheet.jsx'
 import AttachmentStrip from '../components/AttachmentStrip.jsx'
 import { attachmentSummary, useAttachmentsFor } from '../lib/attachments.js'
 import { useData, useStore } from '../lib/store.js'
@@ -145,7 +146,8 @@ export default function PeoplePage({ loaded }) {
 
 function PersonRow({ friend, status, topic, onOpen, onTalked }) {
   const tone = status.due ? 'danger' : status.soon ? 'warning' : status.last ? 'success' : 'muted'
-  const lastLabel = status.last ? `Talked ${timeAgo(status.last)}` : 'No catch-up logged'
+  // Short enough for one line ("2 weeks ago · Close friend"); the dot already says how it's going.
+  const lastLabel = status.last ? capitalize(timeAgo(status.last)) : 'No catch-ups yet'
   const talkedToday = status.daysSince === 0
   return (
     <li className="person-row">
@@ -155,7 +157,7 @@ function PersonRow({ friend, status, topic, onOpen, onTalked }) {
           <strong>{friend.name}</strong>
           <small>
             <i className={`status-dot is-${tone}`} aria-hidden="true" />
-            {lastLabel} · {relationshipLabel(friend.relationship)}
+            <span className="ppl-meta-text">{lastLabel} · {relationshipLabel(friend.relationship)}</span>
           </small>
           {/* What you talked about last time comes first; what they're up to otherwise. */}
           {topic ? <small className="person-status ppl-topic"><Icon name="message" size={13} strokeWidth={2} /><span className="sr-only">Last time: </span>{topic}</small>
@@ -457,31 +459,6 @@ function AddPersonSheet({ open, onClose, onAdded }) {
   )
 }
 
-// A short list of actions for the ⋯ button: destructive ones last, in red.
-function ActionSheet({ open, onClose, title, items }) {
-  return (
-    <Sheet open={open} onClose={onClose} size="sm" title={title} initialFocus={false}>
-      <ul className="ppl-actions">
-        {items.filter(Boolean).map((item) => (
-          <li key={item.label}>
-            <button
-              type="button"
-              className={`ppl-action${item.danger ? ' is-danger' : ''}`}
-              onClick={() => {
-                onClose()
-                item.onClick()
-              }}
-            >
-              <Icon name={item.icon} size={20} />
-              <span>{item.label}</span>
-            </button>
-          </li>
-        ))}
-      </ul>
-    </Sheet>
-  )
-}
-
 function PersonSheet({ friendId, onClose, onCatchUp }) {
   const friends = useData('friends')
   const contactLogs = useData('contactLogs')
@@ -604,14 +581,17 @@ function PersonSheet({ friendId, onClose, onCatchUp }) {
         </form>
       ) : (
         <div ref={contentRef} className="person-detail">
+          {/* The app's one ⋯ menu: grouped, with the destructive action in a group of its own, last. */}
           <ActionSheet
             open={menuOpen}
             onClose={() => setMenuOpen(false)}
             title={friend.name}
-            items={[
-              { icon: 'calendar', label: 'Log an earlier catch-up', onClick: () => onCatchUp(friend.id, 'earlier') },
-              { icon: 'camera', label: (friend.photoUrl || '').trim() ? 'Change profile photo' : 'Add profile photo', onClick: heroPicker.open },
-              { icon: 'trash', label: 'Remove person', danger: true, onClick: remove },
+            actions={[
+              [
+                { id: 'earlier', icon: 'calendar', label: 'Log an earlier catch-up', onClick: () => onCatchUp(friend.id, 'earlier') },
+                { id: 'photo', icon: 'camera', label: (friend.photoUrl || '').trim() ? 'Change profile photo' : 'Add profile photo', onClick: heroPicker.open },
+              ],
+              [{ id: 'remove', icon: 'trash', label: 'Remove person', danger: true, onClick: remove }],
             ]}
           />
           <div className="ppl-hero">
@@ -629,11 +609,11 @@ function PersonSheet({ friendId, onClose, onCatchUp }) {
 
           <div className="ppl-facts">
             <div>
-              <span className="ppl-label">Reminder</span>
+              <span className="ppl-label ui-label">Reminder</span>
               <strong>{status.interval ? `Every ${status.interval} days` : 'Off'}</strong>
             </div>
             <div>
-              <span className="ppl-label">Birthday</span>
+              <span className="ppl-label ui-label">Birthday</span>
               <strong>{friend.birthday ? formatDateShort(friend.birthday) : '—'}</strong>
               {status.daysToBirthday !== null && status.daysToBirthday <= 30 ? <small>{status.daysToBirthday === 0 ? 'Today 🎉' : status.daysToBirthday === 1 ? 'Tomorrow' : `In ${status.daysToBirthday} days`}</small> : null}
             </div>
@@ -641,26 +621,26 @@ function PersonSheet({ friendId, onClose, onCatchUp }) {
 
           {friend.currentStatus && (
             <section className="detail-block">
-              <h3>What they’re up to</h3>
+              <h3 className="ui-label">What they’re up to</h3>
               <p>{friend.currentStatus}</p>
             </section>
           )}
           {(friend.facts || friend.note) && (
             <section className="detail-block">
-              <h3>Things to remember</h3>
+              <h3 className="ui-label">Things to remember</h3>
               <p className="preserve-lines">{friend.facts || friend.note}</p>
             </section>
           )}
 
           <section className="detail-block ppl-files">
-            <h3>Photos & files</h3>
+            <h3 className="ui-label">Photos & files</h3>
             <AttachmentStrip targetType="friend" targetId={friend.id} label={`Photos and files for ${friend.name}`} />
           </section>
 
           {latest && (
             <section className="detail-block">
               <div className="detail-block-header">
-                <h3>Earlier catch-ups</h3>
+                <h3 className="ui-label">Earlier catch-ups</h3>
                 <Button variant="secondary" size="sm" icon="calendar" className="ppl-earlier" onClick={() => onCatchUp(friend.id, 'earlier')}>Log earlier</Button>
               </div>
               {earlier.length ? <CatchUpList key={friend.id} logs={earlier} /> : <p className="muted ppl-none-earlier">Nothing before {formatDateShort(latest.date)} yet.</p>}
@@ -710,7 +690,7 @@ function LastTime({ log, onCatchUp }) {
   if (!log) {
     return (
       <section className="ppl-lasttime is-empty" aria-labelledby="ppl-lasttime-title">
-        <h3 id="ppl-lasttime-title" className="ppl-label">Last time</h3>
+        <h3 id="ppl-lasttime-title" className="ppl-label ui-label">Last time</h3>
         <p className="ppl-lasttime-empty">After you talk, tap Talked today and jot down what it was about. It shows up here next time.</p>
         <button type="button" className="ppl-lasttime-add" onClick={() => onCatchUp('earlier')}>
           <Icon name="calendar" size={16} strokeWidth={2.2} /> Log an earlier catch-up
@@ -734,7 +714,7 @@ function LastTime({ log, onCatchUp }) {
   return (
     <section ref={cardRef} tabIndex={-1} className={`ppl-lasttime${note ? '' : ' is-blank'}`} aria-labelledby="ppl-lasttime-title">
       <div className="ppl-lasttime-head">
-        <h3 id="ppl-lasttime-title" className="ppl-label">Last time</h3>
+        <h3 id="ppl-lasttime-title" className="ppl-label ui-label">Last time</h3>
         <span className="ppl-lasttime-date">{when}</span>
         {note && !editing && (
           <button type="button" className="icon-btn ppl-lasttime-edit" onClick={() => setEditing(true)} aria-label={`Edit what you talked about on ${formatDateShort(log.date)}`}>

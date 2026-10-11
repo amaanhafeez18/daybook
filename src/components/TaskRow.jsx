@@ -21,7 +21,9 @@ let openRow = null // { ref, close }: only one row stays swiped open at a time
 // onOpen(task, intent?): a tap opens the task; Later… → "Pick a date…" adds { pickDate: true }.
 // trailing: an optional accessory after the text (e.g. a "Today" chip); tapping it doesn't open the task.
 // swipe: false turns the swipe actions off.
-export default function TaskRow({ task, onOpen, showDate = true, trailing = null, swipe = true }) {
+// overdueGroup: the row sits under an "Overdue" header, so its day is plain red text without the
+// "Overdue ·" chip (the header already says it).
+export default function TaskRow({ task, onOpen, showDate = true, trailing = null, swipe = true, overdueGroup = false }) {
   const today = todayISO()
   const tomorrow = addDaysISO(today, 1)
   const overdue = !task.done && task.date && task.date < today
@@ -253,9 +255,9 @@ export default function TaskRow({ task, onOpen, showDate = true, trailing = null
           {(showDate && task.date) || task.time || task.priority === 'urgent' || files > 0 ? (
             <span className="task-meta">
               {showDate && task.date && (
-                <span className={`meta-chip ${overdue ? 'is-danger' : task.date === today ? 'is-accent' : ''}`}>
+                <span className={`meta-chip ${overdue ? `is-danger${overdueGroup ? ' tr-overdue-day' : ''}` : task.date === today ? 'is-accent' : ''}`}>
                   <Icon name="calendar" size={13} />
-                  {overdue ? `Overdue · ${relativeDay(task.date, today)}` : relativeDay(task.date, today)}
+                  {overdue && !overdueGroup ? `Overdue · ${relativeDay(task.date, today)}` : relativeDay(task.date, today)}
                 </span>
               )}
               {task.time && (

@@ -10,9 +10,17 @@
 .food-ins { max-width: 1000px; margin: 0 auto; }
 .food-weightview, .food-goals, .food-myfoods { max-width: 720px; margin: 0 auto; }
 
-.page-header.food-head { flex-direction: row; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
-.food-head-text { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-.food-streak { display: inline-flex; align-items: center; gap: 5px; color: var(--accent); }
+/* Same header rhythm as Health Today (today.css .td-header) and Gym (gym.css): date line, 2px,
+   title; 16px below. */
+.page-header.food-head { flex-direction: row; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.food-head-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.food-eyebrow { display: flex; align-items: center; gap: 8px; min-width: 0; white-space: nowrap; }
+.food-eyebrow > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.food-streak {
+  /* -2px top and bottom: the chip doesn't make the date line taller, so the title stays put */
+  flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px; min-height: 20px; margin: -2px 0; padding: 1px 8px 1px 6px; border-radius: 999px;
+  background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 600; letter-spacing: 0; text-transform: none;
+}
 .food-head-actions { display: flex; gap: 8px; flex-shrink: 0; padding-bottom: 2px; }
 .icon-btn.food-head-btn {
   width: 44px; height: 44px; border-radius: 50%; color: var(--text);
@@ -42,26 +50,9 @@
 
 .chip.food-chip { display: inline-flex; align-items: center; gap: 5px; }
 
-/* ---- ⋯ menu ------------------------------------------------------------------------------ */
+/* ---- ⋯ menu: its button only; the menu is the shared ActionSheet (components/ui) ---------- */
 
 .food-menu-wrap { position: relative; flex-shrink: 0; }
-.food-menu {
-  position: absolute; top: calc(100% + 6px); right: 0; z-index: 35; min-width: 232px; padding: 6px;
-  border-radius: 18px; background: var(--glass-bg-strong);
-  -webkit-backdrop-filter: blur(30px) saturate(190%); backdrop-filter: blur(30px) saturate(190%);
-  border: 1px solid var(--glass-border); box-shadow: var(--glass-highlight), var(--shadow-lg);
-  transform-origin: top right; animation: food-pop 0.2s var(--ease);
-}
-@keyframes food-pop { from { opacity: 0; transform: scale(0.92); } }
-.food-menu button {
-  width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  min-height: 44px; padding: 0 12px; border-radius: 12px; color: var(--text); font-size: 16px; text-align: left;
-}
-.food-menu button .icon { color: var(--text-2); }
-.food-menu button:active:not(:disabled) { background: var(--surface-2); }
-.food-menu button:disabled { opacity: 0.4; cursor: default; }
-.food-menu button.is-danger, .food-menu button.is-danger .icon { color: var(--danger); }
-.food-menu-divider { display: block; height: 1px; margin: 4px 8px; background: var(--separator, var(--border)); }
 
 /* ---- day switcher & week strip ------------------------------------------------------------ */
 
@@ -89,16 +80,18 @@
 }
 .food-switch-today::after { content: ''; position: absolute; inset: -5px -2px; } /* a 44px target */
 
-.food-week {
-  display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; margin: 0 0 16px; padding: 6px 4px;
-  border-radius: 22px; background: var(--card-bg); list-style: none; touch-action: pan-y;
+/* The .card shell (corners, border, shadow) and padding of Gym Today's week strip; the days inside
+   stay Food's own (a day picker with calorie rings). */
+.card.food-week {
+  display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; margin: 0 0 16px; padding: 10px 6px;
+  list-style: none; touch-action: pan-y;
 }
 .food-week-day {
   width: 100%; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 5px 0 7px;
   border-radius: 16px; color: var(--text); transition: background 0.2s;
 }
 .food-week-day:active { background: var(--surface-2); }
-.food-week-wd { font-size: 11px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: var(--text-2); }
+.food-week-wd { font-size: 11px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; color: var(--text-2); }
 .food-week-num { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .food-week-day.is-today .food-week-wd, .food-week-day.is-today .food-week-num { color: var(--accent); font-weight: 700; }
 .food-week-day.is-selected { background: var(--accent-soft); }
@@ -126,7 +119,7 @@
 .food-summary-ring { flex-shrink: 0; border-radius: 50%; transition: transform 0.35s var(--spring, var(--ease)); }
 .food-summary-ring:active:not(:disabled) { transform: scale(0.96); transition-duration: 0.1s; }
 .food-summary-ring:disabled { cursor: default; }
-.food-ring-value { font-family: var(--font-display, var(--font)); font-size: 30px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.05; color: var(--text); }
+.food-ring-value { font-family: var(--font-display, var(--font)); font-size: 30px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.05; color: var(--text); font-variant-numeric: tabular-nums; }
 .food-ring-value.is-over { color: var(--food-over); }
 .food-ring-label { margin-top: 3px; font-size: 13px; color: var(--text-2); }
 .food-summary-stats { flex: 1; min-width: 0; margin: 0; display: flex; flex-direction: column; gap: 12px; }
@@ -203,7 +196,7 @@
 }
 .food-weight-body:active { background: var(--surface-2); }
 .food-weight-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.food-weight-now strong { font-family: var(--font-display, var(--font)); font-size: 30px; font-weight: 700; letter-spacing: -0.02em; }
+.food-weight-now strong { font-family: var(--font-display, var(--font)); font-size: 30px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 .food-weight-now small { margin-left: 4px; font-size: 14px; color: var(--text-2); }
 .food-weight-change { display: inline-flex; align-items: center; gap: 4px; font-size: 14px; color: var(--text-2); font-variant-numeric: tabular-nums; }
 .food-weight-chevron { flex-shrink: 0; color: var(--text-3); }
@@ -322,7 +315,9 @@ html.has-workout-pill:has(.food-dock):not(.has-sheet) .toaster { bottom: calc(va
 
 /* ---- sheets: grouped backgrounds -------------------------------------------------------------- */
 
-.sheet:has(.food-est), .sheet:has(.food-cfg), .sheet:has(.food-act) { background: var(--bg); }
+/* These sheets open as <Sheet grouped> (the grouped background from apple.css); inside them the
+   cells that paint var(--card-bg) take the grouped cell colour instead. */
+.sheet.sheet-grouped :is(.food-est, .food-cfg, .food-act) { --card-bg: var(--sheet-cell); }
 
 /* Estimate sheet */
 .food-est-pickers { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
@@ -342,7 +337,7 @@ html.has-workout-pill:has(.food-dock):not(.has-sheet) .toaster { bottom: calc(va
 .food-es-star.is-on svg { fill: currentColor; }
 .food-es-star:active:not(:disabled) { transform: scale(0.88); }
 .food-es-star:disabled { opacity: 0.4; }
-.food-es-label { display: block; margin: 0 0 6px 4px; font-size: 13px; letter-spacing: 0.01em; text-transform: uppercase; color: var(--text-2); }
+.food-es-label { display: block; margin: 0 0 6px 4px; }
 .food-es-cal-field {
   display: flex; align-items: baseline; gap: 8px; padding: 6px 16px; border-radius: 16px;
   background: var(--surface-2); border: 1px solid transparent; transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
@@ -350,7 +345,7 @@ html.has-workout-pill:has(.food-dock):not(.has-sheet) .toaster { bottom: calc(va
 .food-es-cal-field:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); background: var(--card-bg, var(--surface)); }
 .food-es-cal-input {
   flex: 1; min-width: 0; padding: 0; border: 0; outline: none; background: none; color: var(--text);
-  font-family: var(--font-display, var(--font)); font-size: 34px !important; font-weight: 700; letter-spacing: -0.02em;
+  font-family: var(--font-display, var(--font)); font-size: 34px !important; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums;
 }
 .food-es-cal-input::placeholder { color: var(--text-3); font-size: 19px; font-weight: 500; letter-spacing: -0.01em; }
 .food-es-unit { font-size: 17px; font-weight: 500; color: var(--text-2); }
@@ -407,7 +402,7 @@ html.has-workout-pill:has(.food-dock):not(.has-sheet) .toaster { bottom: calc(va
 .food-ws-field { display: flex; align-items: baseline; justify-content: center; gap: 6px; min-width: 0; }
 .food-ws-input {
   width: 4.6ch; padding: 0 0 2px; border: 0; border-bottom: 2px solid var(--border-strong); outline: none; background: none;
-  text-align: center; color: var(--text); font-family: var(--font-display, var(--font)); font-size: 48px !important; font-weight: 700; letter-spacing: -0.03em;
+  text-align: center; color: var(--text); font-family: var(--font-display, var(--font)); font-size: 48px !important; font-weight: 700; letter-spacing: -0.03em; font-variant-numeric: tabular-nums;
 }
 .food-ws-input:focus { border-bottom-color: var(--accent); }
 .food-ws-unit { font-size: 20px; font-weight: 600; color: var(--text-2); }
@@ -417,7 +412,7 @@ html.has-workout-pill:has(.food-dock):not(.has-sheet) .toaster { bottom: calc(va
 
 /* Row actions */
 .food-act { display: flex; flex-direction: column; gap: 10px; }
-.food-act-label { margin-left: 4px; font-size: 13px; letter-spacing: 0.01em; text-transform: uppercase; color: var(--text-2); }
+.food-act-label { margin-left: 4px; }
 .food-act-meals { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 6px; }
 .food-act-list { display: flex; flex-direction: column; border-radius: 18px; background: var(--card-bg, var(--surface)); overflow: hidden; }
 .food-act-row {
@@ -444,36 +439,18 @@ html.has-workout-pill:has(.food-dock):not(.has-sheet) .toaster { bottom: calc(va
 
 /* ---- settings & goal forms (iOS grouped rows) --------------------------------------------------- */
 
-.food-cfg { display: flex; flex-direction: column; gap: 22px; padding-bottom: 4px; }
-.food-cfg-group { display: flex; flex-direction: column; gap: 6px; }
-.food-cfg-title { margin: 0 16px; font-size: 13px; font-weight: 400; letter-spacing: 0.01em; text-transform: uppercase; color: var(--text-2); }
-.food-cfg-card { border-radius: 20px; background: var(--card-bg, var(--surface)); overflow: hidden; }
-.food-cfg-foot { margin: 0 16px; font-size: 13px; line-height: 1.35; color: var(--text-2); }
-.food-cfg-row {
-  position: relative; width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  min-height: 52px; padding: 8px 16px; text-align: left; color: var(--text);
-}
-.food-cfg-card .food-cfg-row + .food-cfg-row::before, .food-cfg-card > ul + .food-cfg-row::before {
-  content: ''; position: absolute; top: 0; left: 16px; right: 0; height: 1px;
-  background: var(--separator, var(--border)); transform: scaleY(0.5); transform-origin: top; pointer-events: none;
-}
-.food-cfg-label { min-width: 0; display: flex; flex-direction: column; font-size: 17px; letter-spacing: -0.02em; }
+/* The grouped rows themselves (.food-cfg, -group, -title, -card, -foot, -row, -label, -control and
+   the Advanced disclosure) are shared with Gym settings in ../gym/cfg.css; what follows is food-only. */
 .food-cfg-label > span:first-child { overflow: hidden; text-overflow: ellipsis; }
-.food-cfg-label small { font-size: 13px; letter-spacing: 0; color: var(--text-2); }
-.food-cfg-label-row { flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; }
-.food-cfg-control { flex-shrink: 0; min-width: 0; display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
-.food-cfg-control .segmented { min-width: 128px; }
-.food-cfg-control .segmented button { min-height: 32px; padding: 0 12px; font-size: 14px; }
-.food-cfg-row.is-stacked { flex-direction: column; align-items: stretch; gap: 10px; padding-top: 12px; padding-bottom: 12px; }
-.food-cfg-row.is-stacked .food-cfg-control { justify-content: flex-start; width: 100%; }
+/* Doubled class: cfg.css loads after food.css and sets .food-cfg-label to a column. */
+.food-cfg-label.food-cfg-label-row { flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; }
+.food-cfg-row.is-stacked .food-cfg-control { width: 100%; }
 .food-cfg-row.is-stacked .food-cfg-control > .segmented { flex: 1; }
 .food-cfg-row.is-stacked > .segmented { width: 100%; }
-.food-cfg-row.is-switch { padding-top: 10px; padding-bottom: 10px; }
-.food-cfg-row.is-switch .switch-row { width: 100%; }
 .food-cfg-row.is-chips { flex-wrap: wrap; justify-content: flex-start; gap: 8px; padding-top: 12px; padding-bottom: 12px; }
 button.food-cfg-row:active { background: var(--surface-2); }
 .food-cfg-link > .icon { flex-shrink: 0; color: var(--text-3); }
-.food-cfg-meal { gap: 4px; padding-right: 6px; }
+.food-cfg-row.food-cfg-meal { gap: 4px; padding-right: 6px; }
 .food-cfg-meal-input {
   flex: 1; min-width: 0; min-height: 40px; padding: 0; border: 0; outline: none; background: none;
   color: var(--text); font-size: 17px; letter-spacing: -0.02em;
@@ -505,16 +482,6 @@ button.food-cfg-row:active { background: var(--surface-2); }
 }
 .food-cfg-foot.food-cfg-foot-inset { margin: 0; padding: 0 16px 12px; }
 
-/* "Advanced" in Food settings: a card-like toggle, then the usual groups inside. */
-.food-cfg-advanced .disclosure-toggle {
-  min-height: 52px; padding: 8px 16px; border-radius: 20px; background: var(--card-bg, var(--surface));
-  color: var(--text); font-size: 17px; font-weight: 400; letter-spacing: -0.02em;
-}
-.food-cfg-advanced .disclosure-toggle:active { background: var(--surface-2); }
-.food-cfg-advanced .disclosure-summary { font-size: 14px; }
-.food-cfg-advanced .disclosure-chevron { color: var(--text-3); }
-.food-cfg-advanced .disclosure-body { gap: 22px; padding-top: 16px; }
-
 /* Goals */
 .segmented.food-goals-mode { margin-bottom: 18px; }
 .food-goals .food-cfg { gap: 18px; }
@@ -528,7 +495,7 @@ button.food-cfg-row:active { background: var(--surface-2); }
 .food-cfg .segmented button { white-space: nowrap; }
 .segmented.food-seg-sm { flex: 0 0 auto; }
 .segmented.food-seg-sm button { flex: 1 1 auto; min-height: 30px; padding: 0 10px; font-size: 13px; }
-.food-choice { min-height: 58px; }
+.food-cfg-row.food-choice { min-height: 58px; }
 .food-choice-mark { flex-shrink: 0; display: grid; place-items: center; width: 24px; color: var(--accent); }
 .food-choice.is-active .food-cfg-label > span:first-child { font-weight: 600; }
 .food-goal-rates { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -547,7 +514,6 @@ button.food-cfg-row:active { background: var(--surface-2); }
 }
 .food-goal-steps strong { font-size: 15px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
 .card.food-goal-hero { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 22px 18px 18px; text-align: center; }
-.food-goal-hero-label { font-size: 13px; letter-spacing: 0.02em; text-transform: uppercase; color: var(--text-2); }
 .food-goal-hero-value { display: flex; align-items: baseline; justify-content: center; gap: 6px; }
 .food-goal-hero-input {
   width: 4.6ch; max-width: 100%; padding: 0; font-variant-numeric: tabular-nums; border: 0; border-bottom: 2px solid transparent; outline: none; background: none; text-align: center;
@@ -592,7 +558,7 @@ button.food-cfg-row:active { background: var(--surface-2); }
 
 .card.food-wv-card { padding: 16px 12px 12px; }
 .food-wv-now { display: flex; align-items: baseline; gap: 6px; margin: 0 4px 2px; }
-.food-wv-now strong { font-family: var(--font-display, var(--font)); font-size: 34px; font-weight: 700; letter-spacing: -0.02em; }
+.food-wv-now strong { font-family: var(--font-display, var(--font)); font-size: 34px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 .food-wv-now span { font-size: 15px; color: var(--text-2); }
 .food-wv-line { margin: 0 4px 12px; font-size: 15px; line-height: 1.35; color: var(--text-2); }
 .segmented.food-wv-range { margin: 0 0 12px; }
@@ -604,7 +570,7 @@ button.food-cfg-row:active { background: var(--surface-2); }
 .food-stat-label { font-size: 13px; font-weight: 600; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Three tiles across a phone: "Days logged" wraps rather than being cut to "Days logg…". */
 .food-stats.is-inline .food-stat-label { white-space: normal; line-height: 1.2; }
-.food-stat-value { font-family: var(--font-display, var(--font)); font-size: 24px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.15; color: var(--text); overflow-wrap: anywhere; }
+.food-stat-value { font-family: var(--font-display, var(--font)); font-size: 24px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.15; color: var(--text); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .food-stat-sub { font-size: 13px; color: var(--text-2); }
 .food-stat-sub .food-link { min-height: 0; font-size: 13px; text-align: left; }
 .food-section-head { display: flex; align-items: center; gap: 8px; min-height: 36px; margin: 0 4px 6px 16px; }
@@ -701,7 +667,7 @@ button.food-cfg-row:active { background: var(--surface-2); }
 .food-chart-table th, .food-chart-table td { padding: 8px 6px; text-align: left; vertical-align: top; }
 .food-chart-table thead th {
   position: sticky; top: 0; z-index: 1; background: var(--card-bg, var(--surface));
-  font-size: 12px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: var(--text-2);
+  font-size: 11px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; color: var(--text-2);
 }
 .food-chart-table tbody > tr > * { border-top: 0.5px solid var(--separator, var(--border)); }
 .food-chart-table .is-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; font-weight: 600; }
@@ -726,7 +692,7 @@ button.food-cfg-row:active { background: var(--surface-2); }
 .card.food-ins-card { padding: 14px 16px 16px; }
 .food-ins-figures { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 8px 12px; margin: 2px 2px 10px; }
 .food-ins-figure { display: flex; flex-direction: column; min-width: 0; }
-.food-ins-figure strong { font-family: var(--font-display, var(--font)); font-size: 30px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; }
+.food-ins-figure strong { font-family: var(--font-display, var(--font)); font-size: 30px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .food-ins-figure strong small { font-size: 17px; font-weight: 600; color: var(--text-2); }
 .food-ins-figure > span { font-size: 14px; color: var(--text-2); }
 .food-ins-figure-side { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-size: 14px; color: var(--text-2); text-align: right; }
@@ -737,7 +703,7 @@ button.food-cfg-row:active { background: var(--surface-2); }
 .food-ins-dot-btn { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 6px 0; border-radius: 14px; }
 .food-ins-dot-btn:active:not(:disabled) { background: var(--surface-2); }
 .food-ins-dot-btn:disabled { opacity: 0.45; cursor: default; }
-.food-ins-dot-wd { font-size: 11px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: var(--text-2); }
+.food-ins-dot-wd { font-size: 11px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; color: var(--text-2); }
 .food-ins-dot-btn.is-today .food-ins-dot-wd { color: var(--accent); }
 .food-ins-dot { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; color: #fff; }
 .food-ins-dot.is-hit, .food-ins-dot.is-plain { background: var(--food-protein); }
@@ -757,7 +723,7 @@ button.food-cfg-row:active { background: var(--surface-2); }
 .food-ins-legend li { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--text-2); }
 .food-ins-legend i { width: 10px; height: 10px; border-radius: 50%; }
 .food-ins-legend strong { color: var(--text); font-weight: 650; font-variant-numeric: tabular-nums; }
-.food-ins-sub { margin: 6px 2px 2px; font-size: 13px; font-weight: 400; letter-spacing: 0.01em; text-transform: uppercase; color: var(--text-2); }
+.food-ins-sub { margin: 6px 2px 2px; }
 .food-ins-list { margin-bottom: 6px; }
 .food-ins-list li { position: relative; display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 2px; }
 .food-ins-list li + li::before, .food-ins-days li + li::before {
@@ -786,15 +752,10 @@ button.food-cfg-row:active { background: var(--surface-2); }
 
 @media (hover: hover) {
   .icon-btn.food-head-btn:hover { background: var(--glass-bg-strong); color: var(--text); }
-  .food-row-main:hover, .food-tray-row:hover, .food-menu button:hover:not(:disabled), .food-act-row:hover:not(:disabled),
+  .food-row-main:hover, .food-tray-row:hover, .food-act-row:hover:not(:disabled),
   .food-weight-body:hover, .food-ins-day:hover, .food-week-day:hover:not(.is-selected), button.food-cfg-row:hover,
   .food-meal-ghost:hover, .food-switch-label:hover:not(.is-static) { background: var(--surface-2); }
   .food-chart-toggle:hover { background: var(--surface-2); color: var(--text); }
   .food-suggest:hover { box-shadow: 0 0 0 1px var(--border-strong) inset; }
   .food-my-log:hover { opacity: 0.8; }
-}
-@media (hover: none) {
-  .icon-btn.food-head-btn:hover { background: var(--glass-bg); color: var(--text); }
-  .icon-btn.food-meal-add:hover { background: var(--accent-soft); color: var(--accent); }
-  .icon-btn.food-row-more:hover, .icon-btn.food-switch-btn:hover { background: none; }
 }

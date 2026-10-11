@@ -15,6 +15,7 @@ import { toISO } from './lib/dates.js'
 import { useNow } from './lib/environment.js'
 import { areasFrom, healthOn, useAreas } from './lib/areas.js'
 import { navigate } from './lib/router.js'
+import { scrollBehavior } from './lib/motion.js'
 import './components/today.css'
 import './components/shell.css'
 
@@ -56,7 +57,7 @@ const PLAN_TABS = [
   { id: 'assistant', label: 'Assistant', icon: 'sparkles' },
 ]
 const HEALTH_TABS = [
-  { id: 'health', label: 'Today', title: 'Health', icon: 'home' },
+  { id: 'health', label: 'Today', title: 'Health', icon: 'heartPulse' }, // not 'home': the two Todays look different
   { id: 'gym', label: 'Gym', icon: 'dumbbell', area: 'gym' },
   { id: 'food', label: 'Food', icon: 'utensils', area: 'food' },
   { id: 'assistant', label: 'Assistant', icon: 'sparkles' },
@@ -85,13 +86,14 @@ function scrollIfCurrent(event, id) {
   const current = window.location.hash.replace(/^#\/?/, '').replace(/\/+$/, '')
   if (current !== id) return
   event.preventDefault()
-  const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-  window.scrollTo({ top: 0, behavior: still ? 'auto' : 'smooth' })
+  window.scrollTo({ top: 0, behavior: scrollBehavior() })
 }
 
 // The live workout (#/gym/workout, and its summary) is 'focus mode': html.is-focus hides the top bar
-// and tab bar on phones (shell.css, workout.css); its minimise chevron leads back out.
-const FOCUS_HASH = /^#\/?gym\/workout(?:[/?]|$)/
+// and tab bar on phones (shell.css, workout.css); its minimise chevron leads back out. The routine
+// editor (#/gym/routine/<id>, #/gym/routine/new) too, so it reads as a modal like on iOS: only its
+// own Cancel · Save bar, which then sticks to the top safe area (routines.css). Not #/gym/routines.
+const FOCUS_HASH = /^#\/?gym\/(?:workout|routine)(?:[/?]|$)/
 const FOCUS_CLASS = 'is-focus'
 
 function useFocusMode() {

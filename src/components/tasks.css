@@ -103,7 +103,7 @@
    height). Sheets, cards and the calendar all use these rows. */
 .task-row > .check { position: relative; }
 .task-row > .check::after { content: ''; position: absolute; inset: -10px; border-radius: 50%; }
-.task-row > .task-body { margin: -11px 0; padding: 11px 0; }
+.task-row > .task-body { margin: -11px -8px; padding: 11px 8px; } /* 8 px side bleed: the press highlight isn't flush with the text */
 
 /* Finished rows fade their content only, so the action colours stay full strength. */
 .task-row.tr-row.is-done { opacity: 1; }
@@ -115,11 +115,21 @@
   .tr-lead, .tr-trail, .tr-act, .tr-lead .icon { transition: none; }
 }
 
-/* ---- toolbar: "To do | Completed · N" never wraps inside a segment; the search field gives way ---- */
+/* ---- toolbar: "To do | Completed · N" never wraps inside a segment; the search field gives way ----
+   On phones search gets its own full-width row under the switch (as on People and Journal):
+   beside it, it was too narrow to show its placeholder. */
 
 .tk-toolbar .segmented { flex: 0 0 auto; }
 .tk-toolbar .segmented button { white-space: nowrap; padding: 0 12px; }
 .tk-toolbar .search-field { flex: 1 1 120px; min-width: 0; }
+@media (max-width: 599px) {
+  /* .toolbar.tk-toolbar: tasks.css loads before App.css, whose .toolbar .segmented would win at equal weight. */
+  .toolbar.tk-toolbar .segmented { flex: 1 1 100%; }
+  .tk-toolbar .search-field { flex-basis: 100%; }
+}
+
+/* In the Overdue group the header already says it: the day is plain red text, not a red chip. */
+.task-meta .meta-chip.tr-overdue-day { padding-left: 0; padding-right: 2px; background: none; }
 
 /* "Move all to today" / "Archive all" beside a group title: a 44 px target that keeps the row's
    height (the extra height sits in negative margins). */
@@ -145,8 +155,10 @@
   #task-form .field-row.ts-when-row { grid-template-columns: minmax(0, 1fr); }
 }
 
-/* Time chips once there's a date (30 px, 44 px targets), then the readable due line. */
+/* Time chips once there's a date (30 px, 44 px targets), then the readable due line. Slimmer
+   padding so all five ("9 AM" … "Any time") fit one row on a 375 px phone; they share it evenly. */
 #task-form .ts-time-chips { margin-top: 4px; gap: 6px; }
+#task-form .ts-time-chips .chip { flex: 1 0 auto; padding: 0 8px; }
 #task-form .ts-time-chips .chip::after { inset: -7px 0; }
 #task-form .ts-due-line { margin: 2px 2px 0; color: var(--text-2); font-size: 14px; font-variant-numeric: tabular-nums; }
 
@@ -234,6 +246,13 @@
 }
 .tk-dock > * { pointer-events: auto; }
 .quick-add.tk-quick { margin: 0; padding: 5px 6px 5px 5px; gap: 6px; }
+/* It floats over the scrolling list, so it gets the live blur of the other floating bars (the
+   .food-bar recipe); the flat glass it had let task titles show through the placeholder. */
+.tk-dock .quick-add.tk-quick {
+  background: var(--glass-bg-strong);
+  -webkit-backdrop-filter: blur(30px) saturate(190%);
+  backdrop-filter: blur(30px) saturate(190%);
+}
 .tk-quick .quick-add-input { min-height: 40px; }
 .tk-quick .btn { flex-shrink: 0; }
 

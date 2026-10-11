@@ -75,7 +75,8 @@
 @supports (color: color-mix(in srgb, red 50%, blue)) {
   .gvis-swatch.is-warm { background: color-mix(in srgb, var(--accent) 42%, var(--surface)); }
 }
-.gvis-cues { display: flex; flex-direction: column; gap: 4px; margin: 0; padding-left: 22px; font-size: 15px; line-height: 1.35; color: var(--text); }
+/* list-style: the global reset (App.css) hides <ol> numbers; the cues are numbered steps. */
+.gvis-cues { display: flex; flex-direction: column; gap: 4px; margin: 0; padding-left: 22px; list-style: decimal; font-size: 15px; line-height: 1.35; color: var(--text); }
 .gvis-cues li::marker { color: var(--text-2); font-variant-numeric: tabular-nums; }
 .gvis-panel-holder { min-height: 236px; margin-top: 12px; }
 .gvis-panel.in-sheet { margin-top: 0; padding-bottom: 6px; }

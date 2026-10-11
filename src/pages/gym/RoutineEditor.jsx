@@ -8,11 +8,13 @@ import { ROUTINE_COLORS, deleteRoutine, duplicateRoutine, getGym, newGymId, rout
 import { estimateMinutes } from '../../lib/gym/stats.js'
 import { formatDuration, fromMeters, toMeters } from '../../lib/gym/units.js'
 import { tokenUserId } from '../../lib/api.js'
+import { scrollBehavior } from '../../lib/motion.js'
 import { navigate } from '../../lib/router.js'
 import { useStore } from '../../lib/store.js'
 import { DurationInput, GymEmpty, NumberInput, SectionHeader, SetTypeBadge, WeightInput, goBack } from './common.jsx'
 import { offerRelink } from './relink.js'
 import ExercisePicker from './ExercisePicker.jsx'
+import SetTypeSheet, { SET_TYPE_OPTIONS } from './SetTypeSheet.jsx'
 import { joinDropped, orderByIds, useLocalReorder } from './reorder.js'
 import { ActionSheet, removeRoutine, routineName, useSheetTarget } from './RoutinesTab.jsx'
 import { ExerciseVisualThumbButton, useExerciseVisual } from './visuals/lazy.jsx'
@@ -22,12 +24,6 @@ import './routines.css'
 // store until Save. Unsaved edits are also kept in sessionStorage, so leaving the editor another
 // way (tab bar, workout pill, a reload) doesn't lose them: reopening the routine restores them.
 
-const SET_TYPES = [
-  { id: 'normal', label: 'Normal' },
-  { id: 'warmup', label: 'Warm-up' },
-  { id: 'drop', label: 'Drop set' },
-  { id: 'failure', label: 'Failure' },
-]
 const SUPERSET_COLORS = ['var(--gym-c-teal)', 'var(--gym-c-indigo)', 'var(--gym-c-pink)', 'var(--gym-c-amber)', 'var(--gym-c-blue)', 'var(--gym-c-green)']
 const REST_STEP = 15
 const REST_MAX = 600
@@ -284,7 +280,7 @@ function Editor({ param, today }) {
   useEffect(() => {
     if (!scrollTo) return
     const element = document.querySelector(`[data-row-id="${CSS.escape(scrollTo)}"]`)
-    element?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    element?.scrollIntoView({ block: 'center', behavior: scrollBehavior() })
     setScrollTo(null)
   }, [scrollTo])
 
@@ -914,92 +910,24 @@ function SetsTable({ row, unit, distanceUnit, showRpe, onSets }) {
   )
 }
 
-// The set badge opens a small menu: Normal, Warm-up, Drop, Failure. Picking the current type
-// again sets it back to Normal.
+// The set badge opens the set-type sheet (the same grouped sheet the workout uses): Normal,
+// Warm-up, Drop set, Failure. Picking the current type again sets it back to Normal. No Delete row:
+// every set already has its own delete button.
 function SetTypeButton({ type, number, label, onChange }) {
   const [open, setOpen] = useState(false)
-  const [upward, setUpward] = useState(false)
-  const wrapRef = useRef(null)
-  const buttonRef = useRef(null)
-  const menuId = useId()
-  const current = SET_TYPES.find((item) => item.id === type) || SET_TYPES[0]
-
-  useEffect(() => {
-    if (!open) return undefined
-    const onPointer = (event) => {
-      if (!wrapRef.current?.contains(event.target)) setOpen(false)
-    }
-    const onKey = (event) => {
-      if (event.key !== 'Escape') return
-      event.stopPropagation()
-      setOpen(false)
-      buttonRef.current?.focus()
-    }
-    document.addEventListener('pointerdown', onPointer)
-    document.addEventListener('keydown', onKey)
-    wrapRef.current?.querySelector('[aria-checked="true"]')?.focus({ preventScroll: true })
-    return () => {
-      document.removeEventListener('pointerdown', onPointer)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
-
-  const toggle = () => {
-    if (!open) {
-      const rect = buttonRef.current?.getBoundingClientRect()
-      setUpward(!!rect && rect.bottom + 240 > window.innerHeight && rect.top > 260)
-    }
-    setOpen((value) => !value)
-  }
-
-  const pick = (id) => {
-    onChange(id === type ? 'normal' : id)
-    setOpen(false)
-    buttonRef.current?.focus()
-  }
-
-  const onMenuKey = (event) => {
-    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
-    event.preventDefault()
-    const items = [...event.currentTarget.querySelectorAll('[role="menuitemradio"]')]
-    const at = items.indexOf(document.activeElement)
-    items[(at + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus()
-  }
-
+  const current = SET_TYPE_OPTIONS.find((item) => item.type === type) || SET_TYPE_OPTIONS[0]
   return (
-    <div className="gym-re-type" ref={wrapRef}>
+    <div className="gym-re-type">
       <button
-        ref={buttonRef}
         type="button"
         className="gym-re-type-btn"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-controls={open ? menuId : undefined}
+        aria-haspopup="dialog"
         aria-label={`${label}, ${current.label}. Change set type`}
-        onClick={toggle}
+        onClick={() => setOpen(true)}
       >
         <SetTypeBadge type={type} number={number} />
       </button>
-      {open && (
-        <div id={menuId} className={`gym-re-type-menu${upward ? ' is-up' : ''}`} role="menu" aria-label="Set type" onKeyDown={onMenuKey}>
-          {SET_TYPES.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              role="menuitemradio"
-              aria-checked={item.id === type}
-              className="gym-re-type-item"
-              onClick={() => pick(item.id)}
-            >
-              <span className="gym-re-type-badge" aria-hidden="true">
-                <SetTypeBadge type={item.id} number={item.id === 'normal' ? number ?? 1 : undefined} />
-              </span>
-              <span className="gym-re-type-label">{item.label}</span>
-              {item.id === type && <Icon name="check" size={16} strokeWidth={2.4} className="gym-re-type-check" />}
-            </button>
-          ))}
-        </div>
-      )}
+      <SetTypeSheet open={open} onClose={() => setOpen(false)} title={label} type={current.type} number={number} onPick={(id) => onChange(id === type ? 'normal' : id)} />
     </div>
   )
 }

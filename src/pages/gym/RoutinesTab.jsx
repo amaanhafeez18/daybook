@@ -19,6 +19,7 @@ import ScheduleEditor from './ScheduleEditor.jsx'
 import SplitWizard from './SplitWizard.jsx'
 import { beginWorkout } from './startWorkout.js'
 import { linkMatches, offerRelink } from './relink.js'
+import DeloadBadge from './DeloadBadge.jsx'
 import { orderByIds, useLocalReorder } from './reorder.js'
 import './routines.css'
 import './wizard.css'
@@ -601,7 +602,7 @@ function SplitCard({ gym, sessions, today, onEdit, onWizard }) {
       {(startsLater || deloadEvery > 0 || deloadNow || (rotation && !slots.length)) && (
         <div className="gym-split-meta">
           {startsLater && <span className="meta-chip is-accent"><Icon name="clock" size={13} />Starts {relativeDay(version.effectiveFrom, today).toLowerCase()}</span>}
-          {deloadNow && <span className="meta-chip gym-split-deload"><Icon name="zap" size={13} />Deload week</span>}
+          {deloadNow && <DeloadBadge size="md" />}
           {deloadEvery > 0 && <span className="meta-chip"><Icon name="repeat" size={13} />Deload every {deloadEvery} weeks</span>}
           {rotation && !slots.length && (
             <button type="button" className="link-btn" onClick={onEdit}>Add days</button>

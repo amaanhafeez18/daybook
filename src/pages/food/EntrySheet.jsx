@@ -400,7 +400,7 @@ export default function EntrySheet({ open, onClose, entry = null, defaults, toda
         </div>
 
         <div className="food-es-cal">
-          <label htmlFor={ids.cal} className="food-es-label">Calories</label>
+          <label htmlFor={ids.cal} className="ui-label food-es-label">Calories</label>
           <div className="food-es-cal-field">
             <input
               id={ids.cal}
@@ -435,7 +435,7 @@ export default function EntrySheet({ open, onClose, entry = null, defaults, toda
           className="food-es-more"
         >
           <div className="food-es-portion">
-            <span className="food-es-label">Portion</span>
+            <span className="ui-label food-es-label">Portion</span>
             <div className="food-es-portion-row">
               <span className="food-es-stepper" role="group" aria-label="Amount">
                 <button type="button" aria-label="Less" onClick={() => stepAmount(-1)} disabled={!toNum(form.amount) || toNum(form.amount) <= 0.25}><Icon name="minus" size={16} strokeWidth={2.4} /></button>
@@ -453,7 +453,7 @@ export default function EntrySheet({ open, onClose, entry = null, defaults, toda
           </div>
 
           <div className="food-es-group">
-            <span className="food-es-label">Macros</span>
+            <span className="ui-label food-es-label">Macros</span>
             <div className="food-es-grid is-3">
               <Num label="Protein" suffix="g" value={form.proteinG} onChange={(value) => setNumber('proteinG', value)} />
               <Num label="Carbs" suffix="g" value={form.carbsG} onChange={(value) => setNumber('carbsG', value)} />
@@ -470,7 +470,7 @@ export default function EntrySheet({ open, onClose, entry = null, defaults, toda
             className="food-es-extra"
           >
             <div className="food-es-group">
-              <span className="food-es-label">Other nutrients</span>
+              <span className="ui-label food-es-label">Other nutrients</span>
               <div className="food-es-grid is-3">
                 <Num label="Fiber" suffix="g" value={form.fiberG} onChange={(value) => setNumber('fiberG', value)} />
                 <Num label="Sugar" suffix="g" value={form.sugarG} onChange={(value) => setNumber('sugarG', value)} />
@@ -481,7 +481,7 @@ export default function EntrySheet({ open, onClose, entry = null, defaults, toda
               </div>
             </div>
             <div className="food-es-group">
-              <span className="food-es-label">Details</span>
+              <span className="ui-label food-es-label">Details</span>
               <div className="food-es-grid is-2 is-flush">
                 <label className="food-es-field is-wide" htmlFor={ids.brand}>
                   <span>Brand</span>

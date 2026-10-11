@@ -23,7 +23,7 @@
   --glass-shadow: 0 10px 34px rgba(30, 36, 56, 0.14), 0 1px 3px rgba(30, 36, 56, 0.08);
   --glass-blur: blur(24px) saturate(190%);
   --card-bg: rgba(255, 255, 255, 0.74);
-  --lens: rgba(255, 255, 255, 0.75);
+  --lens: rgba(0, 0, 0, 0.06); /* selected tab / sidebar item / segment on glass; was white on white */
   --mesh-1: rgba(255, 176, 120, 0.35);
   --mesh-2: rgba(160, 170, 255, 0.35);
   --mesh-3: rgba(120, 214, 190, 0.28);
@@ -53,13 +53,13 @@
   --surface-3: rgba(120, 120, 128, 0.3);
   --border: rgba(255, 255, 255, 0.09);
   --border-strong: rgba(255, 255, 255, 0.16);
-  --glass-bg: rgba(40, 43, 54, 0.5);
-  --glass-bg-strong: rgba(34, 37, 47, 0.8);
-  --glass-bg-flat: rgba(38, 41, 52, 0.6);
+  --glass-bg: rgba(44, 44, 46, 0.55); /* neutral Apple greys, like the #1C1C1E cards (apple.css) */
+  --glass-bg-strong: rgba(36, 36, 38, 0.82);
+  --glass-bg-flat: rgba(44, 44, 46, 0.6);
   --glass-border: rgba(255, 255, 255, 0.14);
   --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.16), inset 0 -1px 1px rgba(255, 255, 255, 0.04);
   --glass-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);
-  --card-bg: rgba(26, 28, 36, 0.74);
+  --card-bg: rgba(28, 28, 30, 0.74);
   --lens: rgba(255, 255, 255, 0.14);
   --mesh-1: rgba(255, 140, 80, 0.16);
   --mesh-2: rgba(110, 120, 255, 0.2);
@@ -85,13 +85,13 @@
     --surface-3: rgba(120, 120, 128, 0.3);
     --border: rgba(255, 255, 255, 0.09);
     --border-strong: rgba(255, 255, 255, 0.16);
-    --glass-bg: rgba(40, 43, 54, 0.5);
-    --glass-bg-strong: rgba(34, 37, 47, 0.8);
-    --glass-bg-flat: rgba(38, 41, 52, 0.6);
+    --glass-bg: rgba(44, 44, 46, 0.55); /* neutral Apple greys, like the #1C1C1E cards (apple.css) */
+    --glass-bg-strong: rgba(36, 36, 38, 0.82);
+    --glass-bg-flat: rgba(44, 44, 46, 0.6);
     --glass-border: rgba(255, 255, 255, 0.14);
     --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.16), inset 0 -1px 1px rgba(255, 255, 255, 0.04);
     --glass-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);
-    --card-bg: rgba(26, 28, 36, 0.74);
+    --card-bg: rgba(28, 28, 30, 0.74);
     --lens: rgba(255, 255, 255, 0.14);
     --mesh-1: rgba(255, 140, 80, 0.16);
     --mesh-2: rgba(110, 120, 255, 0.2);
@@ -178,7 +178,9 @@ h1 { font-family: var(--font-display); font-size: 34px; font-weight: 700; letter
 .topbar-actions { gap: 8px; }
 .topbar-actions .icon-btn, .assistant-tools .icon-btn, .month-nav .icon-btn { border-radius: 50%; color: var(--text); }
 .topbar-actions .icon-btn.is-active, .assistant-tools .icon-btn.is-active { color: var(--accent); background: var(--glass-bg); }
-.topbar-actions .icon-btn:hover, .assistant-tools .icon-btn:hover, .month-nav .icon-btn:hover { background: var(--glass-bg-strong); color: var(--text); }
+@media (hover: hover) {
+  .topbar-actions .icon-btn:hover, .assistant-tools .icon-btn:hover, .month-nav .icon-btn:hover { background: var(--glass-bg-strong); color: var(--text); }
+}
 
 /* ---- cards: grouped, rounder, lightly translucent ---------------------------------------- */
 .card, .card-list, .agenda-item, .entry-card, .suggestion, .note-card {
@@ -190,28 +192,33 @@ h1 { font-family: var(--font-display); font-size: 34px; font-weight: 700; letter
 .agenda-item, .entry-card, .suggestion { border-radius: 20px; }
 
 /* ---- capsule controls --------------------------------------------------------------------- */
-.btn { border-radius: 999px; min-height: 46px; }
-.btn-sm { border-radius: 999px; min-height: 36px; }
-.btn-primary {
+.btn { border-radius: var(--r-pill); min-height: var(--btn-h-md); }
+/* 36px to look at, 44px to tap. */
+.btn-sm { position: relative; border-radius: var(--r-pill); min-height: var(--btn-h-sm); }
+.btn-sm::after { content: ''; position: absolute; inset: calc((var(--btn-h-sm) - 44px) / 2) 0; }
+.btn-lg { min-height: var(--btn-h-lg); }
+.btn-primary, .btn-danger {
   border: 1px solid rgba(255, 255, 255, 0.25);
   background-image: linear-gradient(to bottom, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 6px 18px rgba(0, 0, 0, 0.14);
 }
 .btn-secondary { color: var(--text); }
-.btn-secondary:hover:not(:disabled) { background: var(--glass-bg-strong); }
-.btn-ghost:hover:not(:disabled) { background: var(--surface-2); }
-.segmented { border-radius: 999px; padding: 3px; }
-.segmented button { border-radius: 999px; }
+@media (hover: hover) {
+  .btn-secondary:hover:not(:disabled) { background: var(--glass-bg-strong); }
+  .btn-ghost:hover:not(:disabled) { background: var(--surface-2); }
+}
+.segmented { border-radius: var(--r-pill); padding: 3px; }
+.segmented button { border-radius: var(--r-pill); }
 .segmented button.is-active { background: var(--lens); color: var(--text); box-shadow: var(--glass-highlight), 0 2px 8px rgba(0, 0, 0, 0.1); }
-.chip { border-radius: 999px; color: var(--text); }
+.chip { border-radius: var(--r-pill); color: var(--text); }
 .chip.is-active { background: var(--accent); border-color: transparent; color: var(--on-accent); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3); }
-.quick-add, .search-field { border-radius: 999px; }
+.quick-add, .search-field { border-radius: var(--r-pill); }
 .quick-add:focus-within, .search-field:focus-within { border-color: var(--glass-border); box-shadow: var(--glass-highlight), 0 0 0 3px var(--accent-soft), var(--glass-shadow); }
-.stat, .sync-badge { border-radius: 999px; }
+.stat, .sync-badge { border-radius: var(--r-pill); }
 .icon-btn { border-radius: 50%; }
 
 /* ---- inputs: iOS filled style ------------------------------------------------------------- */
-.input { background: var(--surface-2); border: 1px solid transparent; border-radius: 14px; }
+.input { background: var(--surface-2); border: 1px solid transparent; border-radius: var(--r-field); }
 .input:focus { background: var(--card-bg); border-color: var(--accent); }
 .switch { width: 51px; height: 31px; background: var(--surface-3); }
 .switch::after { width: 27px; height: 27px; top: 2px; left: 2px; box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15), 0 1px 1px rgba(0, 0, 0, 0.1); }
@@ -240,7 +247,7 @@ h1 { font-family: var(--font-display); font-size: 34px; font-weight: 700; letter
 .toast-error .icon { color: var(--danger); }
 .toast-success .icon { color: var(--success); }
 .toast-action { color: var(--accent) !important; }
-.toast-action:hover { background: var(--surface-2); }
+@media (hover: hover) { .toast-action:hover { background: var(--surface-2); } }
 .toast-close { color: var(--text-2); }
 
 /* ---- assistant ---------------------------------------------------------------------------- */
@@ -287,22 +294,19 @@ h1 { font-family: var(--font-display); font-size: 34px; font-weight: 700; letter
 }
 
 /* ---- fallbacks: no blur support, or reduced transparency requested ---------------------------- */
+/* Each dark rule has a System-dark twin: the System-dark token block above outranks a plain :root. */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   :root { --glass-bg: rgba(255, 255, 255, 0.95); --glass-bg-strong: #FFFFFF; }
-  :root[data-appearance='dark'] { --glass-bg: rgba(34, 37, 46, 0.97); --glass-bg-strong: #22252E; }
+  :root[data-appearance='dark'] { --glass-bg: rgba(44, 44, 46, 0.97); --glass-bg-strong: #2C2C2E; }
+  @media (prefers-color-scheme: dark) {
+    :root[data-appearance='system'] { --glass-bg: rgba(44, 44, 46, 0.97); --glass-bg-strong: #2C2C2E; }
+  }
 }
 @media (prefers-reduced-transparency: reduce) {
   :root { --glass-bg: rgba(255, 255, 255, 0.96); --glass-bg-strong: #FFFFFF; --card-bg: #FFFFFF; }
-  :root[data-appearance='dark'] { --glass-bg: rgba(34, 37, 46, 0.97); --glass-bg-strong: #22252E; --card-bg: #1A1C24; }
+  :root[data-appearance='dark'] { --glass-bg: rgba(44, 44, 46, 0.97); --glass-bg-strong: #2C2C2E; --card-bg: #1C1C1E; }
+  @media (prefers-color-scheme: dark) {
+    :root[data-appearance='system'] { --glass-bg: rgba(44, 44, 46, 0.97); --glass-bg-strong: #2C2C2E; --card-bg: #1C1C1E; }
+  }
   body::before { display: none; }
-}
-
-/* ---- keep the glass after taps on touch screens (App.css resets sticky hover) ---------------- */
-@media (hover: none) {
-  .topbar-actions .icon-btn:hover, .assistant-tools .icon-btn:hover, .month-nav .icon-btn:hover { background: var(--glass-bg); color: var(--text); }
-  .topbar-actions .icon-btn.is-active:hover { color: var(--accent); }
-  .icon-btn-soft:hover { background: var(--glass-bg); color: var(--accent); }
-  .btn-secondary:hover:not(:disabled) { background: var(--glass-bg); }
-  .chip:hover { border-color: var(--glass-border); color: var(--text); }
-  .chip.is-active:hover { border-color: transparent; color: var(--on-accent); }
 }

@@ -328,18 +328,18 @@ export default function ExercisePicker({ open, onClose, onPick, multi = true, ti
             <>
               {recent.length > 0 && (
                 <section className="gym-pk-section" aria-label="Recent">
-                  <h3 className="gym-pk-letter">Recent</h3>
+                  <h3 className="ui-label gym-pk-letter">Recent</h3>
                   <ul className="card-list gym-lib-list">{recent.map(row)}</ul>
                 </section>
               )}
               {groups ? groups.map((group) => (
                 <section key={group.letter} className="gym-pk-section" aria-label={group.letter}>
-                  <h3 className="gym-pk-letter">{group.letter}</h3>
+                  <h3 className="ui-label gym-pk-letter">{group.letter}</h3>
                   <ul className="card-list gym-lib-list">{group.items.map(row)}</ul>
                 </section>
               )) : (
                 <section className="gym-pk-section" aria-label="Results">
-                  <h3 className="gym-pk-letter">{results.length} result{results.length === 1 ? '' : 's'}</h3>
+                  <h3 className="ui-label gym-pk-letter">{results.length} result{results.length === 1 ? '' : 's'}</h3>
                   <ul className="card-list gym-lib-list">{results.map(row)}</ul>
                 </section>
               )}

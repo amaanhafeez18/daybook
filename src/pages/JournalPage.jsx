@@ -9,6 +9,7 @@ import { MOODS, addNote, deleteJournalEntry, deleteNote, moodEmoji, saveJournalE
 import { attachmentSummary, useAttachmentsFor } from '../lib/attachments.js'
 import { addDaysISO, dayHeading, formatDateLong, formatDateShort, relativeDay, toISO } from '../lib/dates.js'
 import { useNow } from '../lib/environment.js'
+import { scrollBehavior } from '../lib/motion.js'
 import '../components/journal.css'
 
 const AUTOSAVE_MS = 700
@@ -165,8 +166,7 @@ function JournalEditor() {
     if (!editor) return
     const top = editor.getBoundingClientRect().top
     if (top >= 0 && top < window.innerHeight / 3) return // already in view (e.g. side by side on desktop)
-    const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-    editor.scrollIntoView({ behavior: still ? 'auto' : 'smooth', block: 'start' })
+    editor.scrollIntoView({ behavior: scrollBehavior(), block: 'start' })
   }
 
   // Deleting is undoable from the toast, so there's no "are you sure?" first.

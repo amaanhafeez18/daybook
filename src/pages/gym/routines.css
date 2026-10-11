@@ -38,7 +38,7 @@
 .gym-rt-hero-actions .btn { margin-top: 0; width: 100%; }
 
 .gym-rt-new { display: flex; margin-bottom: 14px; }
-.gym-rt-new .btn { min-width: 0; min-height: 48px; }
+.gym-rt-new .btn { min-width: 0; }
 .gym-rt-hint { margin: 0 4px 12px; font-size: 15px; color: var(--text-2); }
 
 /* One-time card: past workouts of a deleted routine that match a routine by name. */
@@ -48,7 +48,6 @@
 .gym-rt-relink-text strong { font-size: 16px; }
 .gym-rt-relink-text > span { font-size: 14px; color: var(--text-2); line-height: 1.35; }
 .gym-rt-relink-actions { display: flex; gap: 8px; margin-top: 6px; }
-.gym-rt-relink-actions .btn { min-height: 44px; }
 
 .gym-rt-list { display: flex; flex-direction: column; gap: 12px; }
 .gym-rt-group + .gym-rt-group { margin-top: 6px; }
@@ -136,6 +135,10 @@
 .gym-split-week li { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 32px; }
 .gym-split-dow { flex-shrink: 0; width: 34px; font-size: 13px; font-weight: 600; color: var(--text-2); }
 .gym-split-week .gym-routine-chip { min-width: 0; }
+/* Phones: two columns cut names like "Pull Upper" to "Pull U…", so one day per row there. */
+@media (max-width: 399px) {
+  .gym-split-week { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-auto-flow: row; }
+}
 @media (min-width: 560px) {
   .gym-split-week { grid-template-columns: repeat(7, minmax(0, 1fr)); grid-template-rows: none; grid-auto-flow: row; gap: 8px; }
   .gym-split-week li { flex-direction: column; align-items: stretch; gap: 6px; }
@@ -145,8 +148,6 @@
 
 .gym-split-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .gym-split-meta .meta-chip { gap: 5px; }
-.gym-split-deload { background: var(--warning-soft); color: var(--warning); }
-.gym-split-meta .link-btn { font-size: 15px; font-weight: 600; }
 
 /* ---- templates sheet ------------------------------------------------------------------------ */
 
@@ -268,8 +269,8 @@
 .gym-re-sets { display: flex; flex-direction: column; gap: 6px; }
 .gym-re-sets-head, .gym-re-set { display: grid; align-items: center; gap: 6px; }
 .gym-re-sets-head {
-  font-size: 12px; font-weight: 600; color: var(--text-3); text-align: center;
-  text-transform: uppercase; letter-spacing: 0.04em;
+  font-size: 11px; font-weight: 600; color: var(--text-2); text-align: center;
+  text-transform: uppercase; letter-spacing: 0.03em;
 }
 .gym-re-set { min-height: 44px; }
 .gym-re-set .gym-input { min-height: 42px; }
@@ -278,6 +279,8 @@
 .gym-re-range > span { flex-shrink: 0; color: var(--text-3); font-weight: 600; }
 .gym-re-set-del { width: 36px; height: 36px; color: var(--text-3); }
 .gym-re-set-del:disabled { opacity: 0.3; }
+/* 44px tall tap area; only 3px sideways so it never covers the neighbouring field (6px gap). */
+.gym-re-set-del::after { content: ''; position: absolute; inset: -4px -3px; }
 
 .gym-re-addset {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: 100%; min-height: 42px;
@@ -287,30 +290,11 @@
 .gym-re-addset .icon { color: var(--accent); }
 .gym-re-addset:active { transform: scale(0.98); background: var(--surface-3); }
 
-/* Set type: badge button + small menu. */
+/* Set type: the badge button (it opens SetTypeSheet). */
 .gym-re-type { position: relative; display: flex; justify-content: center; }
 .gym-re-type-btn { display: grid; place-items: center; min-width: 44px; min-height: 42px; border-radius: 10px; }
 .gym-re-type-btn:active .gym-set-badge { transform: scale(0.9); }
 .gym-re-type-btn .gym-set-badge { transition: transform 0.3s var(--spring, ease); }
-.gym-re-type-menu {
-  position: absolute; left: 0; top: calc(100% + 4px); z-index: 25; min-width: 200px; padding: 6px;
-  border-radius: 18px; background: var(--glass-bg-strong, var(--surface)); border: 1px solid var(--glass-border, var(--border));
-  -webkit-backdrop-filter: blur(30px) saturate(190%); backdrop-filter: blur(30px) saturate(190%);
-  box-shadow: var(--glass-highlight, none), var(--shadow-lg);
-  transform-origin: top left; animation: gym-rt-pop 0.2s var(--ios-sheet, ease);
-}
-.gym-re-type-menu.is-up { top: auto; bottom: calc(100% + 4px); transform-origin: bottom left; }
-.gym-re-type-item {
-  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 44px; padding: 6px 10px;
-  border-radius: 12px; color: var(--text); font-size: 16px; text-align: left;
-}
-.gym-re-type-item:focus-visible { outline: none; background: var(--surface-2); }
-.gym-re-type-item:active { background: var(--surface-2); }
-@media (hover: hover) { .gym-re-type-item:hover { background: var(--surface-2); } }
-.gym-re-type-badge { display: inline-flex; flex-shrink: 0; }
-.gym-re-type-label { flex: 1; }
-.gym-re-type-check { color: var(--accent); }
-@keyframes gym-rt-pop { from { opacity: 0; transform: scale(0.9); } }
 
 .gym-re-add { margin-top: 12px; }
 .gym-re-add .icon { color: var(--accent); }
@@ -326,8 +310,7 @@
 .gym-sched-modes { display: flex; flex-direction: column; gap: 8px; }
 .gym-sched-hint { font-size: 14px; color: var(--text-2); }
 .gym-sched-title {
-  margin: 0 4px 8px; font-size: 13px; font-weight: 400; color: var(--text-2);
-  text-transform: uppercase; letter-spacing: 0.01em;
+  margin: 0 4px 8px;
 }
 .gym-sched-section { display: flex; flex-direction: column; min-width: 0; }
 
@@ -341,7 +324,7 @@
 .gym-sched-row.is-anchor .gym-sched-index { background: var(--accent); color: var(--on-accent); }
 .gym-sched-weekday { flex-shrink: 0; width: 40px; padding-left: 6px; font-size: 15px; font-weight: 600; color: var(--text-2); }
 .gym-sched-row.is-anchor .gym-sched-weekday { color: var(--accent); }
-.gym-sched-today { flex-shrink: 0; padding: 0 8px; font-size: 12px; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: 0.03em; }
+.gym-sched-today { flex-shrink: 0; padding: 0 8px; font-size: 11px; font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: 0.03em; }
 
 .gym-sched-pick { position: relative; flex: 1; min-width: 0; }
 .gym-sched-pick > .gym-dot, .gym-sched-rest-dot {
@@ -354,6 +337,7 @@
 .gym-sched-row.is-anchor .input.gym-sched-select { background-color: var(--card-bg, var(--surface)); }
 .gym-sched-btn { flex-shrink: 0; width: 36px; height: 36px; color: var(--text-2); }
 .gym-sched-btn:disabled { opacity: 0.3; }
+.gym-sched-btn::after { content: ''; position: absolute; inset: -4px; } /* 44px tap area */
 .gym-sched-remove { color: var(--danger); }
 
 .gym-sched-add {
@@ -383,7 +367,7 @@
   padding: 10px 6px; border-radius: 18px; background: var(--surface-2); scroll-snap-align: start;
 }
 .gym-sched-day.is-today { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); }
-.gym-sched-dow { font-size: 12px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.03em; }
+.gym-sched-dow { font-size: 11px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.03em; }
 .gym-sched-day.is-today .gym-sched-dow { color: var(--accent); }
 .gym-sched-date { font-size: 20px; font-weight: 700; line-height: 1.25; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
 .gym-sched-slot {
@@ -395,12 +379,12 @@
 .gym-sched-slot .icon { flex-shrink: 0; }
 .gym-sched-slot.is-rest, .gym-sched-slot.is-muted, .gym-sched-slot.is-skipped { background: var(--card-bg, var(--surface)); color: var(--text-2); }
 .gym-sched-slot.is-skipped > span { text-decoration: line-through; }
-.gym-sched-deload { margin-top: 3px; font-size: 11px; font-weight: 700; color: var(--warning); text-transform: uppercase; letter-spacing: 0.03em; }
+/* DeloadBadge, tightened to fit the 60px day column. */
+.gym-deload.gym-sched-deload { min-height: 20px; margin-top: 4px; gap: 2px; padding: 1px 5px; font-size: 11px; }
 
 .gym-sched-note { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; color: var(--text-2); }
 .gym-sched-note .icon { flex-shrink: 0; margin-top: 1px; color: var(--text-3); }
 
 @media (prefers-reduced-motion: reduce) {
-  .gym-re-type-menu { animation: none; }
   .gym-rt-folder-chevron, .gym-re-swatch-dot, .gym-re-swatch-dot .icon { transition: none; }
 }

@@ -197,8 +197,8 @@ export default function ClassSheet({ item, onClose, onReopen }) {
             <span className="field-label">Times</span>
             <div className={`cs-grid ${hasExtra ? 'has-extra' : ''}`} role="group" aria-label="Class times">
               <span className="cs-head" aria-hidden="true" />
-              <span className="cs-head" aria-hidden="true">Starts</span>
-              <span className="cs-head" aria-hidden="true">Ends</span>
+              <span className="cs-head ui-label" aria-hidden="true">Starts</span>
+              <span className="cs-head ui-label" aria-hidden="true">Ends</span>
               {hasExtra && <span className="cs-head" aria-hidden="true" />}
               {rows.map((row) => {
                 const { slot } = row

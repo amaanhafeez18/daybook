@@ -97,7 +97,8 @@
 
 .food-ring { position: relative; display: inline-grid; place-items: center; flex-shrink: 0; }
 .food-ring svg { position: absolute; inset: 0; overflow: visible; }
-.food-ring-track { fill: none; stroke: var(--surface-2); }
+/* --surface-3 like every ring track in Health (surface-2 almost vanishes on light glass). */
+.food-ring-track { fill: none; stroke: var(--surface-3); }
 .food-ring-arc { fill: none; stroke: var(--accent); stroke-linecap: round; transition: stroke-dashoffset 0.6s var(--ease), stroke 0.2s; }
 .food-ring.is-over .food-ring-arc { stroke: var(--food-over); }
 .food-ring.is-muted .food-ring-arc { stroke: var(--accent); opacity: 0.35; }

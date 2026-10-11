@@ -203,7 +203,7 @@ html.has-att-viewer { overflow: hidden; }
 .att-viewer-pdf-icon { display: grid; place-items: center; width: 56px; height: 56px; margin-bottom: 4px; border-radius: 16px; background: rgba(255, 138, 128, 0.18); color: #FF8A80; }
 .att-viewer-pdf strong { max-width: 100%; font-size: 16px; overflow-wrap: anywhere; }
 .att-viewer-pdf small { color: rgba(255, 255, 255, 0.7); }
-.att-viewer .btn.att-viewer-open { margin-top: 10px; min-height: 44px; }
+.att-viewer .btn.att-viewer-open { margin-top: 10px; }
 .att-viewer-note { display: inline-flex; align-items: center; gap: 8px; font-size: 15px; color: rgba(255, 255, 255, 0.8); }
 .att-viewer-note.is-stack { flex-direction: column; gap: 10px; text-align: center; }
 .att-viewer-note .spinner { width: 18px; height: 18px; }

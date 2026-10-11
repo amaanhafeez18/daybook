@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Icon from '../../components/ui/Icon.jsx'
-import Sheet from '../../components/ui/Sheet.jsx'
 import { EmptyState } from '../../components/ui/primitives.jsx'
 import { normalizeGym, routineColor } from '../../lib/gym/state.js'
 import { formatDuration, formatNumber, fromKg, parseDecimal, parseDuration, toKg } from '../../lib/gym/units.js'
@@ -286,47 +285,11 @@ export function GymEmpty({ icon = 'dumbbell', title, children, action }) {
 }
 
 // ---- action sheets -----------------------------------------------------------------------------
-// The one ⋯ menu the gym uses everywhere: an iOS-style titled sheet with grouped actions. Pass a
-// flat list (one group) or a list of lists (groups, separated); destructive actions go last with
-// `danger`. A falsy entry is skipped, so callers can write `cond && { … }`.
+// The one ⋯ menu (grouped bottom sheet) now lives in components/ui so the whole app shares it;
+// re-exported here so the gym's imports keep working. DeloadBadge is re-exported for the same reason.
 
-export function ActionSheet({ open, onClose, title, description, actions }) {
-  const groups = (Array.isArray(actions?.[0]) ? actions : [actions || []])
-    .map((group) => (Array.isArray(group) ? group.filter(Boolean) : []))
-    .filter((group) => group.length)
-  return (
-    <Sheet open={open} onClose={onClose} title={title} description={description} size="sm" initialFocus={false}>
-      <div className="gym-as-groups">
-        {groups.map((group, index) => (
-          // eslint-disable-next-line react/no-array-index-key
-          <div key={index} className="gym-as-list">
-            {group.map((action) => (
-              <button
-                key={action.id}
-                type="button"
-                className={`gym-as-row${action.danger ? ' is-danger' : ''}`}
-                disabled={action.disabled}
-                aria-current={action.checked ? 'true' : undefined}
-                onClick={() => {
-                  onClose()
-                  action.onClick()
-                }}
-              >
-                {action.icon && <Icon name={action.icon} size={20} />}
-                <span className="gym-as-label">
-                  {action.label}
-                  {action.hint && <small>{action.hint}</small>}
-                </span>
-                {action.value && <span className="gym-as-value">{action.value}</span>}
-                {action.checked && <Icon name="check" size={18} strokeWidth={2.4} className="gym-as-check" />}
-              </button>
-            ))}
-          </div>
-        ))}
-      </div>
-    </Sheet>
-  )
-}
+export { ActionSheet } from '../../components/ui/ActionSheet.jsx'
+export { default as DeloadBadge } from './DeloadBadge.jsx'
 
 // Sheet state that keeps its target while the sheet animates closed, so its content doesn't blank out.
 export function useSheetTarget() {

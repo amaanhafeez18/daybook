@@ -1,10 +1,15 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import Icon from './Icon.jsx'
 import { revealFocused, watchKeyboard } from '../../lib/keyboard.js'
+import { prefersReducedMotion } from '../../lib/motion.js'
 import '../shell.css'
 
+// How long a closing sheet stays mounted is read from its exit animation in the CSS (App.css:
+// sheet-down on phones, dialog-out on desktop; apple.css may retime them), so the two can't drift
+// apart. EXIT_MS is only the fallback when no duration can be read; EXIT_MAX_MS caps a bad value.
 const EXIT_MS = 180
+const EXIT_MAX_MS = 600
 let openSheets = 0
 // Open sheets in stacking order; only the topmost one handles Escape and traps Tab.
 const sheetStack = []
@@ -22,7 +27,9 @@ const NOT_A_HANDLE = 'button, a, input, textarea, select, label, [contenteditabl
 // afterwards, locks page scroll, and stays above the on-screen keyboard (lib/keyboard.js).
 // dragBody: the body takes the swipe-down too (short sheets that never scroll, e.g. an exercise's
 // animation), so the whole sheet can be pulled down to close.
-export default function Sheet({ open, onClose, title, description, children, footer, size = 'md', initialFocus = true, role = 'dialog', describedBy, dragBody = false }) {
+// grouped: a sheet made of grouped lists (menus, settings, pickers) gets the opaque iOS grouped
+// background instead of glass (.sheet-grouped: --sheet-grouped-bg, cells in --sheet-cell).
+export default function Sheet({ open, onClose, title, description, children, footer, size = 'md', initialFocus = true, role = 'dialog', describedBy, dragBody = false, grouped = false }) {
   const [mounted, setMounted] = useState(open)
   const [closing, setClosing] = useState(false)
   const panelRef = useRef(null)
@@ -37,7 +44,7 @@ export default function Sheet({ open, onClose, title, description, children, foo
   const titleId = useId()
   const descId = useId()
   const drag = useDragToClose(panelRef, backdropRef, onCloseRef, openRef)
-  // While it animates out (EXIT_MS) the sheet is still there: a second tap on the backdrop or × must
+  // While it animates out the sheet is still there: a second tap on the backdrop or × must
   // not close it again (a form would keep what it just saved as a draft). shell.css also stops the
   // closing sheet taking taps, so a double-clicked Add doesn't add twice.
   const close = () => {
@@ -51,14 +58,24 @@ export default function Sheet({ open, onClose, title, description, children, foo
       setClosing(false)
       return undefined
     }
-    if (!mounted) return undefined
-    setClosing(true)
+    if (mounted) setClosing(true)
+    return undefined
+  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Once .is-closing is on the layer (a layout effect: after the DOM update, before paint), the exit
+  // animation is known: unmount when it has run. Reopening first clears the timer.
+  useLayoutEffect(() => {
+    if (!closing) return undefined
+    const ms = exitDuration(panelRef.current)
+    // Let go after a swipe: the backdrop fades from where the drag left it, over the same time.
+    const backdrop = backdropRef.current
+    if (backdrop && backdrop.style.opacity !== '') Object.assign(backdrop.style, { transition: `opacity ${ms}ms ease`, opacity: '0' })
     const timer = setTimeout(() => {
       setMounted(false)
       setClosing(false)
-    }, EXIT_MS)
+    }, ms)
     return () => clearTimeout(timer)
-  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [closing])
 
   useEffect(() => {
     if (!mounted || closing) return undefined
@@ -125,7 +142,7 @@ export default function Sheet({ open, onClose, title, description, children, foo
       <div ref={backdropRef} className="sheet-backdrop" onClick={close} aria-hidden="true" />
       <div
         ref={panelRef}
-        className={`sheet sheet-${size}`}
+        className={`sheet sheet-${size}${grouped ? ' sheet-grouped' : ''}`}
         role={role}
         aria-modal="true"
         aria-labelledby={title ? titleId : undefined}
@@ -183,7 +200,7 @@ function useDragToClose(panelRef, backdropRef, onCloseRef, openRef) {
     const panel = panelRef.current
     const backdrop = backdropRef.current
     if (!panel) return
-    const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    const still = prefersReducedMotion()
     panel.style.transition = still ? '' : 'transform 0.42s var(--ios-sheet, cubic-bezier(0.32, 0.72, 0, 1))'
     panel.style.transform = ''
     if (backdrop) {
@@ -246,11 +263,11 @@ function useDragToClose(panelRef, backdropRef, onCloseRef, openRef) {
       springBack()
       return
     }
-    // The closing animation (App.css) slides it the rest of the way from where it is now.
+    // The closing animation (App.css) slides it the rest of the way from where it is now; the
+    // backdrop stays where the drag left it until the close starts (the layout effect above fades
+    // it over the exit's own duration).
     const panel = panelRef.current
-    const backdrop = backdropRef.current
     if (panel) panel.style.transition = ''
-    if (backdrop) Object.assign(backdrop.style, { transition: `opacity ${EXIT_MS}ms ease`, opacity: '0' })
     onCloseRef.current?.()
     clearTimeout(settleTimer.current)
     settleTimer.current = setTimeout(() => {
@@ -269,6 +286,29 @@ function useDragToClose(panelRef, backdropRef, onCloseRef, openRef) {
       onLostPointerCapture: onPointerEnd,
     },
   }
+}
+
+// The closing sheet's exit animation length in ms (duration + delay of the longest one listed), read
+// from the computed style. Reduce Motion: App.css shortens every animation to ~0, so this is ~0 too.
+function exitDuration(panel) {
+  if (prefersReducedMotion()) return 0
+  if (!panel) return EXIT_MS
+  const style = window.getComputedStyle(panel)
+  if (!style.animationName || style.animationName === 'none') return EXIT_MS
+  const durations = toMs(style.animationDuration)
+  const delays = toMs(style.animationDelay)
+  const longest = Math.max(...durations.map((duration, index) => duration + (delays[index % delays.length] || 0)))
+  // A few ms over, so the last frame (the sheet fully off screen) is painted before it's removed.
+  return Number.isFinite(longest) && longest > 0 ? Math.min(longest + 20, EXIT_MAX_MS) : EXIT_MS
+}
+
+// '0.18s, 200ms' -> [180, 200]
+function toMs(list) {
+  return String(list || '').split(',').map((part) => {
+    const value = parseFloat(part)
+    if (!Number.isFinite(value)) return 0
+    return part.trim().endsWith('ms') ? value : value * 1000
+  })
 }
 
 // Downward speed (px/ms) over the last 100ms before release; 0 when the finger had stopped.

@@ -29,6 +29,14 @@
   .assistant-header .page-subtitle { display: none; }
 }
 
+/* ---- avatar ---------------------------------------------------------------------------------
+   The sparkle's gradient stays inside the theme: the accent fading toward the page colour
+   (lighter in light mode, deeper in dark) instead of App.css's fixed violet, which turned grey or
+   mauve in the green, gold and neutral themes. The error avatar keeps its plain red. */
+.msg:not(.msg-error) > .assistant-avatar, .assistant-avatar.assistant-avatar-lg {
+  background-image: linear-gradient(135deg, color-mix(in oklab, var(--accent) 72%, var(--bg)), var(--accent));
+}
+
 /* ---- welcome ------------------------------------------------------------------------------- */
 
 /* Row above the composer while a chat is open: "Prompts" (back to the start screen) and a ⋯ with the
@@ -306,7 +314,7 @@
 }
 .asst-proposal.is-closed .asst-proposal-mark { border-color: var(--text-3); }
 /* After Yes: each row says how its action went (✓ done, ! didn't work). */
-.asst-proposal-list .asst-proposal-mark.is-ok { background: var(--success); border-color: var(--success); animation: check-pop 0.32s var(--spring, ease); }
+.asst-proposal-list .asst-proposal-mark.is-ok { background: var(--success); border-color: var(--success); color: var(--on-success, #fff); animation: check-pop 0.32s var(--spring, ease); }
 .asst-proposal-list .asst-proposal-mark.is-failed { background: var(--danger); border-color: var(--danger); animation: check-pop 0.32s var(--spring, ease); }
 .asst-proposal-bang { font-size: 13px; font-weight: 800; line-height: 1; }
 .asst-proposal-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 16px; overflow-wrap: anywhere; }
@@ -316,7 +324,7 @@
 .asst-proposal-note { font-size: 15px; color: var(--text-2); }
 
 .asst-proposal-actions { display: flex; gap: 10px; margin-top: 4px; }
-.asst-proposal-actions .btn { min-height: 46px; font-size: 16px; }
+.asst-proposal-actions .btn { font-size: 16px; }
 .asst-proposal-actions .asst-proposal-no { min-width: 92px; }
 .asst-proposal-actions .btn:disabled { opacity: 0.45; }
 /* "Still want this? Check again" on an expired card (newest message only). */

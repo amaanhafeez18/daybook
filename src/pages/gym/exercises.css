@@ -75,7 +75,7 @@
 .gym-lib-name-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 17px; letter-spacing: -0.02em; }
 .gym-lib-tag {
   flex-shrink: 0; padding: 1px 7px; border-radius: 999px; background: var(--accent-soft); color: var(--accent);
-  font-size: 11px; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase;
 }
 .gym-lib-sub { font-size: 14px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gym-lib-count { flex-shrink: 0; font-size: 14px; color: var(--text-2); font-variant-numeric: tabular-nums; }
@@ -84,7 +84,9 @@
 /* ExerciseRow: the picture is its own button (opens the how-to pop-up), laid over the row's first
    place in the same grid cell, so the row stays one tap target and the picture another (36 px tile,
    44+ px target from .gvis-btn::after). */
-.gym-lib-item { display: grid; }
+/* minmax(0, 1fr): without it the column grows to a long name's width and pushes the count and
+   chevron past the card's edge (the name's ellipsis never kicks in). */
+.gym-lib-item { display: grid; grid-template-columns: minmax(0, 1fr); }
 .gym-lib-item > .gym-lib-row, .gym-lib-item > .gym-lib-pic { grid-area: 1 / 1; }
 .gym-lib-pic { z-index: 1; align-self: center; justify-self: start; margin-left: 16px; }
 .gym-lib-slot { flex-shrink: 0; width: 36px; height: 36px; }
@@ -93,14 +95,13 @@
   display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 36px;
   margin: 4px 16px 0; font-size: 13px; color: var(--text-2); font-variant-numeric: tabular-nums;
 }
-.gym-lib-summary .link-btn { font-size: 15px; padding: 6px 0; }
+.gym-lib-summary .link-btn { padding: 6px 0; } /* the look is the one .link-btn (apple.css) */
 
 .gym-lib-group { margin-top: 10px; }
-/* Sticks just under GymPage's sticky section tabs (title bar + 4px + 44px control + 6px). */
+/* Sticks just under GymPage's sticky section tabs (title bar + 48px control + 2px). */
 .gym-lib-letter {
-  position: sticky; top: calc(var(--topbar-h) + var(--safe-top) + 54px); z-index: 4;
+  position: sticky; top: calc(var(--topbar-h) + var(--safe-top) + 50px); z-index: 4;
   margin: 0 0 6px; padding: 6px 16px;
-  font-size: 13px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: var(--text-2);
   background: linear-gradient(to bottom, var(--bg) 60%, transparent);
 }
 @supports (background: color-mix(in srgb, red 50%, blue)) {
@@ -134,7 +135,7 @@
 .gym-pk-create-icon { flex-shrink: 0; width: 36px; height: 36px; display: grid; place-items: center; border-radius: 50%; background: var(--accent-soft); }
 .gym-pk-create-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gym-pk-section { margin-top: 14px; }
-.gym-pk-letter { margin: 0 16px 6px; font-size: 13px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: var(--text-2); }
+.gym-pk-letter { margin: 0 16px 6px; }
 .gym-pk-row.is-selected { background: var(--accent-soft); }
 .gym-pk-row:disabled { cursor: default; }
 .gym-pk-row:disabled > :not(.gym-pk-added) { opacity: 0.45; }
@@ -197,7 +198,7 @@
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gym-pr) 18%, transparent);
 }
 .gym-note.is-editing { padding-right: 14px; gap: 8px; }
-.gym-note-label { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; color: var(--gym-pr); }
+.gym-note-label { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; color: var(--gym-pr); }
 .gym-note-text { font-size: 16px; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; }
 .gym-note-edit { position: absolute; top: 12px; right: 14px; color: var(--gym-pr); }
 .gym-note-input { font-size: 16px !important; background: var(--card-bg) !important; border-color: transparent; }
@@ -228,7 +229,7 @@
 .gym-xd-sets li { display: flex; align-items: center; gap: 10px; min-height: 30px; }
 .gym-xd-set-text { font-size: 15px; font-variant-numeric: tabular-nums; }
 .gym-xd-sets li.is-top .gym-xd-set-text { font-weight: 650; }
-.gym-xd-top-tag { padding: 1px 7px; border-radius: 999px; background: var(--gym-pr-soft); color: var(--gym-pr); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em; }
+.gym-xd-top-tag { padding: 1px 7px; border-radius: 999px; background: var(--gym-pr-soft); color: var(--gym-pr); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
 .gym-xd-set-est { margin-left: auto; font-size: 13px; color: var(--text-3); font-variant-numeric: tabular-nums; }
 .gym-xd-session-note { display: block; margin-top: 8px; font-size: 14px; color: var(--text-2); font-style: italic; overflow-wrap: anywhere; }
 /* Under a session whose Best set looks like a typo: opens that workout to fix it. */
@@ -246,7 +247,6 @@
 .gym-xd-metrics { flex: none; padding-left: 2px; }
 .gym-xd-chart-head { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin: 14px 4px 10px; }
 .gym-xd-chart-head > div:first-child { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.gym-xd-chart-title { font-size: 13px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: var(--text-2); }
 .gym-xd-chart-change { font-size: 14px; color: var(--text-2); font-variant-numeric: tabular-nums; }
 .gym-xd-chart-change strong { color: var(--text); font-size: 17px; font-weight: 700; margin-right: 2px; }
 .gym-xd-range, .gym-st-range { flex: none; padding: 2px; }
@@ -254,7 +254,6 @@
 
 .gym-xd-records { display: flex; flex-direction: column; gap: 12px; }
 .gym-xd-onerm { display: flex; flex-direction: column; gap: 2px; padding: 16px 18px; }
-.gym-xd-onerm-label { font-size: 13px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: var(--text-2); }
 .gym-xd-onerm strong { font-family: var(--font-display, var(--font)); font-size: 36px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.1; }
 .gym-xd-onerm-sub { font-size: 14px; color: var(--text-2); }
 .gym-xd-record-list { --sep-inset: 58px; }
@@ -270,7 +269,7 @@
 .gym-xd-card-title { margin: 2px 2px 8px; font-size: 17px; font-weight: 600; }
 .gym-xd-table { width: 100%; border-collapse: collapse; font-size: 15px; }
 .gym-xd-table th, .gym-xd-table td { padding: 8px 4px; text-align: left; vertical-align: middle; }
-.gym-xd-table thead th { padding-top: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: var(--text-2); }
+.gym-xd-table thead th { padding-top: 0; font-size: 11px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; color: var(--text-2); }
 .gym-xd-table tbody > tr > * { border-top: 0.5px solid var(--separator, var(--border)); }
 .gym-xd-table tbody th { font-weight: 600; font-variant-numeric: tabular-nums; width: 56px; }
 .gym-xd-table .is-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; padding-right: 14px; }
@@ -371,11 +370,11 @@ button.gym-xd-source:active { opacity: 0.6; }
 .gym-tools-hero { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 16px; border-radius: 22px; background: var(--card-bg); text-align: center; }
 .gym-tools-hero strong { font-family: var(--font-display, var(--font)); font-size: 40px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.1; }
 .gym-tools-sub { font-size: 13px; color: var(--text-2); }
-.gym-tools-link { margin-top: 4px; font-size: 16px; }
+.gym-tools-link { margin-top: 4px; } /* the look is the one .link-btn (apple.css) */
 
 .gym-tools-table { width: 100%; border-collapse: collapse; font-size: 15px; }
 .gym-tools-table th, .gym-tools-table td { padding: 7px 8px; text-align: left; }
-.gym-tools-table thead th { font-size: 12px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: var(--text-2); }
+.gym-tools-table thead th { font-size: 11px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; color: var(--text-2); }
 .gym-tools-table tbody > tr > * { border-top: 0.5px solid var(--separator, var(--border)); }
 .gym-tools-table .is-num { text-align: right; font-variant-numeric: tabular-nums; }
 .gym-tools-table tr.is-current { background: var(--accent-soft); }
@@ -400,7 +399,7 @@ button.gym-xd-source:active { opacity: 0.6; }
 .gym-st-muscles { margin-top: 12px; }
 
 .gym-st-table { width: 100%; border-collapse: collapse; }
-.gym-st-table thead th { padding: 0 4px 6px; font-size: 12px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: var(--text-2); text-align: left; }
+.gym-st-table thead th { padding: 0 4px 6px; font-size: 11px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; color: var(--text-2); text-align: left; }
 .gym-st-table tbody > tr > * { border-top: 0.5px solid var(--separator, var(--border)); }
 .gym-st-table th, .gym-st-table td { padding: 2px 4px; vertical-align: middle; }
 .gym-st-table .is-num { width: 52px; text-align: right; padding-right: 12px; font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; }
@@ -433,7 +432,7 @@ button.gym-xd-source:active { opacity: 0.6; }
 .gym-st-bw-add { grid-column: 1 / -1; }
 @media (min-width: 560px) {
   .gym-st-bw-form { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: end; }
-  .gym-st-bw-add { grid-column: auto; min-height: 46px; }
+  .gym-st-bw-add { grid-column: auto; }
 }
 .gym-st-bw-list { margin-top: 12px; }
 .gym-st-bw-list li { position: relative; display: flex; align-items: center; gap: 10px; min-height: 48px; padding-left: 4px; }
@@ -506,7 +505,7 @@ button.gym-xd-source:active { opacity: 0.6; }
 .gym-chart-table th, .gym-chart-table td { padding: 8px 6px; text-align: left; vertical-align: top; }
 .gym-chart-table thead th {
   position: sticky; top: 0; z-index: 1; background: var(--card-bg, var(--surface));
-  font-size: 12px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: var(--text-2);
+  font-size: 11px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; color: var(--text-2);
 }
 .gym-chart-table tbody > tr > * { border-top: 0.5px solid var(--separator, var(--border)); }
 .gym-chart-table .is-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; font-weight: 600; }

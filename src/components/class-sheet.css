@@ -9,7 +9,7 @@
 .cs-grid { display: grid; grid-template-columns: minmax(36px, auto) 1fr 1fr; column-gap: 6px; row-gap: 8px; align-items: center; }
 .cs-grid.has-extra { grid-template-columns: minmax(36px, auto) 1fr 1fr 26px; column-gap: 4px; }
 .cs-row { display: contents; }
-.cs-head { font-size: 12px; font-weight: 600; color: var(--text-3); padding-left: 6px; }
+.cs-head { padding-left: 6px; } /* the look is the global .ui-label */
 .cs-day { font-size: 14px; font-weight: 600; color: var(--text); white-space: nowrap; }
 .cs-grid .input { min-width: 0; width: 100%; padding-left: 8px; padding-right: 4px; }
 .cs-grid .icon-btn.cs-remove { position: relative; width: 26px; height: 26px; color: var(--text-2); }

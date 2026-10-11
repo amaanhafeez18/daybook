@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import Icon from '../../components/ui/Icon.jsx'
+import { ActionSheet } from '../../components/ui/ActionSheet.jsx'
 import { IconButton } from '../../components/ui/primitives.jsx'
 import { clickEndsGesture } from '../../lib/food/gesture.js'
 import { useStore } from '../../lib/store.js'
@@ -22,53 +23,23 @@ export function DetailTop({ backLabel = 'Food', fallback = 'food', children }) {
   )
 }
 
-// A popover menu under a round ⋯ button. items: [{ label, icon, onClick, danger?, disabled? }];
-// { divider: true } draws a line between groups (edit · go to · settings).
-export function Menu({ items, label = 'More options', icon = 'more', className = '' }) {
+// A round ⋯ button that opens the app's grouped action sheet (components/ui/ActionSheet), as every
+// other ⋯ does. items: [{ label, icon, onClick, danger?, disabled? }]; { divider: true } starts a new
+// group (edit · go to · settings), so destructive or rare actions can sit in their own group last.
+export function Menu({ items, label = 'More options', title, icon = 'more', className = '' }) {
   const [open, setOpen] = useState(false)
-  const ref = useRef(null)
-  useEffect(() => {
-    if (!open) return undefined
-    const onDown = (event) => {
-      if (!ref.current?.contains(event.target)) setOpen(false)
-    }
-    const onKey = (event) => {
-      if (event.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('pointerdown', onDown)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('pointerdown', onDown)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
-  const shown = items.filter(Boolean)
-  if (!shown.some((item) => !item.divider)) return null
+  const groups = [[]]
+  for (const item of items) {
+    if (!item) continue
+    if (item.divider) groups.push([])
+    else groups[groups.length - 1].push({ ...item, id: item.id || item.label })
+  }
+  const actions = groups.filter((group) => group.length)
+  if (!actions.length) return null
   return (
-    <div className={`food-menu-wrap ${className}`} ref={ref}>
-      <IconButton icon={icon} label={label} className="food-head-btn" size={21} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((value) => !value)} />
-      {open && (
-        <div className="food-menu" role="menu">
-          {shown.map((item, index) => (item.divider ? (
-            <span key={`divider-${index}`} className="food-menu-divider" role="separator" />
-          ) : (
-            <button
-              key={item.label}
-              type="button"
-              role="menuitem"
-              className={item.danger ? 'is-danger' : ''}
-              disabled={item.disabled}
-              onClick={() => {
-                setOpen(false)
-                item.onClick()
-              }}
-            >
-              <span>{item.label}</span>
-              <Icon name={item.icon} size={18} />
-            </button>
-          )))}
-        </div>
-      )}
+    <div className={`food-menu-wrap ${className}`}>
+      <IconButton icon={icon} label={label} className="food-head-btn" size={21} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)} />
+      <ActionSheet open={open} onClose={() => setOpen(false)} title={title} actions={actions} />
     </div>
   )
 }

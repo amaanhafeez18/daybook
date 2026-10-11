@@ -1,0 +1,44 @@
+/* =========================================================================================
+   Grouped settings rows (iOS inset grouped lists), one set for Gym settings (.gym-cfg-*) and
+   Food settings and goals (.food-cfg-*). Both class families stay, so the markup didn't change;
+   what only one area needs stays in gym.css / food.css. Imported by GymSettingsSheet,
+   FoodSettingsSheet and GoalWizard; loaded after App.css, glass.css and apple.css.
+   ========================================================================================= */
+
+.gym-cfg, .food-cfg { display: flex; flex-direction: column; gap: 22px; padding-bottom: 4px; }
+.gym-cfg-group, .food-cfg-group { display: flex; flex-direction: column; gap: 6px; }
+/* Group titles carry .ui-label (apple.css) for their look; this is only their inset. */
+.gym-cfg-title, .food-cfg-title { margin: 0 16px; }
+.gym-cfg-card, .food-cfg-card { border-radius: var(--r-group, 26px); background: var(--card-bg, var(--surface)); overflow: hidden; }
+/* Inside a sheet a group is nested, so it takes the inset radius (as the ActionSheet's lists do). */
+.sheet .gym-cfg-card, .sheet .food-cfg-card { border-radius: var(--r-inset, 18px); }
+.gym-cfg-foot, .food-cfg-foot { margin: 0 16px; font-size: 13px; line-height: 1.35; color: var(--text-2); }
+
+.gym-cfg-row, .food-cfg-row {
+  position: relative; width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  min-height: 52px; padding: 8px 16px; color: var(--text); text-align: left;
+}
+.gym-cfg-row + .gym-cfg-row::before,
+.food-cfg-card .food-cfg-row + .food-cfg-row::before, .food-cfg-card > ul + .food-cfg-row::before {
+  content: ''; position: absolute; top: 0; left: 16px; right: 0; height: 1px;
+  background: var(--separator, var(--border)); transform: scaleY(0.5); transform-origin: top; pointer-events: none;
+}
+.gym-cfg-row.is-stacked, .food-cfg-row.is-stacked { flex-direction: column; align-items: stretch; gap: 10px; padding-top: 12px; padding-bottom: 12px; }
+.gym-cfg-row.is-stacked .gym-cfg-control, .food-cfg-row.is-stacked .food-cfg-control { justify-content: flex-start; }
+.gym-cfg-row.is-switch, .food-cfg-row.is-switch { padding-top: 10px; padding-bottom: 10px; }
+.gym-cfg-row.is-switch .switch-row, .food-cfg-row.is-switch .switch-row { width: 100%; }
+
+.gym-cfg-label, .food-cfg-label { min-width: 0; display: flex; flex-direction: column; font-size: 17px; letter-spacing: -0.02em; }
+.gym-cfg-label small, .food-cfg-label small { font-size: 13px; letter-spacing: 0; color: var(--text-2); }
+.gym-cfg-control, .food-cfg-control { flex-shrink: 0; min-width: 0; display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.gym-cfg-control .segmented, .food-cfg-control .segmented { min-width: 128px; }
+.gym-cfg-control .segmented button, .food-cfg-control .segmented button { min-height: 32px; padding: 0 12px; font-size: 14px; }
+
+/* "Advanced" at the bottom of both settings sheets: its toggle reads like a group title (label and a
+   summary of what's set), its body is another run of groups. Gym's is the disclosure itself; Food's
+   wraps one in a group. (.gym-cfg in front outweighs gym-common.css's .gym-disclosure padding,
+   whatever order the files load in.) */
+.gym-cfg > .gym-cfg-advanced, .food-cfg > .food-cfg-advanced { margin-top: -6px; }
+.gym-cfg > .gym-cfg-advanced > .disclosure-toggle, .food-cfg-advanced > .disclosure > .disclosure-toggle { padding-left: 16px; padding-right: 10px; }
+.gym-cfg > .gym-cfg-advanced > .disclosure-toggle .disclosure-summary, .food-cfg-advanced > .disclosure > .disclosure-toggle .disclosure-summary { font-size: 13px; }
+.gym-cfg > .gym-cfg-advanced > .disclosure-body, .food-cfg-advanced > .disclosure > .disclosure-body { gap: 22px; padding-top: 6px; }

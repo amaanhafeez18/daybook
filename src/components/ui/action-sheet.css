@@ -1,0 +1,33 @@
+/* ---- action sheet rows (ActionSheet.jsx; also used as plain grouped lists) -------------------
+   Moved from pages/gym/gym-common.css with the same .gym-as-* names, so every existing use (and
+   browse.css's overrides) keeps working. */
+
+.gym-as-groups { display: flex; flex-direction: column; gap: 12px; }
+.gym-as-list { display: flex; flex-direction: column; overflow: hidden; border-radius: 18px; background: var(--card-bg); }
+.gym-as-row {
+  position: relative; display: flex; align-items: center; gap: 14px; width: 100%;
+  min-height: 52px; padding: 10px 16px; text-align: left; color: var(--text); font-size: 17px;
+  transition: background 0.15s;
+}
+.gym-as-row + .gym-as-row::before {
+  content: ''; position: absolute; top: 0; left: 50px; right: 0; height: 1px;
+  background: var(--separator, var(--border)); transform: scaleY(0.5); transform-origin: top; pointer-events: none;
+}
+.gym-as-row > .icon { color: var(--accent); }
+.gym-as-row.is-danger, .gym-as-row.is-danger > .icon { color: var(--danger); }
+.gym-as-row:disabled { cursor: default; }
+.gym-as-row:disabled > * { opacity: 0.4; }
+.gym-as-row:active:not(:disabled) { background: var(--surface-2); }
+@media (hover: hover) { .gym-as-row:hover:not(:disabled) { background: var(--surface-2); } }
+.gym-as-label { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; overflow-wrap: anywhere; }
+.gym-as-label small { font-size: 13px; color: var(--text-2); letter-spacing: -0.005em; }
+.gym-as-row.is-danger .gym-as-label small { color: var(--text-2); }
+.gym-as-value { flex-shrink: 0; font-size: 16px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.gym-as-check { color: var(--accent); flex-shrink: 0; }
+/* Inside a sheet (a near-white glass panel in light mode) grouped lists use the grey fill. */
+.sheet .gym-as-list { background: var(--surface-2); }
+.sheet .gym-as-row:active:not(:disabled) { background: var(--surface-3); }
+@media (hover: hover) { .sheet .gym-as-row:hover:not(:disabled) { background: var(--surface-3); } }
+/* In a <Sheet grouped> (every ActionSheet, and SetTypeSheet) the groups are white / #2C2C2E cells
+   on the grouped background; the pressed row keeps the surface-3 tint from the rules above. */
+.sheet.sheet-grouped .gym-as-list { background: var(--sheet-cell); }

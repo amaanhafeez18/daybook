@@ -10,6 +10,7 @@ import { addDays, editSchedule, mod, plannedFor, resolveDay, resolveRange, setDe
 import { getGym, routineById, routineColor, saveSchedule, updateGym, useGym, useGymSessions } from '../../lib/gym/state.js'
 import { navigate } from '../../lib/router.js'
 import { GymEmpty, RoutineDot } from './common.jsx'
+import DeloadBadge from './DeloadBadge.jsx'
 import SplitWizard from './SplitWizard.jsx'
 import './routines.css'
 import './wizard.css'
@@ -358,7 +359,7 @@ export default function ScheduleEditor({ open, onClose, today }) {
             )}
 
             <section className="gym-sched-section" aria-labelledby={`${anchorId}-preview`}>
-              <h3 className="gym-sched-title" id={`${anchorId}-preview`}>Next two weeks</h3>
+              <h3 className="ui-label gym-sched-title" id={`${anchorId}-preview`}>Next two weeks</h3>
               {preview ? (
                 <ol className="gym-sched-strip">
                   {preview.map((day) => <PreviewDay key={day.date} day={day} gym={gym} today={today} />)}
@@ -505,7 +506,7 @@ function PreviewDay({ day, gym, today }) {
         {day.status === 'shifted' && <Icon name="arrowRight" size={11} strokeWidth={2.4} />}
         <span>{label}</span>
       </span>
-      {day.deload && <span className="gym-sched-deload" aria-hidden="true">Deload</span>}
+      {day.deload && <DeloadBadge label="Deload" title="" className="gym-sched-deload" />}
     </li>
   )
 }

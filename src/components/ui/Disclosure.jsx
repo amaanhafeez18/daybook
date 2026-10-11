@@ -17,13 +17,17 @@ import './disclosure.css'
 export default function Disclosure({ id, label = 'More options', summary, defaultOpen = false, hasValues = false, children, className = '' }) {
   const buttonId = useId()
   const [open, setOpen] = useState(() => defaultOpen || hasValues || (id ? readPref(`disclosure.${id}`, false) === true : false))
+  // The body rises in only when opened by a tap: one that starts open (remembered, or with values
+  // set) just shows, so a sheet doesn't animate its insides every time it opens.
+  const [tapped, setTapped] = useState(false)
   const toggle = () => {
     const next = !open
+    setTapped(true)
     setOpen(next)
     if (id) writePref(`disclosure.${id}`, next)
   }
   return (
-    <div className={`disclosure ${open ? 'is-open' : ''} ${className}`}>
+    <div className={`disclosure ${open ? 'is-open' : ''} ${tapped ? 'is-toggled' : ''} ${className}`}>
       <button type="button" id={buttonId} className="disclosure-toggle" aria-expanded={open} onClick={toggle}>
         <span className="disclosure-label">{label}</span>
         {!open && summary && <span className="disclosure-summary">{summary}</span>}

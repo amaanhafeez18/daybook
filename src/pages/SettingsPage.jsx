@@ -23,6 +23,7 @@ import { updatedLabel } from '../lib/location.js'
 import { hasGymPlan as gymPlanExists } from '../lib/setup.js'
 import { calorieGoalText, gymPlanSummary, savedFoodsText } from '../lib/hub.js'
 import { openWelcome } from '../components/welcome/rules.js'
+import { scrollBehavior } from '../lib/motion.js'
 import '../components/settings.css'
 
 // settings.assistantWeb (also set in Food settings): when the assistant and food search may use the web.
@@ -69,8 +70,7 @@ function useSectionLink() {
           window.history.replaceState(null, '', '#/settings')
           const section = document.getElementById(id)
           if (!section) return
-          const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-          section.scrollIntoView({ block: 'start', behavior: still ? 'auto' : 'smooth' })
+          section.scrollIntoView({ block: 'start', behavior: scrollBehavior() })
           section.classList.add('set-landed')
           clearTimeout(landedTimer)
           landedTimer = setTimeout(() => section.classList.remove('set-landed'), 1800)

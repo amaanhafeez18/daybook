@@ -325,7 +325,7 @@ function SavedFoodSheet({ open, food, unit, onClose }) {
         </label>
 
         <div className="food-es-group">
-          <span className="food-es-label">Portion</span>
+          <span className="ui-label food-es-label">Portion</span>
           <div className="food-es-grid is-3">
             <label className="food-es-field" htmlFor={ids.amount}>
               <span>Amount</span>
@@ -351,7 +351,7 @@ function SavedFoodSheet({ open, food, unit, onClose }) {
           </label>
 
           <div className="food-es-group">
-            <span className="food-es-label">Nutrition for this portion</span>
+            <span className="ui-label food-es-label">Nutrition for this portion</span>
             <div className="food-es-grid is-3">
               <Num label="Protein" suffix="g" value={form.proteinG} onChange={(value) => set('proteinG', value)} />
               <Num label="Carbs" suffix="g" value={form.carbsG} onChange={(value) => set('carbsG', value)} />
@@ -363,13 +363,13 @@ function SavedFoodSheet({ open, food, unit, onClose }) {
           </div>
 
           <div className="food-es-group">
-            <label className="food-es-label" htmlFor={ids.aliases}>Other names</label>
+            <label className="ui-label food-es-label" htmlFor={ids.aliases}>Other names</label>
             <input id={ids.aliases} className="input" value={form.aliases} onChange={(event) => set('aliases', event.target.value)} placeholder="e.g. my usual bar, quest bar" autoComplete="off" enterKeyHint="next" />
             <p className="food-es-hint">Separate with commas. Mentioning any of these uses this food’s numbers.</p>
           </div>
 
           <div className="food-es-group">
-            <label className="food-es-label" htmlFor={ids.barcode}>Barcode</label>
+            <label className="ui-label food-es-label" htmlFor={ids.barcode}>Barcode</label>
             <input id={ids.barcode} className="input" inputMode="numeric" value={form.barcode} onChange={(event) => set('barcode', event.target.value)} placeholder="Optional" maxLength={20} autoComplete="off" enterKeyHint="done" />
             {badBarcode && <p className="food-es-hint is-error" role="alert">A barcode is 6 to 14 digits.</p>}
           </div>

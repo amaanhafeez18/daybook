@@ -131,6 +131,12 @@ html.kb-open:not(.has-sheet) .toaster { bottom: calc(var(--kb, 0px) + 12px); }
 html.has-sheet .toaster { top: calc(var(--safe-top) + 10px); bottom: auto; flex-direction: column-reverse; }
 html.has-sheet .toaster .toast { animation-name: toast-drop; }
 @keyframes toast-drop { from { opacity: 0; transform: translateY(-8px); } }
+/* Leaving (feedback.jsx adds .is-leaving for 220ms before removing it): fade back the way it came in,
+   down at the bottom, up in the top stack. No taps meanwhile. */
+.toaster .toast.is-leaving { animation: toast-out 0.22s var(--ease) forwards; pointer-events: none; }
+html.has-sheet .toaster .toast.is-leaving { animation-name: toast-out-up; }
+@keyframes toast-out { to { opacity: 0; transform: translateY(6px) scale(0.98); } }
+@keyframes toast-out-up { to { opacity: 0; transform: translateY(-6px) scale(0.98); } }
 
 /* A sheet whose body doesn't scroll can be pulled down from anywhere (Sheet dragBody). */
 @media (max-width: 639px) {

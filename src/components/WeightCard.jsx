@@ -5,6 +5,7 @@ import { addDaysISO, relativeDay } from '../lib/dates.js'
 import { latestBodyWeight, useBodyWeights, useWeightUnit } from '../lib/food/state.js'
 import { fmtWeight, fmtWeightChange, weightUnitLabel } from '../pages/food/format.js'
 import './today.css'
+import './food-quick.css' // the shared Health card header (see the end of that file)
 
 // Health → Today's weight line: the latest weigh-in, the change over the past week, and a Log
 // button (the Food page's own weigh-in sheet). The line opens the weight chart.
@@ -36,7 +37,7 @@ export default function WeightCard({ today, loaded = true }) {
       <section className="card td-headline td-weight" aria-label="Weight">
         <div className="td-hl-line">
           <a className="td-weight-main" href="#/food/weight">
-            <span className="td-hl-icon is-soft"><Icon name="weight" size={18} /></span>
+            <span className="td-hl-icon is-soft"><Icon name="weight" size={20} /></span>
             <span className="td-hl-text">
               <span className="td-hl-main">{view.main}</span>
               <span className="td-hl-sub">{view.sub}</span>
