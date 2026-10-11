@@ -6,7 +6,9 @@ import { mergeSettings, patchSettingsAtomic, resetSettingsRpcMemo, writeSettings
 import {
   FOOD_LOOKUP_TOOLS, FOOD_TOOL_DEFS, FOOD_TOOL_NAMES, checkFoodTool, describeFoodAction, executeFoodTool, foodSnapshot, loadFoodData,
 } from '../api/_food-tools.js'
-import { DEFAULT_NOTIFICATIONS, combineReminders, cutText, dueNotifications, groupDue, reminderPreview } from '../api/_reminders.js'
+import {
+  DEFAULT_NOTIFICATIONS, appBadgeFor, combineReminders, cutText, dueNotifications, formatTime, groupDue, reminderPreview, summaryBody, summaryFacts,
+} from '../api/_reminders.js'
 
 // ---- a small in-memory stand-in for the Supabase client ----------------------------------------------
 
@@ -835,7 +837,9 @@ describe('reminderPreview and the late all-day reminder (B5)', () => {
       { id: 'c3', name: 'Old course', days: ['Wed'], end_date: '2026-09-01' },
     ]
     const summary = (tasks, extra = {}) => dueNotifications({ settings: { timeZone: 'UTC' }, tasks, friends: [], classes: [], ...extra }, at(`${TODAY}T08:00:00Z`)).find((item) => item.tag === 'daily-summary')
-    assert.deepEqual(summary([]), { key: `summary:${TODAY}`, fireAt: at(`${TODAY}T08:00:00Z`), title: 'Your Wednesday', body: 'Nothing planned. A clear day.', url: '/#/today', tag: 'daily-summary' })
+    const { facts, ...clear } = summary([])
+    assert.deepEqual(clear, { key: `summary:${TODAY}`, fireAt: at(`${TODAY}T08:00:00Z`), title: 'Your Wednesday', body: 'Nothing planned. A clear day.', url: '/#/today', tag: 'daily-summary' })
+    assert.equal(facts.date, TODAY) // the facts ride along for the assistant-written version
     const tasks = [
       { id: 'a', text: 'Essay', date: TODAY, time: '' },
       { id: 'b', text: 'Call mom', date: TODAY, time: '19:00' },
@@ -1018,5 +1022,111 @@ describe('push copy: morning brief, weather and workout wording', () => {
     await fetchRainChance(14, 24, TODAY, 'UTC', { fetchImpl: flaky, now: 60000 })
     assert.equal(tries, 1)
     assert.equal(await fetchRainChance(14, 24, TODAY, 'UTC', { fetchImpl: ok, now: 11 * 60000 }), 72)
+  })
+})
+
+describe('morning summary facts and the app icon count', () => {
+  const at = (iso) => Date.parse(iso)
+  const base = { settings: { timeZone: 'UTC' }, tasks: [], friends: [], classes: [] }
+  const candidate = (input, nowIso = `${TODAY}T08:00:00Z`) => dueNotifications({ ...base, ...input }, at(nowIso)).find((item) => item.tag === 'daily-summary')
+
+  test('summaryFacts has the documented shape', () => {
+    const settings = {
+      timeZone: 'UTC',
+      location: { lat: 10, lon: 20 },
+      food: { goals: { calories: 2100, protein: 150 } },
+      notifications: { prayer: true },
+    }
+    const tasks = [
+      { id: 'a', text: '  Dentist ', date: TODAY, time: '09:30', details: 'private note' },
+      { id: 'b', text: 'Essay', date: TODAY },
+      { id: 'c', text: 'Old', date: '2026-09-20' },
+      { id: 'd', text: 'Done', date: TODAY, done: true },
+    ]
+    const classes = [{ id: 'c1', name: 'ECON 1022', days: [{ day: 'Wed', time: '2:30 PM - 4:30 PM' }] }]
+    const friends = [{ id: 'f', name: 'Sam Example', birthday: '2000-09-24' }]
+    const prayerTimings = { Fajr: '05:40', Dhuhr: '13:05', Asr: '16:30', Maghrib: '19:10', Isha: '20:40' }
+    const facts = summaryFacts({ settings, tasks, friends, classes, prayerTimings, forecast: { rainChance: 70 } }, at(`${TODAY}T08:00:00Z`))
+    assert.deepEqual(facts, {
+      date: TODAY,
+      weekday: 'Wednesday',
+      time: '08:00',
+      first: { name: 'Dentist', start: 570, isClass: false },
+      tasks: [{ text: 'Dentist', time: '09:30' }, { text: 'Essay', time: '' }],
+      overdue: 1,
+      classes: [{ name: 'ECON 1022', start: 870 }],
+      workout: null,
+      birthdays: ['Sam Example’s birthday tomorrow'],
+      catchUps: 0,
+      rainChance: 70,
+      food: { calories: 2100, protein: 150 },
+      prayers: [{ name: 'Dhuhr', time: '13:05' }, { name: 'Asr', time: '16:30' }, { name: 'Maghrib', time: '19:10' }],
+    })
+    assert.equal(summaryBody(facts), 'First: Dentist 9:30 AM · Rain likely (70%) · 2 tasks: Dentist (9:30 AM), Essay · 1 overdue · ECON 1022 at 2:30 PM · Sam Example’s birthday tomorrow')
+    // Prayers only with a saved location, after now; food only while Food is on; people only while People is on.
+    assert.deepEqual(summaryFacts({ settings: { ...settings, location: null }, tasks, prayerTimings }, at(`${TODAY}T08:00:00Z`)).prayers, [])
+    assert.deepEqual(summaryFacts({ settings, tasks, prayerTimings }, at(`${TODAY}T17:00:00Z`)).prayers.map((p) => p.name), ['Maghrib', 'Isha'])
+    assert.deepEqual(summaryFacts({ settings: { ...settings, notifications: {}, showPrayerTimes: false }, prayerTimings }, at(`${TODAY}T08:00:00Z`)).prayers, [])
+    assert.equal(summaryFacts({ settings: { ...settings, areas: { food: false } } }, at(`${TODAY}T08:00:00Z`)).food, null)
+    assert.equal(summaryFacts({ settings: { ...settings, food: { goals: { calories: 0, protein: 150 } } } }, at(`${TODAY}T08:00:00Z`)).food, null)
+    assert.deepEqual(summaryFacts({ settings: { ...settings, areas: { people: false } }, friends }, at(`${TODAY}T08:00:00Z`)).birthdays, [])
+    // Junk input never throws.
+    assert.equal(summaryFacts().tasks.length, 0)
+    assert.equal(summaryBody(null), 'Nothing planned. A clear day.')
+  })
+
+  test('the templated body is built from the facts, the same text as before', () => {
+    const classes = [
+      { id: 'c1', name: 'ECON 1022', days: [{ day: 'Wed', time: '2:30 PM - 4:30 PM' }, { day: 'Wed', time: '4:30 PM - 5:30 PM' }] },
+      { id: 'c2', name: 'CS 3331', days: ['Wed'], day_details: { Wed: { time: '11:30 AM - 1:30 PM' } } },
+    ]
+    const tasks = [
+      { id: 'a', text: 'Essay', date: TODAY, time: '' },
+      { id: 'b', text: 'Call mom', date: TODAY, time: '19:00' },
+      { id: 'c', text: 'Rent', date: '2026-09-20' },
+    ]
+    const cases = [
+      [{}, 'Nothing planned. A clear day.'],
+      [{ tasks, classes }, 'First: CS 3331 11:30 AM · 2 tasks: Call mom (7:00 PM), Essay · 1 overdue · 2 classes from 11:30 AM'],
+      [{ classes: [classes[0]] }, 'First: ECON 1022 2:30 PM'],
+      [{ friends: [{ id: 'f', name: 'Ali', birthday: '2000-09-24' }] }, 'Ali’s birthday tomorrow'],
+      [{ forecast: { rainChance: 80 } }, 'Nothing planned · Rain likely (80%)'],
+      [{ tasks: [{ id: 'x', text: 'Talk to Ali', date: TODAY, details: 'friend-reminder:f:2026-09-23' }] }, '1 catch-up due'],
+    ]
+    for (const [input, body] of cases) {
+      const item = candidate(input)
+      assert.equal(item.body, body)
+      assert.equal(summaryBody(item.facts), body)
+      assert.equal(summaryBody(summaryFacts({ ...base, ...input }, at(`${TODAY}T08:00:00Z`))), body)
+    }
+    // combineReminders and groupDue leave the facts out of the push.
+    const item = candidate({ tasks })
+    assert.deepEqual(Object.keys(combineReminders([item])).sort(), ['body', 'tag', 'title', 'url'])
+    assert.equal(groupDue([item])[0][0].facts, item.facts)
+    assert.equal(formatTime('14:05'), '2:05 PM')
+    assert.equal(formatTime('00:30'), '12:30 AM')
+  })
+
+  test('the assistant-written summary and the icon count are off by default', () => {
+    assert.equal(DEFAULT_NOTIFICATIONS.dailySummaryAi, false)
+    assert.equal(DEFAULT_NOTIFICATIONS.badge, false)
+  })
+
+  test('appBadgeFor: null when off, else the overdue + due-today count in the user’s zone', () => {
+    const now = at('2026-10-11T05:00:00Z') // 10 PM on Oct 10 in Los Angeles
+    const tasks = [
+      { id: 'a', text: 'Yesterday', date: '2026-10-10' },
+      { id: 'b', text: 'Tomorrow there', date: '2026-10-11' },
+      { id: 'c', text: 'Done', date: '2026-10-09', done: true },
+      { id: 'd', text: 'Talk to Sam', date: '2026-10-10', details: 'friend-reminder:f1:2026-10-10' },
+    ]
+    assert.equal(appBadgeFor({}, tasks, now), null)
+    assert.equal(appBadgeFor(null, tasks, now), null)
+    assert.equal(appBadgeFor({ notifications: { badge: false } }, tasks, now), null)
+    const on = { timeZone: 'America/Los_Angeles', notifications: { badge: true } }
+    assert.equal(appBadgeFor(on, tasks, now), 2)
+    assert.equal(appBadgeFor({ ...on, timeZone: 'UTC' }, tasks, now), 3)
+    assert.equal(appBadgeFor({ ...on, areas: { people: false } }, tasks, now), 1)
+    assert.equal(appBadgeFor(on, null, now), 0)
   })
 })

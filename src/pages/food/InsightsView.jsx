@@ -2,12 +2,13 @@ import { useMemo } from 'react'
 import Icon from '../../components/ui/Icon.jsx'
 import { EmptyState, IconButton, Skeleton } from '../../components/ui/primitives.jsx'
 import { addDaysISO, isISODate, weekdayIndex } from '../../lib/dates.js'
-import { weeklyInsights } from '../../lib/food/nutrition.js'
-import { useBodyWeights, useFood, useFoodEntries, useWeightUnit } from '../../lib/food/state.js'
+import { approxEnergy, calcGoals, measuredMaintenance, weeklyInsights } from '../../lib/food/nutrition.js'
+import { latestBodyWeight, useBodyWeights, useFood, useFoodEntries, useWeightUnit } from '../../lib/food/state.js'
 import { navigate } from '../../lib/router.js'
 import { DetailTop, StatTile } from './common.jsx'
 import { CalorieBars } from './charts.jsx'
 import { energyNumber, entryName, fmtGrams, fmtInt, fmtNum, fmtWeight, fmtWeightChange, isNum, plural, shortDay, unitLabel, weekRange, weekdayLetter, weightUnitLabel } from './format.js'
+import '../../components/food-quick.css' // .food-ins-mx
 
 // #/food/insights[/<week start>]: templated summary sentences, then calories (bars against the
 // goal band), protein days, macro split, weight, consistency, top foods and the closest /
@@ -57,9 +58,17 @@ export default function InsightsView({ today, param, loaded }) {
     () => weeklyInsights(entries, bodyWeights, goals, start, today, { targetKg: profile.targetKg, energyUnit: unit, weightUnit, weekStart: prefs.weekStart }),
     [entries, bodyWeights, goals, start, today, profile.targetKg, unit, weightUnit, prefs.weekStart],
   )
+  const isCurrent = start === current
+  // This week only: the measured maintenance (the Goals page's card), when it's ready.
+  const latestKg = latestBodyWeight(bodyWeights)
+  const measured = useMemo(() => {
+    if (!isCurrent) return null
+    const formulaTdee = calcGoals(profile, { weightKg: latestKg, today }).tdee
+    const m = measuredMaintenance(entries, bodyWeights, today, { formulaTdee })
+    return m.status === 'ready' ? m : null
+  }, [isCurrent, entries, bodyWeights, today, profile, latestKg])
   const u = weightUnitLabel(weightUnit)
   const goToWeek = (next) => window.location.replace(next === current ? '#/food/insights' : `#/food/insights/${next}`)
-  const isCurrent = start === current
   const hasFood = week.loggedDays > 0 || week.days.some((day) => day.logged)
 
   const switcher = (
@@ -87,6 +96,12 @@ export default function InsightsView({ today, param, loaded }) {
           <section className="card food-ins-summary" aria-label="Summary">
             {week.summary.map((line, index) => <p key={line} className={index === 0 ? 'food-ins-headline' : 'food-ins-detail'}>{line}</p>)}
             {!isCurrent || week.complete ? null : <p className="food-ins-summary-note">Today isn’t counted in averages until it’s over.</p>}
+            {measured && (
+              <button type="button" className="food-ins-mx" onClick={() => navigate('food/goals')}>
+                <span>Measured maintenance ≈ {approxEnergy(measured.kcal, unit, 50)} {unitLabel(unit)} · {measured.confidence === 'good' ? 'good' : 'early'} estimate</span>
+                <Icon name="chevronRight" size={15} />
+              </button>
+            )}
           </section>
 
           {!hasFood && week.weight.trendKg === null ? (

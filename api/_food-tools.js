@@ -1531,7 +1531,7 @@ async function runFoodWeek(supabase, userId, input, data, ctx) {
       weight: compact({ trend: w(week.weight.trendKg), weeklyChange: sw(week.weight.weeklyChangeKg), pacePerWeek: sw(week.weight.paceKgPerWeek), weighIns: week.weight.weighIns }),
       vsLastWeek: compact({ avgKcal: week.vsLastWeek.avgKcal, avgProteinG: week.vsLastWeek.avgProteinG, onTargetDays: week.vsLastWeek.onTargetDays, trend: sw(week.vsLastWeek.trendKg) }),
       streak: week.streak.current || null,
-      adaptive: week.adaptive ? `Estimated maintenance ≈ ${groupInt(week.adaptive.tdeeKcal)} kcal from ${week.adaptive.loggedDays} logged days and ${week.adaptive.weighIns} weigh-ins (a suggestion, not applied)` : null,
+      adaptive: week.adaptive ? `Estimated maintenance ≈ ${groupInt(week.adaptive.tdeeKcal)} kcal from ${week.adaptive.loggedDays} logged days and ${week.adaptive.weighIns} weigh-ins${week.adaptive.confidence ? ` (${week.adaptive.confidence === 'good' ? 'good' : 'early'} estimate)` : ''} (a suggestion, not applied)` : null,
     }),
     summary: week.summary,
     ...(data.foodMissing ? { note: FOOD_MISSING } : {}),

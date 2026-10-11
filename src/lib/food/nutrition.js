@@ -516,6 +516,8 @@ const normalizePrefs = memoByRef((raw) => {
     aiReview: p.aiReview === 'autoHigh' ? 'autoHigh' : 'always',
     showDetails: p.showDetails === true,
     weekStart: Number.isInteger(weekStart) && weekStart >= 0 && weekStart <= 6 ? weekStart : 1,
+    // Health → Today nudges (protein in the evening, weigh-in reminder): on unless turned off.
+    nudges: { protein: p.nudges?.protein !== false, weighIn: p.nudges?.weighIn !== false },
   }
 })
 
@@ -1300,41 +1302,268 @@ function weekStats(byDay, model, goals, startDay, todayDay, opts) {
   }
 }
 
-// Adaptive maintenance check (research §5, "should-have"): over the last 14–28 days with ≥ 80 % of
-// days logged and ≥ 8 weigh-ins, maintenance ≈ avg kcal − Δtrend × 7700 / days. A suggestion only.
-function adaptiveCheck(byDay, model, endDay) {
-  if (!model) return null
+// ---- measured maintenance -----------------------------------------------------------------------
+// What you actually burn, from what you ate and how your weight trend moved: over the longest
+// window of 14–28 days (ending yesterday) that has enough kept days and weigh-ins,
+// maintenance ≈ average kept kcal − trend slope (kg/day) × 7700. Days that look partly logged
+// (under 800 kcal, or under half the window's median) are left out. A suggestion only.
+
+const MEASURE_NEED_DAYS = 12
+const MEASURE_NEED_WEIGH_INS = 8
+
+const round10 = (value) => Math.round(value / 10) * 10
+
+function median(values) {
+  if (!values.length) return null
+  const sorted = [...values].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
+}
+
+// Each day's kcal in [from, to] (null when nothing with energy was logged), and the kept days:
+// logged with at least max(800, half the median of the logged days).
+function windowDays(kcalOf, from, to) {
+  const days = []
+  for (let day = from; day <= to; day += 1) days.push({ day, kcal: kcalOf(day) })
+  const logged = days.filter((item) => item.kcal !== null)
+  const cut = Math.max(800, 0.5 * (median(logged.map((item) => item.kcal)) ?? 0))
+  const kept = logged.filter((item) => item.kcal >= cut)
+  return { logged, kept }
+}
+
+function measuredResult(status, fields) {
+  return {
+    status, kcal: null, rawKcal: null, avgKcal: null, days: 0, keptDays: 0, weighIns: 0, changeKg: null, paceKgPerWeek: null,
+    confidence: null, from: null, to: null, differsFromFormula: false,
+    progress: { keptDays: 0, needDays: MEASURE_NEED_DAYS, weighIns: 0, needWeighIns: MEASURE_NEED_WEIGH_INS, loggedDays: 0 },
+    ...fields,
+  }
+}
+
+// Least-squares slope (kg a day) of the weight trend over [from, to], up to the last weigh-in;
+// null with fewer than `min` trend points.
+function trendSlope(model, from, to, min) {
+  const xs = []
+  const ys = []
+  for (let day = Math.max(from, model.start); day <= Math.min(to, model.last); day += 1) {
+    const trend = model.trendAt(day)
+    if (trend !== null) {
+      xs.push(day)
+      ys.push(trend)
+    }
+  }
+  if (xs.length < min) return null
+  const mx = xs.reduce((a, b) => a + b, 0) / xs.length
+  const my = ys.reduce((a, b) => a + b, 0) / ys.length
+  let sxy = 0
+  let sxx = 0
+  for (let i = 0; i < xs.length; i += 1) {
+    sxy += (xs[i] - mx) * (ys[i] - my)
+    sxx += (xs[i] - mx) ** 2
+  }
+  return sxx ? sxy / sxx : null
+}
+
+// → { status: 'ready' | 'gathering' | 'swing' | 'odd', kcal, rawKcal, avgKcal, days, keptDays,
+// weighIns, changeKg, paceKgPerWeek, confidence: 'good' | 'early' | null, from, to,
+// differsFromFormula, progress: { keptDays, needDays, weighIns, needWeighIns, loggedDays } }.
+// progress covers the 28 days ending endDay. opts.formulaTdee: the calculator's maintenance.
+function measuredCore(byDay, model, endDay, opts) {
+  const cache = new Map()
+  const kcalOf = (day) => {
+    if (!cache.has(day)) {
+      const totals = dayTotals(byDay.get(day) || [])
+      cache.set(day, totals.counted > 0 ? totals.calories : null)
+    }
+    return cache.get(day)
+  }
+  const recent = windowDays(kcalOf, endDay - 27, endDay)
+  const progress = {
+    keptDays: recent.kept.length,
+    needDays: MEASURE_NEED_DAYS,
+    weighIns: model ? model.realBetween(endDay - 27, endDay) : 0,
+    needWeighIns: MEASURE_NEED_WEIGH_INS,
+    loggedDays: recent.logged.length,
+  }
+  if (!model) return measuredResult('gathering', { progress })
+
   let firstFood = Infinity
   for (const [day, entries] of byDay) if (day <= endDay && entries.some(hasEnergy)) firstFood = Math.min(firstFood, day)
   // The trend's first days average fewer weigh-ins (less lag), so start where its window is full.
-  let startDay = Math.max(endDay - 27, firstFood, model.start + 6)
-  if (!Number.isFinite(startDay)) return null
-  while (startDay < endDay && model.trendAt(startDay) === null) startDay += 1
-  const days = endDay - startDay + 1
-  if (days < 14) return null
-  let loggedDays = 0
-  let kcal = 0
-  for (let day = startDay; day <= endDay; day += 1) {
-    const totals = dayTotals(byDay.get(day) || [])
-    if (totals.counted > 0) {
-      loggedDays += 1
-      kcal += totals.calories
+  let start0 = Math.max(endDay - 27, firstFood, model.start + 6)
+  if (!Number.isFinite(start0)) return measuredResult('gathering', { progress })
+  while (start0 < endDay && model.trendAt(start0) === null) start0 += 1
+
+  for (let len = 28; len >= 14; len -= 1) {
+    const start = endDay - len + 1
+    if (start < start0) continue
+    const { kept } = windowDays(kcalOf, start, endDay)
+    if (kept.length < Math.max(MEASURE_NEED_DAYS, Math.ceil(0.75 * len))) continue
+    const weighIns = model.realBetween(start, endDay)
+    if (weighIns < MEASURE_NEED_WEIGH_INS || model.last < endDay - 5) continue
+    let firstReal = null
+    for (let day = Math.max(start, model.start); day <= Math.min(endDay, model.last); day += 1) {
+      if (model.real[day - model.start]) {
+        firstReal = day
+        break
+      }
+    }
+    if (firstReal === null || firstReal > start + 6) continue
+    const slope = trendSlope(model, start, endDay, 10)
+    if (slope === null) continue
+
+    const avg = kept.reduce((sum, item) => sum + item.kcal, 0) / kept.length
+    const raw = avg - slope * KCAL_PER_KG
+    const base = {
+      rawKcal: Math.round(raw),
+      avgKcal: Math.round(avg),
+      days: len,
+      keptDays: kept.length,
+      weighIns,
+      changeKg: round(slope * (len - 1), 2),
+      paceKgPerWeek: round(slope * 7, 2),
+      from: isoOf(start),
+      to: isoOf(endDay),
+      progress,
+    }
+    if (Math.abs(slope * 7) > 1.5) return measuredResult('swing', base)
+    if (raw < 1000 || raw > 6000) return measuredResult('odd', base)
+    const kcal = clamp(round10(raw), 1200, 5000)
+    let confidence = len >= 21 && kept.length / len >= 0.85 && weighIns >= 12 ? 'good' : 'early'
+    const formula = num(opts?.formulaTdee)
+    const differsFromFormula = formula !== null && formula > 0 && Math.abs(kcal - formula) / formula > 0.35
+    if (differsFromFormula) confidence = 'early'
+    return measuredResult('ready', { ...base, kcal, confidence, differsFromFormula })
+  }
+  return measuredResult('gathering', { progress })
+}
+
+// Measured maintenance as of today (window ending yesterday; today is still in progress), from
+// the same weight model weeklyInsights builds, so the Goals card and the assistant agree. options:
+// { formulaTdee } (the calculator's maintenance, to flag a big difference). Never throws.
+export function measuredMaintenance(entries, bodyWeights, today, options) {
+  try {
+    const todayDay = todayDayOf(today)
+    return measuredCore(entriesByDay(entries), weightModel(bodyWeights, todayDay), todayDay - 1, isObj(options) ? options : {})
+  } catch {
+    return measuredResult('gathering')
+  }
+}
+
+// The weekly-insights form of measuredMaintenance (null unless it's ready).
+function adaptiveCheck(byDay, model, endDay) {
+  let m
+  try {
+    m = measuredCore(byDay, model, endDay, {})
+  } catch {
+    return null
+  }
+  if (m.status !== 'ready') return null
+  return {
+    tdeeKcal: m.kcal,
+    days: m.days,
+    loggedDays: m.keptDays,
+    weighIns: m.weighIns,
+    avgKcal: m.avgKcal,
+    trendChangeKg: m.changeKg,
+    confidence: m.confidence,
+  }
+}
+
+// A new goal from a measured maintenance (status 'ready'), keeping the pace you're after: the
+// saved goal's pace while it is current (unless the calorie floor slowed it), else the calculator's (which blocks loss when it isn't
+// safe and caps the pace), else the profile's. Protein and fat stay; carbs fill the rest (fat
+// drops to 20 % if carbs would go under 50 g); fiber follows calculated goals. food: settings.food.
+// → { calories, protein, carbs, fat, fiber, pace, same (under 100 kcal from the current goal),
+// diffKcal, changes: [{ key, from, to }], warnings } or null.
+export function goalFromMaintenance(m, food, options) {
+  if (!isObj(m) || m.status !== 'ready' || num(m.kcal) === null) return null
+  const opts = isObj(options) ? options : {}
+  const { goals, profile } = normalizeFood(food)
+  const warnings = []
+
+  const floor = FLOORS[profile.sex] ?? FLOOR_UNSPECIFIED
+  let pace = null
+  const applied = currentApplied(profile, goals)
+  // A saved goal sitting on the calorie floor has the pace the floor left, not the one asked for:
+  // go back to the asked pace (the floor applies again below if it's still needed), so a higher
+  // measured maintenance isn't held to the slower pace for good.
+  if (applied && Math.abs(num(applied.calories) - floor) >= 1) pace = num(applied.pace)
+  if (pace === null) {
+    const calc = calcGoals(profile, { weightKg: opts.weightKg, today: opts.today })
+    if (calc.calories !== null) {
+      pace = (calc.goal === 'lose' ? -1 : calc.goal === 'gain' ? 1 : 0) * calc.rateKgPerWeek
+    } else if (profile.goal === 'maintain') {
+      pace = 0
+    } else {
+      const kg = numIn(opts.weightKg, 20, 700)
+      const cap = kg === null ? Infinity : round((profile.goal === 'lose' ? 0.01 : 0.005) * kg, 2)
+      pace = (profile.goal === 'lose' ? -1 : 1) * Math.min(profile.rateKgPerWeek, cap)
     }
   }
-  const weighInCount = model.realBetween(startDay, endDay)
-  const first = model.trendAt(startDay)
-  const last = model.trendAt(endDay)
-  if (loggedDays < 0.8 * days || weighInCount < 8 || first === null || last === null) return null
-  const avgKcal = kcal / loggedDays
-  const change = last - first
-  return {
-    tdeeKcal: Math.round((avgKcal - (change * KCAL_PER_KG) / (endDay - startDay)) / 10) * 10,
-    days,
-    loggedDays,
-    weighIns: weighInCount,
-    avgKcal: Math.round(avgKcal),
-    trendChangeKg: round(change, 2),
+
+  let calories = round10(m.kcal + (pace * KCAL_PER_KG) / 7)
+  if (calories < floor) {
+    calories = floor
+    warnings.push(`Raised to the ${fmtInt(floor)} kcal minimum.`)
   }
+
+  const protein = goals.protein
+  let fat = goals.fat
+  let carbs = goals.carbs
+  if (protein !== null && fat !== null && carbs !== null) {
+    carbs = Math.round((calories - 4 * protein - 9 * fat) / 4)
+    if (carbs < 50) {
+      fat = Math.round((0.2 * calories) / 9)
+      carbs = Math.round((calories - 4 * protein - 9 * fat) / 4)
+    }
+    if (carbs < 50) {
+      carbs = Math.max(0, carbs)
+      warnings.push('Protein and fat use most of this budget.')
+    }
+  }
+  const fiber = goals.source === 'calculator' && goals.fiber !== null ? Math.round((14 * calories) / 1000) : goals.fiber
+
+  const plan = { calories, protein, carbs, fat, fiber }
+  const changes = []
+  for (const key of ['calories', 'protein', 'carbs', 'fat', 'fiber']) {
+    const from = goals[key]
+    const to = plan[key]
+    if (from === to || (from !== null && to !== null && Math.abs(from - to) < 0.5)) continue
+    changes.push({ key, from, to })
+  }
+  const diffKcal = goals.calories === null ? null : Math.abs(calories - goals.calories)
+  return {
+    ...plan,
+    pace: round(((calories - m.kcal) * 7) / KCAL_PER_KG, 2),
+    same: diffKcal !== null && diffKcal < 100,
+    diffKcal,
+    changes,
+    warnings,
+  }
+}
+
+// An energy figure rounded for "about" wording, in the display unit: to `step` kcal (or about the
+// same size in kJ), grouped, without the unit ('2,350').
+export function approxEnergy(kcal, unit, step = 10) {
+  const value = energyInUnit(kcal, unit)
+  if (value === null) return '—'
+  const size = unit === 'kJ' ? step * 5 : step
+  return groupDigits(Math.round(value / size) * size)
+}
+
+// The plain-words "why" under a measured maintenance, e.g. "You ate ~2,180 kcal a day for 24 days
+// and your trend fell 0.6 kg, so you burn about 2,350." '' unless it's ready.
+export function maintenanceLine(m, options) {
+  if (!isObj(m) || m.status !== 'ready' || num(m.avgKcal) === null || num(m.kcal) === null) return ''
+  const opts = isObj(options) ? options : {}
+  const unit = opts.unit === 'kJ' ? 'kJ' : 'kcal'
+  const ate = `You ate ~${approxEnergy(m.avgKcal, unit, 10)} ${unit} a day for ${m.days} days`
+  const change = num(m.changeKg) ?? 0
+  if (Math.abs(change) < 0.1) return `${ate} and your weight held steady, so that’s about what you burn.`
+  const lb = opts.weightUnit === 'lb'
+  const shown = Math.abs(round(lb ? change * LB_PER_KG : change, 1)).toFixed(1)
+  return `${ate} and your trend ${change < 0 ? 'fell' : 'rose'} ${shown} ${lb ? 'lb' : 'kg'}, so you burn about ${approxEnergy(m.kcal, unit, 50)}.`
 }
 
 // Templated sentences (no AI), e.g. "Averaged 2,050 kcal — 160 under goal on 6 logged days."

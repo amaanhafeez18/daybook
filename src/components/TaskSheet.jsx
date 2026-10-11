@@ -1,19 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Sheet from './ui/Sheet.jsx'
 import Disclosure from './ui/Disclosure.jsx'
+import Icon from './ui/Icon.jsx'
 import { AutoTextarea, Button, Field, Segmented } from './ui/primitives.jsx'
 import { toast } from './ui/feedback.jsx'
 import AttachmentStrip from './AttachmentStrip.jsx'
 import SnoozeSheet from './SnoozeSheet.jsx'
 import { UnderstoodChip, understand } from './QuickParse.jsx'
 import { archiveTask, classesOn, createTask, deleteTaskForever, isReminderMarker, restoreTask, setTaskDone, updateTask } from '../lib/planner.js'
-import { dayPresets, dueLine, dueSentence, formatTime, formatTimeShort, todayISO } from '../lib/dates.js'
+import { dayPresets, dueLine, dueSentence, formatTime, formatTimeShort, nowTimeHHMM, todayISO } from '../lib/dates.js'
 import { DEFAULT_TIMES, busySlots, clashSlot, usualTimes } from '../lib/timing.js'
 import { askAssistantHash } from '../lib/assistantChat.js'
 import { peekDraft, saveDraft, takeDraft } from '../lib/drafts.js'
 import { LEAD_OPTIONS, leadLabel, notificationPrefs } from '../lib/notifications.js'
 import { attachmentSummary, useAttachmentsFor } from '../lib/attachments.js'
 import { useData } from '../lib/store.js'
+import { learnRhythms, readRhythms, showTimeChip, titleMatches, usualToday, visibleNow } from '../lib/rhythms.js'
 import { scrollBehavior } from '../lib/motion.js'
 import './tasks.css'
 
@@ -60,6 +62,16 @@ function shortReminder(value, timed) {
   return `${minutes} min before`
 }
 
+// The "Usually today" chips' data, frozen while the sheet is open (see TaskSheet).
+function rhythmChips(tasks, settings, prefs) {
+  const rhythms = readRhythms(settings)
+  if (rhythms.off) return { learned: [], dismissed: [], today: [] }
+  const today = todayISO()
+  const learned = learnRhythms(tasks, today)
+  const due = usualToday({ tasks, today, rhythms, learned, limit: 2 })
+  return { learned, dismissed: rhythms.dismissed, today: visibleNow(due, nowTimeHHMM(), prefs.overdueTime || '18:00') }
+}
+
 const formFromTask = (task) => ({
   text: task.text || '',
   details: isReminderMarker(task.details) ? '' : task.details || '',
@@ -97,7 +109,8 @@ export default function TaskSheet({ open, onClose, task: taskProp = null, defaul
   const start = useRef(EMPTY) // the form as it opened
   const fill = useRef(null) // { before, applied }: the Due the name's words replaced, and what they set
   const dateInput = useRef(null)
-  const prefs = notificationPrefs(useData('settings'))
+  const settings = useData('settings')
+  const prefs = notificationPrefs(settings)
   const tasks = useData('tasks')
   const classes = useData('classes')
   // The time chips are worked out as the sheet opens and kept until it closes, so they never
@@ -105,6 +118,11 @@ export default function TaskSheet({ open, onClose, task: taskProp = null, defaul
   const chipTimes = useRef({ open: false, list: DEFAULT_TIMES })
   if (isOpen && !chipTimes.current.open) chipTimes.current = { open: true, list: usualTimes(tasks, todayISO()) }
   else if (!isOpen && chipTimes.current.open) chipTimes.current = { ...chipTimes.current, open: false }
+  // "Usually today" (lib/rhythms.js), for a new task only: worked out as the sheet opens and kept
+  // until it closes, like the time chips.
+  const usual = useRef(null)
+  if (isOpen && !task && !usual.current) usual.current = rhythmChips(tasks, settings, prefs)
+  else if (!isOpen && usual.current) usual.current = null
   const attachments = useAttachmentsFor('task', task?.id)
   const words = NOUNS[noun] || NOUNS.task
 
@@ -165,6 +183,19 @@ export default function TaskSheet({ open, onClose, task: taskProp = null, defaul
   }
 
   const set = (field) => (value) => setForm((current) => ({ ...current, [field]: value }))
+  // With no name yet and Due on today: what's usually done today. Once 2 letters are typed: tasks
+  // you repeat that start like it ("lau" → "Laundry · 5 PM").
+  const typed = form.text.trim()
+  const suggestions = task || !usual.current ? []
+    : !typed ? (form.date === todayISO() ? usual.current.today : [])
+      : typed.length >= 2 ? titleMatches(usual.current.learned, typed, { dismissed: usual.current.dismissed, limit: 2 }) : []
+  // Fills the name (and, for today, the usual time if it's still ahead); never saves.
+  function pickSuggestion(item) {
+    let next = withName(form, item.title)
+    if (next.date === todayISO() && !next.time && showTimeChip(item, nowTimeHHMM())) next = { ...next, time: item.usualTime }
+    setForm(next)
+    setError('')
+  }
   const reminderValue = effectiveReminder(form.reminderMinutes, Boolean(form.time))
   const customLead = form.time && reminderValue !== '' && !LEAD_OPTIONS.some((option) => String(option.value) === reminderValue)
   const today = todayISO()
@@ -302,6 +333,17 @@ export default function TaskSheet({ open, onClose, task: taskProp = null, defaul
           <div className="ts-parsed-row" id="ts-parsed" aria-live="polite">
             <UnderstoodChip understood={understood} today={today} onDismiss={dismissParse} />
             <span className="ts-parsed-name">Saves as “{understood.title}”</span>
+          </div>
+        )}
+        {suggestions.length > 0 && (
+          // A press here mustn't take focus from the name field, so the keyboard stays up.
+          <div className="chip-row ts-usual" role="group" aria-label="Suggestions" onMouseDown={(event) => event.preventDefault()}>
+            {suggestions.map((item) => (
+              <button key={item.key} type="button" className="chip chip-sm ts-usual-chip" onClick={() => pickSuggestion(item)}>
+                <Icon name="repeat" size={13} strokeWidth={2.2} />
+                <span>{item.title}{item.usualTime ? ` · ${formatTimeShort(item.usualTime)}` : ''}</span>
+              </button>
+            ))}
           </div>
         )}
         <div className="field ts-when">

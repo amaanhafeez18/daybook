@@ -8,8 +8,10 @@ export const DEFAULT_NOTIFICATIONS = {
   allDayMode: 'day',
   dailySummary: true,
   dailySummaryTime: '08:00',
+  dailySummaryAi: false, // the morning summary written by the assistant (api/_briefing.js)
   overdue: true,
   overdueTime: '18:00',
+  badge: false, // count of overdue + due-today open tasks on the app icon (sent with every push)
   people: true,
   gym: false, // workout reminder on gym days (a routine planned, not rest/skipped/shifted/done)
   gymTime: '17:00', // local time of the workout reminder
@@ -187,6 +189,7 @@ export async function disableNotifications() {
   announce()
 }
 
-export function sendTestNotification() {
-  return apiRequest('/api/push', { method: 'POST', body: { action: 'test' } })
+// appBadge (optional): the icon count to send with the test, so the badge shows straight away.
+export function sendTestNotification(appBadge) {
+  return apiRequest('/api/push', { method: 'POST', body: { action: 'test', ...(Number.isInteger(appBadge) ? { appBadge } : {}) } })
 }

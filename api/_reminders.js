@@ -6,6 +6,9 @@ import { resolveDay } from '../src/lib/gym/schedule.js'
 import { estimateMinutes } from '../src/lib/gym/stats.js'
 // Pure date helpers (no imports), shared with the app.
 import { timeRangeMinutes } from '../src/lib/dates.js'
+// The app icon's count, the same rule the app uses (src/lib/agenda.js is browser-free).
+import { badgeCount } from '../src/lib/agenda.js'
+import { savedLocation } from './_prayer.js'
 
 // Keep in sync with src/lib/notifications.js.
 export const DEFAULT_NOTIFICATIONS = {
@@ -14,8 +17,10 @@ export const DEFAULT_NOTIFICATIONS = {
   allDayMode: 'day', // 'day' = on the due day, 'before' = the day before
   dailySummary: true,
   dailySummaryTime: '08:00',
+  dailySummaryAi: false, // the morning summary written by the assistant (api/_briefing.js); falls back to the template
   overdue: true,
   overdueTime: '18:00',
+  badge: false, // count of overdue + due-today open tasks on the app icon (sent with every push)
   people: true, // catch-ups and birthdays (in the summary, plus "Talk to…" task reminders)
   gym: false, // workout reminder on days the gym plan shows a routine (not rest, skipped, shifted or done)
   gymTime: '17:00', // local time of the workout reminder
@@ -175,7 +180,8 @@ function isDate(value) {
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
 }
 
-function formatTime(time) {
+// '14:05' → '2:05 PM'.
+export function formatTime(time) {
   const [hour, minute] = time.split(':').map(Number)
   return `${hour % 12 || 12}:${String(minute).padStart(2, '0')} ${hour >= 12 ? 'PM' : 'AM'}`
 }
@@ -418,7 +424,11 @@ const minutesText = (minutes) => formatTime(`${String(Math.floor(minutes / 60)).
 
 // "ECON 1022 at 2:30 PM" / "3 classes from 11:30 AM" / "" (no classes).
 function classesLine(classes, date) {
-  const slots = classSlotsOn(classes, date)
+  return slotsLine(classSlotsOn(classes, date))
+}
+
+// The same line from a day's class slots ([{ name, start }], by start time).
+function slotsLine(slots) {
   if (!slots.length) return ''
   const names = [...new Set(slots.map((slot) => slot.name))]
   const first = slots[0].start
@@ -427,7 +437,7 @@ function classesLine(classes, date) {
 }
 
 // The earliest timed task or class on `date` starting at or after `fromMinutes`, else null.
-// `tasks` are that day's open tasks. → { text: 'Dentist 9:30 AM', isClass }
+// `tasks` are that day's open tasks. → { name: 'Dentist', start: 570 (minutes), isClass }
 function firstUp(tasks, classes, date, fromMinutes) {
   const items = []
   for (const task of tasks) {
@@ -435,9 +445,13 @@ function firstUp(tasks, classes, date, fromMinutes) {
   }
   for (const slot of classSlotsOn(classes, date)) if (slot.start !== null) items.push({ name: slot.name, start: slot.start, isClass: true })
   const next = items.filter((item) => item.name && item.start >= fromMinutes).sort((a, b) => a.start - b.start)[0]
-  if (!next) return null
-  const name = next.name.length > 40 ? `${cutText(next.name, 38)}…` : next.name
-  return { text: `${name} ${minutesText(next.start)}`, isClass: next.isClass }
+  return next ? { name: next.name, start: next.start, isClass: next.isClass } : null
+}
+
+// firstUp's item as the summary shows it: 'Dentist 9:30 AM' (a long name is cut).
+function firstText(first) {
+  const name = String(first.name || '')
+  return `${name.length > 40 ? `${cutText(name, 38)}…` : name} ${minutesText(first.start)}`
 }
 
 // The morning summary's weather words, or '' when rain is unlikely or unknown.
@@ -477,6 +491,117 @@ function birthdayLines(friends, today, dates) {
   return lines
 }
 
+// ---- the morning summary ---------------------------------------------------------------------
+
+// What one user's day looks like at `now`, shared by dueNotifications and summaryFacts.
+function dayContext({ settings, tasks }, now) {
+  const prefs = notificationPrefs(settings)
+  // Areas switched off in Settings → What you use get no reminders either.
+  const areas = isObject(settings?.areas) ? settings.areas : {}
+  if (areas.gym === false) prefs.gym = false
+  if (areas.people === false) prefs.people = false
+  const timeZone = safeZone(settings?.timeZone || 'UTC')
+  const today = localNow(now, timeZone).date
+  const open = (Array.isArray(tasks) ? tasks : []).filter((task) => !task.done && !task.archived)
+  // Overdue counts leave out catch-up tasks when those notifications are off.
+  const counted = open.filter((task) => prefs.people || !isReminderTask(task))
+  return { prefs, areas, timeZone, today, open, counted }
+}
+
+function catchUpsDue(friends, contactLogs, open, today) {
+  if (Array.isArray(contactLogs)) {
+    // From the contact history, so it doesn't depend on the app having created "Talk to…" tasks.
+    const lastById = {}
+    for (const log of contactLogs) {
+      if (log.friend_id && isDate(log.date) && (!lastById[log.friend_id] || log.date > lastById[log.friend_id])) lastById[log.friend_id] = log.date
+    }
+    return (Array.isArray(friends) ? friends : []).filter((friend) => {
+      const interval = catchUpInterval(friend)
+      const last = lastById[friend.id]
+      return interval && (!last || daysBetween(last, today) >= interval)
+    }).length
+  }
+  return open.filter((task) => task.date === today && isReminderTask(task)).length
+}
+
+// The facts behind the morning summary (the template's text and the assistant-written note in
+// api/_briefing.js both come from these). `now` is when it's sent: `time` and the prayers still ahead.
+function buildSummaryFacts({ settings, friends, contactLogs = null, classes, prayerTimings = null, forecast = null }, context, workout, now) {
+  const { prefs, areas, timeZone, today, open, counted } = context
+  const local = localNow(now, timeZone)
+  const dueToday = open.filter((task) => task.date === today && !isReminderTask(task)).sort(byTaskTime)
+  const chance = forecast?.rainChance == null ? NaN : Number(forecast.rainChance)
+  const goals = areas.food !== false && isObject(settings?.food?.goals) ? settings.food.goals : null
+  const calories = Number(goals?.calories)
+  const protein = Number(goals?.protein)
+  const wantPrayers = isObject(prayerTimings) && savedLocation(settings) && (prefs.prayer || settings?.showPrayerTimes !== false)
+  return {
+    date: today,
+    weekday: weekdayName(today),
+    time: local.time,
+    // What comes first from the summary's time on.
+    first: firstUp(dueToday, classes, today, toMinutes(prefs.dailySummaryTime)),
+    tasks: dueToday.map((task) => ({ text: String(task.text || '').trim(), time: isTime(task.time) ? task.time : '' })),
+    overdue: counted.filter((task) => isDate(task.date) && task.date < today).length,
+    classes: classSlotsOn(classes, today),
+    workout: workout ? {
+      name: gymDayName(workout.routine),
+      exercises: Array.isArray(workout.routine.exercises) ? workout.routine.exercises.filter(isObject).length : 0,
+      minutes: estimateMinutes(workout.routine) || null,
+    } : null,
+    birthdays: prefs.people ? birthdayLines(friends, today, [today, addDays(today, 1)]) : [],
+    catchUps: prefs.people ? catchUpsDue(friends, contactLogs, open, today) : 0,
+    rainChance: Number.isFinite(chance) ? chance : null,
+    food: goals && calories > 0 ? { calories: Math.round(calories), protein: protein > 0 ? Math.round(protein) : null } : null,
+    prayers: wantPrayers
+      ? PRAYER_NAMES.filter((name) => isTime(prayerTimings[name]) && toMinutes(prayerTimings[name]) > local.minutes).slice(0, 3).map((name) => ({ name, time: prayerTimings[name] }))
+      : [],
+  }
+}
+
+// One user's morning summary facts at `now` (the same input as dueNotifications).
+// → { date, weekday, time, first: { name, start, isClass } | null, tasks: [{ text, time }], overdue,
+//     classes: [{ name, start }], workout: { name, exercises, minutes } | null, birthdays: [string],
+//     catchUps, rainChance, food: { calories, protein } | null, prayers: [{ name, time }] }
+// (start = minutes after midnight or null; time = HH:MM, `time` itself = local time at `now`.)
+export function summaryFacts(input = {}, now = Date.now()) {
+  const context = dayContext(input, now)
+  const workout = context.areas.gym !== false ? plannedWorkout(input.settings, input.gymSessions ?? null, context.today) : null
+  return buildSummaryFacts(input, context, workout, now)
+}
+
+// The templated morning summary from summaryFacts: its parts joined with ' · ', leading with what
+// comes first, then the weather; kept under SUMMARY_MAX.
+export function summaryBody(facts) {
+  const f = isObject(facts) ? facts : {}
+  const lines = []
+  if (isObject(f.first)) lines.push(`First: ${firstText(f.first)}`)
+  const rain = rainLine({ rainChance: f.rainChance })
+  if (rain) lines.push(rain)
+  const tasks = Array.isArray(f.tasks) ? f.tasks : []
+  if (tasks.length) lines.push({ text: `${plural(tasks.length, 'task')}: ${taskNames(tasks)}`, short: plural(tasks.length, 'task') })
+  if (f.overdue) lines.push(`${f.overdue} overdue`)
+  const slots = Array.isArray(f.classes) ? f.classes : []
+  const classLine = slotsLine(slots)
+  // The day's only class, already named by "First:", isn't repeated.
+  const onlyClassFirst = f.first?.isClass && new Set(slots.map((slot) => slot.name)).size === 1
+  if (classLine && !onlyClassFirst) lines.push(classLine)
+  if (isObject(f.workout)) lines.push(`Gym: ${f.workout.name}`)
+  if (Array.isArray(f.birthdays)) lines.push(...f.birthdays)
+  if (f.catchUps) lines.push(`${f.catchUps} catch-up${f.catchUps === 1 ? '' : 's'} due`)
+  return !lines.length ? 'Nothing planned. A clear day.' : lines.length === 1 && rain ? `Nothing planned · ${rain}` : fitSummary(lines)
+}
+
+// ---- the app icon's count ---------------------------------------------------------------------
+
+// The number to show on the app icon with a push (open tasks overdue or due today in the user's
+// time zone), or null when the count is off (notifications.badge). Never sent on its own: iOS
+// revokes subscriptions that get pushes without a notification.
+export function appBadgeFor(settings, tasks, now = Date.now()) {
+  if (notificationPrefs(settings).badge !== true) return null
+  return badgeCount(tasks, localDateFor(settings, now), { people: settings?.areas?.people !== false })
+}
+
 // ---- what is due ----------------------------------------------------------------------------
 
 // Tapping a task's reminder opens that task (TasksPage reads #/tasks/<id>); anything without an id
@@ -494,18 +619,11 @@ function taskUrl(task) {
 // unknown; prayer reminders ignore quiet hours (Fajr is early by nature).
 // forecast: { rainChance } for today at the saved location (api/_weather.js), or null; only the
 // morning summary uses it.
-export function dueNotifications({ settings, tasks, friends, contactLogs = null, classes, gymSessions = null, prayerTimings = null, forecast = null }, now = Date.now()) {
-  const prefs = notificationPrefs(settings)
-  // Areas switched off in Settings → What you use get no reminders either.
-  const areas = isObject(settings?.areas) ? settings.areas : {}
-  if (areas.gym === false) prefs.gym = false
-  if (areas.people === false) prefs.people = false
-  const timeZone = safeZone(settings?.timeZone || 'UTC')
-  const today = localNow(now, timeZone).date
+export function dueNotifications(input, now = Date.now()) {
+  const { settings, tasks, friends, classes, gymSessions = null, prayerTimings = null } = input
+  const context = dayContext(input, now)
+  const { prefs, areas, timeZone, today, open, counted } = context
   const tomorrow = addDays(today, 1)
-  const open = tasks.filter((task) => !task.done && !task.archived)
-  // Overdue counts leave out catch-up tasks when those notifications are off.
-  const counted = open.filter((task) => prefs.people || !isReminderTask(task))
   const workout = areas.gym !== false && (prefs.gym || prefs.dailySummary) ? plannedWorkout(settings, gymSessions, today) : null
   const candidates = []
 
@@ -526,48 +644,18 @@ export function dueNotifications({ settings, tasks, friends, contactLogs = null,
   }
 
   // Morning summary: every day it's on, a clear day included (so it's plain the reminders work).
+  // `facts` rides along for api/cron.js (the assistant-written version); groupDue and
+  // combineReminders ignore it.
   if (prefs.dailySummary && isTime(prefs.dailySummaryTime)) {
-    const dueToday = open.filter((task) => task.date === today && !isReminderTask(task)).sort(byTaskTime)
-    const overdue = counted.filter((task) => isDate(task.date) && task.date < today)
-    const lines = []
-    // Leads with what comes first from the summary's time on, then the weather.
-    const first = firstUp(dueToday, classes, today, toMinutes(prefs.dailySummaryTime))
-    if (first) lines.push(`First: ${first.text}`)
-    const rain = rainLine(forecast)
-    if (rain) lines.push(rain)
-    if (dueToday.length) lines.push({ text: `${plural(dueToday.length, 'task')}: ${taskNames(dueToday)}`, short: plural(dueToday.length, 'task') })
-    if (overdue.length) lines.push(`${overdue.length} overdue`)
-    const classLine = classesLine(classes, today)
-    // The day's only class, already named by "First:", isn't repeated.
-    const onlyClassFirst = first?.isClass && new Set(classSlotsOn(classes, today).map((slot) => slot.name)).size === 1
-    if (classLine && !onlyClassFirst) lines.push(classLine)
-    if (workout) lines.push(`Gym: ${gymDayName(workout.routine)}`)
-    if (prefs.people) {
-      lines.push(...birthdayLines(friends, today, [today, tomorrow]))
-      let catchUpCount
-      if (Array.isArray(contactLogs)) {
-        // From the contact history, so it doesn't depend on the app having created "Talk to…" tasks.
-        const lastById = {}
-        for (const log of contactLogs) {
-          if (log.friend_id && isDate(log.date) && (!lastById[log.friend_id] || log.date > lastById[log.friend_id])) lastById[log.friend_id] = log.date
-        }
-        catchUpCount = friends.filter((friend) => {
-          const interval = catchUpInterval(friend)
-          const last = lastById[friend.id]
-          return interval && (!last || daysBetween(last, today) >= interval)
-        }).length
-      } else {
-        catchUpCount = open.filter((task) => task.date === today && isReminderTask(task)).length
-      }
-      if (catchUpCount) lines.push(`${catchUpCount} catch-up${catchUpCount === 1 ? '' : 's'} due`)
-    }
+    const facts = buildSummaryFacts(input, context, workout, now)
     candidates.push({
       key: `summary:${today}`,
       fireAt: zonedToUtc(today, prefs.dailySummaryTime, timeZone),
       title: `Your ${weekdayName(today)}`,
-      body: !lines.length ? 'Nothing planned. A clear day.' : lines.length === 1 && rain ? `Nothing planned · ${rain}` : fitSummary(lines),
+      body: summaryBody(facts),
       url: '/#/today',
       tag: 'daily-summary',
+      facts,
     })
   }
 

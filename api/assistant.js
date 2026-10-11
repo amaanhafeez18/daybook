@@ -653,13 +653,14 @@ const tools = [
     },
     notifications: {
       type: 'object',
-      description: 'Push-notification preferences (partial update). taskLead: minutes before timed tasks (0 at time, -1 off). allDayTime HH:MM or "" for no reminder on tasks without a time; allDayMode "day" or "before". dailySummary/overdue/people/quietHours booleans with dailySummaryTime, overdueTime, quietStart, quietEnd as HH:MM (dailySummary = the morning summary of the day; overdue = the evening check-in: a recap of today and a look at tomorrow; both come every day while on). gym/gymTime: workout reminder on planned workout days. prayer: prayer-time reminders (need the saved location; they ignore quiet hours), prayerLead minutes before (0 = at the time), prayers = which of Fajr, Dhuhr, Asr, Maghrib, Isha.',
+      description: 'Push-notification preferences (partial update). taskLead: minutes before timed tasks (0 at time, -1 off). allDayTime HH:MM or "" for no reminder on tasks without a time; allDayMode "day" or "before". dailySummary/overdue/people/quietHours booleans with dailySummaryTime, overdueTime, quietStart, quietEnd as HH:MM (dailySummary = the morning summary of the day; overdue = the evening check-in: a recap of today and a look at tomorrow; both come every day while on). dailySummaryAi: the morning summary written by the assistant from the day’s plan instead of the plain list. gym/gymTime: workout reminder on planned workout days. prayer: prayer-time reminders (need the saved location; they ignore quiet hours), prayerLead minutes before (0 = at the time), prayers = which of Fajr, Dhuhr, Asr, Maghrib, Isha.',
       properties: {
         taskLead: { type: 'integer' },
         allDayTime: { type: 'string' },
         allDayMode: { type: 'string', enum: ['day', 'before'] },
         dailySummary: { type: 'boolean' },
         dailySummaryTime: { type: 'string' },
+        dailySummaryAi: { type: 'boolean' },
         overdue: { type: 'boolean' },
         overdueTime: { type: 'string' },
         people: { type: 'boolean' },
@@ -3704,7 +3705,7 @@ const NOTE_COLUMN_WARNING = 'the note wasn’t saved: the database needs the 202
 
 const PRAYER_METHOD_NAMES = { auto: 'automatic', 1: 'Karachi', 2: 'ISNA', 3: 'Muslim World League', 4: 'Umm al-Qura', 5: 'Egypt', 7: 'Tehran', 8: 'Gulf', 9: 'Kuwait', 10: 'Qatar', 11: 'Singapore', 12: 'France', 13: 'Turkey', 15: 'Moonsighting Committee', 16: 'Dubai', 17: 'Malaysia', 20: 'Indonesia' }
 const AREA_KEYS = ['people', 'journal', 'gym', 'food']
-const NOTIFICATION_KEYS = ['taskLead', 'allDayTime', 'allDayMode', 'dailySummary', 'dailySummaryTime', 'overdue', 'overdueTime', 'people', 'quietHours', 'quietStart', 'quietEnd', 'gym', 'gymTime', 'prayer', 'prayerLead', 'prayers']
+const NOTIFICATION_KEYS = ['taskLead', 'allDayTime', 'allDayMode', 'dailySummary', 'dailySummaryTime', 'dailySummaryAi', 'overdue', 'overdueTime', 'people', 'quietHours', 'quietStart', 'quietEnd', 'gym', 'gymTime', 'prayer', 'prayerLead', 'prayers']
 
 // update_settings arguments → { changes } to write, or { problem }. '' is kept, so a display name
 // can be cleared (B4); the legacy darkMode flag follows appearance, as in the app.
@@ -3749,7 +3750,7 @@ function settingsChanges(args) {
     if (next.gymTime !== undefined && !isTime(next.gymTime)) return { changes, problem: 'gymTime must be HH:MM.' }
     if (next.taskLead !== undefined && (!Number.isInteger(next.taskLead) || next.taskLead < -1 || next.taskLead > 10080)) return { changes, problem: 'taskLead is minutes before a timed task (0 = at the time, -1 = off).' }
     if (next.allDayMode !== undefined && !['day', 'before'].includes(next.allDayMode)) return { changes, problem: 'allDayMode is "day" or "before".' }
-    for (const key of ['dailySummary', 'overdue', 'people', 'quietHours', 'gym', 'prayer']) if (next[key] !== undefined) next[key] = next[key] === true
+    for (const key of ['dailySummary', 'dailySummaryAi', 'overdue', 'people', 'quietHours', 'gym', 'prayer']) if (next[key] !== undefined) next[key] = next[key] === true
     if (next.prayerLead !== undefined) {
       const lead = Number(next.prayerLead)
       if (!Number.isInteger(lead) || lead < 0 || lead > 120) return { changes, problem: 'prayerLead is 0 to 120 minutes.' }
@@ -3870,6 +3871,7 @@ function settingsText(changes) {
   if (n.allDayMode !== undefined) parts.push(n.allDayMode === 'before' ? 'those reminders the day before' : 'those reminders on the day')
   if (n.dailySummary !== undefined) parts.push(`morning summary ${n.dailySummary ? 'on' : 'off'}`)
   if (n.dailySummaryTime) parts.push(`morning summary at ${time12(n.dailySummaryTime)}`)
+  if (n.dailySummaryAi !== undefined) parts.push(`assistant-written morning summary ${n.dailySummaryAi ? 'on' : 'off'}`)
   if (n.overdue !== undefined) parts.push(`evening check-in ${n.overdue ? 'on' : 'off'}`)
   if (n.overdueTime) parts.push(`evening check-in at ${time12(n.overdueTime)}`)
   if (n.people !== undefined) parts.push(`people reminders ${n.people ? 'on' : 'off'}`)

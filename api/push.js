@@ -5,7 +5,7 @@ import { pushConfigured, sendToUser } from './_reminders.js'
 // GET                         → { configured, publicKey }
 // POST { action: 'subscribe', subscription }   save this device
 // POST { action: 'unsubscribe', endpoint }      forget this device
-// POST { action: 'test' }                       send a test notification to all devices
+// POST { action: 'test', appBadge? }            send a test notification to all devices (with the icon count)
 
 function sendJson(res, statusCode, payload) {
   res.statusCode = statusCode
@@ -58,12 +58,15 @@ export default async function handler(req, res) {
     }
 
     if (body.action === 'test') {
-      const { sent, failed } = await sendToUser(supabase, decoded.id, {
+      const payload = {
         title: 'Daybook',
         body: 'Notifications are working. You’ll be reminded about your tasks here.',
         url: '/#/settings',
         tag: 'test',
-      })
+      }
+      // The app sends its icon count when that's on, so the badge shows with the test.
+      if (Number.isInteger(body.appBadge) && body.appBadge >= 0 && body.appBadge <= 9999) payload.appBadge = body.appBadge
+      const { sent, failed } = await sendToUser(supabase, decoded.id, payload)
       if (!sent && failed) return sendJson(res, 502, { error: 'Couldn’t reach your devices right now. Please try again.' })
       if (!sent) return sendJson(res, 404, { error: 'No devices with notifications turned on.' })
       return sendJson(res, 200, { ok: true, sent })

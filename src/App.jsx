@@ -12,6 +12,7 @@ import { SESSION_EXPIRED_EVENT, clearSession, fetchSession, getCachedUser, getTo
 import { getState, hydrateFromCache, refresh, resetStore, retryUnsaved, saveStatus, updateSettings, useData, useStore } from './lib/store.js'
 import { ensureFriendReminders } from './lib/planner.js'
 import { syncSubscription } from './lib/notifications.js'
+import { AppBadgeSync, clearIconCount } from './lib/appBadge.js'
 import { applyTheme } from './lib/theme.js'
 import { toISO } from './lib/dates.js'
 import { useNow } from './lib/environment.js'
@@ -138,6 +139,7 @@ export default function App() {
     const hadSession = !!getToken()
     clearSession()
     resetStore()
+    clearIconCount() // the next person on this device shouldn't see this account's count
     // Nothing of this account's searches, drafts or running assistant reply carries over.
     clearSessionState()
     clearAssistantSession()
@@ -173,6 +175,7 @@ export default function App() {
       const token = getToken()
       if (token ? tokenUserId(token) === user?.id : !user) return // same account (e.g. renewed token) or already signed out
       resetStore()
+      clearIconCount()
       window.location.reload()
     }
     window.addEventListener('storage', onStorage)
@@ -366,6 +369,7 @@ function Shell({ user, onUserChange, onSignOut }) {
         <WorkoutPill />
       </div>
       <Welcome user={user} />
+      <AppBadgeSync />
       <ShortcutsSheet open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} tabs={tabs} />
     </div>
   )

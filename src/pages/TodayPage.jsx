@@ -10,8 +10,9 @@ import CitySheet from '../components/CitySheet.jsx'
 import TodayHint from '../components/SetupCard.jsx'
 import TaskRow from '../components/TaskRow.jsx'
 import TaskSheet from '../components/TaskSheet.jsx'
+import MorningNote from '../components/MorningNote.jsx'
 import { readPref, writePref } from '../lib/api.js'
-import { useData } from '../lib/store.js'
+import { getState, updateSettings, useData } from '../lib/store.js'
 import { MOODS, classOver, classesOn, compareTasks, createTask, deleteTaskForever, friendStatus, lastContactMap, saveJournalEntry, updateTask } from '../lib/planner.js'
 import { addDaysISO, compareTimes, dueSentence, formatDateLong, formatDuration, formatTime, formatTimeShort, greeting, nowTimeHHMM, timeAgo, todayISO } from '../lib/dates.js'
 import { eveningLeftovers, nowNext, timePassed } from '../lib/agenda.js'
@@ -24,6 +25,7 @@ import { notificationPrefs } from '../lib/notifications.js'
 import { dailyForecast, describeWeather, prayerSchedule, upcomingHours, useLocation, useNow, usePrayerTimes, useWeather } from '../lib/environment.js'
 import CardBoundary, { CardSkeleton } from '../components/CardBoundary.jsx'
 import { useAreas } from '../lib/areas.js'
+import { dismissRhythm, learnRhythms, readRhythms, restoreRhythm, rhythmLabel, showTimeChip, usualToday, visibleNow } from '../lib/rhythms.js'
 import '../components/today.css'
 
 // The Health glance (gym + food state) loads as its own chunk so the first bundle stays small.
@@ -35,9 +37,10 @@ const OVERDUE_SHOWN = 8
 const TOMORROW_SHOWN = 5
 const PEOPLE_SHOWN = 3
 
-// Phones, top to bottom: Today, at most one hint card ("Get set up" for a new account, or a
-// reminders / Home Screen hint), Tomorrow, Health (one line each for the gym and food; the full
-// cards live on Health → Today), Weather, Prayer, People. From 1000px the first ones form the
+// Phones, top to bottom: the assistant's morning note (only when it wrote one, until about noon),
+// Today (with "Usually today" rows for tasks you repeat), at most one hint card ("Get set up" for
+// a new account, or a reminders / Home Screen hint), Tomorrow, Health (one line each for the gym
+// and food; the full cards live on Health → Today), Weather, Prayer, People. From 1000px the first ones form the
 // main column and the rest the side column. Weather, Prayer and People are one line each; their
 // details open on a tap (remembered per device). Areas turned off (lib/areas.js) don't appear.
 export default function TodayPage({ displayName, loaded }) {
@@ -88,8 +91,13 @@ export default function TodayPage({ displayName, loaded }) {
 
       <div className="today-grid">
         <div className="today-main">
+          {/* The assistant's morning note (Settings → Notifications → Written by the assistant), until about noon. */}
+          <CardBoundary>
+            <MorningNote settings={settings} today={today} now={now} />
+          </CardBoundary>
           <TodayCard
             tasks={active}
+            allTasks={tasks}
             classes={classes}
             today={today}
             now={now}
@@ -153,7 +161,7 @@ export default function TodayPage({ displayName, loaded }) {
 // "14:30" from minutes after midnight, for the short time labels.
 const clock = (minutes) => `${String(Math.floor(minutes / 60) % 24).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`
 
-function TodayCard({ tasks, classes, today, now, loaded, settings, journal, journalEntries, onOpen, onOpenClass }) {
+function TodayCard({ tasks, allTasks, classes, today, now, loaded, settings, journal, journalEntries, onOpen, onOpenClass }) {
   const tomorrow = addDaysISO(today, 1)
   const todayTasks = useMemo(() => tasks.filter((task) => task.date === today), [tasks, today])
   const open = useMemo(() => todayTasks.filter((task) => !task.done), [todayTasks])
@@ -185,7 +193,8 @@ function TodayCard({ tasks, classes, today, now, loaded, settings, journal, jour
 
   // After the evening check-in time (Settings → Notifications; used even with that push off):
   // what's left can move to tomorrow in one tap, and a mood goes in the journal in one more.
-  const evening = nowHHMM >= (notificationPrefs(settings).overdueTime || '18:00')
+  const eveningTime = notificationPrefs(settings).overdueTime || '18:00'
+  const evening = nowHHMM >= eveningTime
   const leftovers = evening ? eveningLeftovers(open, today, nowHHMM) : []
   const moodSet = !!journalEntries?.find((entry) => entry.date === today)?.mood
   const askMood = loaded && evening && journal && !moodSet
@@ -223,6 +232,13 @@ function TodayCard({ tasks, classes, today, now, loaded, settings, journal, jour
     }
     toast('Saved to today’s journal', { action: { label: 'Write more', onClick: writeMore } })
   }
+
+  // "Usually today": tasks repeated on a rhythm (lib/rhythms.js), learned from the whole history
+  // (archived too), offered until the evening check-in; after it only those with a later usual time.
+  const learned = useMemo(() => learnRhythms(allTasks || tasks, today), [allTasks, tasks, today])
+  const rhythmPrefs = useMemo(() => readRhythms(settings), [settings?.rhythms]) // eslint-disable-line react-hooks/exhaustive-deps
+  const usualDue = useMemo(() => usualToday({ tasks: allTasks || tasks, today, rhythms: rhythmPrefs, learned, limit: 2 }), [allTasks, tasks, today, rhythmPrefs, learned])
+  const usual = loaded ? visibleNow(usualDue, nowHHMM, eveningTime) : []
 
   const counts = [open.length ? `${open.length} left` : '', done.length ? `${done.length} done` : ''].filter(Boolean).join(' · ')
   const empty = timeline.length === 0
@@ -332,6 +348,8 @@ function TodayCard({ tasks, classes, today, now, loaded, settings, journal, jour
             </ul>
           )}
 
+          {usual.length > 0 && <UsualRows list={usual} today={today} nowHHMM={nowHHMM} />}
+
           {leftovers.length > 0 && (
             <div className="td-section td-evening">
               <span className="td-evening-text">{leftovers.length} still open</span>
@@ -368,6 +386,56 @@ function TodayCard({ tasks, classes, today, now, loaded, settings, journal, jour
         </div>
       )}
     </Card>
+  )
+}
+
+// "Usually today: Laundry · Every Sunday", with Add (no time), "Like last time · 5 PM" while that
+// time is still ahead, and × ("Not this", remembered in settings.rhythms and undone from Settings →
+// Suggestions). Nothing is added without a tap.
+function UsualRows({ list, today, nowHHMM }) {
+  function add(item, withTime) {
+    const task = createTask({ text: item.title, date: today, time: withTime ? item.usualTime : '', priority: item.priority || 'medium' })
+    haptic('light')
+    toast(`Added “${truncate(item.title, 28)}” for today`, { action: { label: 'Undo', onClick: () => deleteTaskForever(task.id) } })
+  }
+
+  function dismiss(item) {
+    const current = () => readRhythms(getState().data.settings)
+    updateSettings({ rhythms: dismissRhythm(current(), item, today) })
+    toast(`Won’t suggest “${truncate(item.title, 28)}” again`, { action: { label: 'Undo', onClick: () => updateSettings({ rhythms: restoreRhythm(current(), item.key) }) } })
+  }
+
+  return (
+    <section className="td-section td-usual" aria-label="Usually today">
+      <ul className="td-usual-list">
+        {list.map((item) => {
+          const time = showTimeChip(item, nowHHMM) ? formatTimeShort(item.usualTime) : ''
+          return (
+            <li key={item.key} className="td-usual-row">
+              <span className="td-row-icon is-quiet" aria-hidden="true"><Icon name="repeat" size={14} strokeWidth={2.2} /></span>
+              <span className="td-usual-text">
+                <span className="td-usual-title"><span className="td-usual-lead">Usually today: </span><strong>{item.title}</strong></span>
+                <span className="td-usual-sub">{rhythmLabel(item.rhythm)}</span>
+              </span>
+              <button type="button" className="td-usual-x" onClick={() => dismiss(item)} aria-label={`Don't suggest “${item.title}”`}>
+                <Icon name="close" size={16} strokeWidth={2.2} />
+              </button>
+              <span className="td-usual-actions">
+                {time && (
+                  <button type="button" className="td-usual-btn" onClick={() => add(item, true)} aria-label={`Add “${item.title}” at ${time}, like last time`}>
+                    Like last time · {time}
+                  </button>
+                )}
+                <button type="button" className="td-usual-btn is-add" onClick={() => add(item, false)} aria-label={`Add “${item.title}” for today`}>
+                  <Icon name="plus" size={15} strokeWidth={2.4} />
+                  Add
+                </button>
+              </span>
+            </li>
+          )
+        })}
+      </ul>
+    </section>
   )
 }
 

@@ -1,5 +1,7 @@
 // What the rest of today looks like, for the Today card: the "Now / Next" line and the evening's
-// leftovers. Pure (no store, no clock): the caller passes today's tasks, class slots and the time.
+// leftovers, plus the app icon's count. Pure (no store, no clock): the caller passes today's tasks,
+// class slots and the time.
+// Keep browser-free: imported by api/ (api/_reminders.js sends the icon count with every push).
 import { timeRangeMinutes, timeToMinutes } from './dates.js'
 
 // "Next" covers what starts within this many minutes; anything later reads "Free until …".
@@ -60,4 +62,22 @@ export function timePassed(task, today, nowMinutes) {
   if (!task || task.done || task.date !== today || !task.time) return false
   const start = timeToMinutes(task.time)
   return start !== null && start < nowMinutes
+}
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
+const BADGE_MAX = 9999
+
+// The number on the app icon: open tasks that are overdue or due today (the set Today shows).
+// people: false leaves out catch-up reminder tasks ("Talk to…", details "friend-reminder:…").
+// Anything that isn't a list counts 0; rows that aren't tasks, or have no proper date, are skipped.
+export function badgeCount(tasks, today, { people = true } = {}) {
+  if (!Array.isArray(tasks) || typeof today !== 'string') return 0
+  let count = 0
+  for (const task of tasks) {
+    if (!task || typeof task !== 'object' || task.done || task.archived) continue
+    if (typeof task.date !== 'string' || !ISO_DATE.test(task.date) || task.date > today) continue
+    if (people === false && typeof task.details === 'string' && task.details.startsWith('friend-reminder:')) continue
+    count += 1
+  }
+  return Math.min(BADGE_MAX, count)
 }

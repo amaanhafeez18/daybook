@@ -352,3 +352,62 @@
   .td-mood-btn { transition: background 0.15s; }
   .td-mood-btn:active { transform: none; }
 }
+
+/* ---- "Usually today" (lib/rhythms.js) ------------------------------------------------------ */
+
+/* "Usually today: Laundry" / "Every Sunday", × on the right; "Like last time · 5 PM" and Add on
+   the line below. Long titles end in "…". */
+.td-today .td-usual { padding: 2px 0; }
+.td-usual-row {
+  position: relative; display: grid; grid-template-columns: 24px minmax(0, 1fr) 44px; column-gap: 12px;
+  align-items: center; padding: 8px 0 10px;
+}
+.td-usual-row + .td-usual-row::before {
+  content: ''; position: absolute; top: 0; left: 36px; right: 0; height: 1px;
+  background: var(--separator, var(--border)); transform: scaleY(0.5); transform-origin: top; pointer-events: none;
+}
+.td-usual-row > .td-row-icon { grid-column: 1; grid-row: 1; }
+.td-usual-text { grid-column: 2; grid-row: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.td-usual-title, .td-usual-sub { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.td-usual-title { color: var(--text); font-size: var(--fs-body, 17px); letter-spacing: -0.02em; }
+.td-usual-title strong { font-weight: 600; }
+.td-usual-sub { color: var(--text-2); font-size: var(--fs-subhead, 15px); letter-spacing: -0.01em; }
+.td-today .td-usual-x {
+  grid-column: 3; grid-row: 1; justify-self: end; display: grid; place-items: center;
+  width: 44px; height: 44px; margin-right: -10px; border-radius: 50%; color: var(--text-3);
+  transition: opacity 0.15s, background-color 0.15s, color 0.15s;
+}
+.td-today .td-usual-x:active { opacity: 0.55; }
+@media (hover: hover) { .td-today .td-usual-x:hover { background: var(--surface-2); color: var(--text-2); } }
+.td-usual-actions { grid-column: 2 / 4; grid-row: 2; display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+/* 34 px pills; the ::after makes each a 44 px target without overlapping its neighbour. */
+.td-today .td-usual-btn {
+  position: relative; display: inline-flex; align-items: center; gap: 4px; max-width: 100%;
+  height: 34px; padding: 0 14px; border-radius: 999px;
+  background: var(--accent-soft); color: var(--accent);
+  font-size: 15px; font-weight: 600; letter-spacing: -0.01em; white-space: nowrap; font-variant-numeric: tabular-nums;
+  transition: transform 0.35s var(--spring, ease), opacity 0.15s;
+}
+.td-today .td-usual-btn.is-add { padding-left: 11px; background: var(--accent); color: var(--on-accent); }
+.td-today .td-usual-btn::after { content: ''; position: absolute; inset: -5px -4px; }
+.td-today .td-usual-btn:active { transform: scale(0.94); transition-duration: 0.1s; }
+@media (hover: hover) { .td-today .td-usual-btn:hover { opacity: 0.85; } }
+@media (prefers-reduced-motion: reduce) {
+  .td-today .td-usual-btn { transition: opacity 0.15s; }
+  .td-today .td-usual-btn:active { transform: none; opacity: 0.6; }
+}
+
+/* The task sheet's suggestion chips under the name ("Laundry · 5 PM"); the chip look is the app's. */
+#task-form .ts-usual { margin-top: -4px; }
+#task-form .ts-usual .chip { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; color: var(--text); }
+#task-form .ts-usual .chip .icon { flex-shrink: 0; color: var(--accent); }
+#task-form .ts-usual .chip > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#task-form .ts-usual .chip::after { inset: -7px 0; }
+
+/* Settings → Suggestions → Hidden suggestions (RhythmSettings.jsx): the name, then Bring back. */
+.set-row.rs-hidden-row { min-height: 50px; }
+.set-row > .rs-hidden-title {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text); font-size: 17px; letter-spacing: -0.02em;
+}
+.set-row > .link-btn.rs-bring-back { flex-shrink: 0; display: inline-flex; align-items: center; min-height: 44px; padding: 0 2px; }

@@ -9,6 +9,7 @@ import ClassSheet from '../components/ClassSheet.jsx'
 import CitySheet from '../components/CitySheet.jsx'
 import InstallSteps from '../components/InstallSteps.jsx'
 import NotifyOffHint from '../components/NotifyOffHint.jsx'
+import RhythmSettings from '../components/RhythmSettings.jsx'
 import { authRequest, clearUserCaches, writePref } from '../lib/api.js'
 import { navigate } from '../lib/router.js'
 import { flushAll, getState, refresh, resetStore, updateSettings, useData, useStore } from '../lib/store.js'
@@ -18,7 +19,9 @@ import { ACCENTS, APPEARANCES, DEFAULT_ACCENT, resolveAppearance } from '../lib/
 import { PRAYER_METHODS, useLocation } from '../lib/environment.js'
 import { AREAS, areasFrom } from '../lib/areas.js'
 import { formatDateShort, formatTime, todayISO } from '../lib/dates.js'
-import { DEFAULT_NOTIFICATIONS, LEAD_OPTIONS, currentSubscription, disableNotifications, enableNotifications, isHomeScreenApp, leadLabel, notificationPrefs, sendTestNotification, syncSubscription, usePushStatus } from '../lib/notifications.js'
+import { DEFAULT_NOTIFICATIONS, LEAD_OPTIONS, currentSubscription, deviceName, disableNotifications, enableNotifications, isHomeScreenApp, leadLabel, notificationPrefs, sendTestNotification, syncSubscription, usePushStatus } from '../lib/notifications.js'
+import { badgeSupport } from '../lib/appBadge.js'
+import { badgeCount } from '../lib/agenda.js'
 import { updatedLabel } from '../lib/location.js'
 import { hasGymPlan as gymPlanExists } from '../lib/setup.js'
 import { calorieGoalText, gymPlanSummary, savedFoodsText } from '../lib/hub.js'
@@ -49,7 +52,7 @@ const PRAYER_LEADS = [{ value: 0, label: 'At the time' }, { value: 5, label: '5 
 // #/settings/<id> opens Settings scrolled to that section (e.g. the prayer card's "Method" link).
 // 'security' is the Change password row inside Account & security; 'help' has the Welcome tour and
 // the Add to Home Screen steps.
-const SECTION_IDS = new Set(['areas', 'notifications', 'assistant', 'classes', 'prayer', 'appearance', 'profile', 'security', 'account', 'help', 'danger'])
+const SECTION_IDS = new Set(['areas', 'notifications', 'assistant', 'classes', 'prayer', 'suggestions', 'appearance', 'profile', 'security', 'account', 'help', 'danger'])
 
 // The section a deep link points at, read before useSectionLink clears it from the hash, so a
 // disclosure it points into (the prayer method) can start open.
@@ -280,6 +283,8 @@ export default function SettingsPage({ user, onUserChange, onSignOut }) {
           </Disclosure>
         )}
       </section>
+
+      <RhythmSettings settings={settings} />
 
       <section className="settings-group" id="help">
         <h2>Help</h2>
@@ -625,6 +630,30 @@ function LocationRow({ location, onChooseCity }) {
   )
 }
 
+// Under "Count on app icon" while it's on: what this device needs for the number to show
+// (lib/appBadge.js badgeSupport). Re-renders with NotificationSettings' push status, so turning
+// notifications on here updates it.
+function BadgeHint({ onTurnOn, busy }) {
+  const state = badgeSupport()
+  const ios = deviceName() !== 'this device'
+  const text = {
+    install: ios ? 'Add Daybook to your Home Screen, then open it from there.' : 'Install Daybook as an app, then open it from there.',
+    permission: 'Needs notifications on this device.',
+    unsupported: 'This browser can’t show a count on the app icon.',
+    ok: `Updates when you open Daybook or a reminder arrives.${ios ? ' No number? iPhone Settings → Notifications → Daybook → Badges.' : ''}`,
+  }[state]
+  return (
+    <div className="set-row set-hint-row">
+      <span className="set-hint">{text}</span>
+      {state === 'permission' && (
+        <span className="set-hint-actions">
+          <button type="button" className="link-btn" onClick={onTurnOn} disabled={busy}>Turn on</button>
+        </span>
+      )}
+    </div>
+  )
+}
+
 function NotificationSettings({ settings, location, onChooseCity }) {
   const prefs = notificationPrefs(settings)
   // Shared with the hints under the reminder switches and on Today: turning on in one updates all.
@@ -654,7 +683,9 @@ function NotificationSettings({ settings, location, onChooseCity }) {
 
   async function test() {
     try {
-      await sendTestNotification()
+      // With the icon count on, the test brings this account's count too (as every reminder does).
+      const people = settings.areas?.people !== false
+      await sendTestNotification(prefs.badge ? badgeCount(getState().data.tasks, todayISO(), { people }) : undefined)
       toast('Test sent — it should arrive in a few seconds')
     } catch (error) {
       toast(error.message, { tone: 'error' })
@@ -718,6 +749,11 @@ function NotificationSettings({ settings, location, onChooseCity }) {
             <input id="pref-summary" className="input" type="time" value={prefs.dailySummaryTime} onChange={(event) => set({ dailySummaryTime: event.target.value || '08:00' })} />
           </div>
         )}
+        {prefs.dailySummary && (
+          <div className="set-row is-switch">
+            <Switch label="Written by the assistant" description="A short note about your day, written from your plan. Also shown at the top of Today until noon." checked={!!prefs.dailySummaryAi} onChange={(dailySummaryAi) => set({ dailySummaryAi })} />
+          </div>
+        )}
         <div className="set-row is-switch">
           <Switch label="Evening check-in" description="A recap of today and a look at tomorrow" checked={prefs.overdue} onChange={(overdue) => set({ overdue })} />
         </div>
@@ -727,6 +763,10 @@ function NotificationSettings({ settings, location, onChooseCity }) {
             <input id="pref-evening" className="input" type="time" value={prefs.overdueTime} onChange={(event) => set({ overdueTime: event.target.value || '18:00' })} />
           </div>
         )}
+        <div className="set-row is-switch">
+          <Switch label="Count on app icon" description="Overdue and due-today tasks on your Home Screen icon" checked={!!prefs.badge} onChange={(badge) => set({ badge })} />
+        </div>
+        {prefs.badge && <BadgeHint onTurnOn={enable} busy={busy} />}
       </div>
       <p className="set-footnote">Tasks with a time also get a reminder 15 minutes before, and people a nudge when a catch-up is due. Change these under Advanced.</p>
 
