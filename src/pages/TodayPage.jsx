@@ -11,7 +11,7 @@ import TaskSheet from '../components/TaskSheet.jsx'
 import { readPref, writePref } from '../lib/api.js'
 import { useData } from '../lib/store.js'
 import { classOver, classesOn, compareTasks, createTask, deleteTaskForever, friendStatus, lastContactMap, updateTask } from '../lib/planner.js'
-import { addDaysISO, compareTimes, dueSentence, formatDateLong, formatDue, formatTime, greeting, parseQuickAdd, todayISO } from '../lib/dates.js'
+import { addDaysISO, compareTimes, dueSentence, formatDateLong, formatDue, formatTime, greeting, parseQuickAdd, timeAgo, todayISO } from '../lib/dates.js'
 import { dailyForecast, describeWeather, prayerSchedule, upcomingHours, useLocation, useNow, usePrayerTimes, useWeather } from '../lib/environment.js'
 import CardBoundary, { CardSkeleton } from '../components/CardBoundary.jsx'
 import { useAreas } from '../lib/areas.js'
@@ -47,6 +47,7 @@ export default function TodayPage({ displayName, loaded }) {
   const [sheet, setSheet] = useState(null)
   const [classSheet, setClassSheet] = useState(null)
   const [cityOpen, setCityOpen] = useState(false)
+  const greetName = String(displayName || '').trim().split(/\s+/)[0]
 
   const active = useMemo(() => tasks.filter((task) => !task.archived), [tasks])
   // intent: { pickDate: true } from a row's Later… → "Pick a date…".
@@ -61,7 +62,8 @@ export default function TodayPage({ displayName, loaded }) {
     <div className="today td-page">
       <header className="page-header td-header">
         <p className="eyebrow">{formatDateLong(today)}</p>
-        <h1 className="td-greeting">{greeting(now)}, {displayName}</h1>
+        {/* The first name only (as the assistant greets you): a full name was cut off with "…". */}
+        <h1 className="td-greeting">{greeting(now)}{greetName ? `, ${greetName}` : ''}</h1>
       </header>
 
       <div className="today-grid">
@@ -150,6 +152,7 @@ function TodayCard({ tasks, classes, today, now, loaded, onOpen, onOpenClass }) 
                     key={task.id}
                     task={task}
                     onOpen={onOpen}
+                    overdueGroup
                     trailing={(
                       <button type="button" className="td-chip-today" onClick={() => moveOne(task)} aria-label={`Move “${task.text}” to today`}>
                         Today
@@ -649,7 +652,7 @@ function PeopleCard({ friends, contactLogs, today }) {
               <Avatar name={friend.name} src={friend.photoUrl} size={36} />
               <span className="people-mini-text">
                 <strong>{friend.name}</strong>
-                <small>{status.last ? `Last talked ${status.daysSince} days ago` : 'No catch-up logged yet'}</small>
+                <small>{status.last ? `Talked ${timeAgo(status.last, today)}` : 'No catch-ups yet'}</small>
               </span>
               <Button variant="secondary" size="sm" onClick={() => markTalked(friend)}>Talked</Button>
             </li>

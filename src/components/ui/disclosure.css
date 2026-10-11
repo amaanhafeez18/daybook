@@ -26,6 +26,9 @@
 .disclosure-chevron { flex: none; margin-left: auto; color: var(--text-3, var(--text-2)); transition: transform 0.25s var(--spring, ease); }
 .disclosure.is-open > .disclosure-toggle > .disclosure-chevron { transform: rotate(180deg); }
 .disclosure-body { display: flex; flex-direction: column; gap: 14px; padding-top: 4px; }
+/* Rises in (App.css's `rise`) only after a tap opened it (.is-toggled, Disclosure.jsx), never on mount. */
+.disclosure.is-toggled > .disclosure-body { animation: rise 0.2s var(--ease, ease); }
 @media (prefers-reduced-motion: reduce) {
   .disclosure-chevron { transition: none; }
+  .disclosure.is-toggled > .disclosure-body { animation: none; }
 }

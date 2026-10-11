@@ -134,12 +134,11 @@
 .set-row.is-stacked .set-location-head > .set-label { font-size: 17px; color: var(--text); flex-shrink: 0; }
 .set-location-value { min-width: 0; font-size: 17px; color: var(--text-2); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .set-location-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.set-location-actions .btn { min-height: 40px; }
 
 /* "Needs your location. Use my location · Choose a city" under the prayer reminder switch. */
 .set-row.set-hint-row { flex-wrap: wrap; row-gap: 0; }
 .set-hint-actions { display: flex; flex-wrap: wrap; gap: 0 16px; margin-left: auto; }
-.set-hint-actions .link-btn { min-height: 44px; font-size: 15px; }
+.set-hint-actions .link-btn { min-height: 44px; }
 
 /* Help → Add to Home Screen sheet. */
 .set-install-other { margin: 16px 0 0; font-size: 14px; line-height: 1.4; color: var(--text-2); }

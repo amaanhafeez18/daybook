@@ -93,6 +93,7 @@ export default function ChangeWorkoutSheet({ open, onClose, date }) {
       description={isToday ? 'Just for today. Tomorrow and the rest of your plan stay the same.' : `${formatDateLong(day)} only. The rest of your plan stays the same.`}
       size="sm"
       initialFocus={false}
+      grouped
       footer={override ? (
         <button type="button" className="btn btn-secondary btn-block" onClick={backToPlan}>
           <Icon name="undo" size={18} />

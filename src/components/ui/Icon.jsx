@@ -102,9 +102,24 @@ const PATHS = {
   trendingUp: <path d="M22 7 13.5 15.5l-5-5L2 17M16 7h6v6" />,
   trendingDown: <path d="M22 17 13.5 8.5l-5 5L2 7M16 17h6v-6" />,
   ruler: <><path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z" /><path d="m14.5 12.5 2-2M11.5 9.5l2-2M8.5 6.5l2-2M17.5 15.5l2-2" /></>,
+  // Health space home (its own glyph, so the two Today tabs differ)
+  heartPulse: <><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" /><path d="M3.22 12H9.5l.5-1 2 4.5 2-7 1.5 3.5h5.27" /></>,
 }
 
-export default function Icon({ name, size = 20, strokeWidth = 1.8, className = '', title }) {
+// Optical line weight. strokeWidth is in the 24-unit grid, so one fixed value draws hairlines on
+// small icons (1.8 at 13px = 1px) and heavy lines on big ones. Without an explicit strokeWidth the
+// on-screen weight instead grows gently with size (about 1.35px at 13, 1.55px at 18, 1.8px at 24,
+// at most 2.4px), capped at 2.6 grid units so tiny glyphs don't clog. The geometry never changes.
+// An explicit strokeWidth (bold chevrons and checks, the tab bar) is used as given.
+const STROKE_MAX_PX = 2.4
+const STROKE_MAX_UNITS = 2.6
+export function opticalStroke(size) {
+  if (!(typeof size === 'number' && size > 0)) return 1.8
+  const px = Math.min(STROKE_MAX_PX, 0.75 + 0.045 * size)
+  return Math.round(Math.min(STROKE_MAX_UNITS, (px * 24) / size) * 100) / 100
+}
+
+export default function Icon({ name, size = 20, strokeWidth, className = '', title }) {
   return (
     <svg
       className={`icon ${className}`}
@@ -113,7 +128,7 @@ export default function Icon({ name, size = 20, strokeWidth = 1.8, className = '
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth={strokeWidth}
+      strokeWidth={strokeWidth ?? opticalStroke(size)}
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden={title ? undefined : true}

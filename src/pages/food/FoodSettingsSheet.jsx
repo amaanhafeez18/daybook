@@ -9,6 +9,7 @@ import { MEALS_DEFAULT, entryCalories } from '../../lib/food/nutrition.js'
 import { deleteFavorite, setWebSetting, updateFood, useFood, useWebSetting } from '../../lib/food/state.js'
 import { navigate } from '../../lib/router.js'
 import { NUTRIENT_INFO, energyNumber, entryName, fmtEnergy, fmtInt, portionText, unitLabel } from './format.js'
+import '../gym/cfg.css' // grouped settings rows, shared with Gym settings
 
 // Food settings. Basics: goals (link), meals (rename, reorder, 3–6; a disclosure that shows the
 // names while closed) and units. Everything else sits in an "Advanced" disclosure that remembers
@@ -36,7 +37,7 @@ function setPrefs(patch) {
 function Group({ title, footer, children }) {
   return (
     <section className="food-cfg-group">
-      {title && <h3 className="food-cfg-title">{title}</h3>}
+      {title && <h3 className="ui-label food-cfg-title">{title}</h3>}
       <div className="food-cfg-card">{children}</div>
       {footer && <p className="food-cfg-foot">{footer}</p>}
     </section>
@@ -87,7 +88,7 @@ export default function FoodSettingsSheet({ open, onClose }) {
   const advancedSummary = `${nutrientNames} · ${prefs.aiReview === 'autoHigh' ? 'Auto-log if sure' : 'Always review'} · Web: ${webLabel.toLowerCase()}`
 
   return (
-    <Sheet open={open} onClose={onClose} title="Food settings" initialFocus={false}>
+    <Sheet open={open} onClose={onClose} title="Food settings" initialFocus={false} grouped>
       <div className="food-cfg">
         <Group title="Basics">
           <button type="button" className="food-cfg-row food-cfg-link" onClick={() => { onClose(); navigate('food/goals') }}>

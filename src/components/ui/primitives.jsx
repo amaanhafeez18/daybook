@@ -119,7 +119,10 @@ export function EmptyState({ icon, title, children, action }) {
   )
 }
 
-const AVATAR_TONES = ['#E8845B', '#5B9BD5', '#7BAF6E', '#B982D6', '#D6A64F', '#E0708C', '#4FB3A5', '#8C8FD9']
+// The same eight hues as before, deepened just enough for the white initials to read (about 4:1
+// each, in both themes: the tone doesn't change with the theme). Mid-depth on purpose; darker
+// tones looked heavy next to the cards.
+const AVATAR_TONES = ['#D8541E', '#3482C9', '#598B4D', '#A761CB', '#A37726', '#D84C6F', '#3C8B80', '#7175D0']
 
 export function Avatar({ name = '', src, size = 40 }) {
   const [failed, setFailed] = useState(false)

@@ -3,6 +3,7 @@ import Icon from './Icon.jsx'
 import Sheet from './Sheet.jsx'
 import { watchKeyboard } from '../../lib/keyboard.js'
 import { addToast, toastDuration, toastText } from '../../lib/toastQueue.js'
+import { prefersReducedMotion } from '../../lib/motion.js'
 
 // ---- toasts ------------------------------------------------------------------------------
 // toast('Task archived', { action: { label: 'Undo', onClick } }) — short-lived, non-blocking
@@ -19,6 +20,7 @@ const SWIPE_SLOP_PX = 8
 const SWIPE_DISMISS_PX = 80
 const SWIPE_FLICK_PX_PER_MS = 0.6
 const RESUME_MIN_MS = 2000 // after a pause, a toast stays at least this long
+const LEAVE_MS = 220 // .toast.is-leaving fades it out (shell.css) before it's removed
 
 export function toast(message, { action, tone = 'default', duration, key } = {}) {
   const stamp = ++toastId
@@ -28,23 +30,60 @@ export function toast(message, { action, tone = 'default', duration, key } = {})
 export function Toaster() {
   const [toasts, setToasts] = useState([])
 
+  const leaveTimers = useRef(new Map())
+
   useEffect(() => {
     toastListener = (item) => {
       const limit = window.matchMedia?.(PHONE_QUERY).matches ? 2 : 3
-      setToasts((current) => addToast(current, item, limit))
+      setToasts((current) => {
+        // Toasts on their way out don't count: the queue (merging, the limit) sees only live ones.
+        // One pushed out by the limit leaves the same way as a dismissed one.
+        const live = current.filter((entry) => !entry.leaving)
+        const next = addToast(live, item, limit)
+        // Everything already showing keeps its place (moving a DOM node would replay its entrance);
+        // only the new or merged toast, always last in `next`, goes to the end.
+        const added = next[next.length - 1]
+        const byId = new Map(next.map((entry) => [entry.id, entry]))
+        const placed = current.flatMap((entry) => {
+          if (entry.leaving) return [entry]
+          if (entry.id === added.id) return []
+          return [byId.get(entry.id) ?? { ...entry, leaving: true }]
+        })
+        return [...placed, added]
+      })
     }
-    return () => { toastListener = null }
+    const timers = leaveTimers.current
+    return () => {
+      toastListener = null
+      timers.forEach(clearTimeout)
+      timers.clear()
+    }
   }, [])
+
+  // A leaving toast plays its exit (.is-leaving) and is then removed; with Reduce Motion, at once.
+  useEffect(() => {
+    const timers = leaveTimers.current
+    toasts.forEach((item) => {
+      if (!item.leaving || timers.has(item.id)) return
+      timers.set(item.id, setTimeout(() => {
+        timers.delete(item.id)
+        setToasts((current) => current.filter((entry) => entry.id !== item.id))
+      }, prefersReducedMotion() ? 0 : LEAVE_MS))
+    })
+  }, [toasts])
 
   // While toasts show, follow the on-screen keyboard so they sit above it (shell.css).
   const showing = toasts.length > 0
   useEffect(() => (showing ? watchKeyboard() : undefined), [showing])
 
-  const dismiss = (id) => setToasts((current) => current.filter((item) => item.id !== id))
+  // `immediate`: the toast has already gone (swiped off), so no exit animation is left to play.
+  const dismiss = (id, immediate) => setToasts((current) => (immediate
+    ? current.filter((item) => item.id !== id)
+    : current.map((item) => (item.id === id && !item.leaving ? { ...item, leaving: true } : item))))
 
   return (
     <div className="toaster" aria-live="polite" aria-atomic="false">
-      {toasts.map((item) => <ToastItem key={item.id} item={item} onDismiss={() => dismiss(item.id)} />)}
+      {toasts.map((item) => <ToastItem key={item.id} item={item} onDismiss={(immediate) => dismiss(item.id, immediate === true)} />)}
     </div>
   )
 }
@@ -59,7 +98,7 @@ function ToastItem({ item, onDismiss }) {
   return (
     <div
       ref={ref}
-      className={`toast toast-${item.tone}`}
+      className={`toast toast-${item.tone}${item.leaving ? ' is-leaving' : ''}`}
       role={item.tone === 'error' ? 'alert' : 'status'}
       onPointerEnter={(event) => { if (event.pointerType === 'mouse') timer.hold('hover') }}
       onPointerLeave={(event) => { if (event.pointerType === 'mouse') timer.release('hover') }}
@@ -75,6 +114,7 @@ function ToastItem({ item, onDismiss }) {
           type="button"
           className="toast-action"
           onClick={() => {
+            if (item.leaving) return // already fading out: Undo has been tapped once
             item.action.onClick()
             onDismiss()
           }}
@@ -82,7 +122,7 @@ function ToastItem({ item, onDismiss }) {
           {item.action.label}
         </button>
       )}
-      <button type="button" className="toast-close" onClick={onDismiss} aria-label="Dismiss">
+      <button type="button" className="toast-close" onClick={() => onDismiss()} aria-label="Dismiss">
         <Icon name="close" size={16} />
       </button>
     </div>
@@ -130,12 +170,12 @@ function useSwipeAway(ref, timer, onDismissRef) {
   const settle = (dismiss, dx) => {
     const element = ref.current
     if (!element) return
-    const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    const still = prefersReducedMotion()
     element.classList.remove('is-swiping')
     element.style.transition = still ? '' : 'transform 0.2s ease, opacity 0.2s ease'
     if (dismiss) {
       Object.assign(element.style, { transform: `translateX(${dx < 0 ? -110 : 110}%)`, opacity: '0' })
-      setTimeout(() => onDismissRef.current(), still ? 0 : 180)
+      setTimeout(() => onDismissRef.current(true), still ? 0 : 180)
     } else {
       Object.assign(element.style, { transform: '', opacity: '' })
     }
@@ -249,7 +289,8 @@ export function ConfirmHost() {
       footer={(
         <>
           <button type="button" className="btn btn-secondary" onClick={() => settle(false)}>{request?.cancelLabel || 'Cancel'}</button>
-          <button type="button" className={`btn ${request?.tone === 'danger' ? 'btn-danger' : 'btn-primary'}`} onClick={() => settle(true)} data-autofocus>
+          {/* Cancel at its natural width, the answer fills the rest: the footer pattern of every form sheet. */}
+          <button type="button" className={`btn btn-grow ${request?.tone === 'danger' ? 'btn-danger' : 'btn-primary'}`} onClick={() => settle(true)} data-autofocus>
             {request?.confirmLabel}
           </button>
         </>

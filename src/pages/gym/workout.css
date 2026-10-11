@@ -97,7 +97,7 @@
   color: var(--accent);
   font-size: 13px;
 }
-.gym-wo-finish { flex-shrink: 0; min-height: 40px; padding: 0 18px; font-size: 16px; }
+.gym-wo-finish { flex-shrink: 0; padding: 0 18px; font-size: 16px; }
 
 .gym-wo-stats { display: flex; align-items: stretch; gap: 8px; }
 .gym-wo-stat {
@@ -110,7 +110,8 @@
   border-radius: 20px;
   background: var(--card-bg);
 }
-.gym-wo-stat > span { font-size: 12px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.03em; }
+/* Sentence case 13/600, as the same numbers read on the summary after Finish (.gym-stat-label). */
+.gym-wo-stat > span { font-size: 13px; font-weight: 600; color: var(--text-2); }
 .gym-wo-stat strong {
   font-family: var(--font-display, var(--font));
   font-size: 21px;
@@ -122,23 +123,12 @@
   text-overflow: ellipsis;
 }
 .gym-wo-stat strong small { font-size: 15px; font-weight: 600; color: var(--text-2); letter-spacing: 0; }
-.gym-wo-deload {
-  align-self: center;
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 6px 12px;
-  border-radius: 999px;
-  background: var(--warning-soft);
-  color: var(--warning);
-  font-size: 14px;
-  font-weight: 700;
-}
+/* The badge itself is DeloadBadge (gym-widget.css); here it only sits centred in the stats row. */
+.gym-wo-deload { align-self: center; }
 
 .gym-wo-end { display: flex; justify-content: center; padding-top: 8px; }
 .gym-wo-discard { color: var(--danger); }
-.gym-wo-discard:hover:not(:disabled) { color: var(--danger); background: var(--danger-soft); }
+@media (hover: hover) { .gym-wo-discard:hover:not(:disabled) { color: var(--danger); background: var(--danger-soft); } }
 
 /* ---- exercise cards ------------------------------------------------------------------------ */
 
@@ -384,7 +374,7 @@
   transition: background 0.2s, color 0.2s, transform 0.35s var(--spring, var(--ease));
 }
 .gym-check:active { transform: scale(0.88); transition-duration: 0.1s; }
-.gym-check.is-done { background: var(--success); color: #fff; }
+.gym-check.is-done { background: var(--success); color: var(--on-success, #fff); }
 .gym-check.is-done .icon { animation: gym-pop 0.35s var(--spring, var(--ease)); }
 
 .gym-ex-foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
@@ -420,7 +410,7 @@
 .gym-rest-chip.is-off { background: var(--surface-2); color: var(--text-2); }
 .gym-rest-chip:active { opacity: 0.7; }
 
-.gym-add-ex { color: var(--accent); min-height: 50px; font-size: 16px; }
+.gym-add-ex { color: var(--accent); font-size: 16px; } /* height: the shared .btn token */
 
 /* ---- reorder mode ---------------------------------------------------------------------------- */
 
@@ -465,42 +455,7 @@
 .gym-log-reorder-row .icon-btn { width: 44px; height: 44px; color: var(--accent); }
 .gym-log-reorder-row .icon-btn:disabled { color: var(--text-3); }
 
-/* ---- action sheets ------------------------------------------------------------------------- */
-
-.gym-actions { border-radius: 18px; background: var(--card-bg); overflow: hidden; }
-.gym-actions + .gym-actions { margin-top: 12px; }
-.gym-actions li { position: relative; }
-.gym-actions li + li::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 56px;
-  right: 0;
-  height: 1px;
-  background: var(--separator, var(--border));
-  transform: scaleY(0.5);
-  transform-origin: top;
-  pointer-events: none;
-}
-.gym-action {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-height: 52px;
-  padding: 8px 16px;
-  color: var(--text);
-  font-size: 17px;
-  text-align: left;
-  letter-spacing: -0.02em;
-}
-.gym-action:active { background: var(--surface-2); }
-.gym-action-icon { flex-shrink: 0; width: 28px; display: grid; place-items: center; color: var(--accent); }
-.gym-action-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.gym-action-text small { font-size: 13px; color: var(--text-2); letter-spacing: 0; }
-.gym-action-value { flex-shrink: 0; color: var(--text-2); font-size: 16px; font-variant-numeric: tabular-nums; }
-.gym-action-check { flex-shrink: 0; color: var(--accent); }
-.gym-action.is-danger, .gym-action.is-danger .gym-action-icon { color: var(--danger); }
+/* ---- rest timer edit sheet (the set-type sheet is SetTypeSheet.jsx, on the shared .gym-as-* rows) -- */
 
 .gym-restedit { display: flex; align-items: center; justify-content: center; gap: 22px; padding: 6px 0 18px; }
 .gym-restedit-value {
@@ -637,7 +592,7 @@
   gap: 8px;
   height: 56px;
   background: var(--success);
-  color: #fff;
+  color: var(--on-success, #fff); /* black on dark mode's bright green: white there is ~2:1 */
   font-size: 17px;
   font-weight: 700;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
@@ -645,7 +600,7 @@
 
 .gym-rest-ring { position: relative; width: min(240px, 68vw); aspect-ratio: 1 / 1; margin: 4px auto 22px; }
 .gym-rest-ring svg { display: block; width: 100%; height: 100%; transform: rotate(-90deg); }
-.gym-ring-track { fill: none; stroke: var(--surface-2); stroke-width: 12; }
+.gym-ring-track { fill: none; stroke: var(--surface-3); stroke-width: 12; }
 .gym-ring-fill { fill: none; stroke: var(--accent); stroke-width: 12; stroke-linecap: round; transition: stroke-dashoffset 0.25s linear; }
 .gym-rest-ring-text { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .gym-rest-ring-text strong {
@@ -719,7 +674,7 @@ html.gym-has-float:where(:not(.has-sheet)) .toaster { bottom: calc(var(--nav-h) 
 .gym-wcheck-text { flex: 1 1 180px; min-width: 0; display: flex; align-items: flex-start; gap: 8px; line-height: 1.3; }
 .gym-wcheck-text .icon { flex-shrink: 0; margin-top: 2px; color: var(--warning); }
 .gym-wcheck-actions { display: flex; gap: 8px; margin-left: auto; }
-.gym-wcheck-actions .btn { min-height: 44px; padding: 0 14px; font-variant-numeric: tabular-nums; }
+.gym-wcheck-actions .btn { padding: 0 14px; font-variant-numeric: tabular-nums; }
 
 /* ---- summary ------------------------------------------------------------------------------- */
 
@@ -837,7 +792,6 @@ html.gym-has-float:where(:not(.has-sheet)) .toaster { bottom: calc(var(--nav-h) 
 
 @media (hover: hover) {
   .gym-prev:not(:disabled):hover, .gym-set-num:hover { background: var(--surface-2); }
-  .gym-action:hover { background: var(--surface-2); }
   .gym-add-set:hover { background: var(--surface-3); }
   .gym-rest-main:hover { background: var(--surface-2); }
 }

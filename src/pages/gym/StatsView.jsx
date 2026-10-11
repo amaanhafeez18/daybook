@@ -8,6 +8,7 @@ import { addDays, weekStart } from '../../lib/gym/schedule.js'
 import { addBodyWeight, deleteBodyWeight, useBodyWeights, useGym, useGymSessions } from '../../lib/gym/state.js'
 import { sessionDurationSec, sessionVolume, streakWeeks, topExercises, weekProgress, weeklyCounts, weeklySetsByMuscle } from '../../lib/gym/stats.js'
 import { formatNumber, formatVolume, fromKg } from '../../lib/gym/units.js'
+import { scrollBehavior } from '../../lib/motion.js'
 import { navigate } from '../../lib/router.js'
 import { BarChart, LineChart } from './charts.jsx'
 import { GymEmpty, SectionHeader, Stat, WeightInput, goBack } from './common.jsx'
@@ -182,7 +183,7 @@ function MuscleSets({ sessions, today, firstWeekday, lookup }) {
     if (!row || !chip) return
     const left = chip.offsetLeft
     if (left < row.scrollLeft || left + chip.offsetWidth > row.scrollLeft + row.clientWidth - 24) {
-      row.scrollTo({ left: Math.max(0, left - 16), behavior: 'smooth' })
+      row.scrollTo({ left: Math.max(0, left - 16), behavior: scrollBehavior() })
     }
   }, [muscle])
 

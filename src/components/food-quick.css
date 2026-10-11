@@ -6,12 +6,14 @@
    Food page has them too).
    ========================================================================================= */
 
+/* Header: the same anatomy as the Gym card (gym-widget.css) and the weight line below: 16px inset,
+   40px leading ring, 12px gap, so the text starts at 68px; title 17/600, subtitle 15px. */
 .card.fq-card { display: flex; flex-direction: column; gap: 12px; padding: 14px 14px 14px 16px; }
-.fq-head { display: flex; align-items: center; gap: 11px; min-height: 36px; }
+.fq-head { display: flex; align-items: center; gap: 12px; min-height: 40px; }
 .fq-ring { flex-shrink: 0; }
 .fq-head-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .fq-head-text h3 { font-size: 17px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.2; }
-.fq-sum { font-size: 14px; color: var(--text-2); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fq-sum { font-size: 15px; color: var(--text-2); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fq-sum .is-over { color: var(--food-over); }
 .skeleton.fq-skel { width: 60%; height: 12px; margin-top: 4px; }
 .fq-all {
@@ -52,12 +54,20 @@
 .fq-panel .food-est-skel-row { background: var(--surface-2); }
 .fq-actions { display: flex; gap: 8px; }
 .fq-actions.is-wrap { flex-wrap: wrap; }
-.fq-actions .btn { min-height: 44px; }
 .fq-error {
   display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px; border-radius: 14px;
   background: var(--danger-soft); color: var(--danger); font-size: 14px; font-weight: 500;
 }
 .fq-error .icon { flex-shrink: 0; margin-top: 1px; }
+
+/* ---- Health Today's weight line (WeightCard): its rows come from today.css; these heavier
+   selectors give it the shared header anatomy (40px soft tile, text at 68px, 17/600 + 15px). ---- */
+.card.td-headline.td-weight { padding-left: 16px; }
+.card.td-weight .td-hl-line, .td-weight .td-weight-main { gap: 12px; }
+.card.td-weight .td-hl-line { min-height: 64px; }
+.td-weight .td-hl-icon.is-soft { width: 40px; height: 40px; border-radius: 12px; }
+.td-weight .td-hl-main { font-size: 17px; font-weight: 600; letter-spacing: -0.02em; }
+.td-weight .td-hl-sub { font-size: 15px; }
 
 /* ---- meal shortcut chips (MealShortcuts: the Food page's empty meals and this card) ----------- */
 

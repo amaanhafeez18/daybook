@@ -7,9 +7,11 @@ import { MUSCLES, TRACKING, exerciseById } from '../../lib/gym/library.js'
 import { compareSessions, deloadWeight, e1rm, increment, isBackfillWorkout, livePRs, plannedWeight, plausibleWeight, previousSets, suggestNext, warmupSets } from '../../lib/gym/stats.js'
 import { formatDistance, formatDuration, formatNumber, formatPace, formatVolume, formatWeight, fromMeters, toMeters } from '../../lib/gym/units.js'
 import { getActiveWorkout, getGym, newGymId, normalizeGym, routineById, saveRoutine, setExerciseMeta } from '../../lib/gym/state.js'
+import { scrollBehavior } from '../../lib/motion.js'
 import { navigate } from '../../lib/router.js'
 import { ActionSheet, DurationInput, GymEmpty, NumberInput, SetTypeBadge, WeightInput } from './common.jsx'
 import ExercisePicker from './ExercisePicker.jsx'
+import SetTypeSheet from './SetTypeSheet.jsx'
 import { PlateCalculatorSheet } from './ToolsSheet.jsx'
 import { unlockAudio } from './RestTimer.jsx'
 import { ExerciseVisualThumbButton, useExerciseVisual } from './visuals/lazy.jsx'
@@ -22,12 +24,6 @@ import './workout.css'
 
 const SET_TYPES = ['normal', 'warmup', 'drop', 'failure']
 const TYPE_NAME = { normal: 'Set', warmup: 'Warm-up set', drop: 'Drop set', failure: 'Failure set' }
-const TYPE_OPTIONS = [
-  { type: 'normal', label: 'Normal', hint: 'Counts toward weight lifted, sets and records' },
-  { type: 'warmup', label: 'Warm-up', hint: 'Left out of weight lifted, set counts and PRs' },
-  { type: 'drop', label: 'Drop set', hint: 'Lighter set straight after, no rest before it' },
-  { type: 'failure', label: 'Failure', hint: 'A working set taken to failure' },
-]
 const RPE_VALUES = [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10]
 const REST_PRESETS = [0, 30, 45, 60, 90, 120, 150, 180, 240, 300]
 const SUPERSET_COLORS = ['var(--gym-c-indigo)', 'var(--gym-c-teal)', 'var(--gym-c-pink)', 'var(--gym-c-orange)', 'var(--gym-c-blue)', 'var(--gym-c-green)']
@@ -455,7 +451,6 @@ function nextOpenSet(exercise, preferred) {
 const setDomId = (prefix, exIndex, setIndex) => `${prefix}-set-${exIndex}-${setIndex}`
 const cardDomId = (prefix, exIndex) => `${prefix}-ex-${exIndex}`
 const noteDomId = (prefix, exIndex) => `${prefix}-note-${exIndex}`
-const prefersReducedMotion = () => typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 
 function selectOnFocus(event) {
   const input = event.currentTarget
@@ -606,7 +601,7 @@ export default function ExerciseLog({ workout, onChange, mode = 'live', gym, ses
       requestAnimationFrame(() => {
         const element = document.getElementById(setDomId(domPrefix, exIndex, setIndex))
         if (!element) return
-        element.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' })
+        element.scrollIntoView({ behavior: scrollBehavior(), block: 'center' })
         element.classList.remove('is-flash')
         void element.offsetWidth
         element.classList.add('is-flash')
@@ -1036,7 +1031,7 @@ export default function ExerciseLog({ workout, onChange, mode = 'live', gym, ses
   useEffect(() => {
     if (scrollCard === null) return
     const element = document.getElementById(cardDomId(domPrefix, scrollCard))
-    if (element) element.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'start' })
+    if (element) element.scrollIntoView({ behavior: scrollBehavior(), block: 'start' })
     setScrollCard(null)
   }, [scrollCard, domPrefix, exercises.length])
 
@@ -1159,57 +1154,15 @@ export default function ExerciseLog({ workout, onChange, mode = 'live', gym, ses
 
       <ActionSheet open={sheet?.kind === 'menu' && !!menuTarget} onClose={closeSheet} title={menu.name || 'Exercise'} actions={menu.groups} />
 
-      <Sheet
+      <SetTypeSheet
         open={sheet?.kind === 'type' && !!typeSet}
         onClose={closeSheet}
         title={typeSet ? (setTypeOf(typeSet) === 'normal' ? `Set ${typeRow?.number ?? ''}` : `${TYPE_NAME[setTypeOf(typeSet)]} ${typeRow?.typeIndex ?? ''}`) : 'Set'}
-        description="Choose the set type"
-        size="sm"
-        initialFocus={false}
-      >
-        {typeSet && (
-          <>
-            <ul className="gym-actions">
-              {TYPE_OPTIONS.map((option) => {
-                const selected = setTypeOf(typeSet) === option.type
-                return (
-                  <li key={option.type}>
-                    <button
-                      type="button"
-                      className={`gym-action${selected ? ' is-selected' : ''}`}
-                      aria-pressed={selected}
-                      onClick={() => {
-                        actions.setType(typeSheet.exRef, typeSheet.setRef, option.type)
-                        closeSheet()
-                      }}
-                    >
-                      <span className="gym-action-icon" aria-hidden="true">
-                        <SetTypeBadge type={option.type} number={option.type === 'normal' ? typeRow?.number ?? 1 : undefined} />
-                      </span>
-                      <span className="gym-action-text">
-                        <span>{option.label}</span>
-                        <small>{selected && option.type !== 'normal' ? 'Tap again to make it a normal set' : option.hint}</small>
-                      </span>
-                      {selected && <Icon name="check" size={20} strokeWidth={2.4} className="gym-action-check" />}
-                    </button>
-                  </li>
-                )
-              })}
-            </ul>
-            <ActionList
-              items={[{
-                icon: 'trash',
-                label: 'Delete set',
-                tone: 'danger',
-                onClick: () => {
-                  closeSheet()
-                  actions.deleteSet(typeSheet.exRef, typeSheet.setRef)
-                },
-              }]}
-            />
-          </>
-        )}
-      </Sheet>
+        type={typeSet ? setTypeOf(typeSet) : 'normal'}
+        number={typeRow?.number}
+        onPick={(type) => actions.setType(typeSheet.exRef, typeSheet.setRef, type)}
+        extra={[{ id: 'delete', icon: 'trash', label: 'Delete set', danger: true, onClick: () => actions.deleteSet(typeSheet.exRef, typeSheet.setRef) }]}
+      />
 
       <RestEditSheet
         open={sheet?.kind === 'rest' && !!restTarget}
@@ -1325,26 +1278,6 @@ function plateWeight(exercise, derived) {
     if (kg !== null) return kg
   }
   return null
-}
-
-function ActionList({ items }) {
-  if (!items?.length) return null
-  return (
-    <ul className="gym-actions">
-      {items.map((item) => (
-        <li key={item.label}>
-          <button type="button" className={`gym-action${item.tone === 'danger' ? ' is-danger' : ''}`} onClick={item.onClick}>
-            <span className="gym-action-icon" aria-hidden="true"><Icon name={item.icon} size={20} /></span>
-            <span className="gym-action-text">
-              <span>{item.label}</span>
-              {item.hint && <small>{item.hint}</small>}
-            </span>
-            {item.value && <span className="gym-action-value">{item.value}</span>}
-          </button>
-        </li>
-      ))}
-    </ul>
-  )
 }
 
 // ---- one exercise ------------------------------------------------------------------------------

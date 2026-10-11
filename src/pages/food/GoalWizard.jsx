@@ -12,6 +12,7 @@ import { hasPlan, useGym } from '../../lib/gym/state.js'
 import { refresh, useStore } from '../../lib/store.js'
 import { DetailTop, goBack } from './common.jsx'
 import { NUTRIENT_INFO, dayLabel, fmtInt, fmtNum, fmtWeight, isNum, kgToUnit, plural, shortDay, toNum, unitLabel, unitToKg, weightUnitLabel } from './format.js'
+import '../gym/cfg.css' // grouped settings rows, shared with Gym settings
 
 // #/food/goals. With a calorie goal set, the page opens on a summary of it (and what it was
 // based on) with "Adjust numbers" (type your own, prefilled) and "Recalculate" (the calculator,
@@ -262,7 +263,7 @@ export default function GoalWizard({ today }) {
       ) : step === 1 ? (
         <form className="food-cfg" onSubmit={calculate}>
           <section className="food-cfg-group">
-            <h3 className="food-cfg-title">About you</h3>
+            <h3 className="ui-label food-cfg-title">About you</h3>
             <div className="food-cfg-card">
               <div className="food-cfg-row is-stacked">
                 <span className="food-cfg-label"><span>Sex</span><small>Optional — it changes the calculation a little</small></span>
@@ -296,7 +297,7 @@ export default function GoalWizard({ today }) {
           </section>
 
           <section className="food-cfg-group">
-            <h3 className="food-cfg-title">Activity</h3>
+            <h3 className="ui-label food-cfg-title">Activity</h3>
             <div className="food-cfg-card" role="radiogroup" aria-label="Activity">
               {ACTIVITY_LEVELS.map((level) => (
                 <button key={level.id} type="button" role="radio" aria-checked={form.activity === level.id} className={`food-cfg-row food-choice${form.activity === level.id ? ' is-active' : ''}`} onClick={() => set('activity', level.id)}>
@@ -314,7 +315,7 @@ export default function GoalWizard({ today }) {
           </section>
 
           <section className="food-cfg-group">
-            <h3 className="food-cfg-title">Goal</h3>
+            <h3 className="ui-label food-cfg-title">Goal</h3>
             <div className="food-cfg-card">
               <div className="food-cfg-row is-stacked">
                 <Segmented options={GOAL_TYPES} value={form.goal} onChange={chooseGoal} label="Goal" />
@@ -395,7 +396,7 @@ function GoalSummary({ food, unit, weightUnit, weighIn, today, onAdjust, onRecal
   return (
     <div className="food-cfg food-goal-summary">
       <section className="card food-goal-hero" aria-label="Daily goals">
-        <span className="food-goal-hero-label">Daily calories</span>
+        <span className="ui-label food-goal-hero-label">Daily calories</span>
         <span className="food-goal-hero-value">
           <strong className="food-goal-hero-num">{fmtInt(energyInUnit(goals.calories, unit))}</strong>
           <small>{e}</small>
@@ -418,7 +419,7 @@ function GoalSummary({ food, unit, weightUnit, weighIn, today, onAdjust, onRecal
       </section>
 
       <section className="food-cfg-group">
-        <h3 className="food-cfg-title">{calculated ? 'Worked out from' : 'How it was set'}</h3>
+        <h3 className="ui-label food-cfg-title">{calculated ? 'Worked out from' : 'How it was set'}</h3>
         <div className="food-cfg-card">
           {rows.map((row) => (
             <div key={row.label} className="food-cfg-row">
@@ -507,7 +508,7 @@ function GoalResult({ result, profile, unit, weightUnit, today, macros, setMacro
       {blocked && <p className="food-note is-warning"><Icon name="info" size={18} /><span>{blocked}</span></p>}
 
       <section className="card food-goal-hero">
-        <span className="food-goal-hero-label">Daily calories</span>
+        <span className="ui-label food-goal-hero-label">Daily calories</span>
         <span className="food-goal-hero-value">
           {/* Grouped while not being edited ('2,730'), and as wide as its text: a 5-digit kJ goal
               (10,878) must not be cut off. */}
@@ -633,7 +634,7 @@ function ManualGoals({ food, unit }) {
   return (
     <form className="food-cfg" onSubmit={save}>
       <section className="food-cfg-group">
-        <h3 className="food-cfg-title">Daily goals</h3>
+        <h3 className="ui-label food-cfg-title">Daily goals</h3>
         <div className="food-cfg-card">{MANUAL_MAIN.map(row)}</div>
         <p className="food-cfg-foot">
           {hasMacros && isNum(kcal) && kcal > 0

@@ -408,7 +408,7 @@ export default function SplitWizard({ open, onClose, today }) {
           {s.step === 0 && (
             <div className="wiz-step">
               <section className="wiz-section">
-                <label className="wiz-label" htmlFor={`${id}-text`}>Type it</label>
+                <label className="ui-label wiz-label" htmlFor={`${id}-text`}>Type it</label>
                 <div className="wiz-type">
                   <Icon name="wand" size={18} className="wiz-type-icon" />
                   <input
@@ -451,7 +451,7 @@ export default function SplitWizard({ open, onClose, today }) {
 
               <section className="wiz-section" aria-labelledby={`${id}-days`}>
                 <div className="wiz-section-head">
-                  <h3 className="wiz-label" id={`${id}-days`}>{rotation ? 'Your days, in order' : 'Your week'}</h3>
+                  <h3 className="ui-label wiz-label" id={`${id}-days`}>{rotation ? 'Your days, in order' : 'Your week'}</h3>
                   <span className="wiz-counts" aria-live="polite">{counts}</span>
                 </div>
                 {rotation ? (
@@ -559,7 +559,7 @@ export default function SplitWizard({ open, onClose, today }) {
               </section>
 
               <section className="wiz-section" aria-labelledby={`${id}-palette`}>
-                <h3 className="wiz-label" id={`${id}-palette`}>{rotation ? 'Tap to add a day' : 'Add the next day'}</h3>
+                <h3 className="ui-label wiz-label" id={`${id}-palette`}>{rotation ? 'Tap to add a day' : 'Add the next day'}</h3>
                 <div className="wiz-palette">
                   {DAY_TYPES.map((type) => (
                     <button
@@ -610,7 +610,7 @@ export default function SplitWizard({ open, onClose, today }) {
               </section>
 
               <section className="wiz-section" aria-labelledby={`${id}-mode`}>
-                <h3 className="wiz-label" id={`${id}-mode`}>How it repeats</h3>
+                <h3 className="ui-label wiz-label" id={`${id}-mode`}>How it repeats</h3>
                 <div className="wiz-modes" role="radiogroup" aria-labelledby={`${id}-mode`}>
                   <ModeOption
                     checked={rotation}
@@ -669,7 +669,7 @@ export default function SplitWizard({ open, onClose, today }) {
             <div className="wiz-step">
               {rotation && (
                 <section className="wiz-section" aria-labelledby={`${id}-anchor`}>
-                  <h3 className="wiz-label" id={`${id}-anchor`}>{hasSessionToday ? 'Tomorrow is' : 'Today is'}</h3>
+                  <h3 className="ui-label wiz-label" id={`${id}-anchor`}>{hasSessionToday ? 'Tomorrow is' : 'Today is'}</h3>
                   <div className="wiz-anchor" role="radiogroup" aria-labelledby={`${id}-anchor`}>
                     {s.days.map((day, index) => {
                       const hex = dayHex(day)
@@ -701,7 +701,7 @@ export default function SplitWizard({ open, onClose, today }) {
               <PreviewSection id={`${id}-preview2`} preview={preview} today={today} />
 
               <section className="wiz-section" aria-labelledby={`${id}-summary`}>
-                <h3 className="wiz-label" id={`${id}-summary`}>Summary</h3>
+                <h3 className="ui-label wiz-label" id={`${id}-summary`}>Summary</h3>
                 <ul className="wiz-summary">
                   <li>
                     <span className="wiz-summary-icon" aria-hidden="true"><Icon name={rotation ? 'repeat' : 'calendar'} size={17} /></span>
@@ -928,7 +928,7 @@ function WorkoutCard({ entry, workout, routines, when, onRename, onChoice, onCol
 function PreviewSection({ id, preview, today }) {
   return (
     <section className="wiz-section" aria-labelledby={id}>
-      <h3 className="wiz-label" id={id}>Next two weeks</h3>
+      <h3 className="ui-label wiz-label" id={id}>Next two weeks</h3>
       {preview ? (
         <ol className="wiz-strip">
           {preview.map((day) => <PreviewDay key={day.date} day={day} today={today} />)}

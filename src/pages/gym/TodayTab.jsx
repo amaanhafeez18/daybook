@@ -4,6 +4,7 @@ import Sheet from '../../components/ui/Sheet.jsx'
 import { EmptyState, IconButton } from '../../components/ui/primitives.jsx'
 import { toast } from '../../components/ui/feedback.jsx'
 import { WEEKDAY_SHORT, addDaysISO, formatDateShort, formatDuration as formatMinutes, relativeDay, weekdayIndex } from '../../lib/dates.js'
+import { abbreviationOptions, routineAbbreviations } from '../../lib/gym/abbreviations.js'
 import { TRACKING, exerciseById, newRoutineExercise } from '../../lib/gym/library.js'
 import { deloadWeek, nextWorkout, resolveDay, resolveRange } from '../../lib/gym/schedule.js'
 import {
@@ -18,6 +19,7 @@ import { formatDistance, formatDuration, formatNumber, formatVolume, formatWeigh
 import { navigate } from '../../lib/router.js'
 import { ActionSheet, DurationInput, NumberInput, RoutineChip, RoutineDot, SectionHeader, WeightInput } from './common.jsx'
 import ChangeWorkoutSheet from './ChangeWorkoutSheet.jsx'
+import DeloadBadge from './DeloadBadge.jsx'
 import ScheduleEditor from './ScheduleEditor.jsx'
 import SkipSheet from './SkipSheet.jsx'
 import { beginWorkout } from './startWorkout.js'
@@ -342,14 +344,14 @@ function Hero({ day, next, week, gym, sessions, today, active, hasSchedule, onMe
   const style = tint ? { '--gym-rc': routineColor(tint) } : undefined
   const override = day.override
   const badges = []
-  if (day.deload) badges.push(<span key="deload" className="gym-td-badge is-deload" title="Fewer sets and about 10% less weight this week"><Icon name="arrowDown" size={12} strokeWidth={2.4} />Deload week</span>)
+  if (day.deload) badges.push(<DeloadBadge key="deload" title="Fewer sets and about 10% less weight this week" />)
   if (override?.movedFrom) badges.push(<span key="moved" className="gym-td-badge"><Icon name="arrowRight" size={12} strokeWidth={2.4} />Moved from {WEEKDAY_SHORT[weekdayIndex(override.movedFrom)]}</span>)
   else if (override?.movedTo) badges.push(<span key="moved" className="gym-td-badge"><Icon name="arrowRight" size={12} strokeWidth={2.4} />Moved to {WEEKDAY_SHORT[weekdayIndex(override.movedTo)]}</span>)
   else if (override) badges.push(<span key="changed" className="gym-td-badge" title={`Planned: ${slotLabel(day.planned, gym)}`}><Icon name="pencil" size={12} strokeWidth={2.2} />Changed</span>)
 
   const top = (eyebrow, icon) => (
     <div className="gym-td-hero-top">
-      <span className="gym-td-hero-eyebrow">
+      <span className="ui-label gym-td-hero-eyebrow">
         {tint ? <RoutineDot routine={tint} size={9} /> : icon ? <Icon name={icon} size={14} strokeWidth={2.2} /> : null}
         {eyebrow}
       </span>
@@ -511,7 +513,7 @@ function NextUp({ next, today, gym }) {
   if (!next) return null
   return (
     <p className="gym-td-next">
-      <span className="gym-td-next-label">Next</span>
+      <span className="ui-label gym-td-next-label">Next</span>
       <RoutineChip routine={next.routine} label={next.routine || next.routineMissing ? undefined : slotLabel(next.shown, gym)} />
       <span className="gym-td-next-when">{relativeDay(next.date, today)}</span>
     </p>
@@ -555,15 +557,18 @@ function DoneSession({ session, gym, sessions }) {
 
 // ---- 7-day strip -----------------------------------------------------------------------------------------
 
+// Each day is ~45px wide on a phone, so routines show as their short code (as in the Gym calendar:
+// 'Push' → 'P', 'Pull' → 'Pl'); the full name is in the button's label and tooltip.
 function WeekStrip({ days, today, gym }) {
+  const codes = useMemo(() => routineAbbreviations(gym.routines), [gym.routines])
   return (
     <ol className="card gym-td-strip" aria-label="Your next 7 days">
-      {days.map((day) => <StripDay key={day.date} day={day} today={today} gym={gym} />)}
+      {days.map((day) => <StripDay key={day.date} day={day} today={today} gym={gym} codes={codes} />)}
     </ol>
   )
 }
 
-function StripDay({ day, today, gym }) {
+function StripDay({ day, today, gym, codes }) {
   const isToday = day.date === today
   const session = day.sessions[0]
   const routine = day.status === 'done' ? routineById(gym, session?.routineId) || day.routine : day.routine
@@ -592,6 +597,11 @@ function StripDay({ day, today, gym }) {
     label = slotLabel(day.shown, gym)
     status = label
   }
+  // Short code under the circle: the routine's code, else the first letters of a session's own name.
+  let short = label
+  if (routine && (kind === 'done' || kind === 'planned' || kind === 'skipped')) short = codes.get(routine.id) || label
+  else if (kind === 'done') short = abbreviationOptions(label)[0] || label
+  else if (kind === 'missing') short = '–'
   const dayLabel = isToday ? 'Today' : WEEKDAY_SHORT[weekdayIndex(day.date)]
   return (
     <li>
@@ -608,7 +618,7 @@ function StripDay({ day, today, gym }) {
           {kind === 'done' && <span className="gym-td-strip-mark is-done"><Icon name="check" size={9} strokeWidth={4} /></span>}
           {kind !== 'done' && day.override && <span className="gym-td-strip-mark is-edit"><Icon name="pencil" size={8} strokeWidth={3} /></span>}
         </span>
-        <span className="gym-td-strip-name">{label || '\u00a0'}</span>
+        <span className="gym-td-strip-name" title={label || undefined}>{short || '\u00a0'}</span>
       </button>
     </li>
   )
@@ -878,7 +888,7 @@ function RoutinePickerSheet({ open, onClose, title, gym, today, planned }) {
     beginWorkout({ routine, date: today })
   }
   return (
-    <Sheet open={open} onClose={onClose} title={title} description="Pick a routine to start, or start empty and add exercises as you go." size="sm">
+    <Sheet open={open} onClose={onClose} title={title} description="Pick a routine to start, or start empty and add exercises as you go." size="sm" grouped>
       <ul className="gym-td-pick-list">
         {gym.routines.map((routine) => {
           const minutes = estimateMinutes(routine)

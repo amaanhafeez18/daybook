@@ -103,7 +103,7 @@ export default function EstimateSheet({ request, onClose, onManual, today }) {
   else footer = <Button variant="secondary" className="btn-grow" icon="refresh" onClick={() => setRun((n) => n + 1)}>Try again</Button>
 
   return (
-    <Sheet open={open} onClose={cancel} title={shown?.replace ? 'Estimate calories' : 'Review'} initialFocus={false} footer={footer}>
+    <Sheet open={open} onClose={cancel} title={shown?.replace ? 'Estimate calories' : 'Review'} initialFocus={false} footer={footer} grouped>
       {shown && (
         <div className="food-est">
           <div className="food-est-pickers">

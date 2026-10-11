@@ -174,6 +174,7 @@ export default function TasksPage({ loaded }) {
                     task={task}
                     onOpen={openTask}
                     showDate={group.id !== 'today' && group.id !== 'tomorrow'}
+                    overdueGroup={group.id === 'overdue'}
                     trailing={group.id === 'overdue' ? (
                       <button type="button" className="tk-chip-today" onClick={() => moveToToday([task])} aria-label={`Move “${task.text}” to today`}>Today</button>
                     ) : null}
@@ -306,7 +307,8 @@ function QuickAddDock({ today, onAdded, onMore }) {
           aria-label={typing ? 'Add details (opens the full form)' : 'New task with details'}
           title="More options"
         >
-          <Icon name="plus" size={20} strokeWidth={2.2} />
+          {/* Not a "+": the header already has one, and this opens the full form ("details"). */}
+          <Icon name="pencil" size={19} strokeWidth={2.1} />
         </button>
         <input
           ref={input}

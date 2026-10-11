@@ -14,6 +14,7 @@ import { useStore } from '../../lib/store.js'
 import { ActionSheet, GymEmpty, RoutineChip, SetTypeBadge, Stat, goBack } from './common.jsx'
 import { beginWorkout } from './startWorkout.js'
 import { linkMatches, offerRelink } from './relink.js'
+import DeloadBadge from './DeloadBadge.jsx'
 import ExerciseLog from './ExerciseLog.jsx'
 import { ActionRow, clockLabel, formatMinutes, formatPrValue, formatSetValue, showError, useExerciseLookup } from './HistoryTab.jsx'
 import './history.css'
@@ -167,10 +168,7 @@ function SessionView({ session, gym, sessions, bodyWeights, today, onEdit, onDel
               />
             )}
             {session.isDeload && (
-              <span className="gym-deload-badge">
-                <Icon name="arrowDown" size={13} strokeWidth={2.4} />
-                Deload
-              </span>
+              <DeloadBadge size="md" label="Deload" title="A lighter (deload) workout" />
             )}
           </div>
         )}

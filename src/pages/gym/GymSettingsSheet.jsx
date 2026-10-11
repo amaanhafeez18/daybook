@@ -13,6 +13,7 @@ import { getState, updateSettings, useStore } from '../../lib/store.js'
 import { DurationInput, NumberInput, WeightInput } from './common.jsx'
 import NotifyOffHint from '../../components/NotifyOffHint.jsx'
 import './gym.css'
+import './cfg.css'
 
 // Gym settings: the basics everyone touches (units, week, rest timer, reminder) up top, and every
 // other setting under one "Advanced" disclosure that opens by itself once something in it is set.
@@ -92,7 +93,7 @@ function advancedSummary(prefs, deloadEvery) {
 function Group({ title, footer, children }) {
   return (
     <section className="gym-cfg-group">
-      {title && <h3 className="gym-cfg-title">{title}</h3>}
+      {title && <h3 className="ui-label gym-cfg-title">{title}</h3>}
       <div className="gym-cfg-card">{children}</div>
       {footer && <p className="gym-cfg-foot">{footer}</p>}
     </section>
@@ -267,7 +268,7 @@ export default function GymSettingsSheet({ open, onClose }) {
   }
 
   return (
-    <Sheet open={open} onClose={onClose} title="Gym settings" size="md" initialFocus={false}>
+    <Sheet open={open} onClose={onClose} title="Gym settings" size="md" initialFocus={false} grouped>
       <div className="gym-cfg">
         <Group title="Units">
           <Row label="Weight">

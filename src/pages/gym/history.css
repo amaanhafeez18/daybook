@@ -48,7 +48,6 @@
 }
 .gym-cal-head .month-nav { flex-shrink: 0; gap: 6px; }
 .gym-cal-head .month-nav .icon-btn { width: 44px; height: 44px; }
-.gym-cal-head .month-nav .btn { min-height: 40px; }
 
 .gym-cal-stats { display: flex; flex-wrap: wrap; gap: 8px; }
 .gym-cal-stats .stat { gap: 7px; min-height: 34px; font-variant-numeric: tabular-nums; }
@@ -163,13 +162,12 @@ button.gym-cal-cell:active { transform: scale(0.9); transition-duration: 0.1s; }
 
 .gym-day { display: flex; flex-direction: column; gap: 20px; padding-bottom: 4px; }
 .gym-day-h {
-  margin: 0 0 8px 16px; font-size: 13px; font-weight: 400; letter-spacing: 0.01em;
-  text-transform: uppercase; color: var(--text-2); font-variant-numeric: tabular-nums;
+  margin: 0 0 8px 16px; font-variant-numeric: tabular-nums;
 }
 
 .gym-day-plan { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border-radius: 22px; background: var(--surface-2); }
 .gym-day-plan-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-height: 30px; }
-.gym-day-label { font-size: 13px; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.01em; margin-right: 2px; }
+.gym-day-label { margin-right: 2px; }
 .gym-day-status {
   margin-left: auto; display: inline-flex; align-items: center; gap: 4px; min-height: 26px; padding: 3px 10px;
   border-radius: 999px; font-size: 13px; font-weight: 600; background: var(--surface-2); color: var(--text-2);
@@ -197,7 +195,7 @@ button.gym-cal-cell:active { transform: scale(0.9); transition-duration: 0.1s; }
 .gym-day-session-text strong { font-size: 17px; font-weight: 600; letter-spacing: -0.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gym-day-session-text small { font-size: 14px; color: var(--text-2); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gym-day-session-delete { flex-shrink: 0; width: 44px; height: 44px; margin-right: 6px; color: var(--text-3); }
-.gym-day-session-delete:hover { color: var(--danger); }
+@media (hover: hover) { .gym-day-session-delete:hover { color: var(--danger); } }
 
 .gym-day-preview > li { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 46px; padding: 8px 16px; }
 .gym-day-ex { min-width: 0; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -229,7 +227,7 @@ button.gym-cal-cell:active { transform: scale(0.9); transition-duration: 0.1s; }
 .gym-day-change .disclosure-toggle { padding-left: 16px; padding-right: 12px; }
 .gym-day-move { display: flex; align-items: center; gap: 8px; padding: 2px 14px 14px 58px; }
 .gym-day-move .input { flex: 1; min-width: 0; min-height: 42px; padding: 8px 12px; background: var(--card-bg); }
-.gym-day-move .btn { flex-shrink: 0; min-height: 40px; }
+.gym-day-move .btn { flex-shrink: 0; }
 
 /* ---- history ------------------------------------------------------------------------------ */
 
@@ -237,7 +235,7 @@ button.gym-cal-cell:active { transform: scale(0.9); transition-duration: 0.1s; }
 .gym-hist-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 40px; }
 .gym-hist-count { font-size: 15px; color: var(--text-2); font-variant-numeric: tabular-nums; }
 .gym-hist-actions { display: flex; gap: 8px; flex-shrink: 0; }
-.gym-hist-actions .btn { min-height: 40px; padding: 0 14px; }
+.gym-hist-actions .btn { padding: 0 14px; }
 
 .gym-hist-search { min-height: 44px; flex: none; }
 .gym-hist-search input { min-width: 0; font-size: 16px; }
@@ -257,10 +255,10 @@ button.gym-cal-cell:active { transform: scale(0.9); transition-duration: 0.1s; }
 .gym-hist-filters .chip.is-active .gym-dot { box-shadow: 0 0 0 1.5px var(--on-accent); }
 
 .gym-hist-group { display: flex; flex-direction: column; }
-/* Sticks just under GymPage's sticky section tabs (title bar + 4px + 44px control + 6px),
+/* Sticks just under GymPage's sticky section tabs (title bar + 48px control + 2px),
    the same offset as the Exercises tab's letter headers. */
 .gym-hist-month {
-  position: sticky; top: calc(var(--topbar-h) + var(--safe-top) + 54px); z-index: 5;
+  position: sticky; top: calc(var(--topbar-h) + var(--safe-top) + 50px); z-index: 5;
   display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
   margin: 6px calc(-1 * var(--page-pad)) 6px; padding: 8px calc(var(--page-pad) + 4px);
   background: var(--bg); font-family: var(--font-display, var(--font)); font-size: 20px; font-weight: 700; letter-spacing: -0.02em;
@@ -301,7 +299,6 @@ button.gym-cal-cell:active { transform: scale(0.9); transition-duration: 0.1s; }
 
 .gym-sd { display: flex; flex-direction: column; gap: 16px; }
 .gym-sd-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; margin-top: -6px; }
-.gym-sd-nav .btn { min-height: 38px; }
 .gym-sd-back {
   display: inline-flex; align-items: center; gap: 0; min-height: 44px; margin-left: -10px; padding: 0 10px 0 2px;
   border-radius: 12px; color: var(--accent); font-size: 17px; letter-spacing: -0.02em; transition: opacity 0.2s;
@@ -312,13 +309,6 @@ button.gym-cal-cell:active { transform: scale(0.9); transition-duration: 0.1s; }
 .gym-sd-title { font-size: 32px; line-height: 1.12; overflow-wrap: anywhere; }
 .gym-sd-when { font-size: 15px; color: var(--text-2); font-variant-numeric: tabular-nums; }
 .gym-sd-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-.gym-deload-badge {
-  display: inline-flex; align-items: center; gap: 4px; min-height: 26px; padding: 3px 10px; border-radius: 999px;
-  background: var(--surface-2); color: var(--info); font-size: 13px; font-weight: 600;
-}
-@supports (background: color-mix(in srgb, red 50%, blue)) {
-  .gym-deload-badge { background: color-mix(in srgb, var(--info) 13%, transparent); }
-}
 
 .gym-sd-stats .gym-stat-value { font-size: 24px; }
 
@@ -365,8 +355,8 @@ button.gym-sd-ex-name:active { opacity: 0.6; }
 
 .gym-sd-table { width: 100%; margin-top: 8px; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .gym-sd-table th {
-  padding: 2px 0 6px; text-align: left; font-size: 12px; font-weight: 600; letter-spacing: 0.03em;
-  text-transform: uppercase; color: var(--text-3);
+  padding: 2px 0 6px; text-align: left; font-size: 11px; font-weight: 600; letter-spacing: 0.03em;
+  text-transform: uppercase; color: var(--text-2);
 }
 .gym-sd-table td { padding: 4px 0; font-size: 16px; vertical-align: middle; }
 .gym-sd-table th + th, .gym-sd-table td + td { padding-left: 12px; }
@@ -391,7 +381,7 @@ button.gym-sd-ex-name:active { opacity: 0.6; }
   flex: 1; min-width: 0; text-align: center; font-family: var(--font); font-size: 17px; font-weight: 600;
   letter-spacing: -0.02em; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.gym-sd-editbar .btn { min-height: 40px; padding: 0 18px; }
+.gym-sd-editbar .btn { padding: 0 18px; }
 .gym-sd-form { display: flex; flex-direction: column; gap: 14px; }
 .gym-sd-form .field-row { gap: 10px; }
 .gym-sd-edit-foot { display: flex; gap: 10px; padding-top: 4px; }

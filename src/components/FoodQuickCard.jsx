@@ -189,7 +189,7 @@ export default function FoodQuickCard({ today, loaded }) {
   return (
     <section className="card fq-card" aria-labelledby="fq-title">
       <header className="fq-head">
-        <Ring size={30} stroke={4} progress={loaded ? ring.progress : 0} tone={ring.tone} className="fq-ring" />
+        <Ring size={40} stroke={4} progress={loaded ? ring.progress : 0} tone={ring.tone} className="fq-ring" />
         <div className="fq-head-text">
           <h3 id="fq-title">Food</h3>
           {summary}

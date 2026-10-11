@@ -3,7 +3,7 @@ import Icon from '../../components/ui/Icon.jsx'
 import Sheet from '../../components/ui/Sheet.jsx'
 import { Button, IconButton, Skeleton } from '../../components/ui/primitives.jsx'
 import { toast } from '../../components/ui/feedback.jsx'
-import { addDaysISO, isISODate, weekdayIndex } from '../../lib/dates.js'
+import { addDaysISO, formatDateLong, isISODate, weekdayIndex } from '../../lib/dates.js'
 import {
   cleanEntry, dayTotals, entryCalories, entryMeal, findFavorite, logStreak, macroCalories, mealTotals, weightSeries, weightTrend,
 } from '../../lib/food/nutrition.js'
@@ -117,12 +117,18 @@ export default function DayView({ date, today, loaded }) {
     <div className="food-day">
       <header className="page-header food-head">
         <div className="food-head-text">
-          {streak.current >= 2 && <p className="eyebrow food-streak"><Icon name="flame" size={14} />{streak.current}-day logging streak</p>}
+          {/* Always a date line, as on Health and Gym, so the title doesn't jump between tabs; with a
+              streak the date goes short to leave room for the streak chip on one line. */}
+          <p className="eyebrow food-eyebrow">
+            <span>{streak.current >= 2 ? shortDay(today) : formatDateLong(today)}</span>
+            {streak.current >= 2 && <span className="food-streak"><Icon name="flame" size={13} />{streak.current}-day streak</span>}
+          </p>
           <h1>Food</h1>
         </div>
         <div className="food-head-actions">
           <IconButton icon="barChart" label="Insights" className="food-head-btn" size={21} onClick={() => navigate('food/insights')} />
           <Menu
+            title="Food"
             items={[
               { label: 'Copy this day to…', icon: 'copy', onClick: () => setSheet({ type: 'copyDay' }), disabled: !hasEntries },
               { divider: true },
@@ -272,7 +278,7 @@ function WeekStrip({ date, today, entries, weekStart, goal, unit }) {
   const swipe = useSwipe((dir) => goToDay(addDaysISO(date, dir * 7), today))
 
   return (
-    <ol className="food-week" aria-label={`Week of ${shortDay(start)}`} {...swipe}>
+    <ol className="card food-week" aria-label={`Week of ${shortDay(start)}`} {...swipe}>
       {days.map((day) => {
         const { kcal, count } = kcalByDay.get(day)
         const state = count ? ringState(kcal, goal) : { progress: 0, tone: 'accent' }
@@ -542,9 +548,9 @@ function RowActionsSheet({ entry, food, today, onClose, onEdit, onDelete }) {
   }
 
   return (
-    <Sheet open={!!entry} onClose={onClose} title={name} description={description} initialFocus={false} size="sm">
+    <Sheet open={!!entry} onClose={onClose} title={name} description={description} initialFocus={false} size="sm" grouped>
       <div className="food-act">
-        <p className="food-act-label">Move to</p>
+        <p className="ui-label food-act-label">Move to</p>
         <div className="food-act-meals" role="radiogroup" aria-label="Meal">
           {meals.map((meal) => (
             <button key={meal.id} type="button" role="radio" aria-checked={meal.id === current} className={`chip chip-sm food-chip${meal.id === current ? ' is-active' : ''}`} onClick={() => move(meal.id)}>

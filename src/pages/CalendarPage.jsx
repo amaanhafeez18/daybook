@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../components/ui/Icon.jsx'
 import Sheet from '../components/ui/Sheet.jsx'
-import { Button, Checkbox, EmptyState, Field } from '../components/ui/primitives.jsx'
+import { Button, Checkbox, Field } from '../components/ui/primitives.jsx'
 import { toast } from '../components/ui/feedback.jsx'
 import ClassSheet from '../components/ClassSheet.jsx'
 import TaskSheet from '../components/TaskSheet.jsx'
@@ -10,6 +10,7 @@ import { useData } from '../lib/store.js'
 import { classSchedule, deleteEvent, setTaskDone, updateEvent } from '../lib/planner.js'
 import { WEEKDAY_SHORT, addDaysISO, compareTimes, formatDateLong, formatMonthYear, formatTime, isISODate, toISO, weekdayIndex } from '../lib/dates.js'
 import { useNow } from '../lib/environment.js'
+import { prefersReducedMotion } from '../lib/motion.js'
 import '../components/calendar.css'
 
 const WEEKDAY_INITIALS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
@@ -24,7 +25,6 @@ const pad = (value) => String(value).padStart(2, '0')
 const monthKeyOf = (year, month) => `${year}-${pad(month + 1)}`
 const monthOf = (iso) => ({ year: Number(iso.slice(0, 4)), month: Number(iso.slice(5, 7)) - 1 })
 const weekStartOf = (iso) => addDaysISO(iso, -weekdayIndex(iso)) // weeks start on Sunday
-const prefersReducedMotion = () => typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 
 // Which row of its month grid a day sits in, and how many rows that grid has.
 function monthRowOf(iso) {
@@ -332,9 +332,9 @@ export default function CalendarPage() {
           </div>
           {dayItems.length === 0 ? (
             <>
-              <EmptyState icon="calendar" title="Nothing planned">
-                Tap “Add event” to put something on {selected === today ? 'today' : 'this day'}.
-              </EmptyState>
+              {/* Most days are empty while paging: one quiet line (like iOS Calendar), not a big
+                  empty state; "Add event" is right above it. */}
+              <p className="agenda-item cal-empty-day">No events</p>
               <p className="cal-legend-line" aria-hidden="true">{legend}</p>
             </>
           ) : (

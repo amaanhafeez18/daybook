@@ -6,8 +6,10 @@
 
 /* ---- page header ------------------------------------------------------------------------- */
 
-.page-header.gym-shell-head { flex-direction: row; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
-.gym-shell-head-text { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+/* Date line, 2px, title, 16px below: the same rhythm as Health's and Plan's Today (today.css
+   .td-header) and Food, so the large title sits at the same height on every Health tab. */
+.page-header.gym-shell-head { flex-direction: row; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.gym-shell-head-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .gym-shell-head-actions { display: flex; gap: 8px; flex-shrink: 0; padding-bottom: 2px; }
 .icon-btn.gym-shell-head-btn {
   width: 44px; height: 44px; border-radius: 50%; color: var(--text);
@@ -17,13 +19,14 @@
   border: 1px solid var(--glass-border);
   box-shadow: var(--glass-highlight), var(--glass-shadow);
 }
-.icon-btn.gym-shell-head-btn:hover { background: var(--glass-bg-strong); color: var(--text); }
+@media (hover: hover) { .icon-btn.gym-shell-head-btn:hover { background: var(--glass-bg-strong); color: var(--text); } }
 
 /* ---- section tabs: an iOS segmented control that stays under the title bar ----------------- */
 
-/* Solid frosted glass (as the routine editor's bar), so cards scrolling underneath don't show through. */
+/* Solid frosted glass (as the routine editor's bar), so cards scrolling underneath don't show through.
+   It sticks flush to the title bar: a gap there let scrolled cards peek through. */
 .segmented.gym-shell-tabs {
-  position: sticky; top: calc(var(--topbar-h) + var(--safe-top) + 4px); z-index: 25;
+  position: sticky; top: calc(var(--topbar-h) + var(--safe-top)); z-index: 25;
   display: flex; gap: 2px; margin: 0 0 18px; padding: 3px;
   background: var(--glass-bg-strong, var(--glass-bg)); border: 1px solid var(--glass-border);
   -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
@@ -72,7 +75,7 @@
   background: var(--surface-2); color: var(--text-2);
   font-size: 12px; font-weight: 600; line-height: 1.2; white-space: nowrap; font-variant-numeric: tabular-nums;
 }
-.gym-td-badge.is-deload, .gym-td-badge.is-down { background: var(--warning-soft); color: var(--warning); }
+.gym-td-badge.is-down { background: var(--warning-soft); color: var(--warning); }
 .gym-td-badge.is-up { background: var(--success-soft); color: var(--success); }
 
 /* 7-day strip */
@@ -82,7 +85,7 @@
   padding: 4px 1px 2px; border-radius: 16px; color: var(--text);
 }
 .gym-td-strip-day:active { background: var(--surface-2); }
-.gym-td-strip-wd { font-size: 11px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: var(--text-2); }
+.gym-td-strip-wd { font-size: 11px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; color: var(--text-2); }
 .gym-td-strip-day.is-today .gym-td-strip-wd { color: var(--accent); font-weight: 700; }
 .gym-td-strip-circle {
   position: relative; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%;
@@ -116,7 +119,6 @@
 .gym-td-hero-top { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; min-height: 36px; margin-right: -6px; }
 .gym-td-hero-eyebrow {
   display: inline-flex; align-items: center; gap: 7px;
-  font-size: 13px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: var(--text-2);
 }
 .gym-td-hero-badges { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
 .gym-td-hero-top .gym-td-menu-wrap { margin-left: auto; }
@@ -128,7 +130,7 @@
 .gym-td-hero-note { margin-top: 4px; padding: 8px 12px; border-radius: 14px; background: var(--warning-soft); color: var(--text); font-size: 14px; }
 .gym-td-hero-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
 .gym-td-hero-actions .btn { flex: 1 1 auto; }
-.btn.gym-td-start { width: 100%; min-height: 54px; font-size: 17px; }
+.btn.gym-td-start { width: 100%; min-height: var(--btn-h-lg, 54px); font-size: 17px; }
 .gym-td-hero.has-tint .btn.gym-td-start { background-color: var(--gym-rc); color: #fff; }
 .gym-td-hero.is-rest .gym-td-hero-title, .gym-td-hero.is-skipped .gym-td-hero-title, .gym-td-hero.is-shifted .gym-td-hero-title, .gym-td-hero.is-none .gym-td-hero-title { font-size: 28px; }
 @supports (background: color-mix(in srgb, red 50%, blue)) {
@@ -139,7 +141,6 @@
 }
 
 .gym-td-next { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 6px; font-size: 15px; color: var(--text-2); }
-.gym-td-next-label { font-size: 13px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; }
 .gym-td-next-when { font-weight: 500; color: var(--text); }
 
 .gym-td-done-check { flex-shrink: 0; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--gym-rc, var(--gym-c-green)); color: #fff; }
@@ -158,6 +159,7 @@
 /* ⋯ button (opens the Today action sheet) */
 .gym-td-menu-wrap { position: relative; flex-shrink: 0; display: inline-flex; }
 .icon-btn.gym-td-more { width: 36px; height: 36px; background: var(--surface-2); color: var(--text); }
+.icon-btn.gym-td-more::after { content: ''; position: absolute; inset: -4px; } /* 44px tap area */
 
 /* exercise list */
 .card.gym-td-ex-list { padding: 4px 0; margin: 0; list-style: none; }
@@ -199,7 +201,7 @@
 @media (max-width: 480px) { .gym-td-ex-edit { margin-left: 14px; } }
 .gym-td-ex-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
 .gym-td-mini { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
-.gym-td-mini-label { font-size: 12px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; color: var(--text-2); }
+.gym-td-mini-label { font-size: 11px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; color: var(--text-2); }
 .gym-td-ex-edit .gym-input { min-height: 44px; background: var(--card-bg); }
 .gym-td-range { display: flex; align-items: center; gap: 6px; }
 .gym-td-range > span { color: var(--text-3); }
@@ -208,7 +210,7 @@
 .gym-td-ex-notes p .icon { margin-top: 2px; color: var(--text-3); }
 .gym-td-ex-notes strong { color: var(--text); font-weight: 600; }
 .gym-td-ex-notes .gym-td-ex-save-note { font-size: 13px; color: var(--text-3); }
-.link-btn.gym-td-ex-details { align-self: flex-start; display: inline-flex; align-items: center; gap: 2px; padding: 4px 2px; font-size: 16px; }
+.link-btn.gym-td-ex-details { align-self: flex-start; display: inline-flex; align-items: center; gap: 2px; padding: 4px 2px; }
 
 .gym-td-stepper { display: inline-flex; align-items: center; gap: 2px; min-height: 44px; padding: 3px; border-radius: 12px; background: var(--card-bg); }
 .gym-td-stepper .icon-btn { width: 38px; height: 38px; border-radius: 10px; color: var(--accent); }
@@ -225,7 +227,7 @@
 .gym-td-tile-text { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .gym-td-tile-text strong { font-family: var(--font-display, var(--font)); font-size: 24px; font-weight: 700; line-height: 1.1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 .gym-td-tile-text small { font-size: 13px; line-height: 1.25; color: var(--text-2); }
-.gym-td-tile-text .gym-td-tile-label { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-2); }
+.gym-td-tile-text .gym-td-tile-label { font-size: 11px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; color: var(--text-2); }
 .gym-td-tile-of { font-size: 16px; font-weight: 600; color: var(--text-2); }
 .gym-td-ring { flex-shrink: 0; }
 .gym-td-ring-track { fill: none; stroke: var(--surface-3); stroke-width: 6; }
@@ -249,7 +251,7 @@
 .gym-td-bw-empty { max-width: 24ch; font-size: 15px; color: var(--text-2); }
 .gym-td-bw-form { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .gym-td-bw-form .gym-input { width: 96px; min-height: 44px; }
-.gym-td-bw-form .btn { min-height: 44px; min-width: 76px; }
+.gym-td-bw-form .btn { min-width: 76px; }
 
 /* ---- pick lists in sheets (Train anyway, Change workout) ------------------------------------ */
 
@@ -346,12 +348,12 @@
 .gym-onb-tpl-legend span::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--gym-rc); }
 .gym-onb-tpl-body { display: flex; flex-direction: column; gap: 14px; padding: 0 16px 16px; animation: rise 0.2s var(--ease); }
 .gym-onb-tpl-field { display: flex; flex-direction: column; gap: 6px; }
-.gym-onb-tpl-field > span, .gym-onb-tpl-week-title { margin-left: 4px; font-size: 13px; letter-spacing: 0.01em; text-transform: uppercase; color: var(--text-2); }
+.gym-onb-tpl-field > span, .gym-onb-tpl-week-title { margin-left: 4px; } /* the look is .ui-label */
 .gym-onb-tpl-week { display: flex; flex-direction: column; gap: 6px; }
 .gym-onb-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; margin: 0; padding: 0; list-style: none; }
 .gym-onb-week li { min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 7px 2px 6px; border-radius: 12px; background: var(--surface-2); }
 .gym-onb-week li.is-workout { box-shadow: inset 0 3px 0 var(--gym-rc); }
-.gym-onb-week-day { font-size: 10.5px; font-weight: 600; text-transform: uppercase; color: var(--text-2); }
+.gym-onb-week-day { font-size: 11px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; color: var(--text-2); }
 .gym-onb-week-slot { max-width: 100%; padding: 0 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; }
 .gym-onb-week li.is-rest .gym-onb-week-slot { color: var(--text-3); font-weight: 500; }
 .gym-onb-tpl-meta { font-size: 14px; color: var(--text-2); }
@@ -362,35 +364,16 @@
 
 /* ---- gym settings sheet --------------------------------------------------------------------- */
 
-/* Sheets holding grouped lists use the grouped background, so the white cells stand out (iOS). */
-.sheet:has(.gym-cfg), .sheet:has(.gym-td-pick-list) { background: var(--bg); }
+/* These sheets open as <Sheet grouped> (the grouped background from apple.css); inside them the
+   cells that paint var(--card-bg) take the grouped cell colour instead. */
+.sheet.sheet-grouped :is(.gym-cfg, .gym-td-pick-list) { --card-bg: var(--sheet-cell); }
 
-.gym-cfg { display: flex; flex-direction: column; gap: 22px; padding-bottom: 4px; }
-.gym-cfg-group { display: flex; flex-direction: column; gap: 6px; }
-.gym-cfg-title { margin: 0 16px; font-size: 13px; font-weight: 400; letter-spacing: 0.01em; text-transform: uppercase; color: var(--text-2); }
-.gym-cfg-card { border-radius: 20px; background: var(--card-bg); overflow: hidden; }
-.gym-cfg-foot { margin: 0 16px; font-size: 13px; color: var(--text-2); }
-.gym-cfg-row {
-  position: relative; width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  min-height: 52px; padding: 8px 14px 8px 16px; color: var(--text); text-align: left;
-}
-.gym-cfg-row + .gym-cfg-row::before {
-  content: ''; position: absolute; top: 0; left: 16px; right: 0; height: 1px;
-  background: var(--separator, var(--border)); transform: scaleY(0.5); transform-origin: top; pointer-events: none;
-}
-.gym-cfg-row.is-stacked { flex-direction: column; align-items: stretch; gap: 10px; padding-top: 12px; padding-bottom: 12px; }
-.gym-cfg-row.is-stacked .gym-cfg-control { justify-content: flex-start; }
+/* The grouped rows themselves (.gym-cfg, -group, -title, -card, -foot, -row, -label, -control and
+   the Advanced disclosure) are shared with Food settings in cfg.css; what follows is gym-only. */
 .gym-cfg-row.is-stacked .segmented { width: 100%; }
 .gym-cfg-row.is-sub { min-height: 48px; padding-left: 32px; }
-.gym-cfg-row.is-switch { padding-top: 10px; padding-bottom: 10px; }
-.gym-cfg-row.is-switch .switch-row { width: 100%; }
-.gym-cfg-label { min-width: 0; display: flex; flex-direction: column; font-size: 17px; letter-spacing: -0.02em; }
-.gym-cfg-label small { font-size: 13px; letter-spacing: 0; color: var(--text-2); }
 .gym-cfg-link { position: relative; padding: 0; color: var(--accent); font-size: 13px; font-weight: 600; text-align: left; }
 .gym-cfg-link::after { content: ''; position: absolute; inset: -14px -8px; }
-.gym-cfg-control { flex-shrink: 0; min-width: 0; display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
-.gym-cfg-control .segmented { min-width: 128px; }
-.gym-cfg-control .segmented button { min-height: 32px; padding: 0 12px; font-size: 14px; }
 .gym-cfg-control > .gym-input { width: 92px; }
 .gym-cfg-card .gym-td-stepper { background: var(--surface-2); }
 .input.gym-cfg-select { width: auto; max-width: 200px; min-height: 38px; padding: 6px 34px 6px 12px; }
@@ -415,12 +398,6 @@
 .gym-cfg-plates { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip.gym-cfg-plate { min-width: 50px; font-variant-numeric: tabular-nums; }
 
-/* "Advanced" disclosure: its toggle reads like a group title; its body is another run of groups. */
-.gym-cfg-advanced { margin-top: -6px; }
-.gym-cfg-advanced .disclosure-toggle { padding-left: 16px; padding-right: 10px; }
-.gym-cfg-advanced .disclosure-summary { font-size: 13px; }
-.gym-cfg-advanced .disclosure-body { gap: 22px; padding-top: 6px; }
-
 .gym-cfg-row.gym-cfg-action { justify-content: flex-start; gap: 12px; }
 .gym-cfg-action:active:not(:disabled) { background: var(--surface-2); }
 .gym-cfg-action:disabled { opacity: 0.5; }
@@ -434,11 +411,6 @@
   .gym-td-ex-row:hover, .gym-td-pick-row:hover, .gym-td-strip-day:hover, .gym-onb-tpl-head:hover, .gym-cfg-action:hover:not(:disabled) { background: var(--surface-2); }
   .gym-td-done-card:hover { background: var(--surface-3); }
   .gym-skip-choice:hover:not(:disabled) { box-shadow: inset 0 0 0 1.5px var(--accent); }
-}
-@media (hover: none) {
-  .icon-btn.gym-shell-head-btn:hover { background: var(--glass-bg); color: var(--text); }
-  .icon-btn.gym-td-more:hover { background: var(--surface-2); color: var(--text); }
-  .gym-td-stepper .icon-btn:hover { background: none; color: var(--accent); }
 }
 
 /* Phones: a little tighter so the week strip and tiles fit 375px comfortably. */

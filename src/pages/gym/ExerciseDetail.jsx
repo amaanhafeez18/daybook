@@ -537,7 +537,7 @@ function ChartPanel({ history, tracking, prefs, today }) {
       </div>
       <div className="gym-xd-chart-head">
         <div>
-          <span className="gym-xd-chart-title">{METRICS[metric].title}</span>
+          <span className="ui-label gym-xd-chart-title">{METRICS[metric].title}</span>
           {change && (
             <span className="gym-xd-chart-change">
               <strong>{deltaText(change.delta)}</strong> since {formatDateShort(change.since)} · {lower ? 'best' : 'peak'} {format.formatY(change.best)}
@@ -596,7 +596,7 @@ function RecordsPanel({ sessions, exerciseId, tracking, prefs, hasHistory }) {
     <div className="gym-xd-records">
       {records.e1rm && (
         <div className="card gym-xd-onerm">
-          <span className="gym-xd-onerm-label">Estimated one-rep max</span>
+          <span className="ui-label gym-xd-onerm-label">Estimated one-rep max</span>
           <strong>{estimate(records.e1rm.value, unit)}</strong>
           <span className="gym-xd-onerm-sub">The most you could probably lift once, worked out from your best set on {formatDateShort(records.e1rm.date)}.</span>
         </div>

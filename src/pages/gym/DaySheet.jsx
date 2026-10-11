@@ -13,6 +13,7 @@ import { navigate } from '../../lib/router.js'
 import ChangeWorkoutSheet from './ChangeWorkoutSheet.jsx'
 import SkipSheet from './SkipSheet.jsx'
 import { RoutineChip, RoutineDot } from './common.jsx'
+import DeloadBadge from './DeloadBadge.jsx'
 import { beginWorkout } from './startWorkout.js'
 import { ActionRow, SessionDot, clockLabel, formatMinutes, showError, useExerciseLookup, useVolumeOf } from './HistoryTab.jsx'
 import './history.css'
@@ -186,13 +187,10 @@ function DayBody({ date, today, onClose }) {
     <div className="gym-day">
       <section className="gym-day-plan" aria-label="Plan">
         <div className="gym-day-plan-row">
-          <span className="gym-day-label">{past ? 'Planned' : 'Plan'}</span>
+          <span className="ui-label gym-day-label">{past ? 'Planned' : 'Plan'}</span>
           <PlanChip day={day} />
           {day.deload && (
-            <span className="gym-deload-badge" title="Lighter weights and fewer sets this week">
-              <Icon name="arrowDown" size={13} strokeWidth={2.4} />
-              Deload week
-            </span>
+            <DeloadBadge size="md" title="Lighter weights and fewer sets this week" />
           )}
           {pill && (
             <span className={`gym-day-status is-${pill.tone}`}>
@@ -215,7 +213,7 @@ function DayBody({ date, today, onClose }) {
 
       {hasSession && (
         <section aria-label="Workouts">
-          <h3 className="gym-day-h">{daySessions.length === 1 ? 'Workout' : `${daySessions.length} workouts`}</h3>
+          <h3 className="ui-label gym-day-h">{daySessions.length === 1 ? 'Workout' : `${daySessions.length} workouts`}</h3>
           <ul className="gym-day-list">
             {daySessions.map((session) => (
               <SessionItem
@@ -248,7 +246,7 @@ function DayBody({ date, today, onClose }) {
 
       {!future && (
         <section aria-label="Log a workout">
-          <h3 className="gym-day-h">{hasSession ? 'Log another workout' : isToday ? 'Train today' : 'Log this day'}</h3>
+          <h3 className="ui-label gym-day-h">{hasSession ? 'Log another workout' : isToday ? 'Train today' : 'Log this day'}</h3>
           <div className="gym-day-log">
             {gym.routines.length > 0 && (
               <div className="gym-day-picker" role="group" aria-label="Routine to log">
@@ -376,7 +374,7 @@ function RoutinePreview({ routine, deload, gym, lookup, unit, distanceUnit, onEd
   const minutes = estimateMinutes(routine)
   return (
     <section aria-label={`${routine.name} preview`}>
-      <h3 className="gym-day-h">
+      <h3 className="ui-label gym-day-h">
         {rows.length} exercise{rows.length === 1 ? '' : 's'}
         {minutes > 0 && ` · ~${minutes} min`}
         {deload && ' · deload'}

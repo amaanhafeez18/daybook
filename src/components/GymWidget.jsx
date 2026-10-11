@@ -6,6 +6,7 @@ import { addDays, nextWorkout, resolveDay, weekStart } from '../lib/gym/schedule
 import { hasPlan, routineColor, slotLabel, useActiveWorkout, useGym, useGymSessions } from '../lib/gym/state.js'
 import { navigate } from '../lib/router.js'
 import { getState } from '../lib/store.js'
+import DeloadBadge from '../pages/gym/DeloadBadge.jsx'
 import { QuietBoundary, prefetchGym, startedMs, useClock, workoutClock, workoutColor, workoutName, workoutWhen } from './WorkoutPill.jsx'
 import './gym-widget.css'
 import './today.css'
@@ -254,7 +255,7 @@ function Widget({ today, loaded }) {
     >
       <button type="button" className="gymw-main" onPointerDown={prefetchGym} onClick={() => navigate(view.target)} aria-label={label}>
         <span className={`gymw-tile is-${view.tone}${view.live ? ' is-live' : ''}`} aria-hidden="true">
-          <Icon name="dumbbell" size={24} strokeWidth={2} />
+          <Icon name="dumbbell" size={22} strokeWidth={2} />
           {view.done && (
             <span className="gymw-tile-badge">
               <Icon name="check" size={11} strokeWidth={3.4} />
@@ -264,7 +265,7 @@ function Widget({ today, loaded }) {
         <span className="gymw-text" aria-hidden="true">
           <span className="gymw-title">
             <span className="gymw-title-text">{view.title}</span>
-            {view.deload && <span className="gymw-badge">Deload</span>}
+            {view.deload && <DeloadBadge label="Deload" />}
           </span>
           <span className="gymw-sub">
             {view.parts ? view.parts.map((part, index) => (

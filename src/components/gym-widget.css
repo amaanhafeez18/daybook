@@ -9,29 +9,26 @@
 :root {
   --gymw-pill-space: 0px;
   --gymw-gold: #8A5C00;
-  --gymw-deload: #0060DF;
-  --gymw-deload-soft: rgba(0, 96, 223, 0.11);
 }
 :root[data-appearance='dark'] {
   --gymw-gold: #FFD60A;
-  --gymw-deload: #64A8FF;
-  --gymw-deload-soft: rgba(100, 168, 255, 0.16);
 }
 @media (prefers-color-scheme: dark) {
   :root[data-appearance='system'] {
     --gymw-gold: #FFD60A;
-    --gymw-deload: #64A8FF;
-    --gymw-deload-soft: rgba(100, 168, 255, 0.16);
   }
 }
 html.has-workout-pill { --gymw-pill-space: 64px; }
 
 /* ---- Today card --------------------------------------------------------------------------- */
 
+/* Health Today's three cards share one header: 16px inset, a 40px leading item, a 12px gap (text at
+   68px), a 17/600 title and a 15px subtitle. The Food card (food-quick.css) and the weight line
+   (WeightCard, styled in food-quick.css) follow the same numbers. */
 .card.gymw-card {
   container-type: inline-size;
-  display: flex; align-items: center; gap: 11px; width: 100%; min-height: 76px;
-  padding: 14px 10px 14px 14px; text-align: left; color: var(--text);
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 76px;
+  padding: 14px 10px 14px 16px; text-align: left; color: var(--text);
   transition: transform 0.35s var(--spring, ease), box-shadow 0.2s;
 }
 button.card.gymw-card:active { transform: scale(0.98); transition-duration: 0.12s; }
@@ -42,7 +39,7 @@ button.card.gymw-card:focus-visible { outline-offset: 3px; }
 
 .gymw-tile {
   position: relative; flex-shrink: 0; display: grid; place-items: center;
-  width: 46px; height: 46px; border-radius: 14px;
+  width: 40px; height: 40px; border-radius: 12px;
 }
 .gymw-tile.is-routine {
   background-color: var(--accent); color: var(--on-accent);
@@ -58,7 +55,7 @@ button.card.gymw-card:focus-visible { outline-offset: 3px; }
 
 /* In progress: a slow breathing ring around the tile. */
 .gymw-tile.is-live::after {
-  content: ''; position: absolute; inset: -4px; border-radius: 18px;
+  content: ''; position: absolute; inset: -4px; border-radius: 16px;
   border: 2px solid var(--gymw-color, var(--accent));
   animation: gymw-breathe 2s ease-in-out infinite;
   pointer-events: none;
@@ -70,7 +67,7 @@ button.card.gymw-card:focus-visible { outline-offset: 3px; }
 
 .gymw-tile-badge {
   position: absolute; right: -5px; bottom: -5px; display: grid; place-items: center;
-  width: 20px; height: 20px; border-radius: 50%; background: var(--success); color: #fff;
+  width: 20px; height: 20px; border-radius: 50%; background: var(--success); color: var(--on-success, #fff);
   box-shadow: 0 0 0 2.5px var(--card-bg, var(--surface));
 }
 
@@ -80,11 +77,6 @@ button.card.gymw-card:focus-visible { outline-offset: 3px; }
   font-size: 17px; font-weight: 600; line-height: 1.25; letter-spacing: -0.02em;
 }
 .gymw-title-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gymw-badge {
-  flex-shrink: 0; padding: 2px 8px; border-radius: 999px;
-  background: var(--gymw-deload-soft); color: var(--gymw-deload);
-  font-size: 12px; font-weight: 600; line-height: 1.35; letter-spacing: 0;
-}
 .gymw-sub {
   display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 15px; line-height: 1.3; color: var(--text-2); font-variant-numeric: tabular-nums;
@@ -109,6 +101,19 @@ button.card.gymw-card:focus-visible { outline-offset: 3px; }
 .gymw-goal-count.is-long { font-size: 10px; }
 
 .gymw-chevron { flex-shrink: 0; margin-left: -5px; color: var(--text-3); transition: transform 0.2s, color 0.2s; }
+
+/* today.css pads the Health card's main button 14px; the header spec above wants 16px and a 12px gap. */
+.card.gymw-card.td-gymw > .gymw-main { gap: 12px; padding-left: 16px; }
+
+/* DeloadBadge (pages/gym/DeloadBadge.jsx): one amber badge for a lighter week, here so Health
+   Today has it without the gym page's CSS. */
+.gym-deload {
+  flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px; min-height: 22px; max-width: 100%;
+  padding: 2px 8px; border-radius: 999px; background: var(--warning-soft); color: var(--warning);
+  font-size: 12px; font-weight: 600; line-height: 1.2; letter-spacing: 0; white-space: nowrap; font-variant-numeric: normal;
+}
+.gym-deload .icon { flex-shrink: 0; }
+.gym-deload.is-md { min-height: 28px; gap: 5px; padding: 4px 11px; font-size: 14px; }
 
 .skeleton.gymw-skel { display: block; height: 12px; border-radius: 6px; }
 .skeleton.gymw-skel-title { width: 52%; height: 16px; margin: 2px 0 4px; }

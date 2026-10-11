@@ -65,7 +65,7 @@
 /* ---- Today: header ----------------------------------------------------------------------- */
 
 .page-header.td-header { gap: 2px; margin-bottom: 16px; }
-.td-page .td-greeting { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.td-page .td-greeting { text-wrap: balance; } /* a long first name wraps onto a second line, never "…" */
 @media (max-width: 639px) {
   .td-page .td-greeting { font-size: 28px; line-height: 1.2; }
 }
@@ -103,7 +103,7 @@
 .td-today .td-fold.is-danger .td-row-icon { background: none; color: var(--danger); }
 .td-today .td-fold.is-danger .td-row-label { color: var(--danger); font-weight: 600; }
 .td-today .td-fold.is-done .disclosure-toggle { color: var(--text-2); }
-.td-today .td-fold .disclosure-body { position: relative; gap: 0; padding: 0; animation: rise 0.2s var(--ease, ease); }
+.td-today .td-fold .disclosure-body { position: relative; gap: 0; padding: 0; }
 .td-fold-actions { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-left: 36px; }
 .td-row-action {
   flex-shrink: 0; display: inline-flex; align-items: center; gap: 2px; min-height: 44px; padding: 0 2px;
@@ -147,8 +147,10 @@
   display: inline-flex; align-items: center; gap: 2px; min-height: 44px; margin: -6px -2px -6px 0; padding: 0 2px;
 }
 .td-quiet { padding: 4px 0 2px; }
-/* Each row is a 44 px target: the name button fills the row's height and the space up to the time. */
-.compact-list.td-tomorrow li { min-height: 44px; padding: 0; }
+/* Each row is a 44 px target: the name button fills the row's height and the space up to the time.
+   The rows read at list size (17 px, times 15 px) like the Today card's, not App.css's 14 px. */
+.compact-list.td-tomorrow li { min-height: 44px; padding: 0; font-size: var(--fs-body, 17px); letter-spacing: -0.02em; }
+.compact-list.td-tomorrow time { font-size: var(--fs-subhead, 15px); letter-spacing: 0; font-variant-numeric: tabular-nums; }
 .compact-list.td-tomorrow .compact-link { display: flex; align-items: center; min-height: 44px; }
 .compact-list.td-tomorrow li.td-more-row { padding: 0; }
 .td-more { display: flex; align-items: center; min-height: 40px; padding-left: 26px; font-size: 15px; font-weight: 600; }
@@ -192,18 +194,20 @@
 .card.td-headline .disclosure-toggle:active { opacity: 0.55; }
 .card.td-headline .disclosure-toggle:focus-visible { outline-offset: -2px; border-radius: 12px; }
 .card.td-headline .disclosure-label { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; }
-.card.td-headline .disclosure-body { position: relative; gap: 0; padding: 4px 0 6px; animation: rise 0.2s var(--ease, ease); }
+.card.td-headline .disclosure-body { position: relative; gap: 0; padding: 4px 0 6px; }
 .card.td-headline .disclosure-body::before, .td-prayer-method::before {
   content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
   background: var(--separator, var(--border)); transform: scaleY(0.5); transform-origin: top; pointer-events: none;
 }
 .td-hl-line { display: flex; align-items: center; gap: 12px; min-height: 56px; }
+/* The Health glance rows (links, not disclosures) match the other one-liners: 17 px rows. */
+.card.td-headline .td-hl-line { font-size: var(--fs-body, 17px); letter-spacing: -0.02em; }
 .td-hl-icon { flex-shrink: 0; display: grid; place-items: center; width: 30px; height: 30px; color: var(--accent); }
 .td-hl-icon.is-soft { border-radius: 50%; background: var(--accent-soft); }
 .td-hl-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .td-hl-text strong { font-weight: 600; }
 .td-hl-main, .td-hl-sub { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.td-hl-sub { color: var(--text-2); font-size: 14px; }
+.td-hl-sub { color: var(--text-2); font-size: var(--fs-subhead, 15px); letter-spacing: -0.01em; }
 .skeleton.td-prayer-skel { flex: 1; max-width: 60%; }
 
 /* Weather: the temperature leads the line; hours, days and the location controls open below. */
@@ -213,7 +217,7 @@
 .td-weather-foot { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
 .td-weather .td-facts { margin: 0; grid-auto-flow: column; gap: 2px 14px; }
 .td-weather .td-facts div { gap: 6px; }
-.link-btn.td-hl-link { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; margin: -2px 0; margin-left: auto; padding: 0 2px; font-size: 15px; font-weight: 600; }
+.link-btn.td-hl-link { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; margin: -2px 0; margin-left: auto; padding: 0 2px; }
 .link-btn.td-hl-link:disabled { opacity: 0.6; }
 /* "Using your saved location · Update" / "Weather for Lahore · Change city". */
 .td-weather .td-weather-foot.td-place { flex-wrap: nowrap; font-size: 15px; }
@@ -236,8 +240,11 @@
   min-height: 44px; margin-top: 2px; padding: 0 2px 0 4px; font-size: 15px; font-weight: 600;
 }
 
-/* People: the list keeps its hairlines; the first row sits right under the headline's line. */
+/* People: the list keeps its hairlines; the first row sits right under the headline's line. Names
+   are plain 17 px list text, as on the People tab. */
 .td-people .people-mini li:first-child { padding-top: 4px; }
+.td-people .people-mini-text strong { font-size: var(--fs-body, 17px); font-weight: 400; letter-spacing: -0.02em; }
+.td-people .people-mini-text small { font-size: var(--fs-subhead, 15px); }
 /* "Talked" stays a small pill; its touch target is 44 px tall. */
 .td-people .people-mini .btn { position: relative; }
 .td-people .people-mini .btn::after { content: ''; position: absolute; inset: -4px 0; }

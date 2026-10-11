@@ -9,6 +9,7 @@ import { formatDuration, formatVolume } from '../../lib/gym/units.js'
 import { navigate } from '../../lib/router.js'
 import { GymEmpty } from './common.jsx'
 import ExerciseLog, { volumeLookup } from './ExerciseLog.jsx'
+import DeloadBadge from './DeloadBadge.jsx'
 import FinishSheet from './FinishSheet.jsx'
 import RestTimer, { audioReady, unlockAudio } from './RestTimer.jsx'
 import WorkoutSummary from './WorkoutSummary.jsx'
@@ -295,10 +296,7 @@ export default function WorkoutScreen({ today }) {
           <strong>{formatVolume(volume, unit)}</strong>
         </div>
         {workout.isDeload && (
-          <span className="gym-wo-deload" title="Lighter week: fewer sets and about 90% of your usual weights">
-            <Icon name="layers" size={15} strokeWidth={2.2} />
-            Deload
-          </span>
+          <DeloadBadge size="md" label="Deload" className="gym-wo-deload" title="Lighter week: fewer sets and about 90% of your usual weights" />
         )}
       </div>
 

@@ -9,16 +9,48 @@
   --text: #000000;
   --text-2: #6C6C70;
   --text-3: #8A8A8E;
-  --danger: #FF3B30; --danger-soft: rgba(255, 59, 48, 0.12);
+  /* Apple's accessible variants of red, pink and blue (>= 4.5:1 as small text on white and on the page),
+     like the orange and green below. */
+  --danger: #D70015; --danger-soft: rgba(215, 0, 21, 0.09);
   --success: #248A3D; --success-soft: rgba(52, 199, 89, 0.14);
+  --on-success: #FFFFFF; /* text and icons on a --success fill */
   --warning: #C93400; --warning-soft: rgba(255, 149, 0, 0.14);
-  --info: #007AFF;
-  --pink: #FF2D55;
+  --info: #0062CC;
+  --pink: #D30F45;
   --card-bg: #FFFFFF;
   --separator: rgba(60, 60, 67, 0.29);
   --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   --ios-sheet: cubic-bezier(0.32, 0.72, 0, 1);
   --nav-h: 60px;
+
+  /* Sheets made of grouped lists (<Sheet grouped>): an opaque grouped background with cells on it. */
+  --sheet-grouped-bg: #F2F2F7;
+  --sheet-cell: #FFFFFF;
+  /* The selected segment of a segmented control inside a card or sheet (on glass it's --lens). */
+  --seg-thumb: #FFFFFF;
+
+  /* iOS text styles. */
+  --fs-large-title: 34px;
+  --fs-title1: 28px;
+  --fs-title2: 22px;
+  --fs-title3: 20px;
+  --fs-headline: 17px;
+  --fs-body: 17px;
+  --fs-callout: 16px;
+  --fs-subhead: 15px;
+  --fs-footnote: 13px;
+  --fs-caption1: 12px;
+  --fs-caption2: 11px;
+
+  /* Shapes: top-level cards and grouped lists, rows or cards nested inside one (and agenda items),
+     fields, capsules. Button heights: sm gets a 44px touch area from glass.css. */
+  --r-group: 26px;
+  --r-inset: 18px;
+  --r-field: 14px;
+  --r-pill: 999px;
+  --btn-h-sm: 36px;
+  --btn-h-md: 46px;
+  --btn-h-lg: 54px;
 }
 
 :root[data-appearance='dark'] {
@@ -29,11 +61,15 @@
   --text-3: #8D8D93;
   --danger: #FF453A; --danger-soft: rgba(255, 69, 58, 0.16);
   --success: #30D158; --success-soft: rgba(48, 209, 88, 0.16);
+  --on-success: #000000; /* white on the bright dark-mode green is only ~2:1 */
   --warning: #FF9F0A; --warning-soft: rgba(255, 159, 10, 0.16);
   --info: #0A84FF;
   --pink: #FF375F;
   --card-bg: #1C1C1E;
   --separator: rgba(84, 84, 88, 0.65);
+  --sheet-grouped-bg: #1C1C1E; /* lifted off the black page, like iOS */
+  --sheet-cell: #2C2C2E;
+  --seg-thumb: rgba(255, 255, 255, 0.14);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -45,11 +81,15 @@
     --text-3: #8D8D93;
     --danger: #FF453A; --danger-soft: rgba(255, 69, 58, 0.16);
     --success: #30D158; --success-soft: rgba(48, 209, 88, 0.16);
+    --on-success: #000000;
     --warning: #FF9F0A; --warning-soft: rgba(255, 159, 10, 0.16);
     --info: #0A84FF;
     --pink: #FF375F;
     --card-bg: #1C1C1E;
     --separator: rgba(84, 84, 88, 0.65);
+    --sheet-grouped-bg: #1C1C1E;
+    --sheet-cell: #2C2C2E;
+    --seg-thumb: rgba(255, 255, 255, 0.14);
   }
 }
 
@@ -59,19 +99,34 @@ body::before { opacity: 0.5; }
 /* ---- Apple text styles --------------------------------------------------------------------- */
 body { font-size: 16px; line-height: 1.35; letter-spacing: -0.015em; }
 .task-title, .person-text strong, .settings-row-text strong, .agenda-body strong, .entry-text strong { font-size: 17px; font-weight: 400; letter-spacing: -0.02em; }
-.card-header h3 { font-size: 17px; font-weight: 600; letter-spacing: -0.02em; }
+.card-header h3 { font-size: var(--fs-headline); font-weight: 600; letter-spacing: -0.02em; }
 .page-subtitle, .task-notes, .person-text small, .settings-row-text small, .agenda-body small { font-size: 15px; }
-.group-title, .settings-group > h2 {
-  font-size: 13px;
+/* The one small-caps label: list group headers, settings section titles, field labels, and .ui-label
+   for anything else (area files use the class instead of styling their own). */
+.ui-label, .group-title, .settings-group > h2 {
+  font-size: var(--fs-footnote);
   font-weight: 400;
+  text-transform: uppercase;
   letter-spacing: 0.01em;
   color: var(--text-2);
-  margin-left: 16px;
 }
-.eyebrow { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.02em; }
-.link-btn { font-size: 17px; font-weight: 400; }
-.link-btn:hover { text-decoration: none; opacity: 0.7; }
-.muted { font-size: 15px; }
+.group-title, .settings-group > h2 { margin-left: 16px; }
+.eyebrow { font-size: var(--fs-footnote); font-weight: 600; text-transform: uppercase; letter-spacing: 0.02em; }
+/* The one text link (areas may set layout, not the look). Never shorter than 44px to tap: the ::after
+   grows only as much as the button falls short. */
+.link-btn {
+  position: relative;
+  padding: 6px 2px;
+  color: var(--accent);
+  font-size: var(--fs-subhead);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  transition: opacity 0.15s;
+}
+.link-btn::after { content: ''; position: absolute; left: -2px; right: -2px; top: min(0px, calc(50% - 22px)); bottom: min(0px, calc(50% - 22px)); }
+.link-btn:active:not(:disabled) { opacity: 0.5; }
+@media (hover: hover) { .link-btn:hover:not(:disabled) { opacity: 0.7; } }
+.muted { font-size: var(--fs-subhead); }
 
 /* ---- plain grouped cells (no card chrome) -------------------------------------------------- */
 .card, .card-list, .agenda-item, .entry-card, .note-card, .settings-card {
@@ -79,11 +134,30 @@ body { font-size: 16px; line-height: 1.35; letter-spacing: -0.015em; }
   border: 0;
   box-shadow: none;
 }
-.card { border-radius: 26px; }
-.card-list { border-radius: 26px; }
-.agenda-item, .entry-card { border-radius: 18px; }
+.card, .card-list { border-radius: var(--r-group); }
+.agenda-item, .entry-card { border-radius: var(--r-inset); }
 .suggestion { background: var(--card-bg); border: 0; box-shadow: none; border-radius: 22px; }
 .entry-card.is-active { box-shadow: 0 0 0 2px var(--accent); }
+
+/* ---- controls inside content are flat, like iOS gray buttons ------------------------------------ */
+/* glass.css gives chips, secondary buttons, segmented controls and search fields a white glass fill
+   and a soft shadow; inside a white card or sheet that's white on white, so there they're filled grey.
+   :where() keeps this at the controls' own weight, so an area's state rules (.x.is-on) still win.
+   The floating layer (tab bar, top bar, toasts, composer, the Tasks dock) keeps its glass. */
+:where(.card, .card-list, .sheet, .settings-card) :is(.btn-secondary, .icon-btn-soft, .segmented, .search-field),
+:where(.card, .card-list, .sheet, .settings-card) .chip:where(:not(.is-active)) {
+  background: var(--surface-2);
+  border-color: transparent;
+  box-shadow: none;
+}
+:where(.card, .card-list, .sheet, .settings-card) .chip-quiet:where(:not(.is-active)) { background: none; border-color: var(--border-strong); }
+:where(.card, .card-list, .sheet, .settings-card) .segmented button.is-active { background: var(--seg-thumb); }
+:where(.card, .card-list, .sheet, .settings-card) .search-field:focus-within { border-color: transparent; box-shadow: 0 0 0 3px var(--accent-soft); }
+@media (hover: hover) {
+  :where(.card, .card-list, .sheet, .settings-card) :is(.btn-secondary, .icon-btn-soft):hover:not(:disabled),
+  :where(.card, .card-list, .sheet, .settings-card) .chip:where(:not(.is-active)):hover { background: var(--surface-3); }
+  :where(.card, .card-list, .sheet, .settings-card) .icon-btn-soft:hover:not(:disabled) { color: var(--accent); }
+}
 
 /* ---- inset hairline separators, like iOS lists --------------------------------------------- */
 .task-list > li + li, .card-list > li + li, .people-mini li + li, .prayer-list li + li,
@@ -111,7 +185,7 @@ body { font-size: 16px; line-height: 1.35; letter-spacing: -0.015em; }
 .person-list { --sep-inset: 70px; }
 .people-mini { --sep-inset: 48px; }
 .compact-list { --sep-inset: 26px; }
-.settings-list { --sep-inset: 62px; }
+.settings-list { --sep-inset: 58px; } /* 16px padding + 30px icon + 12px gap: where the text starts */
 .card-list .task-row { padding-left: 16px; padding-right: 16px; }
 
 /* ---- Reminders-style check circles ------------------------------------------------------------ */
@@ -128,6 +202,8 @@ body { font-size: 16px; line-height: 1.35; letter-spacing: -0.015em; }
 }
 .btn:active:not(:disabled), .icon-btn:active, .chip:active, .send-btn:active:not(:disabled),
 .mood:active, .day-cell:active, .nav-item:active .nav-icon { transform: scale(0.92); transition-duration: 0.1s; }
+/* Wide buttons press less: 8% of a full-width button is a visible squash. */
+.btn-block:active:not(:disabled), .btn-grow:active:not(:disabled), .btn-lg:active:not(:disabled) { transform: scale(0.97); }
 .settings-row:active, .person-main:active, .task-body:active, .entry-card:active, .suggestion:active, .agenda-body:active, .journal-teaser:active {
   opacity: 1;
   background: var(--surface-2);
@@ -167,22 +243,39 @@ body { font-size: 16px; line-height: 1.35; letter-spacing: -0.015em; }
   white-space: nowrap;
 }
 .topbar.is-scrolled .topbar-title { opacity: 1; transform: translate(-50%, 0); }
-.topbar.is-scrolled {
+/* The scrolled bar's material is a layer that fades in over the gradient (a gradient can't transition
+   into a colour). z-index -1 keeps it behind the bar's contents: the sticky, z-indexed .topbar is a
+   stacking context, so the layer still paints above the bar's own background. */
+.topbar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
   background: color-mix(in srgb, var(--bg) 72%, transparent);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   backdrop-filter: blur(20px) saturate(180%);
+  opacity: 0;
+  transition: opacity 0.2s var(--ease);
+  pointer-events: none;
 }
+.topbar.is-scrolled::before { opacity: 1; }
 @supports not (background: color-mix(in srgb, red 50%, blue)) {
-  .topbar.is-scrolled { background: var(--glass-bg-strong); }
+  .topbar::before { background: var(--glass-bg-strong); }
 }
 @media (min-width: 900px) {
   .topbar-title { display: none; }
-  .topbar.is-scrolled { background: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .topbar::before { display: none; }
 }
+
+/* ---- page headers: one rhythm, 4px between the lines of a header and 16px below it --------------- */
+.page-header { row-gap: 4px; margin-bottom: 16px; }
+.assistant-header { margin-bottom: 16px; }
 
 /* ---- "+" in the header instead of a floating action button (phones) ------------------------------ */
 @media (max-width: 899px) {
-  .page-header-row { align-items: center; }
+  /* Titles hang from the top of the row, not centred against taller buttons, so every large title
+     sits at the same height on every tab. */
+  .page-header-row, .assistant-header { align-items: flex-start; }
   .page-header-row > .btn {
     display: inline-grid;
     place-items: center;
@@ -206,9 +299,18 @@ body { font-size: 16px; line-height: 1.35; letter-spacing: -0.015em; }
   .month-nav .btn { display: inline-flex; }
 }
 
-/* ---- sheets use the iOS sheet curve -------------------------------------------------------------- */
-.sheet { animation-duration: 0.45s; animation-timing-function: var(--ios-sheet); }
-.sheet-header h2 { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
+/* ---- sheets use the iOS sheet curve (phones; desktop dialogs keep their quicker dialog-in) ---------- */
+@media (max-width: 639px) {
+  .sheet { animation-duration: 0.45s; animation-timing-function: var(--ios-sheet); }
+}
+.sheet-header h2 { font-size: var(--fs-title3); font-weight: 700; letter-spacing: -0.02em; }
+/* <Sheet grouped>: an opaque grouped background (no blur needed) with its lists as cells on it. */
+.sheet.sheet-grouped {
+  background: var(--sheet-grouped-bg);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.sheet.sheet-grouped :is(.card, .card-list, .settings-card) { background: var(--sheet-cell); }
 .sheet-header .icon-btn { background: var(--surface-2); width: 32px; height: 32px; color: var(--text-2); }
 .sheet-body { padding-top: 8px; }
 
@@ -217,8 +319,8 @@ body { font-size: 16px; line-height: 1.35; letter-spacing: -0.015em; }
 .stat { font-size: 14px; }
 .segmented button { font-size: 14px; font-weight: 500; }
 .segmented button.is-active { font-weight: 600; }
-.input { font-size: 17px; }
-.field-label { font-size: 13px; font-weight: 400; text-transform: uppercase; letter-spacing: 0.01em; margin-left: 4px; }
+.input { font-size: var(--fs-body); }
+.field-label { font-size: var(--fs-footnote); font-weight: 400; text-transform: uppercase; letter-spacing: 0.01em; margin-left: 4px; }
 .day-cell { font-size: 17px; }
 .day-cell.is-today:not(.is-selected) .day-number { color: var(--danger); }
 .dot-event { background: var(--accent); }

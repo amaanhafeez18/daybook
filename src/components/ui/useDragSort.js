@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react'
+import { prefersReducedMotion as reducedMotion } from '../../lib/motion.js'
 import './drag.css'
 
 // Drag to reorder, for a vertical list (axis 'y') or wrapping chips (axis 'xy').
@@ -16,8 +17,6 @@ const TOUCH_SLOP = 8
 const LONG_PRESS_MS = 260
 const EDGE_PX = 56
 const MAX_SCROLL_STEP = 14
-
-const reducedMotion = () => typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 
 // Where an element sits in the layout, without a transform that is moving it (a slide in progress).
 function layoutRect(el) {

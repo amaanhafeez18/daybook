@@ -12,6 +12,7 @@ import { peekDraft, saveDraft, takeDraft } from '../lib/drafts.js'
 import { LEAD_OPTIONS, leadLabel, notificationPrefs } from '../lib/notifications.js'
 import { attachmentSummary, useAttachmentsFor } from '../lib/attachments.js'
 import { useData } from '../lib/store.js'
+import { scrollBehavior } from '../lib/motion.js'
 import './tasks.css'
 
 const PRIORITIES = [
@@ -156,7 +157,8 @@ export default function TaskSheet({ open, onClose, task: taskProp = null, defaul
   const today = todayISO()
   const quickDates = dayPresets(today).map((preset) => ({
     id: preset.date,
-    label: preset.id === 'today' || preset.id === 'tomorrow' ? preset.label : `${preset.label} · ${preset.day}`,
+    // "Next Mon" rather than "Next week · Mon", so the chips wrap less on a phone.
+    label: preset.id === 'today' || preset.id === 'tomorrow' ? preset.label : preset.id === 'next-week' ? `Next ${preset.day}` : `${preset.label} · ${preset.day}`,
   }))
 
   // Priority, reminder, notes and attached files live behind "More options"; the summary says
@@ -226,7 +228,7 @@ export default function TaskSheet({ open, onClose, task: taskProp = null, defaul
     setTimeout(() => {
       const input = dateInput.current
       if (!input) return
-      input.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      input.scrollIntoView({ block: 'center', behavior: scrollBehavior() })
       try {
         input.showPicker()
       } catch {

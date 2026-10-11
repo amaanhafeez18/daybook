@@ -98,7 +98,7 @@ export default function Onboarding({ today }) {
         />
       </div>
 
-      <h3 className="wiz-onb-heading">Ready-made plans</h3>
+      <h3 className="ui-label wiz-onb-heading">Ready-made plans</h3>
       <ul className="gym-onb-tpl-list">
         {templates.map((template) => {
           const open = selected === template.id
@@ -118,7 +118,7 @@ export default function Onboarding({ today }) {
                 <div className="gym-onb-tpl-body">
                   {template.rotation && (
                     <label className="gym-onb-tpl-field">
-                      <span>Start today with</span>
+                      <span className="ui-label">Start today with</span>
                       <select className="input" value={anchor} onChange={(event) => setAnchor(Number(event.target.value))}>
                         {template.version.cycle.map((slot, index) => (
                           <option key={index} value={index}>Day {index + 1}: {slotInfo(slot, template.built.routines).name}</option>
@@ -128,7 +128,7 @@ export default function Onboarding({ today }) {
                   )}
                   {firstWeek.length > 0 && (
                     <div className="gym-onb-tpl-week">
-                      <span className="gym-onb-tpl-week-title">Your first week</span>
+                      <span className="ui-label gym-onb-tpl-week-title">Your first week</span>
                       <ol className="gym-onb-week">
                         {firstWeek.map((day) => {
                           const info = slotInfo(day.shown, template.built.routines)
@@ -157,7 +157,7 @@ export default function Onboarding({ today }) {
         })}
       </ul>
 
-      <h3 className="wiz-onb-heading">Or make your own</h3>
+      <h3 className="ui-label wiz-onb-heading">Or make your own</h3>
       <button type="button" className="wiz-onb-card" onClick={() => setWizardOpen(true)}>
         <span className="wiz-onb-icon" aria-hidden="true"><Icon name="wand" size={24} strokeWidth={2} /></span>
         <span className="wiz-onb-text">

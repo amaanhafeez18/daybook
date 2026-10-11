@@ -98,14 +98,14 @@ export default function ExercisesTab() {
 
           {recent.length > 0 && (
             <section className="gym-lib-group" aria-labelledby="gym-lib-recent">
-              <h2 className="gym-lib-letter" id="gym-lib-recent">Recent</h2>
+              <h2 className="ui-label gym-lib-letter" id="gym-lib-recent">Recent</h2>
               <ul className="card-list gym-lib-list">{recent.map(row)}</ul>
             </section>
           )}
 
           {groups ? groups.map((group) => (
             <section key={group.letter} className="gym-lib-group" aria-label={`Exercises starting with ${group.letter}`}>
-              <h2 className="gym-lib-letter" aria-hidden="true">{group.letter}</h2>
+              <h2 className="ui-label gym-lib-letter" aria-hidden="true">{group.letter}</h2>
               <ul className="card-list gym-lib-list">{group.items.map(row)}</ul>
             </section>
           )) : (

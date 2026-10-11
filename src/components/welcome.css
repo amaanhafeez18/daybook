@@ -226,7 +226,7 @@ html.has-welcome { overflow: hidden; }
   place-items: center;
   border-radius: 50%;
   background: var(--success);
-  color: #fff;
+  color: var(--on-success, #fff); /* black on dark mode's brighter green */
   box-shadow: 0 0 0 2px var(--wl-card);
   transform: scale(0);
   transition: transform 0.25s var(--wl-spring);
@@ -287,7 +287,7 @@ html.has-welcome { overflow: hidden; }
   place-items: center;
   border-radius: 50%;
   background: var(--success);
-  color: #fff;
+  color: var(--on-success, #fff);
 }
 
 .wl-panel {
@@ -572,9 +572,12 @@ html.has-welcome { overflow: hidden; }
     box-shadow: var(--shadow-lg);
   }
   .wl-foot { padding-bottom: 14px; }
-  .wl-icon-btn:hover:not(:disabled), .wl-skip:hover, .wl-secondary:hover { background: var(--accent-soft); }
-  .wl-primary:hover:not(:disabled) { filter: brightness(1.06); }
-  .wl-pick:hover, .wl-idea:hover { border-color: var(--accent); }
+  /* iPads have touch too: a tapped control mustn't keep its hover look. */
+  @media (hover: hover) {
+    .wl-icon-btn:hover:not(:disabled), .wl-skip:hover, .wl-secondary:hover { background: var(--accent-soft); }
+    .wl-primary:hover:not(:disabled) { filter: brightness(1.06); }
+    .wl-pick:hover, .wl-idea:hover { border-color: var(--accent); }
+  }
 }
 
 /* Short phones (iPhone SE): tighter visuals so each screen fits without much scrolling. */

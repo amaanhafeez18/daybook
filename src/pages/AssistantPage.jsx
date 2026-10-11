@@ -17,6 +17,7 @@ import { getGym, hasPlan, useGym, useGymSessions, useToday } from '../lib/gym/st
 import { navigate } from '../lib/router.js'
 import { resolveDay } from '../lib/gym/schedule.js'
 import { assistantSpace, buildSuggestions, canUndo, cardExpired, collapsesCard, composerPlaceholder, proposalExpired, setsOffer, undoRefused, visibleActions } from '../lib/assistantChat.js'
+import { scrollBehavior } from '../lib/motion.js'
 import '../components/assistant.css'
 
 const CHAT_CACHE = 'daybook.chat'
@@ -229,7 +230,7 @@ export default function AssistantPage({ displayName }) {
       return undefined
     }
     if (!followRef.current) return undefined
-    const behavior = jumpRef.current || busy ? 'auto' : 'smooth'
+    const behavior = jumpRef.current || busy ? 'auto' : scrollBehavior()
     jumpRef.current = false
     const frame = requestAnimationFrame(() => endRef.current?.scrollIntoView({ block: 'end', behavior }))
     return () => cancelAnimationFrame(frame)
@@ -958,7 +959,7 @@ function Welcome({ displayName, busy, space = 'plan', onAsk, onFill, onTimetable
             <Icon name="message" size={18} />
             <span className="asst-resume-text">
               <strong>Continue chat</strong>
-              <small>{messageCount} {messageCount === 1 ? 'message' : 'messages'}{lastAt ? ` · last ${agoText(lastAt)}` : ''}</small>
+              <small>{messageCount} {messageCount === 1 ? 'message' : 'messages'}{lastAt ? ` · ${agoText(lastAt)}` : ''}</small>
             </span>
             <Icon name="chevronRight" size={16} />
           </button>
@@ -996,13 +997,14 @@ function Welcome({ displayName, busy, space = 'plan', onAsk, onFill, onTimetable
   )
 }
 
-// "just now" / "35 min ago" / "3 h ago" / "yesterday" / "3 days ago", for the Continue chat line.
+// "just now" / "35 min ago" / "3 hours ago" / "yesterday" / "3 days ago", for the Continue chat line
+// (words spelled out, as everywhere else in the app).
 function agoText(timestamp) {
   const minutes = Math.max(0, Math.round((Date.now() - timestamp) / 60000))
   if (minutes < 2) return 'just now'
   if (minutes < 60) return `${minutes} min ago`
   const hours = Math.round(minutes / 60)
-  if (hours < 24) return `${hours} h ago`
+  if (hours < 24) return hours === 1 ? '1 hour ago' : `${hours} hours ago`
   const days = Math.round(hours / 24)
   return days === 1 ? 'yesterday' : `${days} days ago`
 }
