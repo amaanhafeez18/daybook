@@ -5,7 +5,7 @@
    ========================================================================================= */
 
 :root {
-  --font: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 
   --bg: #F6F4EF;
   --surface: #FFFFFF;
@@ -46,6 +46,9 @@
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --page-pad: 16px;
+  /* Page widths: reading pages, and dashboards (Today, Calendar, Journal, Health, Food). */
+  --w-read: 780px;
+  --w-dash: 1100px;
 
   color-scheme: light;
 }
@@ -170,7 +173,6 @@ body {
   font-family: var(--font);
   font-size: 15px;
   line-height: 1.45;
-  font-feature-settings: 'cv11', 'ss01';
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
 }
@@ -334,7 +336,9 @@ select.input { background-image: linear-gradient(45deg, transparent 50%, var(--t
 .card-list .task-row { padding-left: 14px; padding-right: 14px; }
 
 .task-list > li + li { border-top: 1px solid var(--border); }
-.task-row { display: flex; align-items: flex-start; gap: 12px; padding: 12px 0; animation: rise 0.2s var(--ease); }
+.task-row { display: flex; align-items: flex-start; gap: 12px; padding: 12px 0; }
+/* Only a row that was just added rises in (motion.js freshClass), not every row on each visit. */
+.task-row.is-new { animation: rise 0.2s var(--ease); }
 .check { flex-shrink: 0; width: 24px; height: 24px; margin-top: 1px; border-radius: 50%; border: 2px solid var(--border-strong); display: grid; place-items: center; color: transparent; transition: all 0.18s var(--ease); }
 @media (hover: hover) { .check:hover { border-color: var(--accent); } }
 .check.is-checked { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
@@ -457,9 +461,11 @@ select.input { background-image: linear-gradient(45deg, transparent 50%, var(--t
 .sync-badge.is-syncing .icon { animation: spin 1s linear infinite; }
 .sync-badge.is-offline { background: var(--warning-soft); color: var(--warning); }
 
-.page { padding: 20px var(--page-pad) calc(var(--nav-h) + var(--safe-bottom) + 96px); max-width: 780px; margin: 0 auto; outline: none; animation: fade-in 0.2s ease; }
-.page-today { max-width: 1120px; }
-.page-calendar, .page-journal { max-width: 1080px; }
+.page { padding: 20px var(--page-pad) calc(var(--nav-h) + var(--safe-bottom) + 96px); max-width: var(--w-read); margin: 0 auto; outline: none; animation: fade-in 0.2s ease; }
+.page-today, .page-calendar, .page-journal { max-width: var(--w-dash); }
+/* Beside the sidebar the column starts at the same place on every page, whatever its width, so
+   switching pages doesn't shift it sideways. */
+@media (min-width: 1000px) { .page { margin-left: 0; } }
 
 .nav {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
@@ -576,7 +582,8 @@ select.input { background-image: linear-gradient(45deg, transparent 50%, var(--t
 
 .agenda-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .agenda-list { display: flex; flex-direction: column; gap: 8px; }
-.agenda-item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: var(--r-md); background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-sm); animation: rise 0.2s var(--ease); }
+.agenda-item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: var(--r-md); background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-sm); }
+.agenda-item.is-new { animation: rise 0.2s var(--ease); }
 .agenda-time { width: 64px; flex-shrink: 0; font-size: 13px; font-weight: 600; color: var(--text-2); font-variant-numeric: tabular-nums; }
 .agenda-bar { width: 4px; align-self: stretch; border-radius: 2px; background: var(--accent); }
 .agenda-class .agenda-bar { background: var(--info); }
@@ -696,7 +703,8 @@ select.input { background-image: linear-gradient(45deg, transparent 50%, var(--t
 .suggestion .icon { color: var(--accent); }
 @media (hover: hover) { .suggestion:hover:not(:disabled) { border-color: var(--accent); transform: translateY(-1px); } }
 
-.msg { display: flex; gap: 10px; animation: rise 0.2s var(--ease); }
+.msg { display: flex; gap: 10px; }
+.msg.is-new { animation: rise 0.2s var(--ease); }
 .msg-user { justify-content: flex-end; }
 .msg-bubble { max-width: min(80%, 560px); padding: 10px 14px; border-radius: 18px 18px 6px 18px; background: var(--accent); color: var(--on-accent); font-size: 15px; white-space: pre-wrap; overflow-wrap: anywhere; display: inline-flex; gap: 6px; align-items: flex-start; }
 .msg-bubble .icon { margin-top: 3px; opacity: 0.85; }

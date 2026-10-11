@@ -1,0 +1,66 @@
+/* =========================================================================================
+   Moving between screens (View Transitions; lib/router.js sets html[data-nav] for one move).
+   push: a deeper screen (an exercise, a past workout, Stats, a food day, Insights, My foods)
+         slides in from the right over the dimmed old one; pop: it slides back out.
+   up / down: the workout and the routine editor rise like a sheet and drop away.
+   fade: Plan ↔ Health crossfades. Tab switches have no data-nav and stay instant.
+   The top bar, the tab bar and the workout pill have their own names, so they hold still
+   while the page moves. Devices without View Transitions (iOS before 18) just switch.
+   ========================================================================================= */
+
+html[data-nav] .topbar { view-transition-name: topbar; }
+html[data-nav] .nav { view-transition-name: tabbar; }
+html[data-nav] .gymw-pill { view-transition-name: workout-pill; }
+
+::view-transition-group(root) { animation-duration: 0.38s; animation-timing-function: var(--ios-sheet, cubic-bezier(0.32, 0.72, 0, 1)); }
+
+/* Sliding screens are opaque cards, not the default plus-lighter crossfade. */
+html[data-nav='push']::view-transition-old(root),
+html[data-nav='push']::view-transition-new(root),
+html[data-nav='pop']::view-transition-old(root),
+html[data-nav='pop']::view-transition-new(root),
+html[data-nav='up']::view-transition-old(root),
+html[data-nav='up']::view-transition-new(root),
+html[data-nav='down']::view-transition-old(root),
+html[data-nav='down']::view-transition-new(root) {
+  mix-blend-mode: normal;
+  background: var(--bg);
+  animation-duration: 0.38s;
+  animation-timing-function: var(--ios-sheet, cubic-bezier(0.32, 0.72, 0, 1));
+  animation-fill-mode: both;
+}
+
+html[data-nav='push']::view-transition-old(root) { animation-name: vt-back-out; }
+html[data-nav='push']::view-transition-new(root) { animation-name: vt-in-right; box-shadow: -8px 0 24px rgba(0, 0, 0, 0.12); }
+
+/* Back: the screen on top leaves to the right, uncovering the one behind it. */
+html[data-nav='pop']::view-transition-old(root) { z-index: 1; animation-name: vt-out-right; box-shadow: -8px 0 24px rgba(0, 0, 0, 0.12); }
+html[data-nav='pop']::view-transition-new(root) { animation-name: vt-back-in; }
+
+html[data-nav='up']::view-transition-old(root) { animation-name: vt-dim; }
+html[data-nav='up']::view-transition-new(root) { animation-name: vt-in-up; }
+html[data-nav='down']::view-transition-old(root) { z-index: 1; animation-name: vt-out-down; }
+html[data-nav='down']::view-transition-new(root) { animation-name: vt-undim; }
+
+html[data-nav='fade']::view-transition-old(root),
+html[data-nav='fade']::view-transition-new(root) { animation-duration: 0.26s; animation-timing-function: ease; }
+
+/* The bars stay put; only a bar that appears or leaves (focus mode) fades. */
+::view-transition-group(topbar),
+::view-transition-group(tabbar),
+::view-transition-group(workout-pill) { animation-duration: 0.38s; animation-timing-function: var(--ios-sheet, cubic-bezier(0.32, 0.72, 0, 1)); }
+
+@keyframes vt-in-right { from { transform: translateX(100%); } }
+@keyframes vt-out-right { to { transform: translateX(100%); } }
+@keyframes vt-back-out { to { transform: translateX(-30%); filter: brightness(0.86); } }
+@keyframes vt-back-in { from { transform: translateX(-30%); filter: brightness(0.86); } }
+@keyframes vt-in-up { from { transform: translateY(100%); } }
+@keyframes vt-out-down { to { transform: translateY(100%); } }
+@keyframes vt-dim { to { filter: brightness(0.86); } }
+@keyframes vt-undim { from { filter: brightness(0.86); } }
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) { animation: none !important; }
+}

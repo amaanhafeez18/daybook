@@ -1,5 +1,7 @@
 import { useId, useLayoutEffect, useRef, useState } from 'react'
 import Icon from './Icon.jsx'
+import { useSlidingThumb } from './useSlidingThumb.js'
+import { haptic } from '../../lib/haptics.js'
 
 export function Button({ variant = 'primary', size, icon, loading = false, children, className = '', ...props }) {
   return (
@@ -75,9 +77,12 @@ export function AutoTextarea({ value, maxRows = 12, minRows = 2, className = '',
   return <textarea ref={ref} rows={minRows} value={value} className={`input textarea ${className}`} {...props} />
 }
 
+// The selection slides to the new choice (useSlidingThumb) with a light tap (haptics.js).
 export function Segmented({ options, value, onChange, label, size, className = '' }) {
+  const ref = useRef(null)
+  useSlidingThumb(ref, value)
   return (
-    <div className={`segmented ${size ? `segmented-${size}` : ''} ${className}`} role="radiogroup" aria-label={label}>
+    <div ref={ref} className={`segmented ${size ? `segmented-${size}` : ''} ${className}`} role="radiogroup" aria-label={label}>
       {options.map((option) => (
         <button
           key={option.id}
@@ -85,7 +90,10 @@ export function Segmented({ options, value, onChange, label, size, className = '
           role="radio"
           aria-checked={value === option.id}
           className={value === option.id ? 'is-active' : ''}
-          onClick={() => onChange(option.id)}
+          onClick={() => {
+            if (option.id !== value) haptic()
+            onChange(option.id)
+          }}
         >
           {option.icon && <Icon name={option.icon} size={16} />}
           {option.label}
@@ -103,7 +111,12 @@ export function Switch({ checked, onChange, label, description }) {
         <span>{label}</span>
         {description && <small>{description}</small>}
       </span>
-      <input id={id} type="checkbox" role="switch" className="switch" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+      {/* The tap is felt from here: .switch draws its own look (appearance: none), so the native
+          switch haptic can't be relied on. */}
+      <input id={id} type="checkbox" role="switch" className="switch" checked={checked} onChange={(event) => {
+        haptic()
+        onChange(event.target.checked)
+      }} />
     </label>
   )
 }
@@ -170,6 +183,7 @@ export function Checkbox({ checked, onChange, label }) {
       aria-label={label}
       onClick={(event) => {
         event.stopPropagation()
+        haptic()
         onChange(!checked)
       }}
     >

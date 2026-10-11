@@ -1,8 +1,9 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import Icon from './Icon.jsx'
-import { revealFocused, watchKeyboard } from '../../lib/keyboard.js'
+import { focusBeforePrime, isTyping, revealFocused, watchKeyboard } from '../../lib/keyboard.js'
 import { prefersReducedMotion } from '../../lib/motion.js'
+import { NO_SHEET_DRAG, contentDragIntent } from './sheetDrag.js'
 import '../shell.css'
 
 // How long a closing sheet stays mounted is read from its exit animation in the CSS (App.css:
@@ -23,10 +24,12 @@ const FLICK_PX_PER_MS = 0.5 // ...or sooner, with a quick flick down
 const NOT_A_HANDLE = 'button, a, input, textarea, select, label, [contenteditable]'
 
 // Bottom sheet on phones, centred dialog on wider screens. Closes on Escape, backdrop tap or (on
-// phones) a swipe down on its handle or header; moves focus inside while open and returns it
-// afterwards, locks page scroll, and stays above the on-screen keyboard (lib/keyboard.js).
-// dragBody: the body takes the swipe-down too (short sheets that never scroll, e.g. an exercise's
-// animation), so the whole sheet can be pulled down to close.
+// phones) a swipe down on its handle or header, or on its content while that is scrolled to the top
+// (sheetDrag.js; mark a child data-no-sheet-drag to keep it out); moves focus inside while open and
+// returns it afterwards, locks page scroll, and stays above the on-screen keyboard (lib/keyboard.js;
+// an add button can call primeKeyboard() so the keyboard rises with the sheet).
+// dragBody: the body drags like the handle, wherever the press starts (short sheets that never
+// scroll, e.g. an exercise's animation).
 // grouped: a sheet made of grouped lists (menus, settings, pickers) gets the opaque iOS grouped
 // background instead of glass (.sheet-grouped: --sheet-grouped-bg, cells in --sheet-cell).
 export default function Sheet({ open, onClose, title, description, children, footer, size = 'md', initialFocus = true, role = 'dialog', describedBy, dragBody = false, grouped = false }) {
@@ -34,6 +37,7 @@ export default function Sheet({ open, onClose, title, description, children, foo
   const [closing, setClosing] = useState(false)
   const panelRef = useRef(null)
   const backdropRef = useRef(null)
+  const bodyRef = useRef(null)
   const returnFocusRef = useRef(null)
   // The key handler is added once per opening; the ref gives it the latest onClose (which may
   // depend on state, e.g. "unsaved changes?").
@@ -79,7 +83,8 @@ export default function Sheet({ open, onClose, title, description, children, foo
 
   useEffect(() => {
     if (!mounted || closing) return undefined
-    returnFocusRef.current = document.activeElement
+    // Opened with primeKeyboard(): the hidden field has focus, but focus goes back to what had it.
+    returnFocusRef.current = focusBeforePrime(document.activeElement)
     openSheets += 1
     sheetStack.push(panelRef)
     document.documentElement.classList.add('has-sheet')
@@ -135,6 +140,61 @@ export default function Sheet({ open, onClose, title, description, children, foo
     }
   }, [mounted, closing]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Pull down on the content (phones). Touch events, not pointer events: only a non-passive
+  // touchmove can stop the body scrolling once the pull is taken. A dragBody sheet already drags
+  // from its body with the pointer.
+  useEffect(() => {
+    const body = bodyRef.current
+    if (!mounted || closing || dragBody || !body) return undefined
+    let touch = null // { x, y, t, decided: 'drag' | 'ignore' | undefined }
+    const onTouchStart = (event) => {
+      touch = null
+      if (event.touches.length !== 1 || !window.matchMedia?.(PHONE_QUERY).matches) return
+      const target = event.target
+      const field = document.activeElement
+      if (target.closest?.(NO_SHEET_DRAG)) return
+      if (isTyping(field) && (field === target || field.contains?.(target))) return
+      if (scrolledInside(target, body)) return
+      const point = event.touches[0]
+      touch = { x: point.clientX, y: point.clientY, t: event.timeStamp }
+    }
+    const onTouchMove = (event) => {
+      if (!touch || touch.decided === 'ignore') return
+      const point = event.touches[0]
+      if (!point) return
+      if (!touch.decided) {
+        const intent = contentDragIntent({ dx: point.clientX - touch.x, dy: point.clientY - touch.y, scrollTop: body.scrollTop })
+        if (intent === 'wait') return
+        // Too late to take it (the browser is already scrolling): leave it be.
+        if (intent === 'ignore' || !event.cancelable) {
+          touch.decided = 'ignore'
+          return
+        }
+        touch.decided = 'drag'
+        drag.start(touch.y, touch.t, 'touch')
+      }
+      if (event.cancelable) event.preventDefault()
+      drag.move(point.clientY, event.timeStamp, 'touch')
+    }
+    const onTouchEnd = (event) => {
+      const was = touch
+      touch = null
+      if (was?.decided !== 'drag') return
+      const point = event.changedTouches[0]
+      drag.end(point ? point.clientY : was.y, event.timeStamp, event.type === 'touchend', 'touch')
+    }
+    body.addEventListener('touchstart', onTouchStart, { passive: true })
+    body.addEventListener('touchmove', onTouchMove, { passive: false })
+    body.addEventListener('touchend', onTouchEnd)
+    body.addEventListener('touchcancel', onTouchEnd)
+    return () => {
+      body.removeEventListener('touchstart', onTouchStart)
+      body.removeEventListener('touchmove', onTouchMove)
+      body.removeEventListener('touchend', onTouchEnd)
+      body.removeEventListener('touchcancel', onTouchEnd)
+    }
+  }, [mounted, closing, dragBody]) // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!mounted) return null
 
   return createPortal(
@@ -164,7 +224,7 @@ export default function Sheet({ open, onClose, title, description, children, foo
             </button>
           </header>
         )}
-        <div className={`sheet-body${dragBody ? ' is-draggable' : ''}`} {...(dragBody ? drag.handlers : {})}>{children}</div>
+        <div ref={bodyRef} className={`sheet-body${dragBody ? ' is-draggable' : ''}`} {...(dragBody ? drag.handlers : {})}>{children}</div>
         {footer && <footer className="sheet-footer">{footer}</footer>}
       </div>
     </div>,
@@ -172,10 +232,12 @@ export default function Sheet({ open, onClose, title, description, children, foo
   )
 }
 
-// Swipe down to close, from the handle or the header (or the body of a dragBody sheet, which doesn't scroll). The sheet follows
-// the finger, the backdrop fades with it, and on release it closes past DRAG_CLOSE_PX or on a flick,
-// otherwise springs back. Closing goes through onClose like the × does, so a sheet that asks
-// "discard changes?" first still can; if it stays open, the sheet springs back.
+// Swipe down to close: from the handle or the header with the pointer (or the body of a dragBody
+// sheet, which doesn't scroll), and from the content with touch (the effect in Sheet above). The
+// sheet follows the finger, the backdrop fades with it, and on release it closes past
+// DRAG_CLOSE_PX or on a flick, otherwise springs back. Closing goes through onClose like the × does,
+// so a sheet that asks "discard changes?" first still can; if it stays open, the sheet springs back.
+// The core works on (y, time) so pointer and touch share it; `id` keeps two sources from mixing.
 function useDragToClose(panelRef, backdropRef, onCloseRef, openRef) {
   const state = useRef(null)
   const settleTimer = useRef(0)
@@ -211,25 +273,17 @@ function useDragToClose(panelRef, backdropRef, onCloseRef, openRef) {
     settleTimer.current = setTimeout(clearInline, still ? 0 : 450)
   }
 
-  const onPointerDown = (event) => {
-    if (!event.isPrimary || event.button !== 0) return
-    if (!window.matchMedia?.(PHONE_QUERY).matches) return
-    if (event.target.closest?.(NOT_A_HANDLE)) return
+  const start = (y, time, id) => {
     // A drag whose release never arrived: put the sheet back before starting over.
     if (state.current?.active) springBack()
-    state.current = { id: event.pointerId, startY: event.clientY, dy: 0, active: false, samples: [[event.timeStamp, event.clientY]] }
-    try {
-      event.currentTarget.setPointerCapture(event.pointerId)
-    } catch {
-      // not capturable (pointer already gone): the move/up events still arrive while over the sheet
-    }
+    state.current = { id, startY: y, dy: 0, active: false, samples: [[time, y]] }
   }
 
-  const onPointerMove = (event) => {
+  const move = (y, time, id) => {
     const drag = state.current
     const panel = panelRef.current
-    if (!drag || event.pointerId !== drag.id || !panel) return
-    const raw = event.clientY - drag.startY
+    if (!drag || drag.id !== id || !panel) return
+    const raw = y - drag.startY
     if (!drag.active) {
       if (Math.abs(raw) < DRAG_SLOP_PX) return
       drag.active = true
@@ -244,20 +298,21 @@ function useDragToClose(panelRef, backdropRef, onCloseRef, openRef) {
     // Upwards it only gives a little, like iOS.
     const dy = raw >= 0 ? raw : -Math.min(16, Math.sqrt(-raw) * 1.5)
     drag.dy = dy
-    drag.samples.push([event.timeStamp, event.clientY])
+    drag.samples.push([time, y])
     if (drag.samples.length > 8) drag.samples.shift()
     panel.style.transform = `translate3d(0, ${dy}px, 0)`
     if (backdropRef.current) backdropRef.current.style.opacity = String(Math.max(0, 1 - Math.max(0, dy) / (panel.offsetHeight || 400)))
   }
 
-  const onPointerEnd = (event) => {
+  // released: the finger lifted (a cancel never closes).
+  const end = (y, time, released, id) => {
     const drag = state.current
-    if (!drag || event.pointerId !== drag.id) return
+    if (!drag || drag.id !== id) return
     state.current = null
     if (!drag.active) return
     panelRef.current?.classList.remove('is-dragging')
-    drag.samples.push([event.timeStamp, event.clientY])
-    const close = event.type === 'pointerup'
+    drag.samples.push([time, y])
+    const close = released
       && (drag.dy > DRAG_CLOSE_PX || (drag.dy > 20 && releaseSpeed(drag.samples) > FLICK_PX_PER_MS))
     if (!close) {
       springBack()
@@ -275,8 +330,27 @@ function useDragToClose(panelRef, backdropRef, onCloseRef, openRef) {
     }, 80)
   }
 
+  const onPointerDown = (event) => {
+    if (!event.isPrimary || event.button !== 0) return
+    if (!window.matchMedia?.(PHONE_QUERY).matches) return
+    if (event.target.closest?.(NOT_A_HANDLE)) return
+    start(event.clientY, event.timeStamp, event.pointerId)
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId)
+    } catch {
+      // not capturable (pointer already gone): the move/up events still arrive while over the sheet
+    }
+  }
+
+  const onPointerMove = (event) => move(event.clientY, event.timeStamp, event.pointerId)
+
+  const onPointerEnd = (event) => end(event.clientY, event.timeStamp, event.type === 'pointerup', event.pointerId)
+
   return {
     reset,
+    start,
+    move,
+    end,
     handlers: {
       onPointerDown,
       onPointerMove,
@@ -286,6 +360,15 @@ function useDragToClose(panelRef, backdropRef, onCloseRef, openRef) {
       onLostPointerCapture: onPointerEnd,
     },
   }
+}
+
+// Whether the touch is inside something that scrolls on its own and isn't at its top (a list in
+// the sheet): pulling down there scrolls that, not the sheet.
+function scrolledInside(target, body) {
+  for (let node = target; node && node !== body; node = node.parentElement) {
+    if (node.scrollTop > 0 && node.scrollHeight > node.clientHeight) return true
+  }
+  return false
 }
 
 // The closing sheet's exit animation length in ms (duration + delay of the longest one listed), read

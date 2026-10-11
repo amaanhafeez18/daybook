@@ -66,6 +66,21 @@
 /* ---- Today tab ----------------------------------------------------------------------------- */
 
 .gym-td { display: flex; flex-direction: column; gap: 14px; }
+/* The two columns only exist on wide screens (end of the file); on a phone they dissolve, so the
+   cards stack in order with .gym-td's gap. */
+.gym-td-cols, .gym-td-main, .gym-td-side { display: contents; }
+
+/* "Missed Legs yesterday": Do it today (the plan itself stays) or Let it go. */
+.card.gym-td-missed { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 4px 12px; padding: 14px 16px; }
+.gym-td-missed-icon {
+  display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%;
+  background: color-mix(in srgb, var(--gym-rc, var(--accent)) 16%, transparent); color: var(--gym-rc, var(--accent));
+}
+.gym-td-missed-text { min-width: 0; display: flex; flex-direction: column; gap: 1px; margin: 0; }
+.gym-td-missed-text strong { font-size: 17px; font-weight: 600; letter-spacing: -0.02em; overflow-wrap: anywhere; }
+.gym-td-missed-text span { font-size: 15px; color: var(--text-2); }
+.gym-td-missed-actions { grid-column: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.gym-td-missed-actions .btn .icon path { fill: currentColor; }
 .gym-td-section { display: flex; flex-direction: column; }
 .gym-td .gym-section-header { margin: 6px 4px 8px; }
 .gym-td-chevron { flex-shrink: 0; color: var(--text-3); }
@@ -230,6 +245,9 @@
 .gym-td-tile-text .gym-td-tile-label { font-size: 11px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; color: var(--text-2); }
 .gym-td-tile-of { font-size: 16px; font-weight: 600; color: var(--text-2); }
 .gym-td-ring { flex-shrink: 0; }
+.gym-td-ring-wrap { position: relative; flex-shrink: 0; display: grid; place-items: center; }
+/* The workout summary's medal (styled in workout.css) holds the PR burst. */
+.gym-summary-medal { position: relative; }
 .gym-td-ring-track { fill: none; stroke: var(--surface-3); stroke-width: 6; }
 .gym-td-ring-value { fill: none; stroke: var(--accent); stroke-width: 6; stroke-linecap: round; transition: stroke-dashoffset 0.6s var(--ease); }
 .gym-td-ring.is-met .gym-td-ring-value { stroke: var(--success); }
@@ -420,4 +438,13 @@
   .gym-td-ring { width: 44px; height: 44px; }
   .gym-td-flame { width: 44px; height: 44px; }
   .gym-td-hero-title { font-size: 27px; }
+}
+
+/* Wide screens: today's workout and its exercises on the left, the week's tiles and body weight in
+   a column beside them (the tiles stack there). Phones keep the single column above. */
+@media (min-width: 1000px) {
+  .gym-td-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 320px); align-items: start; gap: 20px; }
+  .gym-td-main, .gym-td-side { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .gym-td-side { position: sticky; top: calc(var(--gym-sticky-top, 0px) + 72px); }
+  .gym-td-side .gym-td-tiles { grid-template-columns: 1fr; }
 }

@@ -1,9 +1,9 @@
 // One-tap food shortcuts: chips for a meal (the Food page's empty meals and the Health card),
-// "Same as <day>" for a meal, and the quick-add tray's running total. Pure (no React, no store),
-// so tests can run it.
+// "Same as <day>" for a meal, foods matching what's typed, the row a tap logs, and the quick-add
+// tray's running total. Pure (no React, no store), so tests can run it.
 
 import { addDaysISO } from '../dates.js'
-import { entryCalories, entryMeal, foodKey, suggestions } from './nutrition.js'
+import { entryCalories, entryMeal, findFavorite, foodKey, suggestions } from './nutrition.js'
 
 const ISO_RE = /^\d{4}-\d{2}-\d{2}$/
 const list = (value) => (Array.isArray(value) ? value.filter((item) => item && typeof item === 'object') : [])
@@ -61,4 +61,40 @@ export function addedSummary(items) {
     meal: same('meal'),
     date: same('date'),
   }
+}
+
+// What's typed → saved foods (My foods) first, then recent ones, whose name, brand, barcode or
+// aliases contain it; one per food, at most `limit`. A typed barcode (8–14 digits, spaces or
+// dashes allowed) matches by its digits. Used by the quick-add tray and the Health food card, so
+// a food you've had before logs with its saved numbers, offline, without asking the AI.
+export function matchFoods(query, { favorites, recent, limit = 6 } = {}) {
+  const words = typeof query === 'string' ? query.trim().toLowerCase() : ''
+  if (!words) return []
+  const digits = words.replace(/[\s-]/g, '')
+  const needle = /^\d{8,14}$/.test(digits) ? digits : words
+  const seen = new Set()
+  const matches = []
+  for (const item of [...list(favorites), ...list(recent)]) {
+    if (matches.length >= limit) break
+    const key = foodKey(item.name, item.brand)
+    // Two rows that would look the same (same name and calories, e.g. one logged with a brand and
+    // one without) show once.
+    const looks = `${String(item.name ?? '').trim().toLowerCase()}|${Math.round(entryCalories(item) || 0)}`
+    if (!key || seen.has(key) || seen.has(looks)) continue
+    const aliases = Array.isArray(item.aliases) ? item.aliases : []
+    const haystack = [item.name, item.brand, item.barcode, ...aliases].filter(Boolean).join(' ').toLowerCase()
+    if (!haystack.includes(needle)) continue
+    seen.add(key)
+    seen.add(looks)
+    matches.push(item)
+  }
+  return matches
+}
+
+// The row to log for a recent, suggestion or favorite (its last portion) into `meal` on `date`;
+// linked to the saved food when there is one, so its numbers are used exactly.
+export function quickRow(template, { meal, date, favorites }) {
+  const favorite = template.aliases ? template : findFavorite(favorites, template)
+  const { id, key, lastDate, count, score, aliases, updatedAt, ...rest } = template // eslint-disable-line no-unused-vars
+  return { ...rest, meal, date, source: favorite ? 'favorite' : 'recent', favoriteId: favorite?.id ?? null }
 }

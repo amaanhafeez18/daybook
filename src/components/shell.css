@@ -78,8 +78,43 @@
   .nav .nav-group-title { margin: 14px 10px 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-2); }
   .nav .nav-groups > .nav-list:first-child { margin-top: 0; }
 }
-.page.page-health { max-width: 780px; }
+.page.page-health { max-width: var(--w-read, 780px); }
 .hl-main { display: flex; flex-direction: column; gap: 16px; }
+/* From 1000px Health's Today and the Gym Today tab lay their cards out in two columns, so they
+   take the dashboard width (the other gym tabs and detail views stay at reading width). */
+@media (min-width: 1000px) {
+  .page.page-health, .page.page-gym:has(> .gym-shell-today) { max-width: var(--w-dash, 1100px); }
+}
+
+/* ---- tab bar: the assistant is still writing (App.jsx AssistantDot) ------------------------------ */
+.nav .nav-item > .nav-live-dot {
+  display: block; flex-shrink: 0; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 0 2px var(--bg); pointer-events: none;
+  animation: nav-live 1.4s ease-in-out infinite;
+}
+@media (max-width: 899px) {
+  .nav .nav-item > .nav-live-dot { position: absolute; top: 6px; left: calc(50% + 9px); }
+}
+@media (min-width: 900px) {
+  .nav .nav-item > .nav-live-dot { margin-left: auto; margin-right: 7px; box-shadow: none; }
+}
+@keyframes nav-live { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) {
+  .nav .nav-item > .nav-live-dot { animation: none; }
+}
+
+/* ---- keyboard shortcuts sheet (App.jsx ShortcutsSheet) ------------------------------------------ */
+.kbd-list { display: flex; flex-direction: column; margin: 0; }
+.kbd-row { display: flex; align-items: center; gap: 14px; min-height: 44px; padding: 6px 0; }
+.kbd-row + .kbd-row { border-top: 1px solid var(--border); }
+.kbd-row dt { flex: 0 0 76px; display: flex; gap: 4px; }
+.kbd-row dd { flex: 1; min-width: 0; margin: 0; color: var(--text-2); font-size: 14px; }
+.kbd-list kbd {
+  display: inline-grid; place-items: center; min-width: 26px; height: 26px; padding: 0 7px;
+  border-radius: 7px; border: 1px solid var(--border-strong); border-bottom-width: 2px;
+  background: var(--surface-2); color: var(--text);
+  font: 600 13px/1 var(--font); font-variant-numeric: tabular-nums;
+}
 
 /* ---- top bar: sync badge and desktop (App.jsx) -------------------------------------------------
    The badge is the first thing in .topbar-actions (right side), so it never covers the centred

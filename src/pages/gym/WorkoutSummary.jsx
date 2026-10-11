@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import Burst from '../../components/ui/Burst.jsx'
 import Icon from '../../components/ui/Icon.jsx'
 import { toast } from '../../components/ui/feedback.jsx'
 import { formatDateLong, formatDuration as formatMinutes } from '../../lib/dates.js'
@@ -6,12 +7,14 @@ import { addDays, plannedFor, realign, resolveDay, versionFor } from '../../lib/
 import { bestSet, compareSessions, e1rm, sessionDurationSec, sessionPRs, sessionVolume, sessionWorkingSets } from '../../lib/gym/stats.js'
 import { newGymId, realignTo, routineById, saveRoutine, slotLabel, useGym, useGymSessions, useToday } from '../../lib/gym/state.js'
 import { formatDistance, formatDuration, formatNumber, formatPace, formatVolume, formatWeight } from '../../lib/gym/units.js'
+import { useAnimatedNumber } from '../../lib/useAnimatedNumber.js'
 import { Stat } from './common.jsx'
 import { distanceUnitFor, fieldKeys, formatSetShort, setTypeOf, trackingOf, volumeLookup } from './ExerciseLog.jsx'
 import './workout.css'
 
 // After Finish: the workout's numbers, PRs and best sets, plus two optional follow-ups: copy
-// today's changes into the routine, and realign a rotation after doing a different day.
+// today's changes into the routine, and realign a rotation after doing a different day. The
+// numbers count up from zero as it opens, and a new record gets a small burst behind the medal.
 
 const isNum = (value) => typeof value === 'number' && Number.isFinite(value)
 const isObject = (value) => !!value && typeof value === 'object'
@@ -133,6 +136,24 @@ function prText(pr, tracking, prefs) {
   }
 }
 
+// A stat that counts up from 0 once the summary has painted (as is under Reduce Motion); screen
+// readers get the final value. format(n) turns the shown number into its text.
+function CountStat({ label, value, format, live }) {
+  const shown = useAnimatedNumber(live && isNum(value) ? value : 0)
+  if (!isNum(value)) return <Stat label={label} value="—" />
+  return (
+    <Stat
+      label={label}
+      value={(
+        <>
+          <span className="sr-only">{format(value)}</span>
+          <span className="num-display" aria-hidden="true">{format(live ? shown : 0)}</span>
+        </>
+      )}
+    />
+  )
+}
+
 export default function WorkoutSummary({ session, onDone }) {
   const gym = useGym()
   const sessions = useGymSessions()
@@ -163,6 +184,13 @@ export default function WorkoutSummary({ session, onDone }) {
     const root = document.documentElement
     root.classList.add('gym-has-float')
     return () => root.classList.remove('gym-has-float')
+  }, [])
+
+  // The stats start at 0 and count up from the second frame.
+  const [live, setLive] = useState(false)
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setLive(true))
+    return () => cancelAnimationFrame(frame)
   }, [])
 
   const [routineChoice, setRoutineChoice] = useState(null)
@@ -236,6 +264,7 @@ export default function WorkoutSummary({ session, onDone }) {
     <div className="gym-summary">
       <header className="gym-summary-hero">
         <span className={`gym-summary-medal${prs.length ? ' has-prs' : ''}`} aria-hidden="true">
+          <Burst active={prs.length > 0} radius={60} />
           <Icon name={prs.length ? 'trophy' : 'check'} size={34} strokeWidth={2.2} />
         </span>
         <p className="eyebrow">Workout #{number}</p>
@@ -248,10 +277,10 @@ export default function WorkoutSummary({ session, onDone }) {
       </header>
 
       <div className="gym-stat-grid gym-summary-stats">
-        <Stat label="Duration" value={minutes !== null ? formatMinutes(minutes) : '—'} />
-        <Stat label="Weight lifted" value={formatVolume(volume, unit)} />
-        <Stat label="Working sets" value={workingSets} />
-        <Stat label="PRs" value={prs.length} />
+        <CountStat label="Duration" value={minutes} live={live} format={(n) => formatMinutes(Math.max(minutes ? 1 : 0, Math.round(n)))} />
+        <CountStat label="Weight lifted" value={volume} live={live} format={(n) => formatVolume(n, unit)} />
+        <CountStat label="Working sets" value={workingSets} live={live} format={(n) => String(Math.round(n))} />
+        <CountStat label="PRs" value={prs.length} live={live} format={(n) => String(Math.round(n))} />
       </div>
 
       {showRoutinePrompt && (

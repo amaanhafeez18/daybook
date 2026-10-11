@@ -1,5 +1,7 @@
 /* First-run welcome tour (components/welcome/). Full screen on phones, a centred card on wide
    screens. Colours come from the app's tokens, so it follows light/dark and every accent theme. */
+/* The last screen's confetti uses the app's burst keyframes (burst-out). */
+@import './ui/burst.css';
 
 html.has-welcome { overflow: hidden; }
 
@@ -548,8 +550,7 @@ html.has-welcome { overflow: hidden; }
 .wl-done i:nth-child(3n + 2) { width: 6px; height: 10px; margin: -3px -5px; border-radius: 2px; background: var(--success); }
 .wl-done i:nth-child(3n) { width: 6px; height: 6px; margin: -3px; background: var(--warning); }
 .wl-done i:nth-child(4n) { background: var(--pink, var(--danger)); }
-.wl-slide.is-active .wl-done i { animation: wl-burst 0.9s var(--wl-ease) calc(0.2s + var(--i) * 0.02s) both; }
-@keyframes wl-burst { from { opacity: 0; transform: rotate(calc(var(--i) * 30deg)) translateY(-24px) scale(0.3); } }
+.wl-slide.is-active .wl-done i { animation: burst-out 0.9s var(--wl-ease) calc(0.2s + var(--i) * 0.02s) both; }
 
 /* A quiet reassurance line under the notification banners. */
 .wl-quiet { margin: 14px 0 0; font-size: 14px; line-height: 1.4; color: var(--text-3); text-align: center; }

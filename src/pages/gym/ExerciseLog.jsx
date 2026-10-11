@@ -7,6 +7,7 @@ import { MUSCLES, TRACKING, exerciseById } from '../../lib/gym/library.js'
 import { compareSessions, deloadWeight, e1rm, increment, isBackfillWorkout, livePRs, plannedWeight, plausibleWeight, previousSets, suggestNext, warmupSets } from '../../lib/gym/stats.js'
 import { formatDistance, formatDuration, formatNumber, formatPace, formatVolume, formatWeight, fromMeters, toMeters } from '../../lib/gym/units.js'
 import { getActiveWorkout, getGym, newGymId, normalizeGym, routineById, saveRoutine, setExerciseMeta } from '../../lib/gym/state.js'
+import { haptic } from '../../lib/haptics.js'
 import { scrollBehavior } from '../../lib/motion.js'
 import { navigate } from '../../lib/router.js'
 import { ActionSheet, DurationInput, GymEmpty, NumberInput, SetTypeBadge, WeightInput } from './common.jsx'
@@ -722,14 +723,12 @@ export default function ExerciseLog({ workout, onChange, mode = 'live', gym, ses
           doneIds = [ex.id ?? i, set.id ?? j]
           return { ...w, exercises: nextList, rest }
         })
+        // A light tap you can feel for a set done (a firmer one for a record); a warning for a set
+        // that still needs its numbers. No-op where the device can't.
         if (missing) {
           setShake({ ex: keyOf(exRef), set: keyOf(setRef), keys: missing, n: Date.now() })
-          try {
-            navigator.vibrate?.([20, 40, 20])
-          } catch {
-            // optional
-          }
-        }
+          haptic('warning')
+        } else if (doneIds) haptic(message ? 'success' : 'light')
         if (message) toast(message, { tone: 'success' })
         if (flag) setCheck({ ex: keyOf(exRef), set: keyOf(setRef), flag })
         else if (scroll) scrollToSet(scroll[0], scroll[1])

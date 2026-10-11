@@ -3,49 +3,14 @@ import Icon from '../../components/ui/Icon.jsx'
 import { EmptyState } from '../../components/ui/primitives.jsx'
 import { normalizeGym, routineColor } from '../../lib/gym/state.js'
 import { formatDuration, formatNumber, fromKg, parseDecimal, parseDuration, toKg } from '../../lib/gym/units.js'
-import { navigate } from '../../lib/router.js'
 import { useStore } from '../../lib/store.js'
 import './gym-common.css'
 
 // ---- navigation ----------------------------------------------------------------------------
-// The home-screen app has no browser back button, so detail views have their own. It goes back
-// only when there is an in-app entry behind this one; otherwise it opens the fallback view.
-// Each entry's depth is stamped into history.state (0 = where this module started), so it
-// survives reloads and tells back/forward apart from new navigation.
+// The detail views' own back button (the home-screen app has none) lives in lib/router.js with the
+// history depth it relies on; re-exported so the gym's (and food's) imports keep working.
 
-const DEPTH_KEY = 'daybookDepth'
-let depth = 0
-
-function readDepth() {
-  const state = window.history.state
-  return state && typeof state === 'object' && Number.isInteger(state[DEPTH_KEY]) ? state[DEPTH_KEY] : null
-}
-
-function stampDepth(value) {
-  depth = value
-  try {
-    const state = window.history.state
-    window.history.replaceState({ ...(state && typeof state === 'object' ? state : {}), [DEPTH_KEY]: value }, '')
-  } catch {
-    // replaceState can be rate-limited; the in-memory depth still works
-  }
-}
-
-if (typeof window !== 'undefined') {
-  const initial = readDepth()
-  if (initial === null) stampDepth(0)
-  else depth = initial
-  window.addEventListener('hashchange', () => {
-    const known = readDepth()
-    if (known === null) stampDepth(depth + 1)
-    else depth = known
-  })
-}
-
-export function goBack(fallback = 'gym') {
-  if (depth > 0 && window.history.length > 1) window.history.back()
-  else navigate(fallback)
-}
+export { goBack } from '../../lib/router.js'
 
 // ---- routine colour ----------------------------------------------------------------------------
 

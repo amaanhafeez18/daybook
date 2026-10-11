@@ -10,7 +10,9 @@ import { useData } from '../lib/store.js'
 import { classSchedule, deleteEvent, setTaskDone, updateEvent } from '../lib/planner.js'
 import { WEEKDAY_SHORT, addDaysISO, compareTimes, formatDateLong, formatMonthYear, formatTime, isISODate, toISO, weekdayIndex } from '../lib/dates.js'
 import { useNow } from '../lib/environment.js'
-import { prefersReducedMotion } from '../lib/motion.js'
+import { primeKeyboard } from '../lib/keyboard.js'
+import { freshClass, prefersReducedMotion } from '../lib/motion.js'
+import { useSessionState } from '../lib/sessionState.js'
 import '../components/calendar.css'
 
 const WEEKDAY_INITIALS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
@@ -98,8 +100,9 @@ export default function CalendarPage() {
   const stacked = useMediaQuery(STACKED_QUERY)
   const [weekPref, setWeekPref] = useState(() => readPref(VIEW_PREF, 'month') === 'week')
   const view = stacked && weekPref ? 'week' : 'month'
-  const [selected, setSelected] = useState(today)
-  const [cursor, setCursor] = useState(() => monthOf(today)) // the month in the title (and grid)
+  // The day and month you were on come back with the tab (until the app has been away a while).
+  const [selected, setSelected] = useSessionState('calendar.selected', today)
+  const [cursor, setCursor] = useSessionState('calendar.cursor', () => monthOf(today)) // the month in the title (and grid)
   const [taskSheet, setTaskSheet] = useState(null) // { task } edits one, { defaults } adds one
   const [eventEditing, setEventEditing] = useState(null) // an old event without a linked task
   const [classEditing, setClassEditing] = useState(null)
@@ -204,6 +207,17 @@ export default function CalendarPage() {
     // A week can hold the first days of the next month (or the last of the previous one).
     if (!iso.startsWith(monthKey)) setCursor(monthOf(iso))
   }
+
+  // N on a keyboard (App.jsx shortcuts): a new event on the day shown.
+  useEffect(() => {
+    const onCommand = (event) => {
+      if (event.detail?.name !== 'new-task') return
+      event.preventDefault()
+      setTaskSheet({ defaults: { date: selected } })
+    }
+    window.addEventListener('daybook:command', onCommand)
+    return () => window.removeEventListener('daybook:command', onCommand)
+  }, [selected])
 
   function toggleView() {
     const next = view === 'week' ? 'month' : 'week'
@@ -328,7 +342,10 @@ export default function CalendarPage() {
         <section className="agenda">
           <div className="agenda-header">
             <h2>{dayTitle}</h2>
-            <Button size="sm" icon="plus" onClick={() => setTaskSheet({ defaults: { date: selected } })}>Add event</Button>
+            <Button size="sm" icon="plus" onClick={() => {
+              primeKeyboard() // the keyboard comes up with the sheet (iPhone)
+              setTaskSheet({ defaults: { date: selected } })
+            }}>Add event</Button>
           </div>
           {dayItems.length === 0 ? (
             <>
@@ -340,7 +357,7 @@ export default function CalendarPage() {
           ) : (
             <ul className="agenda-list">
               {dayItems.map((item) => (
-                <li key={item.key} className={`agenda-item agenda-${item.kind} ${item.task?.done ? 'is-done' : ''}`}>
+                <li key={item.key} className={`agenda-item agenda-${item.kind} ${item.task?.done ? 'is-done' : ''} ${freshClass(item.task || item.event)}`}>
                   {/* A class shows the start of its range ("2:30 PM - 4:30 PM", "14:30–15:50", "11 am to 1 pm"). */}
                   <span className="agenda-time">{item.time ? (item.kind === 'class' ? item.time.split(/\s*(?:[-–—]|\bto\b)\s*/i)[0].trim() : formatTime(item.time)) : 'All day'}</span>
                   <span className="agenda-bar" aria-hidden="true" />

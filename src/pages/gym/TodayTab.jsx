@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import Burst from '../../components/ui/Burst.jsx'
 import Icon from '../../components/ui/Icon.jsx'
 import Sheet from '../../components/ui/Sheet.jsx'
 import { EmptyState, IconButton } from '../../components/ui/primitives.jsx'
@@ -17,6 +18,8 @@ import {
 } from '../../lib/gym/state.js'
 import { formatDistance, formatDuration, formatNumber, formatVolume, formatWeight, fromKg, fromMeters, toMeters } from '../../lib/gym/units.js'
 import { navigate } from '../../lib/router.js'
+import { useAnimatedNumber } from '../../lib/useAnimatedNumber.js'
+import { letMissedGo, missedWorkout, useGoalMoment } from '../../components/gymStart.js'
 import { ActionSheet, DurationInput, NumberInput, RoutineChip, RoutineDot, SectionHeader, WeightInput } from './common.jsx'
 import ChangeWorkoutSheet from './ChangeWorkoutSheet.jsx'
 import DeloadBadge from './DeloadBadge.jsx'
@@ -235,6 +238,18 @@ export default function TodayTab({ today }) {
   const weekCount = useMemo(() => weekProgress(sessions, today, prefs.firstWeekday), [sessions, today, prefs.firstWeekday])
   const streak = useMemo(() => streakWeeks(sessions, today, prefs.firstWeekday), [sessions, today, prefs.firstWeekday])
   const hasSchedule = gym.schedule.versions.length > 0
+  // Yesterday's planned workout wasn't done and today has none of its own: offer it today.
+  const [letGo, setLetGo] = useState(null)
+  const missed = useMemo(() => missedWorkout({ gym, sessions, today, active }), [gym, sessions, today, active])
+  const showMissed = missed && letGo !== missed.date ? missed : null
+  const goalBurst = useGoalMoment({ sessions, today, firstWeekday: prefs.firstWeekday, goal: hasSchedule ? prefs.weeklyGoal : 0 })
+  const shownWeek = Math.round(useAnimatedNumber(weekCount))
+  const shownStreak = Math.round(useAnimatedNumber(streak))
+
+  function letItGo() {
+    letMissedGo(missed.date)
+    setLetGo(missed.date)
+  }
 
   function undoable(action, message) {
     try {
@@ -282,42 +297,69 @@ export default function TodayTab({ today }) {
   const menu = [planItems, scheduleItems]
   const hasMenu = planItems.length + scheduleItems.filter(Boolean).length > 0
 
+  // Wide screens (1000px+): today's workout and its exercises on the left, the week's tiles and
+  // body weight beside them. On a phone the columns dissolve and everything stacks as before.
   return (
     <div className="gym-td">
       {hasSchedule && <WeekStrip days={week} today={today} gym={gym} />}
 
-      <Hero day={day} next={next} week={week} gym={gym} sessions={sessions} today={today} active={active} hasSchedule={hasSchedule} onMenu={hasMenu ? () => setSheet('menu') : null} onSheet={setSheet} onUndoable={undoable} />
+      <div className="gym-td-cols">
+        <div className="gym-td-main">
+          {showMissed && (
+            <section className="card gym-td-missed" style={{ '--gym-rc': routineColor(showMissed.routine) }} aria-label="Missed workout">
+              <span className="gym-td-missed-icon" aria-hidden="true"><Icon name="history" size={18} /></span>
+              <p className="gym-td-missed-text">
+                <strong>Missed {showMissed.name} yesterday</strong>
+                <span>Do it today? Your plan stays as it is.</span>
+              </p>
+              <div className="gym-td-missed-actions">
+                <button type="button" className="btn btn-primary btn-sm" onClick={() => beginWorkout({ gym, sessions, routine: showMissed.routine, date: today, today })}>
+                  <Icon name="play" size={16} strokeWidth={2.2} />Do it today
+                </button>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={letItGo}>Let it go</button>
+              </div>
+            </section>
+          )}
 
-      {day.status === 'today' && day.routine && (
-        <section className="gym-td-section">
-          <SectionHeader
-            title="Exercises"
-            action={<button type="button" className="link-btn" onClick={() => navigate(`gym/routine/${encodeURIComponent(day.routine.id)}`)}>Edit routine</button>}
-          />
-          <ExerciseList routine={day.routine} gym={gym} sessions={sessions} deload={day.deload} />
-        </section>
-      )}
+          <Hero day={day} next={next} week={week} gym={gym} sessions={sessions} today={today} active={active} hasSchedule={hasSchedule} onMenu={hasMenu ? () => setSheet('menu') : null} onSheet={setSheet} onUndoable={undoable} />
 
-      <div className="gym-td-tiles">
-        <button type="button" className="card gym-td-tile" onClick={() => navigate('gym/stats')} aria-label={`Weekly goal: ${weekCount} of ${prefs.weeklyGoal} workouts this week. Open stats`}>
-          <GoalRing value={weekCount} goal={prefs.weeklyGoal} />
-          <span className="gym-td-tile-text">
-            <small className="gym-td-tile-label">This week</small>
-            <strong>{weekCount}<span className="gym-td-tile-of">/{prefs.weeklyGoal}</span></strong>
-            <small>{weekCount >= prefs.weeklyGoal ? 'Goal reached' : `${prefs.weeklyGoal - weekCount} more to go`}</small>
-          </span>
-        </button>
-        <button type="button" className={`card gym-td-tile${streak ? ' has-streak' : ''}`} onClick={() => navigate('gym/stats')} aria-label={`Streak: ${plural(streak, 'week')} in a row. Open stats`}>
-          <span className="gym-td-flame" aria-hidden="true"><Icon name="flame" size={24} /></span>
-          <span className="gym-td-tile-text">
-            <small className="gym-td-tile-label">Streak</small>
-            <strong>{streak}</strong>
-            <small>{streak ? `week${streak === 1 ? '' : 's'} in a row` : 'Train this week to start one'}</small>
-          </span>
-        </button>
+          {day.status === 'today' && day.routine && (
+            <section className="gym-td-section">
+              <SectionHeader
+                title="Exercises"
+                action={<button type="button" className="link-btn" onClick={() => navigate(`gym/routine/${encodeURIComponent(day.routine.id)}`)}>Edit routine</button>}
+              />
+              <ExerciseList routine={day.routine} gym={gym} sessions={sessions} deload={day.deload} />
+            </section>
+          )}
+        </div>
+
+        <div className="gym-td-side">
+          <div className="gym-td-tiles">
+            <button type="button" className="card gym-td-tile" onClick={() => navigate('gym/stats')} aria-label={`Weekly goal: ${weekCount} of ${prefs.weeklyGoal} workouts this week. Open stats`}>
+              <span className="gym-td-ring-wrap">
+                <GoalRing value={weekCount} goal={prefs.weeklyGoal} />
+                <Burst active={goalBurst} radius={42} />
+              </span>
+              <span className="gym-td-tile-text">
+                <small className="gym-td-tile-label">This week</small>
+                <strong className="num-display">{shownWeek}<span className="gym-td-tile-of">/{prefs.weeklyGoal}</span></strong>
+                <small>{weekCount >= prefs.weeklyGoal ? 'Goal reached' : `${prefs.weeklyGoal - weekCount} more to go`}</small>
+              </span>
+            </button>
+            <button type="button" className={`card gym-td-tile${streak ? ' has-streak' : ''}`} onClick={() => navigate('gym/stats')} aria-label={`Streak: ${plural(streak, 'week')} in a row. Open stats`}>
+              <span className="gym-td-flame" aria-hidden="true"><Icon name="flame" size={24} /></span>
+              <span className="gym-td-tile-text">
+                <small className="gym-td-tile-label">Streak</small>
+                <strong className="num-display">{shownStreak}</strong>
+                <small>{streak ? `week${streak === 1 ? '' : 's'} in a row` : 'Train this week to start one'}</small>
+              </span>
+            </button>
+          </div>
+
+          <BodyWeightCard today={today} unit={prefs.unit} />
+        </div>
       </div>
-
-      <BodyWeightCard today={today} unit={prefs.unit} />
 
       <ActionSheet open={sheet === 'menu'} onClose={() => setSheet(null)} title="Today" description="Change what happens today, or the plan itself." actions={menu} />
       <SkipSheet open={sheet === 'skip'} onClose={() => setSheet(null)} date={today} />

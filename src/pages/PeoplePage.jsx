@@ -14,6 +14,8 @@ import {
 } from '../lib/planner.js'
 import { addDaysISO, formatDateShort, isISODate, relativeDay, timeAgo, todayISO } from '../lib/dates.js'
 import { clearDraft, peekDraft, saveDraft, takeDraft } from '../lib/drafts.js'
+import { primeKeyboard } from '../lib/keyboard.js'
+import { useSessionState } from '../lib/sessionState.js'
 import { imageToAvatarDataUrl, isInlinePhoto, photoAccept } from '../lib/media.js'
 import '../components/people.css'
 
@@ -44,9 +46,14 @@ const selectNotesHeld = (state) => !!state.droppedFields?.contactLogs?.includes(
 export default function PeoplePage({ loaded }) {
   const friends = useData('friends')
   const contactLogs = useData('contactLogs')
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = useSessionState('people.query', '') // kept while you visit other tabs
   const [openId, setOpenId] = useState(null)
   const [adding, setAdding] = useState(false)
+  // Inside the tap, so the keyboard comes up with the sheet on iPhone.
+  const startAdding = () => {
+    primeKeyboard()
+    setAdding(true)
+  }
   // The catch-up sheet gets a new key per opening, so its fields start fresh each time.
   const [catchUp, setCatchUp] = useState(null)
   const [catchUpKey, setCatchUpKey] = useState(0)
@@ -92,7 +99,7 @@ export default function PeoplePage({ loaded }) {
           <h1>People</h1>
           <p className="page-subtitle">{friends.length === 0 ? 'Keep track of the people who matter' : `${friends.length} ${friends.length === 1 ? 'person' : 'people'}${due.length ? ` · ${due.length} to catch up with` : ''}`}</p>
         </div>
-        <Button icon="plus" onClick={() => setAdding(true)}>Add person</Button>
+        <Button icon="plus" onClick={startAdding}>Add person</Button>
       </header>
 
       {(friends.length > 3 || query) && (
@@ -103,7 +110,7 @@ export default function PeoplePage({ loaded }) {
       )}
 
       {!loaded ? <Skeleton lines={4} /> : friends.length === 0 ? (
-        <EmptyState icon="people" title="Nobody here yet" action={<Button icon="plus" onClick={() => setAdding(true)}>Add someone</Button>}>
+        <EmptyState icon="people" title="Nobody here yet" action={<Button icon="plus" onClick={startAdding}>Add someone</Button>}>
           Add the people you want to stay close to. Daybook reminds you when it’s been a while.
         </EmptyState>
       ) : (

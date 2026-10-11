@@ -3,7 +3,8 @@ import Icon from './ui/Icon.jsx'
 import { formatTime, nowTimeHHMM, relativeDay, todayISO } from '../lib/dates.js'
 import { routineById, routineColor, updateActive, useActiveWorkout, useGym } from '../lib/gym/state.js'
 import { formatDuration } from '../lib/gym/units.js'
-import { navigate } from '../lib/router.js'
+import { preloadPage } from '../lib/lazyPage.js'
+import { navigate, subscribeRoute } from '../lib/router.js'
 import './gym-widget.css'
 
 // Floating "Push · 23:14 ›" capsule above the tab bar while a workout is in progress and the
@@ -101,9 +102,10 @@ export function workoutColor(item, gym) {
   return routine ? routineColor(routine) : null
 }
 
-// Warms the Gym page chunk on touch-down, so the page is usually ready by the time the tap lands.
+// Warms the Gym page chunk on touch-down, so the page is usually ready by the time the tap lands
+// (and then opens without a loading skeleton: App.jsx registers it with lazyPage as 'gym').
 export function prefetchGym() {
-  import('../pages/GymPage.jsx').catch(() => {})
+  preloadPage('gym').catch(() => {})
 }
 
 // A crash in a small add-on (widget, pill) must never take the page or the app shell with it.
@@ -128,10 +130,8 @@ export class QuietBoundary extends React.Component {
 
 // ---- the pill --------------------------------------------------------------------------------
 
-const subscribeHash = (listener) => {
-  window.addEventListener('hashchange', listener)
-  return () => window.removeEventListener('hashchange', listener)
-}
+// The app's route dispatcher, so the pill hides or shows inside the same slide as the page.
+const subscribeHash = (listener) => subscribeRoute(listener)
 const readHash = () => window.location.hash
 
 const subscribeEditing = (listener) => {

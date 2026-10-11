@@ -2,8 +2,10 @@ import { useRef } from 'react'
 import Sheet from './ui/Sheet.jsx'
 import Icon from './ui/Icon.jsx'
 import { toast } from './ui/feedback.jsx'
-import { updateTask } from '../lib/planner.js'
-import { dueSentence, snoozeOptions } from '../lib/dates.js'
+import { classesOn, updateTask } from '../lib/planner.js'
+import { dueSentence, snoozeOptions, toISO } from '../lib/dates.js'
+import { busySlots } from '../lib/timing.js'
+import { getState } from '../lib/store.js'
 import './tasks.css'
 
 const ICONS = { hour: 'clock', evening: 'moon', tomorrow: 'sunrise', weekend: 'sun', 'next-week': 'calendar' }
@@ -17,13 +19,14 @@ export function snoozeTask(task, { date, time = '' }) {
 
 // "Later…": the choices from snoozeOptions (in 1 hour, this evening, tomorrow, the weekend, next
 // week), plus "Pick a date…" (onPick) for anything else. A choice applies at once, then onDone.
+// "This evening" starts once today's classes and timed tasks are over (lib/timing.js).
 export default function SnoozeSheet({ task, open, onClose, onPick, onDone }) {
   // The choices are worked out as it opens and frozen until it closes, so a re-render (the page's
   // minute tick, a sync) can't change them under the finger, nor while it slides away.
   const shown = useRef({ task, options: [], open: false })
   if (open && task) {
     const opening = !shown.current.open || shown.current.task?.id !== task.id
-    shown.current = { task, options: opening ? snoozeOptions(task, new Date()) : shown.current.options, open: true }
+    shown.current = { task, options: opening ? laterOptions(task) : shown.current.options, open: true }
   } else if (!open) shown.current.open = false
   const { task: current, options } = shown.current
   if (!current) return null
@@ -63,6 +66,13 @@ export default function SnoozeSheet({ task, open, onClose, onPick, onDone }) {
       </div>
     </Sheet>
   )
+}
+
+function laterOptions(task) {
+  const now = new Date()
+  const today = toISO(now)
+  const busy = busySlots(classesOn(today), getState().data.tasks || [], today, task.id)
+  return snoozeOptions(task, now, { busy })
 }
 
 function truncate(text, length) {

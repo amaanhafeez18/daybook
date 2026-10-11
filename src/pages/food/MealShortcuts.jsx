@@ -4,8 +4,9 @@ import { toast } from '../../components/ui/feedback.jsx'
 import { entryCalories, foodKey } from '../../lib/food/nutrition.js'
 import { lastMealDay, mealChips } from '../../lib/food/shortcuts.js'
 import { copyMeal } from '../../lib/food/state.js'
+import { haptic } from '../../lib/haptics.js'
 import { quickLog } from './QuickAddBar.jsx'
-import { energyNumber, entryName, fmtEnergy, mealTime, pastDayName, plural } from './format.js'
+import { copiedText, energyNumber, entryName, fmtEnergy, mealTime, pastDayName, plural } from './format.js'
 import '../../components/food-quick.css'
 
 // One-tap chips for a meal: up to 3 foods usually logged in it (with their calories) and
@@ -72,7 +73,10 @@ export default function MealShortcuts({ shortcuts, meal, date, today, food, clas
       return
     }
     const undo = quickLog(item, { meal: meal.id, date, favorites: food.favorites, meals, unit, today })
-    if (undo.entries?.length) shortcuts.mark?.(key, undo)
+    if (undo.entries?.length) {
+      haptic()
+      shortcuts.mark?.(key, undo)
+    }
   }
 
   function copySame() {
@@ -83,10 +87,11 @@ export default function MealShortcuts({ shortcuts, meal, date, today, food, clas
     }
     try {
       const undo = copyMeal(same.date, meal.id, date)
-      // "yesterday’s breakfast", "Monday’s breakfast", else "breakfast on Wed 23 Sep" (has digits).
-      const from = /\d/.test(sameName) ?`${meal.name.toLowerCase()} on ${sameName}` : `${sameName}’s ${meal.name.toLowerCase()}`
-      toast(`Copied ${plural(undo.entries.length, 'item')} from ${from}`, { action: { label: 'Undo', onClick: undo } })
-      if (undo.entries.length) shortcuts.mark?.(SAME, undo)
+      toast(copiedText(undo.entries.length, meal.name, sameName), { action: { label: 'Undo', onClick: undo } })
+      if (undo.entries.length) {
+        haptic()
+        shortcuts.mark?.(SAME, undo)
+      }
     } catch (error) {
       toast(error.message, { tone: 'error' })
     }

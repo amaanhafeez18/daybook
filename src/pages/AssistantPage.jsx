@@ -6,7 +6,7 @@ import { AutoTextarea, EmptyState } from '../components/ui/primitives.jsx'
 import { confirmAction, toast } from '../components/ui/feedback.jsx'
 import { SESSION_EXPIRED_EVENT, apiRequest, getToken, readJson, readPref, writeJson, writePref } from '../lib/api.js'
 import { refresh, useData } from '../lib/store.js'
-import { nowTimeHHMM, toISO, todayISO } from '../lib/dates.js'
+import { WEEKDAY_SHORT, addDaysISO, diffDays, nextBirthday, nowTimeHHMM, toISO, todayISO, weekdayIndex } from '../lib/dates.js'
 import {
   MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES, MAX_UPLOAD_TOTAL, attachmentKind, fileAccept, formatBytes, inlineAttachment, photoAccept,
   prepareAttachment, revokePreview, uploadAttachment,
@@ -16,11 +16,18 @@ import { pushSupport } from '../lib/notifications.js'
 import { getGym, hasPlan, useGym, useGymSessions, useToday } from '../lib/gym/state.js'
 import { navigate } from '../lib/router.js'
 import { resolveDay } from '../lib/gym/schedule.js'
-import { assistantSpace, buildSuggestions, canUndo, cardExpired, collapsesCard, composerPlaceholder, proposalExpired, setsOffer, undoRefused, visibleActions } from '../lib/assistantChat.js'
-import { scrollBehavior } from '../lib/motion.js'
+import {
+  assistantSpace, buildSuggestions, canUndo, cardExpired, chipFields, cleanResults, collapsesCard, composerPlaceholder, mergeHistory, proposalExpired, readAskHash,
+  setsOffer, undoRefused, visibleActions,
+} from '../lib/assistantChat.js'
+import {
+  CHAT_CACHE, assistantViewed, beginReply, endReply, flushTyping, getSession, sessionEpoch, sessionWriter, stopReply, typeInto, useAssistantSession, viewAssistant,
+} from '../lib/assistantSession.js'
+import { dayTotals, remaining } from '../lib/food/nutrition.js'
+import { freshClass, scrollBehavior } from '../lib/motion.js'
+import { useSessionState } from '../lib/sessionState.js'
 import '../components/assistant.css'
 
-const CHAT_CACHE = 'daybook.chat'
 // After this long without a message the page opens on the start screen (prompts) instead of in the
 // middle of the old conversation; "Continue chat" brings it back and nothing is deleted.
 const START_AFTER_MS = 3 * 60 * 60 * 1000
@@ -92,20 +99,27 @@ const ASK_HINT_PREF = 'hint.assistantAsk'
 const ASK_HINT_UNTIL = 8
 const ASK_HINT_PROMPT = 'What can you do?'
 
-let messageId = 0
-const nextId = () => `m${Date.now()}-${++messageId}`
+// Attachments in the composer, and error lines in the chat, get ids of their own (messages are keyed
+// by role and time, see messageKey).
+let localId = 0
+const nextLocalId = (prefix) => `${prefix}${Date.now()}-${++localId}`
 const nowIso = () => new Date().toISOString()
+const errorMessage = (error, extra = {}) => ({ id: nextLocalId('error:'), role: 'assistant', error, createdAt: nowIso(), ...extra })
+// The composer's text survives switching tabs (lib/sessionState.js).
+const COMPOSER_KEY = 'assistant.composer'
 
 export default function AssistantPage({ displayName }) {
-  const [messages, setMessages] = useState(() => {
-    const cached = readJson(CHAT_CACHE, [])
-    return (Array.isArray(cached) ? cached : []).filter((message) => message && typeof message === 'object').map((message) => ({ ...message, id: nextId() }))
-  })
+  // Messages, the reply on its way and the card being carried out live outside the page, so a reply
+  // keeps coming while another tab is open (lib/assistantSession.js).
+  const { messages, busy, confirmingId } = useAssistantSession()
+  const chat = useMemo(() => sessionWriter(), [])
+  const setMessages = chat.setMessages
   const [memories, setMemories] = useState([])
   // The start screen (prompts) shows for an empty chat, when the last message is old, or on request.
   const [startOpen, setStartOpen] = useState(() => {
-    const cached = readJson(CHAT_CACHE, [])
-    return !Array.isArray(cached) || !cached.length || Date.now() - lastMessageAt(cached) > START_AFTER_MS
+    const session = getSession()
+    if (session.busy) return false
+    return !session.messages.length || Date.now() - lastMessageAt(session.messages) > START_AFTER_MS
   })
   const [memoryEnabled, setMemoryEnabled] = useState(true)
   const [memoryOpen, setMemoryOpen] = useState(() => MEMORY_HASH.test(window.location.hash))
@@ -113,9 +127,11 @@ export default function AssistantPage({ displayName }) {
   const [spacePref] = useState(() => readPref('space', 'plan'))
   const settings = useData('settings')
   const space = assistantSpace(spacePref, settings?.areas)
-  const [text, setText] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [confirmingId, setConfirmingId] = useState(null) // the proposal this device is carrying out
+  const [text, setText] = useSessionState(COMPOSER_KEY, '')
+  const textRef = useRef(text)
+  textRef.current = text
+  const setTextRef = useRef(setText)
+  setTextRef.current = setText
   const [speak, setSpeak] = useState(() => readPref('speakReplies', false))
   // Composer attachments: { id, kind, name, status: 'preparing' | 'uploading' | 'ready' | 'error',
   // progress (0…1), bytes, previewUrl?, prepared? (kept to retry), path | dataUrl | text, error? }.
@@ -131,8 +147,6 @@ export default function AssistantPage({ displayName }) {
   const toolsRef = useRef(null)
   const dockToolsRef = useRef(null)
   const dockRef = useRef(null)
-  const abortRef = useRef(null)
-  const busyRef = useRef(false)
   const followRef = useRef(true) // keep the newest message in view unless the user scrolled up
   const jumpRef = useRef(true) // next scroll is instant (first render, loaded history)
   const mountedRef = useRef(false)
@@ -158,20 +172,23 @@ export default function AssistantPage({ displayName }) {
     mountedRef.current = true
     const uploads = uploadsRef.current
     const previews = previewsRef.current
+    const unview = viewAssistant()
     apiRequest('/api/assistant')
       .then((response) => {
-        const history = (response.messages || []).map((message) => ({ ...message, id: nextId() }))
+        const history = Array.isArray(response.messages) ? response.messages : []
         jumpRef.current = true
         followRef.current = true
-        setMessages((current) => (current.some((message) => message.streaming || message.pending) ? current : history))
-        writeJson(CHAT_CACHE, response.messages || [])
+        // Merged by key: unchanged messages keep their object (no re-render, no animation).
+        setMessages((current) => (current.some((message) => message.streaming || message.pending) ? current : mergeHistory(current, history)))
+        if (!getSession().busy) writeJson(CHAT_CACHE, history)
         setMemories(response.memories || [])
         setMemoryEnabled(response.memoryEnabled !== false)
       })
       .catch(() => {})
     return () => {
       mountedRef.current = false
-      abortRef.current?.abort()
+      unview()
+      // A reply on its way keeps coming (the tab shows a dot); only Stop, New chat and signing out end it.
       window.speechSynthesis?.cancel()
       for (const controller of uploads.values()) controller.abort()
       uploads.clear()
@@ -192,17 +209,27 @@ export default function AssistantPage({ displayName }) {
   // #/assistant/memory opens "What I remember", also while the page is already open.
   // #/assistant/timetable opens the "+" menu for a timetable photo (it opens on screen, so no tap is
   // needed; the picker itself opens from the tap on a menu item), then the link goes back to #/assistant.
+  // #/assistant/ask/<text> (a hand-off from another screen) puts the text in the composer and goes back
+  // to #/assistant. It is never sent from here: a link alone must not spend an assistant message.
   useEffect(() => {
     const onHash = () => {
+      const ask = readAskHash(window.location.hash)
+      if (ask !== null) {
+        // A half-typed message is kept: the hand-off goes after it (once).
+        if (ask) setTextRef.current((current) => (!current.trim() ? ask : current.includes(ask) ? current : `${current.trimEnd()}\n\n${ask}`))
+        setStartOpen(false)
+        window.history.replaceState(window.history.state, '', '#/assistant') // keeps the history depth (router.js)
+        return
+      }
       if (MEMORY_HASH.test(window.location.hash)) setMemoryOpen(true)
       if (TIMETABLE_HASH.test(window.location.hash)) {
         timetableRef.current = true
         setAttachError('')
         setAttachMenu({ keyboard: false })
-        window.history.replaceState(null, '', '#/assistant')
+        window.history.replaceState(window.history.state, '', '#/assistant') // keeps the history depth (router.js)
       }
     }
-    if (TIMETABLE_HASH.test(window.location.hash)) onHash()
+    if (TIMETABLE_HASH.test(window.location.hash) || readAskHash(window.location.hash) !== null) onHash()
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
@@ -210,7 +237,7 @@ export default function AssistantPage({ displayName }) {
   function closeMemory() {
     setMemoryOpen(false)
     // Back to the plain route, so the link doesn't open the sheet again.
-    if (MEMORY_HASH.test(window.location.hash)) window.history.replaceState(null, '', '#/assistant')
+    if (MEMORY_HASH.test(window.location.hash)) window.history.replaceState(window.history.state, '', '#/assistant') // keeps the history depth (router.js)
   }
 
   useEffect(() => {
@@ -236,13 +263,6 @@ export default function AssistantPage({ displayName }) {
     return () => cancelAnimationFrame(frame)
   }, [messages, busy, startOpen])
 
-  // Cache the finished conversation so it shows instantly next time (no photos: names only).
-  useEffect(() => {
-    if (busy) return
-    const finished = messages.filter((message) => !message.error && !message.streaming && !message.pending)
-    writeJson(CHAT_CACHE, finished.map(cacheMessage).slice(-40))
-  }, [messages, busy])
-
   // Attachment problems fade after a while.
   useEffect(() => {
     if (!attachError) return undefined
@@ -250,15 +270,12 @@ export default function AssistantPage({ displayName }) {
     return () => clearTimeout(timer)
   }, [attachError])
 
-  function patchMessage(id, patch) {
-    setMessages((current) => current.map((message) => (message.id === id ? { ...message, ...(typeof patch === 'function' ? patch(message) : patch) } : message)))
-  }
-
   // `results` (per action, from the server) replace the card's; `from` applies the change only while
-  // the card still has that status (a late answer must not undo a newer one).
-  function setProposalStatus(proposalId, status, { results, from } = {}) {
+  // the card still has that status (a late answer must not undo a newer one). `writer`: the session the
+  // change belongs to (a request that outlives a sign-out writes nothing).
+  function setProposalStatus(proposalId, status, { results, from, writer = chat } = {}) {
     const cleaned = results === undefined ? undefined : cleanResults(results)
-    setMessages((current) => current.map((message) => {
+    writer.setMessages((current) => current.map((message) => {
       const proposal = message.proposal
       if (!proposal || proposal.id !== proposalId || !status) return message
       if (from && proposal.status !== from) return message
@@ -277,13 +294,15 @@ export default function AssistantPage({ displayName }) {
 
   // Stop or a dropped connection during Yes / No: the server may have carried on regardless, so read
   // what it recorded instead of guessing, then load any changes it made.
+  // It carries on while another tab is open (the card is in the session), until a sign-out.
   async function checkProposal(proposalId) {
-    setProposalStatus(proposalId, 'checking')
+    const writer = sessionWriter()
+    setProposalStatus(proposalId, 'checking', { writer })
     let found = null
     let known = false // the server answered
     for (const delay of CHECK_DELAYS_MS) {
       await new Promise((resolve) => setTimeout(resolve, delay))
-      if (!mountedRef.current) return
+      if (!writer.live()) return
       try {
         const response = await apiRequest('/api/assistant')
         found = (Array.isArray(response?.messages) ? response.messages : []).map((message) => message?.proposal).find((proposal) => proposal?.id === proposalId) || null
@@ -293,57 +312,62 @@ export default function AssistantPage({ displayName }) {
       }
       if (found?.status !== 'executing') break
     }
-    if (!mountedRef.current) return
+    if (!writer.live()) return
     // Not in the server's history: nothing can carry it out any more (shows as "Not confirmed").
     const status = typeof found?.status === 'string' && found.status ? found.status : known ? 'pending' : 'interrupted'
-    setProposalStatus(proposalId, status, { results: Array.isArray(found?.results) ? found.results : undefined, from: 'checking' })
+    setProposalStatus(proposalId, status, { results: Array.isArray(found?.results) ? found.results : undefined, from: 'checking', writer })
     // Sending the same Yes / No again can't help once it was answered.
     if (known && status !== 'pending') {
-      setMessages((current) => current.map((message) => (message.retry?.payload?.confirm?.proposalId === proposalId ? { ...message, retry: undefined } : message)))
+      writer.setMessages((current) => current.map((message) => (message.retry?.payload?.confirm?.proposalId === proposalId ? { ...message, retry: undefined } : message)))
     }
     if (!['pending', 'cancelled', 'superseded', 'expired'].includes(status)) refresh().catch(() => {})
   }
 
   // `shown`: how the attachments look in the sent message (photo previews), when known.
+  // The request belongs to the session, not the page: leaving the tab doesn't stop it, and everything
+  // it writes goes through `writer`, which does nothing after a sign-out.
   async function send(payload, shownText, { restore = [], restoreText = '', shown } = {}) {
-    if (busyRef.current) return
-    busyRef.current = true
-    window.speechSynthesis?.cancel()
-    if (speak) unlockSpeech()
-    const userId = nextId()
-    const replyId = nextId()
-    const hasAudio = !!payload.audio
-    const isVoice = hasAudio || !!payload.spoken
+    if (getSession().busy) return
     const confirm = payload.confirm || null
     // A Yes to an expired card isn't carried out: the server checks it again and proposes it afresh.
-    const recheck = confirm?.decision === 'yes' && cardExpired(messages, confirm.proposalId)
+    const recheck = confirm?.decision === 'yes' && cardExpired(getSession().messages, confirm.proposalId)
+    const controller = beginReply({ confirmingId: confirm && !recheck ? confirm.proposalId : null })
+    if (!controller) return
+    const at = sessionEpoch()
+    const writer = sessionWriter(at)
+    const { patchMessage } = writer
+    window.speechSynthesis?.cancel()
+    if (speak) unlockSpeech()
+    const sentAt = nowIso()
+    const userId = `user:${sentAt}`
+    const replyId = `assistant:${sentAt}`
+    const hasAudio = !!payload.audio
+    const isVoice = hasAudio || !!payload.spoken
     const shownAttachments = Array.isArray(shown) ? shown : Array.isArray(payload.attachments) ? payload.attachments.map(shownAttachment) : []
-    setBusy(true)
-    setConfirmingId(confirm && !recheck ? confirm.proposalId : null)
     setAnnouncement('')
     if (readPref(RETURNING_PREF, false) !== true) writePref(RETURNING_PREF, true)
     followRef.current = true
-    setMessages((current) => [
+    writer.setMessages((current) => [
       ...current.filter((message) => !message.error),
-      { id: userId, role: 'user', content: shownText, voice: isVoice, pending: hasAudio, createdAt: nowIso(), ...(shownAttachments.length ? { attachments: shownAttachments } : {}) },
-      { id: replyId, role: 'assistant', content: '', streaming: true, status: hasAudio ? 'Listening…' : 'Thinking…', actions: [], createdAt: nowIso() },
+      { id: userId, role: 'user', content: shownText, voice: isVoice, pending: hasAudio, createdAt: sentAt, ...(shownAttachments.length ? { attachments: shownAttachments } : {}) },
+      { id: replyId, role: 'assistant', content: '', streaming: true, status: hasAudio ? 'Listening…' : 'Thinking…', actions: [], createdAt: sentAt },
     ])
     // Tapped Yes / No: show the answer on the card straight away (an expired card stays expired).
-    if (confirm) setProposalStatus(confirm.proposalId, recheck ? 'expired' : confirm.decision === 'yes' ? 'executing' : 'cancelled')
+    if (confirm) setProposalStatus(confirm.proposalId, recheck ? 'expired' : confirm.decision === 'yes' ? 'executing' : 'cancelled', { writer })
 
-    const controller = new AbortController()
-    abortRef.current = controller
     let acted = false // something was saved, so the request must not simply be sent again
     let transcript = ''
     let proposal = null
-    const settleConfirm = (status, results) => { if (confirm) setProposalStatus(confirm.proposalId, status, { results }) }
+    const settleConfirm = (status, results) => { if (confirm) setProposalStatus(confirm.proposalId, status, { results, writer }) }
+    // Spoken or announced only while the Assistant is on screen.
+    const viewed = () => writer.live() && assistantViewed()
     try {
       const done = await streamAssistant({ ...payload, context: clientContext(pushRef.current) }, controller.signal, (event) => {
         if (event.type === 'status') patchMessage(replyId, { status: event.text })
         else if (event.type === 'transcript') {
           transcript = event.text
           patchMessage(userId, { content: event.text, pending: false })
-        } else if (event.type === 'delta') patchMessage(replyId, (message) => ({ content: message.content + event.text, status: '' }))
+        } else if (event.type === 'delta') typeInto(replyId, event.text, at) // shown at a steady pace
         else if (event.type === 'action') {
           if (event.ok) acted = true
           patchMessage(replyId, (message) => ({ actions: [...message.actions, { tool: event.tool, ok: !!event.ok, message: event.message }] }))
@@ -361,6 +385,7 @@ export default function AssistantPage({ displayName }) {
           patchMessage(replyId, { offer: event.offer })
         }
       })
+      flushTyping(replyId)
       if (done.proposal?.id) proposal = done.proposal
       const choices = cleanChoices(done.choices)
       const reply = typeof done.reply === 'string' && done.reply ? done.reply : proposal?.summary || ''
@@ -382,8 +407,9 @@ export default function AssistantPage({ displayName }) {
       for (const update of updates) {
         const results = Array.isArray(update.results) ? update.results
           : update.id === confirm?.proposalId && ['done', 'partial', 'failed'].includes(update.status) ? confirmResults : undefined
-        setProposalStatus(update.id, update.status, { results })
+        setProposalStatus(update.id, update.status, { results, writer })
       }
+      if (!writer.live()) return // signed out meanwhile: nothing more for this session
       if (confirm && !updates.some((update) => update.id === confirm.proposalId)) {
         // No word on the card (an older server, or another request got there first): don't guess.
         if (acted) settleConfirm(outcomeOf(done.actions), confirmResults)
@@ -396,9 +422,12 @@ export default function AssistantPage({ displayName }) {
       // With quick replies on screen the question is theirs to answer, not "go ahead?".
       const asking = proposal?.status === 'pending' && !choices.length
       const spoken = asking && !endsWithQuestion(reply) ? `${plainText(reply)} Shall I go ahead?` : reply
+      if (!viewed()) return
       if (speak) speakText(spoken)
       else setAnnouncement(plainText(spoken || ''))
     } catch (error) {
+      flushTyping(replyId)
+      if (!writer.live()) return // signed out meanwhile: nothing here belongs to the new session
       if (error.name === 'AbortError') {
         // Stopped by the user: keep whatever arrived so far.
         patchMessage(replyId, (message) => ({ streaming: false, status: '', staged: undefined, content: message.content || 'Stopped.' }))
@@ -406,7 +435,7 @@ export default function AssistantPage({ displayName }) {
         // The server doesn't stop with us: a Yes / No may still have gone through.
         if (confirm) checkProposal(confirm.proposalId)
         else if (acted) refresh().catch(() => {})
-        setAnnouncement('Stopped.')
+        if (viewed()) setAnnouncement('Stopped.')
         return
       }
       if (acted) {
@@ -416,7 +445,7 @@ export default function AssistantPage({ displayName }) {
         patchMessage(userId, { pending: false })
         if (confirm) checkProposal(confirm.proposalId)
         else refresh().catch(() => {})
-        setMessages((current) => current.concat({ id: nextId(), role: 'assistant', error: `${error.message} Some changes were already made.` }))
+        writer.setMessages((current) => current.concat(errorMessage(`${error.message} Some changes were already made.`)))
         return
       }
       if (error.status === 413) {
@@ -424,10 +453,10 @@ export default function AssistantPage({ displayName }) {
         if (restore.length) {
           setAttachments((current) => [...restore, ...current.filter((item) => !restore.some((back) => back.id === item.id))].slice(0, MAX_ATTACHMENTS))
         }
-        if (restoreText) setText((current) => (current.trim() ? current : restoreText))
-        setMessages((current) => current
+        if (restoreText && !textRef.current.trim()) setText(restoreText)
+        writer.setMessages((current) => current
           .filter((message) => message.id !== replyId && message.id !== userId)
-          .concat({ id: nextId(), role: 'assistant', error: error.message }))
+          .concat(errorMessage(error.message)))
         return
       }
       // Never sent (offline): still waiting for an answer. Otherwise ask the server what happened.
@@ -440,20 +469,17 @@ export default function AssistantPage({ displayName }) {
       const retry = transcript
         ? { payload: { message: transcript, spoken: true, ...(payload.attachments ? { attachments: payload.attachments } : {}) }, shownText: transcript, userId, shown: shownAttachments }
         : { payload, shownText, userId, shown: shownAttachments }
-      setMessages((current) => current
+      writer.setMessages((current) => current
         .filter((message) => message.id !== replyId && !(message.id === userId && hasAudio && message.pending))
-        .concat({ id: nextId(), role: 'assistant', error: error.message, retry }))
+        .concat(errorMessage(error.message, { retry })))
     } finally {
-      abortRef.current = null
-      busyRef.current = false
-      setBusy(false)
-      setConfirmingId(null)
+      endReply(controller)
     }
   }
 
   function submitText(event, preset) {
     event?.preventDefault()
-    if (busyRef.current) return
+    if (getSession().busy) return
     setStartOpen(false)
     const fromComposer = preset == null
     const message = (preset ?? text).trim()
@@ -490,7 +516,7 @@ export default function AssistantPage({ displayName }) {
   // A finished voice recording, sent together with any photos or files waiting in the composer.
   async function sendAudio(audio, mimeType) {
     setStartOpen(false)
-    if (busyRef.current) throw new Error('Wait for the reply to finish, then send your voice message.')
+    if (getSession().busy) throw new Error('Wait for the reply to finish, then send your voice message.')
     const ready = attachmentsRef.current.filter((item) => item.status === 'ready')
     const payload = { audio, mimeType, ...(ready.length ? { attachments: ready.map(attachmentPayload) } : {}) }
     // Too big for one request: it would be refused every time, so keep the files here and say so.
@@ -563,9 +589,9 @@ export default function AssistantPage({ displayName }) {
     if (supported.length > room) setAttachError(TOO_MANY)
     const accepted = supported.slice(0, Math.max(0, room))
     if (!accepted.length) return
-    if (fromTimetable) setText((current) => (current.trim() ? current : TIMETABLE_PROMPT))
+    if (fromTimetable && !textRef.current.trim()) setText(TIMETABLE_PROMPT)
 
-    const placeholders = accepted.map((file) => ({ id: nextId(), status: 'preparing', progress: 0, kind: attachmentKind(file), name: file.name || 'file' }))
+    const placeholders = accepted.map((file) => ({ id: nextLocalId('a'), status: 'preparing', progress: 0, kind: attachmentKind(file), name: file.name || 'file' }))
     setAttachments((current) => [...current, ...placeholders])
     for (const [index, file] of accepted.entries()) {
       const { id } = placeholders[index]
@@ -687,12 +713,12 @@ export default function AssistantPage({ displayName }) {
   }
 
   function decide(proposalId, decision) {
-    if (busyRef.current || !proposalId) return
+    if (getSession().busy || !proposalId) return
     send({ confirm: { proposalId, decision } }, decision === 'yes' ? 'Yes' : 'No')
   }
 
   function choose(choice) {
-    if (busyRef.current || !choice) return
+    if (getSession().busy || !choice) return
     send({ message: choice, choice }, choice)
   }
 
@@ -764,6 +790,7 @@ export default function AssistantPage({ displayName }) {
     if (messages.length && !(await confirmAction({ title: 'Start a new chat?', message: 'This clears the conversation. What I remember about you is kept.', confirmLabel: 'New chat', tone: 'default' }))) return
     try {
       await apiRequest('/api/assistant', { method: 'DELETE' })
+      stopReply() // New chat is one of the three things that end a reply on its way
       setMessages([])
       writeJson(CHAT_CACHE, [])
     } catch (error) {
@@ -798,6 +825,7 @@ export default function AssistantPage({ displayName }) {
   const toggleTools = (from) => (event) => setToolsMenu((open) => (open ? null : { keyboard: event.detail === 0, from }))
   const toolsFrom = toolsMenu?.from || null
 
+  const online = useOnline()
   const empty = messages.length === 0
   const lastIndex = messages.length - 1
   const showAskHint = !empty && !askHintSeen && messages.length <= ASK_HINT_UNTIL
@@ -881,6 +909,12 @@ export default function AssistantPage({ displayName }) {
       )}
 
       <div className="composer-dock" ref={dockRef}>
+        {!online && (
+          <p className="asst-offline" role="status">
+            <Icon name="cloudOff" size={15} />
+            <span>You’re offline. The assistant needs a connection.</span>
+          </p>
+        )}
         {!empty && !startOpen && !showAskHint && (
           <div className="asst-dock-row">
             <button type="button" className="asst-start-btn" onClick={() => setStartOpen(true)} title="Back to the start screen with ready-made prompts">
@@ -929,7 +963,7 @@ export default function AssistantPage({ displayName }) {
           onPasteFiles={(files) => addFiles(files)}
           onAudio={sendAudio}
           onNotice={setAttachError}
-          onStop={() => abortRef.current?.abort()}
+          onStop={stopReply}
         />
       </div>
 
@@ -1026,16 +1060,63 @@ function useSuggestions(space) {
     } catch {
       // no plan / unreadable plan: no workout prompt
     }
-    return buildSuggestions({ tasks, friends, settings, foodEntries, gymDay, noGymPlan: !hasPlan(gym), today, hour, space })
+    let facts = {}
+    try {
+      facts = suggestionFacts({ tasks, friends, settings, foodEntries, gym, sessions, today })
+    } catch {
+      // odd data: the everyday prompts still show
+    }
+    return buildSuggestions({ tasks, friends, settings, foodEntries, gymDay, noGymPlan: !hasPlan(gym), today, hour, space, facts })
   }, [tasks, friends, settings, foodEntries, gym, sessions, today, hour, space])
+}
+
+// An open task this old is "old" for the Tidy up prompt: undated and added this many days ago, or
+// overdue by STALE_OVERDUE_DAYS.
+const STALE_ADDED_DAYS = 30
+const STALE_OVERDUE_DAYS = 14
+
+// What the start screen's prompts can fit to right now (see buildSuggestions).
+function suggestionFacts({ tasks, friends, settings, foodEntries, gym, sessions, today }) {
+  const facts = { weekday: weekdayIndex(today) }
+  // Birthdays in the coming week, soonest first.
+  facts.birthdays = (Array.isArray(friends) ? friends : [])
+    .map((friend) => ({ name: String(friend?.name || '').trim(), date: nextBirthday(friend?.birthday, today) }))
+    .filter((item) => item.name && item.date && diffDays(today, item.date) <= 6)
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+    .map(({ name, date }) => {
+      const days = diffDays(today, date)
+      return { name, label: days === 0 ? 'today' : days === 1 ? 'tomorrow' : WEEKDAY_SHORT[weekdayIndex(date)] }
+    })
+  // Yesterday's planned workout wasn't done (only yesterday, so it never nags).
+  try {
+    const yesterday = resolveDay(gym, sessions, addDaysISO(today, -1), today)
+    if (yesterday.status === 'missed' && yesterday.routine) facts.missedWorkout = { name: String(yesterday.routine.name || 'Workout') }
+  } catch {
+    // no plan / unreadable plan
+  }
+  const goals = settings?.food?.goals
+  if (Number(goals?.protein ?? goals?.proteinG) > 0) {
+    const eaten = dayTotals((Array.isArray(foodEntries) ? foodEntries : []).filter((entry) => entry?.date === today))
+    facts.proteinGoalG = Number(goals.protein ?? goals.proteinG)
+    facts.proteinLeftG = remaining(goals, eaten).proteinG
+  }
+  facts.staleCount = (Array.isArray(tasks) ? tasks : []).filter((task) => {
+    if (!task || task.done || task.archived || String(task.details || '').startsWith('friend-reminder:')) return false
+    if (task.date) return diffDays(task.date, today) >= STALE_OVERDUE_DAYS
+    const added = String(task.createdAt || task.created_at || '').slice(0, 10)
+    return /^\d{4}-\d{2}-\d{2}$/.test(added) && diffDays(added, today) >= STALE_ADDED_DAYS
+  }).length
+  return facts
 }
 
 // ---- messages ----------------------------------------------------------------------------------
 
 const Message = memo(function Message({ message, isLast, busy, onRetry, onDecide, onChoose, onOffer, onUndo }) {
+  // A card that appears while the chat is open slides in; one already there when it opened doesn't.
+  const cardAtOpen = useRef(!!message.proposal)
   if (message.error) {
     return (
-      <div className="msg msg-assistant msg-error" role="alert">
+      <div className={`msg msg-assistant msg-error ${freshClass(message)}`} role="alert">
         <span className="assistant-avatar" aria-hidden="true"><Icon name="alert" size={16} /></span>
         <div className="msg-body">
           <p>{message.error}</p>
@@ -1049,7 +1130,7 @@ const Message = memo(function Message({ message, isLast, busy, onRetry, onDecide
     const attachments = Array.isArray(message.attachments) ? message.attachments.filter((item) => item && typeof item === 'object') : []
     const showBubble = message.pending || !!message.content || !attachments.length
     return (
-      <div className={`msg msg-user ${message.pending ? 'is-pending' : ''}`}>
+      <div className={`msg msg-user ${message.pending ? 'is-pending' : ''} ${freshClass(message)}`}>
         <div className="asst-user-stack">
           {attachments.length > 0 && <SentAttachments items={attachments} />}
           {showBubble && (
@@ -1074,14 +1155,14 @@ const Message = memo(function Message({ message, isLast, busy, onRetry, onDecide
   const choices = isLast && !message.streaming && Array.isArray(message.choices) ? message.choices : []
 
   return (
-    <div className="msg msg-assistant">
+    <div className={`msg msg-assistant ${freshClass(message)}`}>
       <span className="assistant-avatar" aria-hidden="true"><Icon name="sparkles" size={16} /></span>
       <div className={`msg-body ${proposal ? 'has-card' : ''}`}>
         {text ? <RichText text={text} /> : null}
         {message.streaming && !text && (
-          <p className="msg-status"><span className="typing" aria-hidden="true"><i /><i /><i /></span>{message.status}</p>
+          <p className="msg-status"><span className="typing" aria-hidden="true"><i /><i /><i /></span><span className="asst-shimmer">{message.status}</span></p>
         )}
-        {message.streaming && text && message.status && <p className="msg-status">{message.status}</p>}
+        {message.streaming && text && message.status && <p className="msg-status"><span className="asst-shimmer">{message.status}</span></p>}
         {staged.length > 0 && (
           <ul className="action-chips asst-staged" aria-label="Getting ready">
             {staged.map((item, index) => (
@@ -1094,6 +1175,7 @@ const Message = memo(function Message({ message, isLast, busy, onRetry, onDecide
         )}
         {proposal && (
           <ProposalCard
+            arriving={!cardAtOpen.current}
             proposal={proposal}
             createdAt={message.createdAt}
             isLast={isLast}
@@ -1194,7 +1276,7 @@ function WorkoutOffer({ offer, proposal, actions, createdAt, disabled, onUse }) 
 // "I'll do:" with the server's labels, then Yes / No. Buttons work only on the newest message, and
 // not while a question with quick replies waits under it (the answer comes first). An expired card
 // on the newest message offers to check it again; a settled one further up is one line until tapped.
-export function ProposalCard({ proposal, createdAt, isLast, busy, question = false, onDecide, onAlternative, now = Date.now() }) {
+export function ProposalCard({ proposal, createdAt, isLast, busy, question = false, onDecide, onAlternative, arriving = false, now = Date.now() }) {
   const [expanded, setExpanded] = useState(false)
   const actions = (Array.isArray(proposal.actions) ? proposal.actions : [])
     .map((action, index) => ({ action, index }))
@@ -1231,7 +1313,7 @@ export function ProposalCard({ proposal, createdAt, isLast, busy, question = fal
   }
 
   return (
-    <section className={`asst-proposal ${tone} is-${status}`} aria-label="Proposed changes">
+    <section className={`asst-proposal ${tone} is-${status} ${arriving ? 'is-arriving' : ''}`} aria-label="Proposed changes">
       <p className="asst-proposal-head">
         {status === 'checking' && <span className="spinner" aria-hidden="true" />}
         {open ? 'I’ll do:' : STATUS_LABELS[status] || 'Not confirmed'}
@@ -1702,35 +1784,6 @@ const inlineBytes = (item) => (item.kind === 'text' || item.dataUrl ? Number(ite
 const uploadBytes = (item) => (item.kind !== 'text' && !item.dataUrl ? Number(item.bytes) || 0 : 0)
 const sumBytes = (items, bytesOf) => items.reduce((sum, item) => sum + bytesOf(item), 0)
 
-// The shape kept in localStorage: no photos or file contents, and no in-flight states.
-function cacheMessage({ role, content, voice, actions, proposal, choices, attachments, createdAt }) {
-  return {
-    role,
-    content: typeof content === 'string' ? content : '',
-    ...(createdAt ? { createdAt } : {}),
-    ...(voice ? { voice } : {}),
-    ...(actions?.length ? { actions: actions.slice(0, 10).map(chipFields) } : {}),
-    ...(proposal?.id ? {
-      proposal: {
-        id: proposal.id,
-        // In-flight states can't be resumed from the cache; the server's history corrects it on load.
-        status: ['executing', 'checking'].includes(proposal.status) ? 'interrupted' : proposal.status || 'pending',
-        ...(proposal.summary ? { summary: String(proposal.summary).slice(0, 600) } : {}),
-        ...(proposal.localDate ? { localDate: proposal.localDate } : {}),
-        ...(proposal.createdAt ? { createdAt: proposal.createdAt } : {}),
-        actions: (Array.isArray(proposal.actions) ? proposal.actions : []).slice(0, 12).map((action) => ({
-          label: String(action?.label || '').slice(0, 300),
-          ...(action?.detail ? { detail: String(action.detail).slice(0, 300) } : {}),
-          ...(action?.tool ? { tool: String(action.tool).slice(0, 60) } : {}),
-        })),
-        ...(Array.isArray(proposal.results) ? { results: cleanResults(proposal.results) } : {}),
-      },
-    } : {}),
-    ...(choices?.length ? { choices: choices.slice(0, 6) } : {}),
-    ...(attachments?.length ? { attachments: attachments.slice(0, MAX_ATTACHMENTS).map(({ kind, name }) => ({ kind, name })) } : {}),
-  }
-}
-
 // Action chips for the finished reply: the server's filtered list, or (older server) its results
 // without lookups. Chips need a message unless they report a failure.
 function doneActions(done, streamed) {
@@ -1742,19 +1795,8 @@ function doneActions(done, streamed) {
     .map((action) => chipFields({ ...action, ok: action.ok !== false }))
 }
 
-// An action chip as kept: what it says, and its Undo (an id, or that it was undone).
-function chipFields({ tool, ok, message, undoId, undone }) {
-  return { tool, ok, message, ...(undoId ? { undoId } : {}), ...(undone ? { undone: true } : {}) }
-}
-
-// Per-action results of a confirmed proposal, bounded: { label?, ok, message? } in action order.
-export function cleanResults(value) {
-  return (Array.isArray(value) ? value : []).filter((result) => result && typeof result === 'object').slice(0, 25).map((result) => ({
-    ...(result.label ? { label: String(result.label).slice(0, 300) } : {}),
-    ok: result.ok !== false,
-    ...(result.message ? { message: String(result.message).slice(0, 300) } : {}),
-  }))
-}
+// Kept as exports of this page for anything that imported them from here.
+export { cleanResults }
 
 // done / partial / failed from a confirmed run's action results.
 export function outcomeOf(results) {
@@ -1828,6 +1870,21 @@ function deepLinks(actions) {
 
 const kindIcon = (kind) => (kind === 'image' ? 'image' : kind === 'pdf' ? 'fileText' : 'file')
 const kindName = (kind) => (kind === 'image' ? 'Photo' : kind === 'pdf' ? 'PDF' : 'Text')
+
+// Whether the device is online (navigator.onLine, kept up to date).
+function useOnline() {
+  const [online, setOnline] = useState(() => typeof navigator === 'undefined' || navigator.onLine !== false)
+  useEffect(() => {
+    const update = () => setOnline(navigator.onLine !== false)
+    window.addEventListener('online', update)
+    window.addEventListener('offline', update)
+    return () => {
+      window.removeEventListener('online', update)
+      window.removeEventListener('offline', update)
+    }
+  }, [])
+  return online
+}
 
 // true / false for this device, null when it can't be told (no push support, dev build).
 async function devicePushStatus() {

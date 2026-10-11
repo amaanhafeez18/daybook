@@ -6,8 +6,8 @@
    ========================================================================================= */
 
 :root {
-  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', system-ui, 'Segoe UI', Roboto, sans-serif;
-  --font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', system-ui, sans-serif;
+  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, 'Segoe UI', Roboto, sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, 'Segoe UI', sans-serif;
 
   --bg: #F2F2F7;
   --surface-2: rgba(118, 118, 128, 0.1);
@@ -210,6 +210,41 @@ h1 { font-family: var(--font-display); font-size: 34px; font-weight: 700; letter
 .segmented { border-radius: var(--r-pill); padding: 3px; }
 .segmented button { border-radius: var(--r-pill); }
 .segmented button.is-active { background: var(--lens); color: var(--text); box-shadow: var(--glass-highlight), 0 2px 8px rgba(0, 0, 0, 0.1); }
+
+/* ---- sliding selection (components/ui/useSlidingThumb.js) -----------------------------------------
+   One thumb per control, drawn as the container's ::before from the active child's measured box
+   (--thumb-x/-y/-w/-h), in the same lens the active child used to wear; the child goes clear.
+   .has-thumb comes before the first paint, .thumb-live a frame later: only a change of selection
+   moves it, with a soft spring. Segmented controls (Segmented, the Plan | Health pill, the gym
+   section tabs: all .segmented) and the phone tab bar (.nav-tabs; the desktop sidebar is unchanged).
+   Containers that are already positioned (the pill, the sticky gym tabs) keep their own position. */
+.has-thumb { position: relative; isolation: isolate; }
+.has-thumb::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  width: var(--thumb-w, 0px);
+  height: var(--thumb-h, 0px);
+  transform: translate(var(--thumb-x, 0px), var(--thumb-y, 0px));
+  border-radius: var(--r-pill, 999px);
+  background: var(--lens);
+  box-shadow: var(--glass-highlight), 0 2px 8px rgba(0, 0, 0, 0.1);
+  pointer-events: none;
+}
+.has-thumb > * { position: relative; z-index: 1; }
+.has-thumb.thumb-live::before {
+  transition: transform 0.42s cubic-bezier(0.3, 1.25, 0.5, 1), width 0.42s cubic-bezier(0.3, 1.25, 0.5, 1), height 0.42s cubic-bezier(0.3, 1.25, 0.5, 1);
+}
+.segmented.has-thumb > button.is-active,
+.segmented.has-thumb > button[aria-checked='true'],
+.segmented.has-thumb > button[aria-selected='true'] { background: transparent; box-shadow: none; }
+.nav-tabs.has-thumb::before { box-shadow: var(--glass-highlight), 0 2px 10px rgba(0, 0, 0, 0.08); }
+.nav-tabs.has-thumb .nav-item.is-active .nav-icon { background: none; box-shadow: none; }
+@media (prefers-reduced-motion: reduce) {
+  .has-thumb.thumb-live::before { transition: none; }
+}
 .chip { border-radius: var(--r-pill); color: var(--text); }
 .chip.is-active { background: var(--accent); border-color: transparent; color: var(--on-accent); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3); }
 .quick-add, .search-field { border-radius: var(--r-pill); }

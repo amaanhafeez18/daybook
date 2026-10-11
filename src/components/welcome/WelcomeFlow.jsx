@@ -120,7 +120,7 @@ export default function WelcomeFlow({ user, onClose }) {
     const parsed = parseQuickAdd(value, new Date())
     const understood = parsed.matched.length > 0 && parsed.title
     const today = todayISO()
-    const task = createTask(understood ? { text: parsed.title, date: parsed.date || today, time: parsed.time } : { text: value, date: today })
+    const task = createTask(understood ? { text: parsed.title, date: parsed.date || today, time: parsed.time, priority: parsed.priority || 'medium' } : { text: value, date: today })
     setAdded((list) => [task, ...list])
     setDraft('')
   }

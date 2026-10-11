@@ -1,19 +1,22 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
+import Burst from './ui/Burst.jsx'
 import Icon from './ui/Icon.jsx'
-import { toast } from './ui/feedback.jsx'
 import { WEEKDAY_SHORT, diffDays, formatDateShort, formatDuration as formatMinutes, relativeDay, weekdayIndex } from '../lib/dates.js'
 import { addDays, nextWorkout, resolveDay, weekStart } from '../lib/gym/schedule.js'
 import { hasPlan, routineColor, slotLabel, useActiveWorkout, useGym, useGymSessions } from '../lib/gym/state.js'
 import { navigate } from '../lib/router.js'
-import { getState } from '../lib/store.js'
+import { useAnimatedNumber } from '../lib/useAnimatedNumber.js'
 import DeloadBadge from '../pages/gym/DeloadBadge.jsx'
+import { loadStart, missedWorkout, startReady, startRoutine, useGoalMoment } from './gymStart.js'
 import { QuietBoundary, prefetchGym, startedMs, useClock, workoutClock, workoutColor, workoutName, workoutWhen } from './WorkoutPill.jsx'
 import './gym-widget.css'
 import './today.css'
 
 // Today-page card for the gym: today's planned workout, rest day, a finished or running workout,
 // or a nudge to set up a plan. The card's main area opens the Gym page; on a workout day with
-// nothing running, a trailing "Start" pill starts today's routine in one tap.
+// nothing running, a trailing "Start" pill starts today's routine in one tap. On a rest day after
+// a missed workout it says "Missed Legs yesterday" with a "Do it today" pill (the schedule itself
+// is never changed; the workout's summary offers to realign it).
 
 // stats.js carries the exercise library, so it loads as its own chunk (asked for as soon as this
 // module runs, alongside the first render) instead of growing the first bundle.
@@ -33,23 +36,7 @@ function loadStats() {
 }
 if (typeof window !== 'undefined') loadStats()
 
-// startWorkout.js (exercise library + rest timer) loads on demand too: requested as soon as the
-// card offers "Start", so the tap can call beginWorkout synchronously. beginWorkout unlocks audio
-// for the rest-timer beep, which iOS only allows inside the tap itself.
-let startModule = null
-let startRequest = null
-
-function loadStart() {
-  if (!startRequest) {
-    startRequest = import('../pages/gym/startWorkout.js')
-      .then((module) => (startModule = module))
-      .catch(() => {
-        startRequest = null
-        return null
-      })
-  }
-  return startRequest
-}
+// startWorkout.js loads on demand too (gymStart.js): requested as soon as the card offers a start.
 
 // pending only while the first load is in flight; after a failed load the card shows what it can.
 function useStats() {
@@ -109,7 +96,7 @@ function doneParts(stats, sessions, todays, formula) {
 }
 
 // Everything the card shows. parts: subtitle pieces joined by ' · ' (null = still loading).
-function describe({ day, next, active, gym, sessions, stats, pending, now, today, planned }) {
+function describe({ day, next, active, gym, sessions, stats, pending, now, today, planned, missed }) {
   if (active) {
     const clock = workoutClock(active, now, today)
     return {
@@ -157,6 +144,7 @@ function describe({ day, next, active, gym, sessions, stats, pending, now, today
       }
     }
     case 'rest':
+      if (missed) return missedView(missed, 'Rest day today')
       return { tone: 'neutral', title: 'Rest day', parts: [nextPart(next, gym, today)], target: 'gym' }
     case 'skipped': {
       if (day.shown.kind !== 'routine') return { tone: 'neutral', title: 'Rest day', parts: [nextPart(next, gym, today)], target: 'gym' }
@@ -177,6 +165,7 @@ function describe({ day, next, active, gym, sessions, stats, pending, now, today
       }
     }
     default:
+      if (missed) return missedView(missed, 'Nothing planned today')
       if (!planned) return { tone: 'setup', title: 'Set up your gym plan', parts: [{ text: 'Pick a split to get started' }], target: 'gym' }
       return {
         tone: 'neutral',
@@ -185,6 +174,11 @@ function describe({ day, next, active, gym, sessions, stats, pending, now, today
         target: next ? 'gym' : 'gym/routines',
       }
   }
+}
+
+// Yesterday's missed workout, offered again today ("Do it today" is the card's pill).
+function missedView(missed, rest) {
+  return { tone: 'routine', color: routineColor(missed.routine), title: `Missed ${missed.name} yesterday`, parts: [{ text: rest }], target: 'gym' }
 }
 
 export default function GymWidget({ today, loaded = true }) {
@@ -205,6 +199,7 @@ function Widget({ today, loaded }) {
   const { firstWeekday, weeklyGoal } = gym.prefs
 
   const day = useMemo(() => resolveDay(gym, sessions, today, today), [gym, sessions, today])
+  const missed = useMemo(() => missedWorkout({ gym, sessions, today, active }), [gym, sessions, today, active])
   const needsNext = !active && ['rest', 'skipped', 'shifted', 'none'].includes(day.status)
   const next = useMemo(() => (needsNext ? nextWorkout(gym, sessions, today) : null), [needsNext, gym, sessions, today])
   const week = useMemo(() => weekCount(sessions, today, firstWeekday), [sessions, today, firstWeekday])
@@ -214,34 +209,28 @@ function Widget({ today, loaded }) {
     [active, day, gym, sessions, stats, pending, today, planned],
   )
 
-  // "Start" shows on a planned workout day whose routine has exercises, while nothing is running.
-  const startRoutine = !active && day.status === 'today' && day.routine?.exercises?.length ? day.routine : null
-  const canStart = loaded && !!startRoutine
+  // "Start" shows on a planned workout day whose routine has exercises, while nothing is running;
+  // "Do it today" on a rest day (or nothing planned) after yesterday's workout was missed.
+  const toStart = !active && day.status === 'today' && day.routine?.exercises?.length ? day.routine : null
+  const missedToday = !toStart && missed ? missed : null
+  const pillRoutine = toStart || missedToday?.routine || null
+  const canStart = loaded && !!pillRoutine
   const [starting, setStarting] = useState(false)
   useEffect(() => {
     if (canStart) loadStart()
   }, [canStart])
+  const goalBurst = useGoalMoment({ sessions, today, firstWeekday, goal: planned ? weeklyGoal : 0 })
 
   if (!loaded) return <WidgetSkeleton />
 
   function start() {
-    if (starting || !startRoutine) return
-    const args = { gym, sessions, bodyWeights: getState().data.bodyWeights, routine: startRoutine, date: today, today }
-    const run = (module) => module.beginWorkout(args).catch(() => toast('Couldn’t start the workout.', { tone: 'error' }))
-    if (startModule) {
-      run(startModule)
-      return
-    }
-    // Not loaded yet (slow network): start once it arrives; the workout screen unlocks audio on its first tap.
-    setStarting(true)
-    loadStart().then((module) => {
-      setStarting(false)
-      if (module) run(module)
-      else toast('Couldn’t start the workout. Check your connection and try again.', { tone: 'error' })
-    })
+    if (starting || !pillRoutine) return
+    // Not loaded yet (slow network): it starts once it arrives; the workout screen unlocks audio on its first tap.
+    if (!startReady()) setStarting(true)
+    Promise.resolve(startRoutine({ gym, sessions, routine: pillRoutine, date: today, today })).finally(() => setStarting(false))
   }
 
-  const view = doneView || describe({ day, next, active, gym, sessions, stats, pending, now, today, planned })
+  const view = doneView || describe({ day, next, active, gym, sessions, stats, pending, now, today, planned, missed: missedToday })
   const label = [
     `Gym: ${view.title}${view.deload ? ', deload week' : ''}`,
     view.parts ? view.parts.map((part) => part.text).join(', ') : '',
@@ -250,7 +239,7 @@ function Widget({ today, loaded }) {
 
   return (
     <div
-      className={`card gymw-card td-gymw${view.color ? ' has-color' : ''}${view.live ? ' is-live' : ''}${startRoutine ? ' has-start' : ''}`}
+      className={`card gymw-card td-gymw${view.color ? ' has-color' : ''}${view.live ? ' is-live' : ''}${pillRoutine ? ' has-start' : ''}`}
       style={view.color ? { '--gymw-color': view.color } : undefined}
     >
       <button type="button" className="gymw-main" onPointerDown={prefetchGym} onClick={() => navigate(view.target)} aria-label={label}>
@@ -279,10 +268,10 @@ function Widget({ today, loaded }) {
             )) : <span className="skeleton gymw-skel gymw-skel-sub" />}
           </span>
         </span>
-        {planned && <GoalRing count={week} goal={weeklyGoal} />}
+        {planned && <GoalRing count={week} goal={weeklyGoal} burst={goalBurst} />}
         <Icon name="chevronRight" size={18} strokeWidth={2.2} className="gymw-chevron" />
       </button>
-      {startRoutine && (
+      {pillRoutine && (
         <button
           type="button"
           className="td-gymw-start"
@@ -290,10 +279,10 @@ function Widget({ today, loaded }) {
           onClick={start}
           disabled={starting}
           aria-busy={starting || undefined}
-          aria-label={`Start ${text(startRoutine.name) || 'workout'}`}
+          aria-label={toStart ? `Start ${text(toStart.name) || 'workout'}` : `Do ${missedToday.name} today`}
         >
           {starting ? <span className="spinner" aria-hidden="true" /> : <Icon name="play" size={14} strokeWidth={2.4} />}
-          Start
+          {toStart ? 'Start' : 'Do it today'}
         </button>
       )}
     </div>
@@ -303,13 +292,16 @@ function Widget({ today, loaded }) {
 const RING_R = 16
 const RING_C = 2 * Math.PI * RING_R
 
-function GoalRing({ count, goal }) {
+// The week's count steps up to its new value; burst: the goal was just met (once a week).
+function GoalRing({ count, goal, burst = false }) {
   const progress = goal > 0 ? Math.min(1, count / goal) : 0
-  const fraction = `${count}/${goal}`
+  const shown = Math.round(useAnimatedNumber(count))
+  const fraction = `${shown}/${goal}`
   return (
     <span className={`gymw-goal${count >= goal ? ' is-met' : ''}`} aria-hidden="true">
       <span className="gymw-goal-caption">this week</span>
       <span className="gymw-goal-ring">
+        <Burst active={burst} radius={34} />
         <svg viewBox="0 0 40 40" width="40" height="40">
           <circle className="gymw-goal-track" cx="20" cy="20" r={RING_R} />
           {progress > 0 && (
@@ -324,7 +316,7 @@ function GoalRing({ count, goal }) {
             />
           )}
         </svg>
-        <span className={`gymw-goal-count${fraction.length > 3 ? ' is-long' : ''}`}>{fraction}</span>
+        <span className={`gymw-goal-count num-display${fraction.length > 3 ? ' is-long' : ''}`}>{fraction}</span>
       </span>
     </span>
   )

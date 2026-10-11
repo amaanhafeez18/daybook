@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import Icon from './ui/Icon.jsx'
 import { Checkbox } from './ui/primitives.jsx'
 import { toast } from './ui/feedback.jsx'
@@ -6,6 +6,9 @@ import SnoozeSheet from './SnoozeSheet.jsx'
 import { archiveTask, isReminderMarker, restoreTask, setTaskDone, updateTask } from '../lib/planner.js'
 import { useAttachmentCount } from '../lib/attachments.js'
 import { addDaysISO, formatTime, relativeDay, todayISO } from '../lib/dates.js'
+import { collapseOut, restoreCollapsed } from '../lib/collapse.js'
+import { haptic } from '../lib/haptics.js'
+import { freshClass } from '../lib/motion.js'
 import './today.css'
 import './tasks.css'
 
@@ -23,7 +26,11 @@ let openRow = null // { ref, close }: only one row stays swiped open at a time
 // swipe: false turns the swipe actions off.
 // overdueGroup: the row sits under an "Overdue" header, so its day is plain red text without the
 // "Overdue ·" chip (the header already says it).
-export default function TaskRow({ task, onOpen, showDate = true, trailing = null, swipe = true, overdueGroup = false }) {
+// passed: its time today has gone by, so the time shows greyed.
+// leaving / onLeft(id): a ticked-off row folds away (lib/useLinger.js), then reports back.
+// onToggle(task, done): after it's ticked or reopened here (the checkbox or a swipe), in the tap.
+// On a computer, hovering shows Tomorrow, Later… and Archive (the swipe's actions).
+export default function TaskRow({ task, onOpen, showDate = true, trailing = null, swipe = true, overdueGroup = false, passed = false, leaving = false, onLeft, onToggle }) {
   const today = todayISO()
   const tomorrow = addDaysISO(today, 1)
   const overdue = !task.done && task.date && task.date < today
@@ -47,6 +54,7 @@ export default function TaskRow({ task, onOpen, showDate = true, trailing = null
 
   function toggle(done) {
     setTaskDone(task.id, done)
+    onToggle?.(task, done)
     if (done) toast(`Completed “${truncate(task.text, 32)}”`, { action: { label: 'Undo', onClick: () => setTaskDone(task.id, false) } })
     // Reopened (a right swipe or the checkbox on a done row): it may leave the list it's in.
     else toast(`Marked “${truncate(task.text, 28)}” as not done`, { action: { label: 'Undo', onClick: () => setTaskDone(task.id, true) } })
@@ -100,6 +108,27 @@ export default function TaskRow({ task, onOpen, showDate = true, trailing = null
     if (openRow?.ref === rowRef) openRow = null
   }, [])
 
+  // Folding away once ticked off: focus (if it was in here) moves to the next row first, and the
+  // list is told once the row has closed. Undo during the fold brings it straight back.
+  const leavingNow = useRef(leaving)
+  leavingNow.current = leaving
+  useLayoutEffect(() => {
+    const row = rowRef.current
+    if (!leaving || !row) return undefined
+    if (row.contains(document.activeElement)) {
+      const next = row.nextElementSibling?.querySelector?.('.task-body') || row.previousElementSibling?.querySelector?.('.task-body')
+      next?.focus?.({ preventScroll: true })
+    }
+    let cancelled = false
+    collapseOut(row).then(() => {
+      if (!cancelled && leavingNow.current) onLeft?.(task.id)
+    })
+    return () => {
+      cancelled = true
+      if (!leavingNow.current) restoreCollapsed(row)
+    }
+  }, [leaving]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // A row swiped open closes on the next tap anywhere else.
   useEffect(() => {
     if (!open) return undefined
@@ -113,7 +142,7 @@ export default function TaskRow({ task, onOpen, showDate = true, trailing = null
   const onPointerDown = (event) => {
     suppressClickUntil.current = 0
     if (!swipe || (event.pointerType === 'mouse' && event.button !== 0)) return
-    if (event.target.closest?.('.tr-trail')) return
+    if (event.target.closest?.('.tr-trail, .tr-hover')) return
     drag.current = { id: event.pointerId, x: event.clientX, y: event.clientY, base: open ? -openX : 0, offset: open ? -openX : 0, active: false, width: rowRef.current?.offsetWidth || 340 }
   }
 
@@ -168,17 +197,26 @@ export default function TaskRow({ task, onOpen, showDate = true, trailing = null
     flag('dragging', false)
     const offset = cancelled ? d.base : d.offset
     if (!cancelled && offset >= leadCommit(d.width)) {
+      haptic()
       slide(0)
       setOpen(false)
       toggle(!task.done)
       return
     }
     if (!cancelled && offset <= -fullAt(d.width)) {
-      // Slide it off, then archive (the row leaves the list).
+      // Slide it off, fold the gap, then archive (the row leaves the list).
+      haptic()
       row?.style.setProperty('--tr-x', `${-d.width}px`)
       setTimeout(() => {
-        archive()
-        slide(0) // in case the row is still shown
+        collapseOut(rowRef.current).then(() => {
+          archive()
+          // In case the row is still shown (a list that keeps archived tasks): bring it back.
+          setTimeout(() => {
+            if (!rowRef.current?.isConnected) return
+            restoreCollapsed(rowRef.current)
+            slide(0)
+          }, 400)
+        })
       }, 160)
       return
     }
@@ -216,7 +254,8 @@ export default function TaskRow({ task, onOpen, showDate = true, trailing = null
     <>
       <li
         ref={rowRef}
-        className={`task-row ${swipe ? 'tr-row' : ''} ${open ? 'is-open' : ''} ${task.done ? 'is-done' : ''} ${overdue ? 'is-overdue' : ''}`}
+        className={`task-row ${swipe ? 'tr-row' : ''} ${open ? 'is-open' : ''} ${task.done ? 'is-done' : ''} ${overdue ? 'is-overdue' : ''} ${leaving ? 'is-leaving' : ''} ${freshClass(task)}`}
+        aria-hidden={leaving || undefined}
         onPointerDown={swipe ? onPointerDown : undefined}
         onPointerMove={swipe ? onPointerMove : undefined}
         onPointerUp={swipe ? () => finishDrag(false) : undefined}
@@ -261,9 +300,10 @@ export default function TaskRow({ task, onOpen, showDate = true, trailing = null
                 </span>
               )}
               {task.time && (
-                <span className="meta-chip">
+                <span className={`meta-chip ${passed ? 'is-passed' : ''}`}>
                   <Icon name="clock" size={13} />
                   {formatTime(task.time)}
+                  {passed && <span className="sr-only">, passed</span>}
                 </span>
               )}
               {task.priority === 'urgent' && (
@@ -281,6 +321,25 @@ export default function TaskRow({ task, onOpen, showDate = true, trailing = null
             </span>
           ) : null}
         </button>
+        {swipe && !open && (
+          // Mouse and trackpad only (tasks.css): the swipe's actions on hover. Out of the tab
+          // order, like the swipe's own buttons; the task sheet has them all for the keyboard.
+          <span className="tr-hover">
+            {canTomorrow && (
+              <button type="button" className="tr-hover-btn" tabIndex={-1} onClick={moveToTomorrow} aria-label={`Move “${task.text}” to tomorrow`} title="Tomorrow">
+                <Icon name="sunrise" size={17} />
+              </button>
+            )}
+            {canLater && (
+              <button type="button" className="tr-hover-btn" tabIndex={-1} onClick={() => setSnoozing(true)} aria-label={`Move “${task.text}” to later…`} title="Later…">
+                <Icon name="clock" size={17} />
+              </button>
+            )}
+            <button type="button" className="tr-hover-btn" tabIndex={-1} onClick={archive} aria-label={`Archive “${task.text}”`} title="Archive">
+              <Icon name="archive" size={17} />
+            </button>
+          </span>
+        )}
         {trailing && <span className="task-trailing">{trailing}</span>}
         {task.priority === 'low' && <span className="task-low" aria-label="Low priority" title="Low priority" />}
       </li>

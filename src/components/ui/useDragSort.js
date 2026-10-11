@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import { prefersReducedMotion as reducedMotion } from '../../lib/motion.js'
+import { haptic } from '../../lib/haptics.js'
 import './drag.css'
 
 // Drag to reorder, for a vertical list (axis 'y') or wrapping chips (axis 'xy').
@@ -137,13 +138,13 @@ export function useDragSort({ keys, onMove, longPress = false, axis = 'y' }) {
     d.scroller = scrollParent(els.current.get(d.key))
     try { d.handle.setPointerCapture?.(d.pointerId) } catch { /* the pointer may be gone */ }
     window.addEventListener('touchmove', blockTouchScroll, { passive: false })
-    navigator.vibrate?.(8)
     setDragging(d.key)
     place()
     d.frame = requestAnimationFrame(autoScroll)
   }
 
-  const finish = () => {
+  // Called with the pointerup/pointercancel event, or with nothing when a touch turned out to be a swipe.
+  const finish = (event) => {
     const d = drag.current
     drag.current = null
     if (!d) return
@@ -154,6 +155,8 @@ export function useDragSort({ keys, onMove, longPress = false, axis = 'y' }) {
     window.removeEventListener('pointercancel', finish)
     window.removeEventListener('touchmove', blockTouchScroll)
     if (!d.active) return
+    // Dropped: a light tap (only a real release is a gesture the phone will let tick).
+    if (event?.type === 'pointerup') haptic()
     suppressClick.current = true
     setTimeout(() => { suppressClick.current = false }, 0)
     const el = els.current.get(d.key)
@@ -247,6 +250,8 @@ export function useDragSort({ keys, onMove, longPress = false, axis = 'y' }) {
       'data-dragging': dragging === key ? '' : undefined,
     }),
     handle: (key, { keyboard = true } = {}) => ({
+      // A sheet's pull-down-to-close (Sheet.jsx) never starts from something being dragged.
+      'data-no-sheet-drag': '',
       onPointerDown: (event) => start(event, key),
       // A drag isn't a tap, and a long press shouldn't open the phone's menu.
       onClickCapture: (event) => {

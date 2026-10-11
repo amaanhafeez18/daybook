@@ -13,6 +13,7 @@ import {
 } from '../../lib/food/state.js'
 import { navigate } from '../../lib/router.js'
 import { useStore } from '../../lib/store.js'
+import { useAnimatedNumber } from '../../lib/useAnimatedNumber.js'
 import { Menu, MigrationNote, SwipeRow } from './common.jsx'
 import { Sparkline } from './charts.jsx'
 import EntrySheet from './EntrySheet.jsx'
@@ -150,7 +151,8 @@ export default function DayView({ date, today, loaded }) {
       <div className="food-day-grid">
         <div className="food-day-side">
           {loaded ? (
-            <SummaryCard totals={totals} food={food} rows={rows} />
+            // Keyed by day, so switching days doesn't count from one day's numbers to the next.
+            <SummaryCard key={date} totals={totals} food={food} rows={rows} intro={date === today ? `food:${today}` : null} />
           ) : (
             <section className="card food-summary" aria-busy="true"><Skeleton lines={4} /></section>
           )}
@@ -308,7 +310,9 @@ function WeekStrip({ date, today, entries, weekStart, goal, unit }) {
 
 // ---- summary ring ---------------------------------------------------------------------------
 
-function SummaryCard({ totals, food, rows }) {
+// The numbers count to their new value after logging; the ring sweeps in on the first open of
+// the day (intro).
+function SummaryCard({ totals, food, rows, intro }) {
   const { goals, prefs } = food
   const unit = prefs.energyUnit
   const goal = goals.calories
@@ -319,6 +323,7 @@ function SummaryCard({ totals, food, rows }) {
   const value = showEaten ? eaten : Math.abs(left)
   const label = showEaten ? 'eaten' : over ? 'over' : 'left'
   const uncounted = rows.filter((entry) => !isNum(entry.calories) && macroCalories(entry) === null).length
+  const shownValue = useAnimatedNumber(value)
 
   function toggle() {
     updateFood((current) => ({ prefs: { ...current.prefs, ring: current.prefs.ring === 'eaten' ? 'remaining' : 'eaten' } }))
@@ -334,8 +339,8 @@ function SummaryCard({ totals, food, rows }) {
           disabled={!goal}
           aria-label={`${energyNumber(value, unit)} ${unitLabel(unit)} ${label}${goal ? `. Show calories ${showEaten ? 'left' : 'eaten'} instead` : ''}`}
         >
-          <Ring size={132} stroke={12} progress={progress} tone={tone}>
-            <span className={`food-ring-value${label === 'over' ? ' is-over' : ''}`}>{energyNumber(value, unit)}</span>
+          <Ring size={132} stroke={12} progress={progress} tone={tone} intro={intro}>
+            <span className={`food-ring-value num-display${label === 'over' ? ' is-over' : ''}`}>{energyNumber(shownValue, unit)}</span>
             <span className="food-ring-label">{unitLabel(unit)} {label}</span>
           </Ring>
         </button>

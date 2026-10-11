@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import Icon from '../../components/ui/Icon.jsx'
 import { ActionSheet } from '../../components/ui/ActionSheet.jsx'
 import { IconButton } from '../../components/ui/primitives.jsx'
+import { collapseOut, restoreCollapsed } from '../../lib/collapse.js'
 import { clickEndsGesture } from '../../lib/food/gesture.js'
 import { useStore } from '../../lib/store.js'
 import { goBack } from '../gym/common.jsx'
@@ -49,7 +50,8 @@ const LONG_PRESS_MS = 480
 
 // A list row that swipes left to reveal Delete (a long swipe deletes at once). onLongPress also
 // runs on a press-and-hold or a right click. The row's own buttons keep working; a tap after a
-// swipe only closes the row.
+// swipe only closes the row. A deleted row folds away (the rows below close the gap) before
+// onDelete runs; at once under Reduce Motion.
 export function SwipeRow({ as: Tag = 'li', className = '', onDelete, deleteLabel = 'Delete', onLongPress, children }) {
   const rowRef = useRef(null)
   const slideRef = useRef(null)
@@ -62,11 +64,39 @@ export function SwipeRow({ as: Tag = 'li', className = '', onDelete, deleteLabel
   const longTimer = useRef(null)
   const endTimer = useRef(null)
   const [open, setOpen] = useState(false)
+  const [leaving, setLeaving] = useState(false)
+  const leavingRef = useRef(false)
+  const deleteRef = useRef(onDelete)
+  deleteRef.current = onDelete
 
   useEffect(() => () => {
     clearTimeout(longTimer.current)
     clearTimeout(endTimer.current)
   }, [])
+
+  // Folds the row away, then deletes it. slid: it was swiped off, so let that slide finish first.
+  function leave(slid) {
+    if (leavingRef.current) return
+    leavingRef.current = true
+    setLeaving(true)
+    const row = rowRef.current
+    const fold = () => (row ? collapseOut(row).catch(() => {}) : Promise.resolve())
+    const wait = slid ? new Promise((resolve) => setTimeout(resolve, 160)) : Promise.resolve()
+    wait.then(fold).then(() => {
+      deleteRef.current?.()
+      // Still here (the delete didn't happen): open the row back up.
+      requestAnimationFrame(() => {
+        if (!row?.isConnected) return
+        restoreCollapsed(row)
+        row.style.overflow = ''
+        row.style.boxSizing = ''
+        if (slideRef.current) slideRef.current.style.transform = ''
+        row.classList.remove('is-swiping')
+        leavingRef.current = false
+        setLeaving(false)
+      })
+    })
+  }
 
   useEffect(() => {
     if (!open) return undefined
@@ -157,7 +187,7 @@ export function SwipeRow({ as: Tag = 'li', className = '', onDelete, deleteLabel
         slideRef.current.style.transform = `translateX(${-d.width}px)`
       }
       setOpen(false)
-      onDelete()
+      leave(true)
       return
     }
     const next = offset < -OPEN_X / 2
@@ -183,7 +213,8 @@ export function SwipeRow({ as: Tag = 'li', className = '', onDelete, deleteLabel
   return (
     <Tag
       ref={rowRef}
-      className={`food-swipe${open ? ' is-open' : ''} ${className}`}
+      className={`food-swipe${open ? ' is-open' : ''}${leaving ? ' is-leaving' : ''} ${className}`}
+      aria-hidden={leaving || undefined}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={(event) => finish(false, event)}
@@ -203,8 +234,8 @@ export function SwipeRow({ as: Tag = 'li', className = '', onDelete, deleteLabel
           tabIndex={open ? 0 : -1}
           aria-hidden={!open}
           onClick={() => {
-            close()
-            onDelete()
+            setOpen(false)
+            leave(false)
           }}
         >
           <Icon name="trash" size={18} />

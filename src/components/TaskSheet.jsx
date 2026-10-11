@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Sheet from './ui/Sheet.jsx'
 import Disclosure from './ui/Disclosure.jsx'
 import { AutoTextarea, Button, Field, Segmented } from './ui/primitives.jsx'
@@ -6,8 +6,10 @@ import { toast } from './ui/feedback.jsx'
 import AttachmentStrip from './AttachmentStrip.jsx'
 import SnoozeSheet from './SnoozeSheet.jsx'
 import { UnderstoodChip, understand } from './QuickParse.jsx'
-import { archiveTask, createTask, deleteTaskForever, isReminderMarker, restoreTask, setTaskDone, updateTask } from '../lib/planner.js'
+import { archiveTask, classesOn, createTask, deleteTaskForever, isReminderMarker, restoreTask, setTaskDone, updateTask } from '../lib/planner.js'
 import { dayPresets, dueLine, dueSentence, formatTime, formatTimeShort, todayISO } from '../lib/dates.js'
+import { DEFAULT_TIMES, busySlots, clashSlot, usualTimes } from '../lib/timing.js'
+import { askAssistantHash } from '../lib/assistantChat.js'
 import { peekDraft, saveDraft, takeDraft } from '../lib/drafts.js'
 import { LEAD_OPTIONS, leadLabel, notificationPrefs } from '../lib/notifications.js'
 import { attachmentSummary, useAttachmentsFor } from '../lib/attachments.js'
@@ -22,8 +24,8 @@ const PRIORITIES = [
 ]
 
 const EMPTY = { text: '', details: '', date: '', time: '', priority: 'medium', reminderMinutes: '' }
-// Once a date is set: one tap for a usual time, or none.
-const TIME_CHIPS = ['09:00', '12:00', '15:00', '18:00']
+// Once a date is set: one tap for a time you usually use (lib/timing.js usualTimes; 9, 12, 3 and
+// 6 until there's a history), or none. A chip that falls in a class or another task says so.
 // A new task's unsaved form, kept when the sheet is closed by a stray tap (lib/drafts.js).
 const DRAFT_KEY = 'task:new'
 
@@ -96,6 +98,13 @@ export default function TaskSheet({ open, onClose, task: taskProp = null, defaul
   const fill = useRef(null) // { before, applied }: the Due the name's words replaced, and what they set
   const dateInput = useRef(null)
   const prefs = notificationPrefs(useData('settings'))
+  const tasks = useData('tasks')
+  const classes = useData('classes')
+  // The time chips are worked out as the sheet opens and kept until it closes, so they never
+  // shift under the finger (a save from elsewhere, a new task).
+  const chipTimes = useRef({ open: false, list: DEFAULT_TIMES })
+  if (isOpen && !chipTimes.current.open) chipTimes.current = { open: true, list: usualTimes(tasks, todayISO()) }
+  else if (!isOpen && chipTimes.current.open) chipTimes.current = { ...chipTimes.current, open: false }
   const attachments = useAttachmentsFor('task', task?.id)
   const words = NOUNS[noun] || NOUNS.task
 
@@ -128,19 +137,23 @@ export default function TaskSheet({ open, onClose, task: taskProp = null, defaul
   // The name's words set Due as they're typed; when they go (deleted or dismissed), Due goes back
   // to what it was, unless it has been changed by hand since. Called with the rendered form (not
   // inside a state updater), since it moves `fill` along.
+  // A trailing "!!" / "urgent" sets the priority the same way (alone, it leaves Due as it was).
   function withName(current, text, skip = ignored) {
     const next = { ...current, text }
-    const before = fill.current?.before || { date: current.date, time: current.time }
+    const before = fill.current?.before || { date: current.date, time: current.time, priority: current.priority }
     const hit = nameParse(text, skip, before.date)
     if (hit) {
-      const applied = { date: hit.date, time: hit.time || (before.date ? before.time : '') }
+      const priority = hit.priority || before.priority
+      const applied = hit.date
+        ? { date: hit.date, time: hit.time || (before.date ? before.time : ''), priority }
+        : { date: before.date, time: before.time, priority }
       fill.current = { before, applied }
       return { ...next, ...applied }
     }
     if (fill.current) {
       const { applied } = fill.current
       fill.current = null
-      if (current.date === applied.date && current.time === applied.time) return { ...next, ...before }
+      if (current.date === applied.date && current.time === applied.time && current.priority === applied.priority) return { ...next, ...before }
     }
     return next
   }
@@ -155,6 +168,8 @@ export default function TaskSheet({ open, onClose, task: taskProp = null, defaul
   const reminderValue = effectiveReminder(form.reminderMinutes, Boolean(form.time))
   const customLead = form.time && reminderValue !== '' && !LEAD_OPTIONS.some((option) => String(option.value) === reminderValue)
   const today = todayISO()
+  // What's already on the chosen day (classes, other timed tasks), for the time chips.
+  const busy = useMemo(() => (form.date ? busySlots(classesOn(form.date), tasks, form.date, task?.id) : []), [form.date, tasks, classes, task?.id]) // eslint-disable-line react-hooks/exhaustive-deps
   const quickDates = dayPresets(today).map((preset) => ({
     id: preset.date,
     // "Next Mon" rather than "Next week · Mon", so the chips wrap less on a phone.
@@ -214,6 +229,12 @@ export default function TaskSheet({ open, onClose, task: taskProp = null, defaul
     archiveTask(task.id)
     finish()
     toast('Archived', { action: { label: 'Undo', onClick: () => restoreTask(task.id) } })
+  }
+
+  function breakIntoSteps() {
+    const ask = askAssistantHash(`Help me break “${task.text}” into a few small steps I can tick off.`)
+    finish()
+    window.location.hash = ask
   }
 
   function toggleDone() {
@@ -299,11 +320,23 @@ export default function TaskSheet({ open, onClose, task: taskProp = null, defaul
           </div>
           {form.date && (
             <div className="chip-row ts-time-chips" role="group" aria-label="Time">
-              {TIME_CHIPS.map((time) => (
-                <button key={time} type="button" className={`chip chip-sm ${form.time === time ? 'is-active' : ''}`} aria-pressed={form.time === time} onClick={() => set('time')(form.time === time ? '' : time)}>
-                  {formatTimeShort(time)}
-                </button>
-              ))}
+              {chipTimes.current.list.map((time) => {
+                const clash = clashSlot(time, busy)
+                const label = formatTimeShort(time)
+                return (
+                  <button
+                    key={time}
+                    type="button"
+                    className={`chip chip-sm ${form.time === time ? 'is-active' : ''} ${clash ? 'is-clash' : ''}`}
+                    aria-pressed={form.time === time}
+                    aria-label={clash ? `${label}, during ${clash.label}` : undefined}
+                    onClick={() => set('time')(form.time === time ? '' : time)}
+                  >
+                    {label}
+                    {clash && <span className="ts-chip-clash" aria-hidden="true"> · {clash.kind === 'class' ? 'class' : 'busy'}</span>}
+                  </button>
+                )
+              })}
               <button type="button" className={`chip chip-sm ${!form.time ? 'is-active' : ''}`} aria-pressed={!form.time} onClick={() => set('time')('')}>Any time</button>
             </div>
           )}
@@ -351,6 +384,10 @@ export default function TaskSheet({ open, onClose, task: taskProp = null, defaul
             </div>
           ) : (
             <p className="field-hint">Photos and PDFs can be added once the {words.title} is saved.</p>
+          )}
+          {task && (
+            // Only fills the assistant's message box (nothing is sent until you send it).
+            <Button variant="secondary" icon="sparkles" className="ts-handoff" onClick={breakIntoSteps}>Break into steps with the assistant</Button>
           )}
           {task && (
             <Button variant="secondary" icon="archive" className="ts-archive" onClick={archive}>Archive</Button>

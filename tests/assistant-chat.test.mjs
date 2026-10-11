@@ -1,10 +1,16 @@
-// The Assistant page's pure helpers (src/lib/assistantChat.js): start-screen prompts by space, which
-// chips and cards a reply shows, Undo availability and expired cards.
+// The Assistant page's pure helpers (src/lib/assistantChat.js): start-screen prompts by space and by
+// what's going on, which chips and cards a reply shows, Undo availability, expired cards, hand-off
+// links, merging the history and the typing pace; and the chat session that outlives the page
+// (src/lib/assistantSession.js).
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  PROPOSAL_TTL_MS, UNDO_TTL_MS, assistantSpace, buildSuggestions, canUndo, cardExpired, collapsesCard, composerPlaceholder, proposalExpired, setsOffer, undoRefused, visibleActions,
+  ASK_MAX_CHARS, PROPOSAL_TTL_MS, UNDO_TTL_MS, askAssistantHash, assistantSpace, buildSuggestions, cacheMessage, canUndo, cardExpired, collapsesCard, composerPlaceholder,
+  mergeHistory, messageKey, proposalExpired, readAskHash, revealCount, setsOffer, undoRefused, visibleActions, withKeys,
 } from '../src/lib/assistantChat.js'
+import {
+  beginReply, clearAssistantSession, endReply, getSession, sessionWriter, stopReply, typeInto, useAssistantStreaming,
+} from '../src/lib/assistantSession.js'
 import { toISO } from '../src/lib/dates.js'
 
 const TODAY = '2026-10-06'
@@ -159,5 +165,176 @@ describe('"Log my sets"', () => {
 
   test('a "Start … workout" button is never held back', () => {
     assert.deepEqual(setsOffer({ action: 'start', name: 'Legs', when: 'now' }, quickCard(), []), { show: true, cancels: null })
+  })
+})
+
+describe('start screen prompts that fit the moment', () => {
+  const base = { tasks: [], friends: [], settings: {}, foodEntries: [], today: TODAY, hour: 10 }
+
+  test('a birthday in the coming week, a missed workout and old tasks lead the Plan prompts', () => {
+    const facts = { birthdays: [{ name: 'Sam', label: 'Sat' }], missedWorkout: { name: 'Legs' }, staleCount: 9, weekday: 2 }
+    assert.deepEqual(texts(buildSuggestions({ ...base, facts })), ['Plan something for Sam’s birthday (Sat)', 'Fix my gym week', 'What’s on my plate today?', 'Tidy up my 9 old tasks'])
+    // A few old tasks aren't worth a prompt.
+    assert.ok(!texts(buildSuggestions({ ...base, facts: { staleCount: 3 } })).some((text) => /Tidy/.test(text)))
+  })
+
+  test('Sunday evening offers a week review; other evenings don’t', () => {
+    assert.equal(buildSuggestions({ ...base, hour: 18, facts: { weekday: 0 } })[0].text, 'Review my week')
+    assert.ok(!texts(buildSuggestions({ ...base, hour: 18, facts: { weekday: 3 } })).includes('Review my week'))
+    assert.ok(!texts(buildSuggestions({ ...base, hour: 11, facts: { weekday: 0 } })).includes('Review my week'))
+  })
+
+  test('Health: protein ideas in the evening when plenty is left, and the missed workout', () => {
+    const facts = { proteinGoalG: 140, proteinLeftG: 60, missedWorkout: { name: 'Legs' } }
+    const evening = buildSuggestions({ ...base, space: 'health', hour: 18, facts })
+    assert.deepEqual(texts(evening), ['Log a meal…', 'Fix my gym week', 'Protein ideas for tonight', 'Log my weight…'])
+    assert.ok(!texts(buildSuggestions({ ...base, space: 'health', hour: 10, facts })).includes('Protein ideas for tonight'), 'not in the morning')
+    assert.ok(!texts(buildSuggestions({ ...base, space: 'health', hour: 18, facts: { proteinGoalG: 140, proteinLeftG: 10 } })).includes('Protein ideas for tonight'), 'nearly there')
+  })
+
+  test('areas that are off hide their prompts; never more than four', () => {
+    const facts = { birthdays: [{ name: 'Sam', label: 'today' }], missedWorkout: { name: 'Legs' }, proteinGoalG: 140, proteinLeftG: 80, staleCount: 12, weekday: 0 }
+    const off = buildSuggestions({ ...base, hour: 19, settings: { areas: { people: false, gym: false, food: false } }, facts })
+    assert.ok(!texts(off).some((text) => /birthday|gym|Protein/i.test(text)))
+    assert.equal(buildSuggestions({ ...base, hour: 19, facts }).length, 4)
+    // Junk facts are ignored.
+    assert.equal(buildSuggestions({ ...base, facts: { birthdays: [null, { name: ' ' }], staleCount: 'x' } }).length, 4)
+    assert.deepEqual(buildSuggestions({ ...base, facts: null }), buildSuggestions(base))
+  })
+})
+
+describe('hand-off links', () => {
+  test('askAssistantHash and readAskHash round-trip, capped at 500 characters', () => {
+    const text = 'Break “Write report” into steps: 50% done / due Fri #2'
+    const hash = askAssistantHash(text)
+    assert.match(hash, /^#\/assistant\/ask\//)
+    assert.ok(!/\s/.test(hash))
+    assert.equal(readAskHash(hash), text)
+    const long = 'x'.repeat(800)
+    assert.equal(readAskHash(askAssistantHash(long)).length, ASK_MAX_CHARS)
+    assert.equal(readAskHash(`#/assistant/ask/${'y'.repeat(900)}`).length, ASK_MAX_CHARS, 'a hand-made link is capped too')
+  })
+
+  test('other hashes and odd links', () => {
+    assert.equal(readAskHash('#/assistant'), null)
+    assert.equal(readAskHash('#/assistant/memory'), null)
+    assert.equal(readAskHash('#/tasks/ask/x'), null)
+    assert.equal(readAskHash('#/assistant/ask/'), '')
+    assert.equal(readAskHash('#/assistant/ask/100%25 sure'), '100% sure')
+    assert.equal(readAskHash('#/assistant/ask/50% off'), '50% off', 'a stray % is kept as typed')
+    assert.equal(askAssistantHash(null), '#/assistant/ask/')
+  })
+})
+
+describe('keys and the history merge', () => {
+  const at = (minute) => `2026-10-06T12:${String(minute).padStart(2, '0')}:00.000Z`
+
+  test('a message is keyed by role and time; repeats get a suffix', () => {
+    assert.equal(messageKey({ role: 'user', createdAt: at(1) }), `user:${at(1)}`)
+    assert.equal(messageKey({ role: 'user' }, 'm0'), 'm0')
+    const keyed = withKeys([{ role: 'user', createdAt: at(1) }, { role: 'user', createdAt: at(1) }, { role: 'assistant' }, null])
+    assert.deepEqual(keyed.map((message) => message.id), [`user:${at(1)}`, `user:${at(1)}#2`, 'm2'])
+  })
+
+  test('unchanged messages keep their object; changed ones are replaced under the same key', () => {
+    const local = withKeys([
+      { role: 'user', content: 'Hi', createdAt: at(1) },
+      { role: 'assistant', content: 'Hello', createdAt: at(1), proposal: { id: 'p1', status: 'pending', actions: [] } },
+    ])
+    const server = [
+      { role: 'user', content: 'Hi', createdAt: at(1) },
+      { role: 'assistant', content: 'Hello', createdAt: at(1), proposal: { id: 'p1', status: 'done', actions: [] } },
+      { role: 'user', content: 'From my laptop', createdAt: at(5) },
+    ]
+    const merged = mergeHistory(local, server)
+    assert.equal(merged[0], local[0], 'same object')
+    assert.notEqual(merged[1], local[1])
+    assert.equal(merged[1].id, local[1].id)
+    assert.equal(merged[1].proposal.status, 'done')
+    assert.equal(merged[2].id, `user:${at(5)}`)
+  })
+
+  test('a message sent from here matches the server’s copy despite its own time stamp, keeping photo previews', () => {
+    const sent = { id: `user:${at(2)}`, role: 'user', content: 'Add these', createdAt: at(2), attachments: [{ kind: 'image', name: 'a.jpg', thumb: 'blob:x' }] }
+    const reply = { id: `assistant:${at(2)}`, role: 'assistant', content: 'Done.', createdAt: at(2) }
+    const error = { id: 'error:1', role: 'assistant', error: 'Offline', createdAt: at(3) }
+    const merged = mergeHistory([sent, reply, error], [
+      { role: 'user', content: 'Add these', createdAt: '2026-10-06T12:02:01.500Z', attachments: [{ kind: 'image', name: 'a.jpg' }] },
+      { role: 'assistant', content: 'Done.', createdAt: '2026-10-06T12:02:09.000Z' },
+    ])
+    assert.deepEqual(merged.map((message) => message.id), [sent.id, reply.id], 'same keys: no remount; the error line goes')
+    assert.equal(merged[0].attachments[0].thumb, 'blob:x')
+    assert.equal(merged[0].createdAt, '2026-10-06T12:02:01.500Z', 'the server’s time from now on')
+    // Different words: not the same message.
+    assert.equal(mergeHistory([sent], [{ role: 'user', content: 'Other', createdAt: '2026-10-06T12:02:01.500Z' }])[0].id, 'user:2026-10-06T12:02:01.500Z')
+    assert.deepEqual(mergeHistory(undefined, undefined), [])
+  })
+
+  test('the cached shape leaves out previews and in-flight states', () => {
+    const cached = cacheMessage({ role: 'assistant', content: 'x', createdAt: at(1), streaming: true, proposal: { id: 'p', status: 'executing', actions: [{ label: 'A' }] }, attachments: [{ kind: 'image', name: 'a', thumb: 'blob:y' }] })
+    assert.equal(cached.proposal.status, 'interrupted')
+    assert.deepEqual(cached.attachments, [{ kind: 'image', name: 'a' }])
+    assert.equal(cached.streaming, undefined)
+  })
+})
+
+describe('typing pace', () => {
+  test('a backlog is shown within about 250 ms, at least a character a frame', () => {
+    assert.equal(revealCount(0, 16), 0)
+    assert.equal(revealCount(3, 16), 1)
+    assert.equal(revealCount(100, 16), 7)
+    assert.equal(revealCount(100, 250), 100)
+    assert.equal(revealCount(100, 1000), 100)
+    assert.equal(revealCount(5, 0), 1)
+    // Frame by frame, 400 characters are all out within about 250 ms of 60 fps frames.
+    let left = 400
+    let frames = 0
+    while (left > 0 && frames < 100) {
+      left -= revealCount(left, 16.7)
+      frames += 1
+    }
+    assert.ok(frames <= 60, `${frames} frames`)
+  })
+})
+
+describe('the chat session outlives the page', () => {
+  test('a reply belongs to the session: busy until it ends; a second one waits', () => {
+    clearAssistantSession()
+    const controller = beginReply({ confirmingId: 'p1' })
+    assert.ok(controller)
+    assert.equal(getSession().busy, true)
+    assert.equal(getSession().confirmingId, 'p1')
+    assert.equal(beginReply(), null)
+    endReply({}) // not the one on its way
+    assert.equal(getSession().busy, true)
+    endReply(controller)
+    assert.equal(getSession().busy, false)
+    assert.equal(getSession().confirmingId, null)
+    assert.equal(typeof useAssistantStreaming, 'function')
+  })
+
+  test('Stop aborts the reply; signing out also stops everything still writing to the old chat', () => {
+    clearAssistantSession()
+    const controller = beginReply()
+    const writer = sessionWriter()
+    writer.setMessages([{ id: 'a', role: 'assistant', content: '' }])
+    typeInto('a', 'Hello') // no animation frames here: shown at once
+    assert.equal(getSession().messages[0].content, 'Hello')
+    stopReply()
+    assert.equal(controller.signal.aborted, true)
+    endReply(controller)
+
+    const next = beginReply()
+    const old = sessionWriter()
+    clearAssistantSession()
+    assert.equal(next.signal.aborted, true)
+    assert.equal(getSession().busy, false)
+    old.setMessages([{ id: 'late', role: 'assistant', content: 'from before' }])
+    old.patchMessage('late', { content: 'x' })
+    typeInto('late', 'more')
+    assert.ok(!getSession().messages.some((message) => message.id === 'late'), 'a write after the reset is dropped')
+    assert.equal(old.live(), false)
+    endReply(next)
+    assert.equal(getSession().busy, false)
   })
 })

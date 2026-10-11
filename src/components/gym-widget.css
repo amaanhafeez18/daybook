@@ -20,6 +20,22 @@
 }
 html.has-workout-pill { --gymw-pill-space: 64px; }
 
+/* ---- Health → Today layout (HealthPage.jsx) ------------------------------------------------
+   Phones: one column, gym → food → weight, in DOM order (so VoiceOver and Tab follow the screen).
+   Wide screens with both areas on: gym and weight on the left, the food card beside them. The
+   second row is 1fr so a tall food card stretches it, not the gap between gym and weight. */
+.hl-cell { min-width: 0; }
+.hl-cell:empty { display: none; }
+@media (min-width: 1000px) {
+  .hl-main.hl-grid {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: auto 1fr;
+    grid-template-areas: 'gym food' 'weight food'; align-items: start; gap: 16px;
+  }
+  .hl-grid > .hl-cell.is-gym { grid-area: gym; }
+  .hl-grid > .hl-cell.is-food { grid-area: food; }
+  .hl-grid > .hl-cell.is-weight { grid-area: weight; }
+}
+
 /* ---- Today card --------------------------------------------------------------------------- */
 
 /* Health Today's three cards share one header: 16px inset, a 40px leading item, a 12px gap (text at

@@ -1,8 +1,10 @@
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../components/ui/Icon.jsx'
 import Disclosure from '../components/ui/Disclosure.jsx'
+import Burst from '../components/ui/Burst.jsx'
 import { Avatar, Button, Card, Skeleton } from '../components/ui/primitives.jsx'
 import { toast } from '../components/ui/feedback.jsx'
+import { UnderstoodChip, useQuickParse } from '../components/QuickParse.jsx'
 import ClassSheet from '../components/ClassSheet.jsx'
 import CitySheet from '../components/CitySheet.jsx'
 import TodayHint from '../components/SetupCard.jsx'
@@ -10,8 +12,15 @@ import TaskRow from '../components/TaskRow.jsx'
 import TaskSheet from '../components/TaskSheet.jsx'
 import { readPref, writePref } from '../lib/api.js'
 import { useData } from '../lib/store.js'
-import { classOver, classesOn, compareTasks, createTask, deleteTaskForever, friendStatus, lastContactMap, updateTask } from '../lib/planner.js'
-import { addDaysISO, compareTimes, dueSentence, formatDateLong, formatDue, formatTime, greeting, parseQuickAdd, timeAgo, todayISO } from '../lib/dates.js'
+import { MOODS, classOver, classesOn, compareTasks, createTask, deleteTaskForever, friendStatus, lastContactMap, saveJournalEntry, updateTask } from '../lib/planner.js'
+import { addDaysISO, compareTimes, dueSentence, formatDateLong, formatDuration, formatTime, formatTimeShort, greeting, nowTimeHHMM, timeAgo, todayISO } from '../lib/dates.js'
+import { eveningLeftovers, nowNext, timePassed } from '../lib/agenda.js'
+import { useLinger } from '../lib/useLinger.js'
+import { haptic } from '../lib/haptics.js'
+import { primeKeyboard } from '../lib/keyboard.js'
+import { navigate } from '../lib/router.js'
+import { writeSessionState } from '../lib/sessionState.js'
+import { notificationPrefs } from '../lib/notifications.js'
 import { dailyForecast, describeWeather, prayerSchedule, upcomingHours, useLocation, useNow, usePrayerTimes, useWeather } from '../lib/environment.js'
 import CardBoundary, { CardSkeleton } from '../components/CardBoundary.jsx'
 import { useAreas } from '../lib/areas.js'
@@ -25,7 +34,6 @@ const CatchUpSheet = lazy(() => import('./PeoplePage.jsx').then((module) => ({ d
 const OVERDUE_SHOWN = 8
 const TOMORROW_SHOWN = 5
 const PEOPLE_SHOWN = 3
-const DONE_LINGER_MS = 1600
 
 // Phones, top to bottom: Today, at most one hint card ("Get set up" for a new account, or a
 // reminders / Home Screen hint), Tomorrow, Health (one line each for the gym and food; the full
@@ -38,6 +46,7 @@ export default function TodayPage({ displayName, loaded }) {
   const contactLogs = useData('contactLogs')
   const settings = useData('settings')
   const classes = useData('classes')
+  const journalEntries = useData('journalEntries')
   const now = useNow(60000)
   const today = todayISO()
   const tomorrow = addDaysISO(today, 1)
@@ -58,6 +67,17 @@ export default function TodayPage({ displayName, loaded }) {
     if (record) setClassSheet(record)
   }
 
+  // "N" on a computer (the shell's daybook:command): a new task for today.
+  useEffect(() => {
+    const onCommand = (event) => {
+      if (event.detail?.name !== 'new-task') return
+      event.preventDefault() // tells the shell this page took it
+      setSheet({ defaults: { date: todayISO() } })
+    }
+    window.addEventListener('daybook:command', onCommand)
+    return () => window.removeEventListener('daybook:command', onCommand)
+  }, [])
+
   return (
     <div className="today td-page">
       <header className="page-header td-header">
@@ -68,11 +88,43 @@ export default function TodayPage({ displayName, loaded }) {
 
       <div className="today-grid">
         <div className="today-main">
-          <TodayCard tasks={active} classes={classes} today={today} now={now} loaded={loaded} onOpen={openTask} onOpenClass={openClass} />
+          <TodayCard
+            tasks={active}
+            classes={classes}
+            today={today}
+            now={now}
+            loaded={loaded}
+            settings={settings}
+            journal={areas.journal}
+            journalEntries={journalEntries}
+            onOpen={openTask}
+            onOpenClass={openClass}
+          />
           <CardBoundary>
-            <TodayHint areas={areas} location={location} loaded={loaded} onAddClass={() => setClassSheet({})} onChooseCity={() => setCityOpen(true)} />
+            {/* primeKeyboard: the sheet opens with the keyboard already up (lib/keyboard.js). */}
+            <TodayHint
+              areas={areas}
+              location={location}
+              loaded={loaded}
+              onAddClass={() => {
+                primeKeyboard()
+                setClassSheet({})
+              }}
+              onChooseCity={() => setCityOpen(true)}
+            />
           </CardBoundary>
-          <TomorrowCard tasks={active} classes={classes} tomorrow={tomorrow} loaded={loaded} onOpen={openTask} onOpenClass={openClass} onAdd={() => setSheet({ defaults: { date: tomorrow } })} />
+          <TomorrowCard
+            tasks={active}
+            classes={classes}
+            tomorrow={tomorrow}
+            loaded={loaded}
+            onOpen={openTask}
+            onOpenClass={openClass}
+            onAdd={() => {
+              primeKeyboard()
+              setSheet({ defaults: { date: tomorrow } })
+            }}
+          />
           {(areas.gym || areas.food) && (
             <CardBoundary>
               <Suspense fallback={<CardSkeleton />}>
@@ -98,28 +150,59 @@ export default function TodayPage({ displayName, loaded }) {
 
 // ---- Today -------------------------------------------------------------------------------------
 
-function TodayCard({ tasks, classes, today, now, loaded, onOpen, onOpenClass }) {
+// "14:30" from minutes after midnight, for the short time labels.
+const clock = (minutes) => `${String(Math.floor(minutes / 60) % 24).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`
+
+function TodayCard({ tasks, classes, today, now, loaded, settings, journal, journalEntries, onOpen, onOpenClass }) {
+  const tomorrow = addDaysISO(today, 1)
   const todayTasks = useMemo(() => tasks.filter((task) => task.date === today), [tasks, today])
   const open = useMemo(() => todayTasks.filter((task) => !task.done), [todayTasks])
   const done = useMemo(() => todayTasks.filter((task) => task.done).sort(compareTasks), [todayTasks])
-  const overdue = useMemo(() => tasks.filter((task) => !task.done && task.date && task.date < today).sort(compareTasks), [tasks, today])
+  const past = useMemo(() => tasks.filter((task) => task.date && task.date < today), [tasks, today])
+  const overdue = useMemo(() => past.filter((task) => !task.done).sort(compareTasks), [past])
   const nowMinutes = now.getHours() * 60 + now.getMinutes()
+  const nowHHMM = nowTimeHHMM(now)
   // A class leaves the list once it's over.
   const todayClasses = useMemo(() => classesOn(today).filter((item) => !classOver(item.time, nowMinutes)), [classes, today, nowMinutes]) // eslint-disable-line react-hooks/exhaustive-deps
-  const recent = useRecentlyDone(open, done)
 
-  // Open tasks and classes by time; a task ticked off here stays in place for a moment.
+  // A task ticked off here (today's or an overdue one) stays in place for a moment, with Undo
+  // in its toast, then folds away (lib/useLinger.js).
+  const openIds = useMemo(() => [...open, ...overdue].map((task) => task.id), [open, overdue])
+  const doneIds = useMemo(() => [...done, ...past.filter((task) => task.done)].map((task) => task.id), [done, past])
+  const { lingering, leaving, onLeft } = useLinger(openIds, doneIds)
+  const overdueShown = useMemo(() => past.filter((task) => !task.done || lingering.has(task.id)).sort(compareTasks), [past, lingering])
+
+  // Open tasks and classes by time; ticked-off rows keep their place while they linger.
   const timeline = useMemo(() => [
     ...open.map((task) => ({ kind: 'task', key: `t-${task.id}`, time: task.time, task })),
-    ...done.filter((task) => recent.has(task.id)).map((task) => ({ kind: 'task', key: `t-${task.id}`, time: task.time, task })),
+    ...done.filter((task) => lingering.has(task.id)).map((task) => ({ kind: 'task', key: `t-${task.id}`, time: task.time, task })),
     ...todayClasses.map((item, index) => ({ kind: 'class', key: `c-${item.id}-${item.time}-${index}`, time: item.time, item })),
-  ].sort((a, b) => compareTimes(a.time, b.time) || (a.task && b.task ? compareTasks(a.task, b.task) : 0)), [open, done, recent, todayClasses])
-  const folded = done.filter((task) => !recent.has(task.id))
+  ].sort((a, b) => compareTimes(a.time, b.time) || (a.task && b.task ? compareTasks(a.task, b.task) : 0)), [open, done, lingering, todayClasses])
+  const folded = done.filter((task) => !lingering.has(task.id))
+
+  // "Now · Economics · until 4:30 PM" / "Next · Dentist 2:30 PM · in 25 min" / "Free until 4 PM · then Dentist".
+  const line = useMemo(() => nowNext({ tasks: open, classSlots: todayClasses, nowMinutes }), [open, todayClasses, nowMinutes])
+
+  // After the evening check-in time (Settings → Notifications; used even with that push off):
+  // what's left can move to tomorrow in one tap, and a mood goes in the journal in one more.
+  const evening = nowHHMM >= (notificationPrefs(settings).overdueTime || '18:00')
+  const leftovers = evening ? eveningLeftovers(open, today, nowHHMM) : []
+  const moodSet = !!journalEntries?.find((entry) => entry.date === today)?.mood
+  const askMood = loaded && evening && journal && !moodSet
 
   function moveAll() {
+    const target = evening ? tomorrow : today
     const moved = overdue.map((task) => ({ id: task.id, date: task.date }))
-    for (const task of overdue) updateTask(task.id, { date: today })
-    toast(`Moved ${moved.length} task${moved.length === 1 ? '' : 's'} to today`, {
+    for (const task of overdue) updateTask(task.id, { date: target })
+    toast(`Moved ${moved.length} task${moved.length === 1 ? '' : 's'} to ${evening ? 'tomorrow' : 'today'}`, {
+      action: { label: 'Undo', onClick: () => moved.forEach((item) => updateTask(item.id, { date: item.date })) },
+    })
+  }
+
+  function moveLeft() {
+    const moved = leftovers.map((task) => ({ id: task.id, date: task.date }))
+    for (const task of leftovers) updateTask(task.id, { date: tomorrow })
+    toast(`Moved ${moved.length} task${moved.length === 1 ? '' : 's'} to tomorrow`, {
       action: { label: 'Undo', onClick: () => moved.forEach((item) => updateTask(item.id, { date: item.date })) },
     })
   }
@@ -130,30 +213,77 @@ function TodayCard({ tasks, classes, today, now, loaded, onOpen, onOpenClass }) 
     toast(`Moved “${truncate(task.text, 28)}” to today`, { action: { label: 'Undo', onClick: () => updateTask(task.id, { date: from }) } })
   }
 
+  function pickMood(mood) {
+    saveJournalEntry(today, { mood: mood.id })
+    // The Journal remembers the section and day it was left on; "Write more" means today's entry.
+    const writeMore = () => {
+      writeSessionState('journal.tab', 'journal')
+      writeSessionState('journal.date', today)
+      navigate('journal')
+    }
+    toast('Saved to today’s journal', { action: { label: 'Write more', onClick: writeMore } })
+  }
+
   const counts = [open.length ? `${open.length} left` : '', done.length ? `${done.length} done` : ''].filter(Boolean).join(' · ')
   const empty = timeline.length === 0
+  const allDone = done.length > 0 && !overdue.length
   // While folded, the overdue line names the first tasks so the fold says what's in it.
   const overdueSummary = overdue.map((task) => task.text).join(', ')
+
+  // The day cleared by a tap: a small burst on "All done for today" once the last row has folded
+  // away, and a success tap (in the tap itself, where iOS allows it). Once a day.
+  const [moment, setMoment] = useState('') // '' | 'armed' | 'shown'
+  function onToggle(task, nowDone) {
+    if (!nowDone) {
+      if (moment === 'armed') setMoment('')
+      return
+    }
+    if (task.date !== today || moment || readPref('moment.day', '') === today) return
+    if (open.some((item) => item.id !== task.id) || overdue.length) return
+    haptic('success')
+    setMoment('armed')
+  }
+  const settling = done.some((task) => lingering.has(task.id))
+  useEffect(() => {
+    if (moment !== 'armed' || settling) return
+    if (empty && allDone) {
+      writePref('moment.day', today)
+      setMoment('shown')
+    } else setMoment('')
+  }, [moment, settling, empty, allDone, today])
+
+  // Under "All done for today": what tomorrow starts with, else how many tasks it has.
+  const tomorrowLine = useMemo(() => {
+    if (!empty || !allDone) return ''
+    const upcoming = tasks.filter((task) => !task.done && task.date === tomorrow)
+    const first = nowNext({ tasks: upcoming, classSlots: classesOn(tomorrow), nowMinutes: 0 })
+    if (first) return `Tomorrow starts with ${first.title} ${formatTimeShort(clock(first.start))}`
+    return upcoming.length ? `${upcoming.length} task${upcoming.length === 1 ? '' : 's'} tomorrow` : ''
+  }, [empty, allDone, tasks, tomorrow, classes]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <Card title="Today" icon="sun" className="td-today" action={loaded && counts ? <span className="td-count">{counts}</span> : null}>
       {!loaded ? <Skeleton lines={3} /> : (
         <div className="td-today-body">
-          {overdue.length > 0 && (
+          {line && <NowNextLine line={line} onOpen={() => (line.ref.type === 'task' ? onOpen(open.find((task) => task.id === line.ref.id)) : onOpenClass(line.ref.id))} />}
+
+          {overdueShown.length > 0 && (
             <Disclosure
               id="today-overdue"
               className="td-section td-fold is-danger"
-              label={<><span className="td-row-icon"><Icon name="alert" size={24} strokeWidth={1.9} /></span><span className="td-row-label">{overdue.length} overdue</span></>}
+              label={<><span className="td-row-icon"><Icon name="alert" size={24} strokeWidth={1.9} /></span><span className="td-row-label">{overdue.length || overdueShown.length} overdue</span></>}
               summary={overdueSummary}
             >
               <ul className="task-list td-sublist">
-                {overdue.slice(0, OVERDUE_SHOWN).map((task) => (
+                {overdueShown.slice(0, OVERDUE_SHOWN).map((task) => (
                   <TaskRow
                     key={task.id}
                     task={task}
                     onOpen={onOpen}
                     overdueGroup
-                    trailing={(
+                    leaving={leaving.has(task.id)}
+                    onLeft={onLeft}
+                    trailing={task.done ? null : (
                       <button type="button" className="td-chip-today" onClick={() => moveOne(task)} aria-label={`Move “${task.text}” to today`}>
                         Today
                       </button>
@@ -161,28 +291,65 @@ function TodayCard({ tasks, classes, today, now, loaded, onOpen, onOpenClass }) 
                   />
                 ))}
               </ul>
-              <div className="td-fold-actions">
-                <button type="button" className="td-row-action" onClick={moveAll}>Move all to today</button>
-                {overdue.length > OVERDUE_SHOWN && <a className="td-row-action" href="#/tasks">See all {overdue.length}<Icon name="chevronRight" size={16} strokeWidth={2.2} /></a>}
-              </div>
+              {overdue.length > 0 && (
+                <div className="td-fold-actions">
+                  <button type="button" className="td-row-action" onClick={moveAll}>{evening ? 'Move all to tomorrow' : 'Move all to today'}</button>
+                  {overdue.length > OVERDUE_SHOWN && <a className="td-row-action" href="#/tasks">See all {overdue.length}<Icon name="chevronRight" size={16} strokeWidth={2.2} /></a>}
+                </div>
+              )}
             </Disclosure>
           )}
 
           {empty ? (
-            <p className="td-section td-empty">
-              <span className={`td-row-icon ${done.length && !overdue.length ? 'is-success' : 'is-quiet'}`}>
-                <Icon name={done.length && !overdue.length ? 'check' : 'sun'} size={15} strokeWidth={2.2} />
+            <div className="td-section td-empty">
+              <span className={`td-row-icon ${allDone ? 'is-success' : 'is-quiet'}`}>
+                <Icon name={allDone ? 'check' : 'sun'} size={15} strokeWidth={2.2} />
+                {allDone && <Burst active={moment === 'shown'} radius={34} />}
               </span>
-              {done.length && !overdue.length
-                ? 'All done for today.'
-                : overdue.length ? 'Nothing else planned for today.' : 'A clear day. Add something below or ask the assistant.'}
-            </p>
+              <span className="td-empty-text">
+                {allDone
+                  ? 'All done for today.'
+                  : overdue.length ? 'Nothing else planned for today.' : 'A clear day. Add something below or ask the assistant.'}
+                {tomorrowLine && <span className="td-empty-sub">{tomorrowLine}</span>}
+              </span>
+            </div>
           ) : (
             <ul className="task-list td-section">
-              {timeline.map((entry) => entry.kind === 'task'
-                ? <TaskRow key={entry.key} task={entry.task} onOpen={onOpen} showDate={false} />
-                : <ClassRow key={entry.key} item={entry.item} onOpen={onOpenClass} />)}
+              {timeline.map((entry) => (entry.kind === 'task'
+                ? (
+                  <TaskRow
+                    key={entry.key}
+                    task={entry.task}
+                    onOpen={onOpen}
+                    showDate={false}
+                    passed={timePassed(entry.task, today, nowMinutes)}
+                    leaving={leaving.has(entry.task.id)}
+                    onLeft={onLeft}
+                    onToggle={onToggle}
+                  />
+                )
+                : <ClassRow key={entry.key} item={entry.item} onOpen={onOpenClass} />))}
             </ul>
+          )}
+
+          {leftovers.length > 0 && (
+            <div className="td-section td-evening">
+              <span className="td-evening-text">{leftovers.length} still open</span>
+              <button type="button" className="td-row-action" onClick={moveLeft}>Move to tomorrow</button>
+            </div>
+          )}
+
+          {askMood && (
+            <div className="td-section td-mood" role="group" aria-label="How was today?">
+              <span className="td-mood-label">How was today?</span>
+              <span className="td-mood-faces">
+                {MOODS.map((mood) => (
+                  <button key={mood.id} type="button" className="td-mood-btn" onClick={() => pickMood(mood)} aria-label={mood.label} title={mood.label}>
+                    <span aria-hidden="true">{mood.emoji}</span>
+                  </button>
+                ))}
+              </span>
+            </div>
           )}
 
           {folded.length > 0 && (
@@ -204,62 +371,47 @@ function TodayCard({ tasks, classes, today, now, loaded, onOpen, onOpenClass }) 
   )
 }
 
-// Ids of tasks that went from open to done while this card was showing, kept for DONE_LINGER_MS
-// so the tick animates in place (and Undo is still next to it) before the row folds into "N done".
-function useRecentlyDone(open, done) {
-  const [recent, setRecent] = useState(() => new Set())
-  const previous = useRef(null)
-  const timers = useRef(new Map())
-
-  useEffect(() => {
-    const before = previous.current
-    previous.current = new Set(open.map((task) => task.id))
-    if (!before) return
-    const fresh = done.filter((task) => before.has(task.id) && !timers.current.has(task.id)).map((task) => task.id)
-    if (!fresh.length) return
-    setRecent((current) => new Set([...current, ...fresh]))
-    for (const id of fresh) {
-      timers.current.set(id, setTimeout(() => {
-        timers.current.delete(id)
-        setRecent((current) => {
-          const next = new Set(current)
-          next.delete(id)
-          return next
-        })
-      }, DONE_LINGER_MS))
-    }
-  }, [open, done])
-
-  useEffect(() => {
-    const pending = timers.current
-    return () => {
-      pending.forEach((timer) => clearTimeout(timer))
-      pending.clear()
-    }
-  }, [])
-
-  return recent
+// The line at the top of the Today card; a tap opens the task or class it names.
+function NowNextLine({ line, onOpen }) {
+  const time = (minutes) => formatTimeShort(clock(minutes))
+  const parts = line.kind === 'now'
+    ? { icon: 'graduation', lead: 'Now', title: line.title, meta: `until ${time(line.end)}` }
+    : line.kind === 'next'
+      ? { icon: line.ref.type === 'class' ? 'graduation' : 'clock', lead: 'Next', title: `${line.title} ${time(line.start)}`, meta: line.minutesUntil < 1 ? 'now' : `in ${formatDuration(line.minutesUntil)}` }
+      : { icon: 'coffee', lead: `Free until ${time(line.start)}`, title: `then ${line.title}`, meta: '' }
+  const label = [parts.lead, parts.title, parts.meta].filter(Boolean).join(' · ')
+  return (
+    <button type="button" className={`td-section td-next is-${line.kind}`} onClick={onOpen} aria-label={label}>
+      <span className="td-row-icon is-quiet" aria-hidden="true"><Icon name={parts.icon} size={14} strokeWidth={2.2} /></span>
+      <span className="td-next-text" aria-hidden="true">
+        <span className="td-next-lead">{parts.lead}</span>
+        <span className="td-next-dot"> · </span>
+        <span className="td-next-title">{parts.title}</span>
+        {parts.meta && <span className="td-next-meta"> · {parts.meta}</span>}
+      </span>
+      <Icon name="chevronRight" size={16} strokeWidth={2.2} className="td-next-chev" />
+    </button>
+  )
 }
 
 // Adds to today, unless a day or time is typed at the start or end ("Call mom tomorrow 5pm", the
 // same parser as the Tasks page): that shows as a chip, and tapping the chip keeps the words in
-// the title instead.
+// the title instead. A trailing " !", "!!" or "urgent" makes it urgent.
 function AddRow({ today }) {
   const [text, setText] = useState('')
-  const [ignored, setIgnored] = useState('') // the parse the user dismissed, by its words
   const input = useRef(null)
-  const parsed = useMemo(() => parseQuickAdd(text, new Date()), [text])
-  const parseKey = parsed.matched.map((span) => span.text.toLowerCase()).join('|')
-  const understood = parsed.matched.length > 0 && parseKey !== ignored ? parsed : null
-  const understoodLabel = understood ? formatDue(understood.date, understood.time, today) : ''
+  const quick = useQuickParse(text)
+  const { understood } = quick
 
   function submit(event) {
     event.preventDefault()
     const value = text.trim()
     if (!value) return
-    const task = createTask(understood ? { text: understood.title, date: understood.date, time: understood.time } : { text: value, date: today })
+    const task = createTask(understood
+      ? { text: understood.title, date: understood.date || today, time: understood.time, priority: understood.priority || 'medium' }
+      : { text: value, date: today })
     setText('')
-    setIgnored('')
+    quick.reset()
     // Another day leaves this card: say where it went.
     if (task.date !== today) toast(`Added for ${dueSentence(task.date, task.time, today)}`, { action: { label: 'Undo', onClick: () => deleteTaskForever(task.id) } })
     // The key reads "Done", so on phones the keyboard goes away; on desktop keep typing.
@@ -283,16 +435,7 @@ function AddRow({ today }) {
       {text.trim() && <button type="submit" className="btn btn-primary btn-sm td-add-btn">Add</button>}
       {understood && (
         <div className="td-add-parsed" id="td-add-parsed" aria-live="polite">
-          <button
-            type="button"
-            className="chip chip-sm is-active tk-parsed"
-            onClick={() => setIgnored(parseKey)}
-            aria-label={`Due ${understoodLabel.replace(' · ', ' at ')}. Tap to keep those words in the title instead.`}
-          >
-            <Icon name="calendar" size={14} strokeWidth={2.1} />
-            <span>{understoodLabel}</span>
-            <Icon name="close" size={13} strokeWidth={2.4} className="tk-parsed-x" />
-          </button>
+          <UnderstoodChip understood={understood} today={today} onDismiss={quick.dismiss} />
         </div>
       )}
     </form>
