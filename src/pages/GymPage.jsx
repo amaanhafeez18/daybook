@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import Icon from '../components/ui/Icon.jsx'
 import { Button, IconButton, Skeleton } from '../components/ui/primitives.jsx'
 import { startedMs, useClock, workoutClock, workoutWhen } from '../components/WorkoutPill.jsx'
@@ -6,9 +6,11 @@ import { formatDateLong, formatDateShort } from '../lib/dates.js'
 import { isBackfillWorkout } from '../lib/gym/stats.js'
 import { hasPlan, routineById, routineColor, useActiveWorkout, useGym, useToday } from '../lib/gym/state.js'
 import { formatDuration } from '../lib/gym/units.js'
-import { navigate } from '../lib/router.js'
+import { lazyPage } from '../lib/lazyPage.js'
+import { navigate, subscribeRoute } from '../lib/router.js'
 import { refresh, useStore } from '../lib/store.js'
 import { goBack } from './gym/common.jsx'
+import { useSlidingThumb } from '../components/ui/useSlidingThumb.js'
 import TodayTab from './gym/TodayTab.jsx'
 import CalendarTab from './gym/CalendarTab.jsx'
 import RoutinesTab from './gym/RoutinesTab.jsx'
@@ -22,19 +24,16 @@ import './gym/gym.css'
 import './gym/browse.css'
 
 // Views opened from a tap (not the tabs or a running workout) load on demand, which keeps the Gym
-// chunk small; they're warmed a moment after the Gym page opens so the first tap is instant.
-const loadSessionDetail = () => import('./gym/SessionDetail.jsx')
-const loadRoutineEditor = () => import('./gym/RoutineEditor.jsx')
-const loadExerciseDetail = () => import('./gym/ExerciseDetail.jsx')
-const loadStatsView = () => import('./gym/StatsView.jsx')
-const loadGymSettings = () => import('./gym/GymSettingsSheet.jsx')
-const SessionDetail = lazy(loadSessionDetail)
-const RoutineEditor = lazy(loadRoutineEditor)
-const ExerciseDetail = lazy(loadExerciseDetail)
-const StatsView = lazy(loadStatsView)
-const GymSettingsSheet = lazy(loadGymSettings)
+// chunk small; they're warmed a moment after the Gym page opens so the first tap is instant (and
+// slides in with the view already drawn: a view still loading would slide in as a skeleton).
+const SessionDetail = lazyPage(() => import('./gym/SessionDetail.jsx'))
+const RoutineEditor = lazyPage(() => import('./gym/RoutineEditor.jsx'))
+const ExerciseDetail = lazyPage(() => import('./gym/ExerciseDetail.jsx'))
+const StatsView = lazyPage(() => import('./gym/StatsView.jsx'))
+const GymSettingsSheet = lazyPage(() => import('./gym/GymSettingsSheet.jsx'))
 // #/gym/visuals: review grid of every exercise visual (not linked anywhere).
-const VisualsGallery = lazy(() => import('./gym/visuals/VisualsGallery.jsx'))
+const VisualsGallery = lazyPage(() => import('./gym/visuals/VisualsGallery.jsx'))
+const WARM_VIEWS = [SessionDetail, ExerciseDetail, StatsView, RoutineEditor, GymSettingsSheet]
 
 // #/gym/<view>/<param>: four tabs under one header, the exercise library (opened from Routines)
 // as a page of its own, and detail views that take the whole page.
@@ -52,7 +51,8 @@ const DETAIL_VIEWS = { workout: WorkoutScreen, session: SessionDetail, routine: 
 const SHEET_VIEWS = { settings: true }
 const knownView = (view) => !!(TAB_VIEWS[view] || PAGE_VIEWS[view] || DETAIL_VIEWS[view] || SHEET_VIEWS[view])
 // How deep a view sits: tabs, then the library, then details. Going deeper keeps the scroll
-// position of the view left behind; coming back up restores it.
+// position of the view left behind; coming back up restores it. (lib/router.js navLevel has the
+// same levels for the slide between views.)
 const viewLevel = (view) => (TAB_VIEWS[view] || SHEET_VIEWS[view] ? 0 : PAGE_VIEWS[view] ? 1 : 2)
 
 function parseHash() {
@@ -80,23 +80,23 @@ export default function GymPage() {
   const [settingsUsed, setSettingsUsed] = useState(false) // mounted once opened, so it can animate closed
   // Scroll positions of the views a deeper one was opened from, restored on the way back.
   const scrolls = useRef({})
+  const leftAt = useRef(0) // window.scrollY when the route last changed
   const previous = useRef(route)
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      for (const load of [loadSessionDetail, loadRoutineEditor, loadExerciseDetail, loadStatsView, loadGymSettings]) load().catch(() => {})
-    }, 2000)
+      for (const view of WARM_VIEWS) view.preload().catch(() => {})
+    }, 600)
     return () => clearTimeout(timer)
   }, [])
 
-  useEffect(() => {
-    const onHash = () => {
-      const next = parseHash()
-      setRoute((current) => (current.view === next.view && current.param === next.param ? current : next))
-    }
-    window.addEventListener('hashchange', onHash)
-    return () => window.removeEventListener('hashchange', onHash)
-  }, [])
+  // Through the app's one route dispatcher, so a slide to a detail view draws the new view (and
+  // its scroll, below) inside the transition.
+  useEffect(() => subscribeRoute(() => {
+    leftAt.current = window.scrollY // before the new view renders (a shorter one would clamp it)
+    const next = parseHash()
+    setRoute((current) => (current.view === next.view && current.param === next.param ? current : next))
+  }), [])
 
   // The settings route opens the sheet; closing it goes back to the Today tab.
   useEffect(() => {
@@ -116,10 +116,12 @@ export default function GymPage() {
     if (from === route) return
     const deeper = viewLevel(route.view) > viewLevel(from.view)
     const returning = viewLevel(route.view) < viewLevel(from.view)
-    if (deeper) scrolls.current[from.view] = window.scrollY
+    if (deeper) scrolls.current[from.view] = leftAt.current
     const y = returning ? scrolls.current[route.view] || 0 : 0
-    window.scrollTo({ top: 0 })
-    if (y) requestAnimationFrame(() => window.scrollTo({ top: y }))
+    // At once (this runs inside the slide's update); once more next frame if the view was still
+    // too short to get there.
+    window.scrollTo({ top: y })
+    if (y && Math.abs(window.scrollY - y) > 1) requestAnimationFrame(() => window.scrollTo({ top: y }))
   }, [route])
 
   const Detail = DETAIL_VIEWS[route.view] || PAGE_VIEWS[route.view]
@@ -140,7 +142,8 @@ export default function GymPage() {
   const Tab = noPlan ? (hydrated ? Onboarding : PlanLoading) : TAB_VIEWS[tabView]
 
   return (
-    <div className="gym-shell">
+    // gym-shell-today: the Today tab takes the wider desktop column (shell.css) for its two columns.
+    <div className={`gym-shell${tabView === 'today' && !noPlan ? ' gym-shell-today' : ''}`}>
       <header className="page-header gym-shell-head">
         <div className="gym-shell-head-text">
           <p className="eyebrow">{formatDateLong(today)}</p>
@@ -157,22 +160,7 @@ export default function GymPage() {
 
       {active && <ResumeBanner active={active} gym={gym} today={today} />}
 
-      <nav className="segmented gym-shell-tabs" role="tablist" aria-label="Gym sections">
-        {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            role="tab"
-            aria-selected={tabView === tab.id}
-            className={tabView === tab.id ? 'is-active' : ''}
-            onClick={() => {
-              if (route.view !== tab.id) window.location.replace(tab.hash)
-            }}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </nav>
+      <GymTabs active={tabView} view={route.view} />
 
       <div className="gym-shell-body" role="tabpanel" aria-label={TABS.find((tab) => tab.id === tabView)?.label}>
         <Tab today={today} />
@@ -185,6 +173,31 @@ export default function GymPage() {
         </Suspense>
       )}
     </div>
+  )
+}
+
+// The section tabs; the highlight slides to the chosen one (useSlidingThumb). Its own component,
+// so the measuring starts afresh each time the tabs come back from a detail view.
+function GymTabs({ active, view }) {
+  const ref = useRef(null)
+  useSlidingThumb(ref, active)
+  return (
+    <nav ref={ref} className="segmented gym-shell-tabs gym-tabs" role="tablist" aria-label="Gym sections">
+      {TABS.map((tab) => (
+        <button
+          key={tab.id}
+          type="button"
+          role="tab"
+          aria-selected={active === tab.id}
+          className={active === tab.id ? 'is-active' : ''}
+          onClick={() => {
+            if (view !== tab.id) window.location.replace(tab.hash)
+          }}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </nav>
   )
 }
 

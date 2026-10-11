@@ -3,6 +3,7 @@ import Icon from '../../components/ui/Icon.jsx'
 import Sheet from '../../components/ui/Sheet.jsx'
 import { Button } from '../../components/ui/primitives.jsx'
 import { isISODate } from '../../lib/dates.js'
+import { primeKeyboard } from '../../lib/keyboard.js'
 import { addEntries, estimateFood, useFood } from '../../lib/food/state.js'
 import EstimateReview, { BARCODE_HINT, MealSelect, barcodeDigits, canAutoLog, logEstimate, prepareEstimate, reviewTotals } from './EstimateReview.jsx'
 import { dayLabel, defaultMeal, energyNumber, mealIdFor, openDatePicker, unitLabel } from './format.js'
@@ -141,7 +142,7 @@ export default function EstimateSheet({ request, onClose, onManual, today }) {
                   <Button variant="secondary" size="sm" icon="note" onClick={saveNameOnly}>Save without calories</Button>
                 )}
                 {onManual && (
-                  <Button variant="secondary" size="sm" icon="pencil" onClick={() => { onClose(); onManual({ name: isBarcode ? '' : shownText.trim(), meal, date }) }}>Add by hand</Button>
+                  <Button variant="secondary" size="sm" icon="pencil" onClick={() => { primeKeyboard(); onClose(); onManual({ name: isBarcode ? '' : shownText.trim(), meal, date }) }}>Add by hand</Button>
                 )}
               </div>
             </div>

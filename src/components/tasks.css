@@ -324,3 +324,45 @@
 /* The quick-add chips (30 px) keep their size; their touch targets are 44 px. */
 .tk-dock-chips .chip { position: relative; }
 .tk-dock-chips .chip::after { content: ''; position: absolute; inset: -7px 0; }
+
+/* ---- wave 1: passed times, rows that fold away, hover actions ------------------------------------ */
+
+/* A time today that has gone by: greyed, not red (it isn't overdue yet). */
+.task-meta .meta-chip.is-passed { background: transparent; color: var(--text-3); padding-left: 2px; }
+
+/* A ticked-off row folding away (TaskRow + lib/collapse.js): no taps on the way out. */
+.task-row.is-leaving { pointer-events: none; }
+
+/* Tomorrow / Later… / Archive on hover, for a mouse or trackpad only (phones swipe instead). A
+   small floating bar over the row's right end, so it takes no room from the title. */
+.tr-hover { display: none; }
+@media (hover: hover) and (pointer: fine) {
+  .task-row > .tr-hover {
+    position: absolute; top: 50%; right: 4px; z-index: 1;
+    display: flex; gap: 2px; padding: 3px;
+    border-radius: 12px; border: 1px solid var(--border); background: var(--surface); box-shadow: var(--shadow-sm);
+    translate: 0 -50%;
+    visibility: hidden; opacity: 0; transition: opacity 0.15s, visibility 0.15s;
+  }
+  .task-row:has(> .task-trailing) > .tr-hover { right: 84px; }
+  .task-row:hover > .tr-hover { visibility: visible; opacity: 1; }
+  /* A done row fades its children (above); its bar stays solid. */
+  .task-row.tr-row.is-done:hover > span.tr-hover.tr-hover { opacity: 1; }
+  .task-row[data-swiping] > .tr-hover, .task-row.is-leaving > .tr-hover { visibility: hidden; opacity: 0; }
+  .tr-hover-btn {
+    display: grid; place-items: center; width: 32px; height: 32px; border-radius: 9px;
+    color: var(--text-2); transition: background 0.15s, color 0.15s;
+  }
+  .tr-hover-btn:hover { background: var(--surface-2); color: var(--accent); }
+}
+
+/* Task sheet: a time chip that lands on a class or another task ("3 PM · class"). It stays
+   tappable; the note is quieter than the time. */
+#task-form .ts-time-chips .chip.is-clash:not(.is-active) { border-style: dashed; }
+.ts-chip-clash { font-weight: 500; opacity: 0.75; }
+
+/* "Break into steps with the assistant" sits with Archive at the end of More options. */
+.btn.ts-handoff { align-self: flex-start; }
+
+/* The parsed chip's urgent flag. */
+.tk-parsed .tk-parsed-flag { flex-shrink: 0; }

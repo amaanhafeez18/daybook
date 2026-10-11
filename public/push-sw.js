@@ -12,7 +12,7 @@ self.addEventListener('push', (event) => {
   event.waitUntil(self.registration.showNotification(title, {
     body: data.body || '',
     icon: '/icon-192.png',
-    badge: '/icon-192.png',
+    badge: '/badge-96.png', // monochrome mark for the Android status bar (iOS ignores it)
     tag: data.tag || undefined,
     renotify: Boolean(data.tag),
     data: { url: data.url || '/#/today' },

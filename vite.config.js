@@ -6,7 +6,8 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      // The app shows an "Update available" prompt (src/main.jsx) instead of reloading mid-use.
+      // Updates never reload mid-use: src/main.jsx applies one quietly when it's safe (coming back
+      // after a while, or right at launch), and otherwise offers it with an "Update" toast.
       registerType: 'prompt',
       injectRegister: null,
       includeAssets: ['apple-touch-icon.png'],
@@ -26,7 +27,8 @@ export default defineConfig({
         icons: [
           { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
           { src: 'icon-512.png', sizes: '512x512', type: 'image/png' },
-          { src: 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+          // Full bleed with the mark inside the safe zone, for Android's shaped icons (scripts/make_icons.py).
+          { src: 'maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
         shortcuts: [
           { name: 'Assistant', url: '/#/assistant', icons: [{ src: 'icon-192.png', sizes: '192x192' }] },
@@ -41,13 +43,6 @@ export default defineConfig({
         cleanupOutdatedCaches: true,
         // Push notifications (public/push-sw.js).
         importScripts: ['push-sw.js'],
-        runtimeCaching: [
-          {
-            urlPattern: ({ url }) => url.origin === 'https://fonts.googleapis.com' || url.origin === 'https://fonts.gstatic.com',
-            handler: 'StaleWhileRevalidate',
-            options: { cacheName: 'google-fonts', expiration: { maxEntries: 20, maxAgeSeconds: 60 * 60 * 24 * 365 } },
-          },
-        ],
       },
     }),
   ],

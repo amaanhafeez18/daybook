@@ -306,3 +306,49 @@
 /* The parsed-date chip (30 px) keeps its size; its touch target is 44 px. */
 .td-add-parsed .chip { position: relative; }
 .td-add-parsed .chip::after { content: ''; position: absolute; inset: -7px 0; }
+
+/* ---- Today card: "Now / Next", the evening wrap-up and the day-done line ------------------------- */
+
+/* "Now · Economics · until 4:30 PM": the card's first row, a tap opens what it names. */
+.td-today .td-next {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 2px 0;
+  color: var(--text); font-size: var(--fs-subhead, 15px); text-align: left; letter-spacing: -0.01em;
+  transition: opacity 0.15s;
+}
+.td-today .td-next:active { opacity: 0.55; }
+.td-today .td-next:focus-visible { outline-offset: -2px; border-radius: 12px; }
+.td-next-text { flex: 1; min-width: 0; display: flex; align-items: baseline; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.td-next-lead { flex-shrink: 0; font-weight: 600; color: var(--accent); }
+.td-next.is-free .td-next-lead { color: var(--text-2); }
+.td-next-dot, .td-next-meta { flex-shrink: 0; color: var(--text-2); white-space: pre; }
+.td-next-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.td-next-chev { flex-shrink: 0; color: var(--text-3); }
+
+/* "All done for today." with what tomorrow starts with under it. */
+.td-today .td-empty { position: relative; }
+.td-empty-text { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.td-empty-sub { color: var(--text-2); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.td-empty .td-row-icon { position: relative; }
+
+/* After the evening check-in: "2 still open · Move to tomorrow", in the fold-actions style. */
+.td-today .td-evening { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 48px; padding-left: 36px; }
+.td-evening-text { min-width: 0; color: var(--text-2); font-size: 15px; font-variant-numeric: tabular-nums; }
+
+/* One-tap mood: five 44 px faces. */
+.td-today .td-mood { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; min-height: 52px; padding: 2px 0 2px 36px; }
+.td-mood-label { color: var(--text-2); font-size: 15px; }
+.td-mood-faces { display: flex; gap: 2px; margin-right: -6px; }
+.td-mood-btn {
+  display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%;
+  font-size: 24px; line-height: 1; transition: transform 0.35s var(--spring, ease), background 0.15s;
+}
+.td-mood-btn:active { transform: scale(0.88); background: var(--surface-2); transition-duration: 0.1s; }
+@media (hover: hover) { .td-mood-btn:hover { background: var(--surface-2); } }
+/* The narrowest phones: the faces get their own line under the question. */
+@media (max-width: 359px) {
+  .td-mood-faces { margin-left: -6px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .td-mood-btn { transition: background 0.15s; }
+  .td-mood-btn:active { transform: none; }
+}

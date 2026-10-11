@@ -1,3 +1,5 @@
+import { useId } from 'react'
+
 // Line icons on a 24px grid (stroke = currentColor), in the style of Lucide (ISC licence).
 const PATHS = {
   home: <path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" />,
@@ -106,6 +108,38 @@ const PATHS = {
   heartPulse: <><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" /><path d="M3.22 12H9.5l.5-1 2 4.5 2-7 1.5 3.5h5.27" /></>,
 }
 
+// Filled versions of the tab icons, for the selected tab (<Icon name filled />), like iOS. `shape` is
+// drawn filled in currentColor (keeping the stroke, so the outline matches the line icon); `cut`
+// is knocked out of it through a mask, so the detail shows in the background colour. Same grid and
+// geometry as the line icons; an icon without a filled version stays a line icon.
+const FILLED = {
+  home: { shape: <path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" fill="currentColor" /> },
+  tasks: {
+    shape: <circle cx="12" cy="12" r="9.5" fill="currentColor" />,
+    cut: <path d="m8.5 12 2.5 2.5 4.5-5" strokeWidth="2.2" />,
+  },
+  calendar: {
+    shape: <><rect x="3" y="4.5" width="18" height="17" rx="2.5" fill="currentColor" /><path d="M16 2.5v4M8 2.5v4" /></>,
+    cut: <path d="M3 10h18M7.5 14h.01M12 14h.01M16.5 14h.01M7.5 17.5h.01M12 17.5h.01" strokeWidth="2" />,
+  },
+  people: {
+    shape: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2z" fill="currentColor" /><circle cx="9" cy="7" r="4" fill="currentColor" /><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></>,
+  },
+  sparkles: {
+    shape: <><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3z" fill="currentColor" /><path d="M5 3v4M3 5h4M19 17v4M17 19h4" /></>,
+  },
+  heartPulse: {
+    shape: <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" fill="currentColor" />,
+    cut: <path d="M3.22 12H9.5l.5-1 2 4.5 2-7 1.5 3.5h5.27" strokeWidth="1.9" />,
+  },
+  dumbbell: {
+    shape: <><rect x="5" y="5" width="4" height="14" rx="1.2" fill="currentColor" /><rect x="15" y="5" width="4" height="14" rx="1.2" fill="currentColor" /><path d="M5 8.5H3.8a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1H5zM19 8.5h1.2a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H19z" fill="currentColor" /><path d="M9 12h6" /></>,
+  },
+  utensils: {
+    shape: <><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2M7 2v20" /><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Z" fill="currentColor" /><path d="M21 15v7" /></>,
+  },
+}
+
 // Optical line weight. strokeWidth is in the 24-unit grid, so one fixed value draws hairlines on
 // small icons (1.8 at 13px = 1px) and heavy lines on big ones. Without an explicit strokeWidth the
 // on-screen weight instead grows gently with size (about 1.35px at 13, 1.55px at 18, 1.8px at 24,
@@ -119,7 +153,8 @@ export function opticalStroke(size) {
   return Math.round(Math.min(STROKE_MAX_UNITS, (px * 24) / size) * 100) / 100
 }
 
-export default function Icon({ name, size = 20, strokeWidth, className = '', title }) {
+export default function Icon({ name, size = 20, strokeWidth, className = '', title, filled = false }) {
+  if (filled && FILLED[name]) return <FilledIcon name={name} size={size} strokeWidth={strokeWidth} className={className} title={title} />
   return (
     <svg
       className={`icon ${className}`}
@@ -136,6 +171,36 @@ export default function Icon({ name, size = 20, strokeWidth, className = '', tit
     >
       {title && <title>{title}</title>}
       {PATHS[name] || PATHS.alert}
+    </svg>
+  )
+}
+
+// Its own component, so the useId (one mask id per icon on the page) only runs for filled icons.
+function FilledIcon({ name, size, strokeWidth, className, title }) {
+  const maskId = `icon-cut-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`
+  const { shape, cut } = FILLED[name]
+  return (
+    <svg
+      className={`icon icon-filled ${className}`}
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={strokeWidth ?? opticalStroke(size)}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden={title ? undefined : true}
+      role={title ? 'img' : undefined}
+    >
+      {title && <title>{title}</title>}
+      {cut && (
+        <mask id={maskId} maskUnits="userSpaceOnUse" x="-2" y="-2" width="28" height="28">
+          <rect x="-2" y="-2" width="28" height="28" fill="#fff" stroke="none" />
+          <g stroke="#000" fill="none">{cut}</g>
+        </mask>
+      )}
+      <g mask={cut ? `url(#${maskId})` : undefined}>{shape}</g>
     </svg>
   )
 }

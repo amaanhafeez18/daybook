@@ -10,6 +10,7 @@ import { attachmentSummary, useAttachmentsFor } from '../lib/attachments.js'
 import { addDaysISO, dayHeading, formatDateLong, formatDateShort, relativeDay, toISO } from '../lib/dates.js'
 import { useNow } from '../lib/environment.js'
 import { scrollBehavior } from '../lib/motion.js'
+import { useSessionState } from '../lib/sessionState.js'
 import '../components/journal.css'
 
 const AUTOSAVE_MS = 700
@@ -42,7 +43,8 @@ function entryPreview(item) {
 }
 
 export default function JournalPage() {
-  const [tab, setTab] = useState('journal')
+  // The section and the day shown come back with the tab (until the app has been away a while).
+  const [tab, setTab] = useSessionState('journal.tab', 'journal')
   const notes = useData('voiceNotes')
   return (
     <div className="journal-page">
@@ -69,7 +71,7 @@ function JournalEditor() {
   // Re-rendered every minute (and on coming back to the app), so "today" moves on at midnight.
   const now = useNow(60000)
   const today = toISO(now)
-  const [date, setDate] = useState(today)
+  const [date, setDate] = useSessionState('journal.date', today)
   const [query, setQuery] = useState('')
   const entry = entries.find((item) => item.date === date) || null
   const [draft, setDraft] = useState({ title: '', body: '', mood: '' })
@@ -226,6 +228,7 @@ function JournalEditor() {
             ))}
           </div>
           <input
+            data-autosave
             className="journal-title"
             value={draft.title}
             onChange={(event) => update('title', event.target.value)}
@@ -235,6 +238,7 @@ function JournalEditor() {
         </Disclosure>
 
         <AutoTextarea
+          data-autosave
           className="journal-body"
           value={draft.body}
           onChange={(event) => update('body', event.target.value)}

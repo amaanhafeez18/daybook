@@ -67,7 +67,7 @@ function useSectionLink() {
       frame = requestAnimationFrame(() => {
         frame = requestAnimationFrame(() => {
           // Back to the plain route, so tapping Settings again scrolls to the top.
-          window.history.replaceState(null, '', '#/settings')
+          window.history.replaceState(window.history.state, '', '#/settings') // keeps the history depth (router.js)
           const section = document.getElementById(id)
           if (!section) return
           section.scrollIntoView({ block: 'start', behavior: scrollBehavior() })

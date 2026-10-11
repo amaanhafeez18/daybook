@@ -220,6 +220,14 @@ export function weekRange(startIso, endIso) {
 
 export const plural = (n, word, many = `${word}s`) => `${fmtInt(n)} ${n === 1 ? word : many}`
 
+// The "Same as <day>" toast: "Copied 2 items from yesterday’s breakfast", "… from Monday’s
+// breakfast", else "… from breakfast on Wed 23 Sep" (a dated name).
+export function copiedText(count, mealLabel, dayName) {
+  const meal = String(mealLabel || 'meal').toLowerCase()
+  const from = /\d/.test(dayName) ? `${meal} on ${dayName}` : `${dayName}’s ${meal}`
+  return `Copied ${plural(count, 'item')} from ${from}`
+}
+
 // Return without Shift, and not while an input method is composing (Japanese, Chinese…): for text
 // fields that send on Enter. Handling it in onKeyDown works where a browser wouldn't submit the
 // form on its own.

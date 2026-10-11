@@ -10,6 +10,10 @@ import { useData, useStore } from '../lib/store.js'
 import { archiveCompletedTasks, archiveTask, compareTasks, createTask, deleteTaskForever, restoreTask, unarchiveTasks, updateTask } from '../lib/planner.js'
 import { addDaysISO, dueSentence, formatDateShort, toISO } from '../lib/dates.js'
 import { useNow } from '../lib/environment.js'
+import { timePassed } from '../lib/agenda.js'
+import { useLinger } from '../lib/useLinger.js'
+import { primeKeyboard } from '../lib/keyboard.js'
+import { useSessionState } from '../lib/sessionState.js'
 import '../components/tasks.css'
 
 const VIEWS = [
@@ -33,8 +37,9 @@ const byRecent = (a, b) => String(b.date || b.createdAt || '').localeCompare(Str
 
 export default function TasksPage({ loaded }) {
   const tasks = useData('tasks')
-  const [view, setView] = useState('open')
-  const [query, setQuery] = useState('')
+  // Kept while the app is open (lib/sessionState.js), so the tab comes back as it was left.
+  const [view, setView] = useSessionState('tasks.view', 'open')
+  const [query, setQuery] = useSessionState('tasks.query', '')
   const [sheet, setSheet] = useState(null) // { task?, defaults?, completeFirst?, fromDock?, pickDate? }
   // A row's tap opens its task; Later… → "Pick a date…" passes { pickDate: true } to go straight to the date.
   const openTask = (task, intent) => setSheet({ task, ...intent })
@@ -43,13 +48,22 @@ export default function TasksPage({ loaded }) {
   const [dockKey, setDockKey] = useState(0) // bumping it empties the quick-add
   // Re-rendered every minute, so the groups (Overdue / Today / Tomorrow) move on at midnight
   // even when nothing else changes, e.g. the app left open overnight.
-  const today = toISO(useNow(60000))
+  const now = useNow(60000)
+  const today = toISO(now)
+  const nowMinutes = now.getHours() * 60 + now.getMinutes()
   const tomorrow = addDaysISO(today, 1)
   const weekEnd = addDaysISO(today, 7)
+  const searchInput = useRef(null)
 
   const matches = (task) => !query.trim() || `${task.text} ${task.details || ''}`.toLowerCase().includes(query.trim().toLowerCase())
   const active = useMemo(() => tasks.filter((task) => !task.archived), [tasks])
+  // A task ticked off in the list stays in its place for a moment, then folds away (lib/useLinger.js).
+  // Done or not doesn't change how tasks sort, so it never moves while it lingers.
+  const openIds = useMemo(() => active.filter((task) => !task.done).map((task) => task.id), [active])
+  const doneIds = useMemo(() => active.filter((task) => task.done).map((task) => task.id), [active])
+  const { lingering, leaving, onLeft } = useLinger(openIds, doneIds)
   const open = useMemo(() => active.filter((task) => !task.done && matches(task)).sort(compareTasks), [active, query]) // eslint-disable-line react-hooks/exhaustive-deps
+  const listed = useMemo(() => active.filter((task) => (!task.done || lingering.has(task.id)) && matches(task)).sort(compareTasks), [active, query, lingering]) // eslint-disable-line react-hooks/exhaustive-deps
   const done = useMemo(() => active.filter((task) => task.done && matches(task)).sort(byRecent), [active, query]) // eslint-disable-line react-hooks/exhaustive-deps
   const archived = useMemo(() => tasks.filter((task) => task.archived && matches(task)).sort(byRecent), [tasks, query]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -63,7 +77,7 @@ export default function TasksPage({ loaded }) {
       { id: 'someday', title: 'No date', items: [] },
     ]
     const byId = Object.fromEntries(buckets.map((bucket) => [bucket.id, bucket]))
-    for (const task of open) {
+    for (const task of listed) {
       if (!task.date) byId.someday.items.push(task)
       else if (task.date < today) byId.overdue.items.push(task)
       else if (task.date === today) byId.today.items.push(task)
@@ -72,7 +86,7 @@ export default function TasksPage({ loaded }) {
       else byId.later.items.push(task)
     }
     return buckets.filter((bucket) => bucket.items.length)
-  }, [open, today, tomorrow, weekEnd])
+  }, [listed, today, tomorrow, weekEnd])
 
   // ---- #/tasks/<id> -------------------------------------------------------------------------------
   // A reminder tapped on a phone that hasn't synced since the task was made elsewhere: the cache
@@ -90,7 +104,7 @@ export default function TasksPage({ loaded }) {
   useEffect(() => {
     if (!linkedId) return
     // Back to the plain route, so the link doesn't open the task again and the tab behaves as usual.
-    if (linkedTaskId()) window.history.replaceState(null, '', '#/tasks')
+    if (linkedTaskId()) window.history.replaceState(window.history.state, '', '#/tasks') // keeps the history depth (router.js)
     const task = tasks.find((item) => item.id === linkedId)
     if (task) {
       setSheet({ task, completeFirst: !task.done })
@@ -100,6 +114,22 @@ export default function TasksPage({ loaded }) {
       setLinkedId(null)
     }
   }, [linkedId, tasks, synced])
+
+  // "N" and "/" on a computer (the shell's daybook:command): a new task, or the search field.
+  useEffect(() => {
+    const onCommand = (event) => {
+      if (event.detail?.name === 'new-task') {
+        event.preventDefault() // tells the shell this page took it
+        setSheet({})
+      } else if (event.detail?.name === 'search') {
+        event.preventDefault()
+        setView('open')
+        searchInput.current?.focus()
+      }
+    }
+    window.addEventListener('daybook:command', onCommand)
+    return () => window.removeEventListener('daybook:command', onCommand)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- actions --------------------------------------------------------------------------------------
   function moveToToday(list) {
@@ -134,16 +164,25 @@ export default function TasksPage({ loaded }) {
         <header className="page-header page-header-row">
           <div>
             <h1>Tasks</h1>
-            <p className="page-subtitle">{open.length === 0 ? 'All clear' : `${open.length} to do`}</p>
+            {/* Counts every open task; a search (kept across tabs) only adds how many it shows. */}
+            <p className="page-subtitle">{openIds.length === 0 ? 'All clear' : `${openIds.length} to do${query.trim() ? ` · ${open.length} shown` : ''}`}</p>
           </div>
-          <Button icon="plus" onClick={() => setSheet({})}>New task</Button>
+          <Button
+            icon="plus"
+            onClick={() => {
+              primeKeyboard() // the sheet opens with the keyboard already up
+              setSheet({})
+            }}
+          >
+            New task
+          </Button>
         </header>
 
         <div className="toolbar tk-toolbar">
           <Segmented options={VIEWS.map((item) => ({ ...item, label: item.id === 'done' && done.length ? `${item.label} · ${done.length}` : item.label }))} value={view} onChange={setView} label="Show" />
           <label className="search-field">
             <Icon name="search" size={18} />
-            <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search tasks" aria-label="Search tasks" />
+            <input ref={searchInput} type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search tasks" aria-label="Search tasks" />
           </label>
         </div>
 
@@ -161,10 +200,10 @@ export default function TasksPage({ loaded }) {
               <div className="group-title-row">
                 <h2 className={`group-title ${group.tone ? `is-${group.tone}` : ''}`}>
                   {group.title}
-                  <span className="count">{group.items.length}</span>
+                  <span className="count">{group.items.filter((task) => !task.done).length || group.items.length}</span>
                 </h2>
-                {group.id === 'overdue' && group.items.length > 1 && (
-                  <button type="button" className="link-btn" onClick={() => moveToToday(group.items)}>Move all to today</button>
+                {group.id === 'overdue' && group.items.filter((task) => !task.done).length > 1 && (
+                  <button type="button" className="link-btn" onClick={() => moveToToday(group.items.filter((task) => !task.done))}>Move all to today</button>
                 )}
               </div>
               <ul className="task-list card-list">
@@ -175,7 +214,10 @@ export default function TasksPage({ loaded }) {
                     onOpen={openTask}
                     showDate={group.id !== 'today' && group.id !== 'tomorrow'}
                     overdueGroup={group.id === 'overdue'}
-                    trailing={group.id === 'overdue' ? (
+                    passed={group.id === 'today' && timePassed(task, today, nowMinutes)}
+                    leaving={leaving.has(task.id)}
+                    onLeft={onLeft}
+                    trailing={group.id === 'overdue' && !task.done ? (
                       <button type="button" className="tk-chip-today" onClick={() => moveToToday([task])} aria-label={`Move “${task.text}” to today`}>Today</button>
                     ) : null}
                   />
@@ -281,8 +323,9 @@ function QuickAddDock({ today, onAdded, onMore }) {
     quick.reset()
   }
 
+  // An "!!" on its own (no day or time) keeps the day picked here.
   const fields = () => (understood
-    ? { text: understood.title, date: understood.date, time: understood.time }
+    ? { text: understood.title, date: understood.date || pickedDate, time: understood.time, ...(understood.priority ? { priority: understood.priority } : {}) }
     : { text: text.trim(), date: pickedDate, time: '' })
 
   function submit(event) {
@@ -327,9 +370,9 @@ function QuickAddDock({ today, onAdded, onMore }) {
 
       {typing && (
         <div className="tk-dock-chips" id="tk-quick-hint" aria-live="polite">
-          {understood ? (
-            <UnderstoodChip understood={understood} today={today} onDismiss={quick.dismiss} />
-          ) : (
+          {understood && <UnderstoodChip understood={understood} today={today} onDismiss={quick.dismiss} />}
+          {/* Only "urgent" understood (no day or time): Today / Tomorrow still offered beside it. */}
+          {!understood?.date && (
             [{ id: today, label: 'Today' }, { id: tomorrow, label: 'Tomorrow' }].map((option) => (
               <button
                 key={option.id}

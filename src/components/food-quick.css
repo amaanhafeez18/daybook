@@ -173,6 +173,17 @@ a.food-rv-src:active { opacity: 0.6; }
 .food-rv-lookup-note.is-error { color: var(--danger); }
 .food-rv-lookup .food-rv-actions { margin-top: 0; }
 
+/* ---- Plan → Today's Health glance (HealthGlance.jsx) -------------------------------------------
+   Each line is a link to Health plus, sometimes, one pill for the next step (Start, Do it today,
+   Same as <day>), side by side like the weight line's Log button. */
+.td-health-row.has-pill { gap: 10px; }
+.td-health-link { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; align-self: stretch; color: inherit; text-decoration: none; }
+.td-health-row.has-pill:active { opacity: 1; }
+.td-health-link:active { opacity: 0.7; }
+.btn.td-health-pill { flex-shrink: 0; white-space: nowrap; }
+.btn.td-health-pill .icon path { fill: currentColor; }
+@media (hover: hover) { .td-health-row.has-pill .td-health-link:hover .td-hl-main { color: var(--accent); } }
+
 @media (pointer: coarse) {
   /* 44 pt touch targets on phones. */
   .food-rv-act, .food-rv-save { min-height: 44px; }

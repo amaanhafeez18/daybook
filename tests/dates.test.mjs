@@ -110,6 +110,71 @@ describe('parseQuickAdd: times', () => {
   })
 })
 
+describe('parseQuickAdd: the assistant\'s time words', () => {
+  test('"this afternoon" is 3 PM, as in chat', () => {
+    assert.deepEqual(parse('Standup tomorrow afternoon'), { title: 'Standup', date: '2026-09-24', time: '15:00' })
+    assert.deepEqual(parse('Call bank this afternoon'), { title: 'Call bank', date: TODAY, time: '15:00' })
+  })
+
+  test('a part of today that has passed means soon: now + 15 min (+ 30 tonight), rounded up to 5 min', () => {
+    assert.deepEqual(parse('Call bank this morning'), { title: 'Call bank', date: TODAY, time: '14:45' })
+    assert.deepEqual(parse('Call bank this morning', new Date(2026, 8, 23, 15, 2)), { title: 'Call bank', date: TODAY, time: '15:20' })
+    assert.equal(parse('Call bank this afternoon', new Date(2026, 8, 23, 16, 0)).time, '16:15')
+    assert.equal(parse('Call bank this evening', new Date(2026, 8, 23, 18, 0)).time, '18:15')
+    assert.deepEqual(parse('Buy milk tonight', new Date(2026, 8, 23, 22, 10)), { title: 'Buy milk', date: TODAY, time: '22:40' })
+    // Rolls past midnight.
+    assert.deepEqual(parse('Buy milk tonight', new Date(2026, 8, 23, 23, 50)), { title: 'Buy milk', date: '2026-09-24', time: '00:20' })
+    // Not yet passed, or another day: the usual time.
+    assert.equal(parse('Call bank this morning', new Date(2026, 8, 23, 8, 0)).time, '09:00')
+    assert.equal(parse('Call bank tomorrow morning').time, '09:00')
+  })
+
+  test('lunch, after work, first thing and before bed (at the end only)', () => {
+    assert.deepEqual(parse('Meet Sam at lunch'), { title: 'Meet Sam', date: '2026-09-24', time: '12:30' }) // 12:30 has passed today
+    assert.deepEqual(parse('Meet Sam around lunch tomorrow'), { title: 'Meet Sam', date: '2026-09-24', time: '12:30' })
+    // "for lunch" is usually what a thing is for, not when: no time.
+    assert.deepEqual(parse('Buy bread for lunch'), { title: 'Buy bread for lunch', date: '', time: '' })
+    assert.deepEqual(parse('Call bank after work'), { title: 'Call bank', date: TODAY, time: '17:30' })
+    assert.deepEqual(parse('Email the landlord first thing'), { title: 'Email the landlord', date: '2026-09-24', time: '08:00' })
+    assert.deepEqual(parse('Email the landlord first thing', new Date(2026, 8, 23, 6, 30)), { title: 'Email the landlord', date: TODAY, time: '08:00' })
+    assert.deepEqual(parse('Take meds before bed'), { title: 'Take meds', date: TODAY, time: '22:00' })
+    assert.deepEqual(parse('Pack bag before bed fri'), { title: 'Pack bag', date: '2026-09-25', time: '22:00' })
+  })
+
+  test('day after tomorrow and "the 15th"', () => {
+    assert.deepEqual(parse('Dentist day after tomorrow'), { title: 'Dentist', date: '2026-09-25', time: '' })
+    assert.deepEqual(parse('Dentist the day after tmrw at 3pm'), { title: 'Dentist', date: '2026-09-25', time: '15:00' })
+    assert.deepEqual(parse('Pay rent the 15th'), { title: 'Pay rent', date: '2026-10-15', time: '' })
+    assert.deepEqual(parse('Pay rent on the 23rd'), { title: 'Pay rent', date: TODAY, time: '' })
+    assert.equal(parse('Pay rent the 30th').date, '2026-09-30')
+    assert.equal(parse('Pay rent the 31st').date, '2026-10-31') // September has no 31st
+    assert.equal(parse('Pay rent the 1st').date, '2026-10-01')
+  })
+
+  test('common misspellings of tomorrow', () => {
+    for (const word of ['tommorow', 'tomorow', '2moro', 'tmr']) assert.deepEqual(parse(`Call mom ${word}`), { title: 'Call mom', date: '2026-09-24', time: '' })
+    assert.deepEqual(parse('Standup tommorow morning'), { title: 'Standup', date: '2026-09-24', time: '09:00' })
+  })
+
+  test('a trailing " !", "!!" or "urgent" marks it urgent', () => {
+    const urgent = (text) => {
+      const { title, date, time, priority } = parseQuickAdd(text, NOW)
+      return { title, date, time, priority }
+    }
+    assert.deepEqual(urgent('Pay rent !'), { title: 'Pay rent', date: '', time: '', priority: 'urgent' })
+    assert.deepEqual(urgent('Pay rent!!'), { title: 'Pay rent', date: '', time: '', priority: 'urgent' })
+    assert.deepEqual(urgent('Pay rent tomorrow urgent'), { title: 'Pay rent', date: '2026-09-24', time: '', priority: 'urgent' })
+    assert.deepEqual(urgent('Pay rent fri 5pm !!'), { title: 'Pay rent', date: '2026-09-25', time: '17:00', priority: 'urgent' })
+    assert.deepEqual(urgent('Pay rent!'), { title: 'Pay rent!', date: '', time: '', priority: '' })
+    assert.deepEqual(urgent('Reply to Sam not urgent'), { title: 'Reply to Sam not urgent', date: '', time: '', priority: '' })
+    assert.deepEqual(urgent('!!'), { title: '!!', date: '', time: '', priority: '' })
+    const text = 'Pay rent tomorrow !!'
+    const { matched } = parseQuickAdd(text, NOW)
+    assert.deepEqual(matched.map((span) => span.text), ['tomorrow', '!!'])
+    for (const span of matched) assert.equal(text.slice(span.start, span.end), span.text)
+  })
+})
+
 describe('parseQuickAdd: a time on its own keeps the day already set', () => {
   const DAY = '2026-10-20' // e.g. the calendar's selected day, or a picked "Tomorrow"
 
@@ -154,10 +219,17 @@ describe('parseQuickAdd: leaves titles alone', () => {
     'Call 911',
     'Email John re: Monday',
     'Read chapter 5',
+    // Phrases that only count at the end, or need their ordinal.
+    'Lunch with Sam',
+    'After work drinks',
+    'the 3 of us',
+    'First thing to fix',
+    'Read chapter 1/2',
+    'Pay rent!',
   ]
   for (const text of untouched) {
     test(JSON.stringify(text), () => {
-      assert.deepEqual(parseQuickAdd(text, NOW), { title: text, date: '', time: '', matched: [], hasDay: false })
+      assert.deepEqual(parseQuickAdd(text, NOW), { title: text, date: '', time: '', matched: [], hasDay: false, priority: '' })
     })
   }
 
@@ -297,5 +369,20 @@ describe('snoozeOptions ("Later…")', () => {
     assert.deepEqual(ids({ date: '2026-10-10' }), [])
     // Overdue: everything.
     assert.deepEqual(ids({ date: '2026-09-20', time: '09:00' }), ['hour', 'evening', 'tomorrow', 'weekend', 'next-week'])
+  })
+
+  test('with the day\'s busy times, "This evening" starts after the last one', () => {
+    const evening = (busy, now = NOW) => snoozeOptions({ date: TODAY }, now, { busy }).find((option) => option.id === 'evening')
+    // Nothing busy: 6 PM, as before.
+    assert.equal(evening([]).time, '18:00')
+    // A class until 7:20 PM: the next half hour after it.
+    assert.deepEqual(evening([{ start: 17 * 60, end: 19 * 60 + 20 }]), { id: 'evening', label: 'This evening', date: TODAY, time: '19:30', hint: '7:30 PM' })
+    // Busy times that end before 6 PM don't move it.
+    assert.equal(evening([{ start: 9 * 60, end: 11 * 60 }]).time, '18:00')
+    // Past 9:30 PM there's no evening left.
+    assert.equal(evening([{ start: 20 * 60, end: 21 * 60 + 45 }]), undefined)
+    // Offered while it's more than an hour away (so 7:30 PM still is at 6 PM).
+    assert.equal(evening([{ start: 17 * 60, end: 19 * 60 + 20 }], new Date(2026, 8, 23, 18, 0)).time, '19:30')
+    assert.equal(evening([], new Date(2026, 8, 23, 17, 5)), undefined)
   })
 })

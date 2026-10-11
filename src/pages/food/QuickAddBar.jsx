@@ -4,8 +4,10 @@ import { Segmented } from '../../components/ui/primitives.jsx'
 import { toast } from '../../components/ui/feedback.jsx'
 import { nowTimeHHMM } from '../../lib/dates.js'
 import { imageToJpegDataUrl } from '../../lib/media.js'
-import { entryCalories, findFavorite, foodKey, recents, suggestions } from '../../lib/food/nutrition.js'
-import { addedSummary } from '../../lib/food/shortcuts.js'
+import { entryCalories, foodKey, recents, suggestions } from '../../lib/food/nutrition.js'
+import { addedSummary, matchFoods, quickRow } from '../../lib/food/shortcuts.js'
+import { haptic } from '../../lib/haptics.js'
+import { primeKeyboard } from '../../lib/keyboard.js'
 import { addEntries } from '../../lib/food/state.js'
 import { formatSeconds, useRecorder } from '../../lib/recorder.js'
 import { BARCODE_HINT, FoodGlyph, MealSelect, barcodeDigits } from './EstimateReview.jsx'
@@ -92,13 +94,6 @@ const TABS = [
   { id: 'recent', label: 'Recent' },
   { id: 'favorites', label: 'My foods' },
 ]
-
-// The row to log for a recent, suggestion or favorite (its last portion).
-function quickRow(template, { meal, date, favorites }) {
-  const favorite = template.aliases ? template : findFavorite(favorites, template)
-  const { id, key, lastDate, count, score, aliases, updatedAt, ...rest } = template // eslint-disable-line no-unused-vars
-  return { ...rest, meal, date, source: favorite ? 'favorite' : 'recent', favoriteId: favorite?.id ?? null }
-}
 
 // "Breakfast", or "Breakfast, Yesterday" on another day; without a meal just the day (or '').
 function whereText(meals, meal, date, today) {
@@ -274,19 +269,7 @@ export default function QuickAddBar({ date, today, meal, mealChosen = false, onM
   const lists = useMemo(() => {
     if (!quickLists) return null
     const favorites = food.favorites
-    let matches = []
-    if (query) {
-      const seen = new Set()
-      for (const item of [...favorites, ...quickLists.recent]) {
-        const key = foodKey(item.name, item.brand)
-        if (!key || seen.has(key)) continue
-        const haystack = [item.name, item.brand, item.barcode, ...(item.aliases || [])].filter(Boolean).join(' ').toLowerCase()
-        if (!haystack.includes(code || query)) continue
-        seen.add(key)
-        matches.push(item)
-        if (matches.length >= 6) break
-      }
-    }
+    const matches = query ? matchFoods(code || query, { favorites, recent: quickLists.recent, limit: 6 }) : []
     return { ...quickLists, favorites, matches }
   }, [quickLists, food.favorites, query, code])
 
@@ -306,6 +289,7 @@ export default function QuickAddBar({ date, today, meal, mealChosen = false, onM
     }
     const undo = addEntries([quickRow(template, { meal, date, favorites: food.favorites })])
     if (!undo.entries.length) return
+    haptic()
     setAddedList([...addedRef.current, { key, undo, kcal: entryCalories(template), name: entryName(template), meal, date }])
     setText('')
   }
@@ -316,7 +300,9 @@ export default function QuickAddBar({ date, today, meal, mealChosen = false, onM
     onDismiss?.()
   }
 
+  // "Add by hand" / "Quick calories": the entry sheet opens with the keyboard still up.
   function manual(defaults) {
+    primeKeyboard()
     setTrayOpen(false)
     onManual(defaults)
   }
@@ -378,7 +364,7 @@ export default function QuickAddBar({ date, today, meal, mealChosen = false, onM
   return (
     <div className={`food-dock${trayOpen ? ' has-tray' : ''}`} ref={dockRef}>
       {trayOpen && (
-        <div className="food-tray" role="dialog" aria-label="Quick add">
+        <div className="food-tray" role="dialog" aria-label="Quick add" data-no-sheet-drag="">
           {/* A tap on the tabs keeps the keyboard up, like the rows (the meal picker is a select,
               which needs the focus to open). */}
           <div className={`food-tray-head${query ? ' is-search' : ''}`} onMouseDown={(event) => { if (!event.target.closest?.('.food-pick')) keepFocus(event) }}>

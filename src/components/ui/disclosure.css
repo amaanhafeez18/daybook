@@ -1,5 +1,6 @@
 /* "More options" disclosure (components/ui/Disclosure.jsx). Fits inside forms, cards and sheets. */
-.disclosure { min-width: 0; }
+/* A one-column grid, so a closing body can fold its row from its own height to 0 (below). */
+.disclosure { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; }
 .disclosure-toggle {
   display: flex;
   align-items: center;
@@ -28,7 +29,12 @@
 .disclosure-body { display: flex; flex-direction: column; gap: 14px; padding-top: 4px; }
 /* Rises in (App.css's `rise`) only after a tap opened it (.is-toggled, Disclosure.jsx), never on mount. */
 .disclosure.is-toggled > .disclosure-body { animation: rise 0.2s var(--ease, ease); }
+/* Folding shut: Disclosure.jsx keeps the body (inert) for 200 ms while its row closes and it fades,
+   so what's below glides up instead of jumping. Without grid-row transitions it just goes at the end. */
+.disclosure.is-closing { grid-template-rows: auto 0fr; transition: grid-template-rows 0.2s var(--ease, ease); }
+.disclosure.is-closing > .disclosure-body { min-height: 0; overflow: hidden; opacity: 0; animation: none; transition: opacity 0.15s ease; pointer-events: none; }
 @media (prefers-reduced-motion: reduce) {
   .disclosure-chevron { transition: none; }
   .disclosure.is-toggled > .disclosure-body { animation: none; }
+  .disclosure.is-closing, .disclosure.is-closing > .disclosure-body { transition: none; }
 }

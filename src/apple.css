@@ -152,6 +152,8 @@ body { font-size: 16px; line-height: 1.35; letter-spacing: -0.015em; }
 }
 :where(.card, .card-list, .sheet, .settings-card) .chip-quiet:where(:not(.is-active)) { background: none; border-color: var(--border-strong); }
 :where(.card, .card-list, .sheet, .settings-card) .segmented button.is-active { background: var(--seg-thumb); }
+/* The sliding thumb (glass.css .has-thumb) wears the same fill there. */
+:where(.card, .card-list, .sheet, .settings-card) .segmented.has-thumb::before { background: var(--seg-thumb); }
 :where(.card, .card-list, .sheet, .settings-card) .search-field:focus-within { border-color: transparent; box-shadow: 0 0 0 3px var(--accent-soft); }
 @media (hover: hover) {
   :where(.card, .card-list, .sheet, .settings-card) :is(.btn-secondary, .icon-btn-soft):hover:not(:disabled),
@@ -330,6 +332,13 @@ body { font-size: 16px; line-height: 1.35; letter-spacing: -0.015em; }
 .badge-count { background: var(--danger); color: #fff; }
 .settings-row-icon { width: 30px; height: 30px; border-radius: 8px; }
 .settings-row { min-height: 50px; padding-top: 8px; padding-bottom: 8px; }
+
+/* ---- numbers that count (lib/useAnimatedNumber.js): SF Rounded where there is one, figures of equal
+   width so a changing number doesn't shuffle its neighbours ------------------------------------- */
+.num-display {
+  font-family: ui-rounded, 'SF Pro Rounded', var(--font-display, var(--font));
+  font-variant-numeric: tabular-nums;
+}
 
 /* ---- switch rows ------------------------------------------------------------------------------ */
 .switch-text > span { font-size: 17px; }

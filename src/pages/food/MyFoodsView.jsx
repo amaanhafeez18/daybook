@@ -4,6 +4,7 @@ import Icon from '../../components/ui/Icon.jsx'
 import Sheet from '../../components/ui/Sheet.jsx'
 import { Button, EmptyState, IconButton, Skeleton } from '../../components/ui/primitives.jsx'
 import { toast } from '../../components/ui/feedback.jsx'
+import { primeKeyboard } from '../../lib/keyboard.js'
 import { energyInUnit, energyToKcal, entryCalories } from '../../lib/food/nutrition.js'
 import { deleteFavorite, rememberFoods, updateFavorite, useFood } from '../../lib/food/state.js'
 import { DetailTop, MigrationNote, SwipeRow } from './common.jsx'
@@ -61,6 +62,12 @@ export default function MyFoodsView({ today, loaded }) {
 
   useEffect(() => setShown(PAGE), [q])
 
+  // A new food: the sheet opens on its name field with the keyboard already up (primed in the tap).
+  function addNew() {
+    primeKeyboard()
+    setEditing({ food: null })
+  }
+
   function remove(item) {
     const undo = deleteFavorite(item.id)
     toast(`Removed ${entryName(item)} from My foods`, { action: { label: 'Undo', onClick: undo } })
@@ -73,7 +80,7 @@ export default function MyFoodsView({ today, loaded }) {
   return (
     <div className="food-myfoods">
       <DetailTop>
-        <Button size="sm" icon="plus" onClick={() => setEditing({ food: null })} disabled={!loaded}>Add</Button>
+        <Button size="sm" icon="plus" onClick={addNew} disabled={!loaded}>Add</Button>
       </DetailTop>
       <header className="food-page-head">
         <h1>My foods</h1>
@@ -85,7 +92,7 @@ export default function MyFoodsView({ today, loaded }) {
         <section className="card"><Skeleton lines={5} /></section>
       ) : !favorites.length ? (
         <section className="card">
-          <EmptyState icon="bookmark" title="No saved foods yet" action={<Button icon="plus" onClick={() => setEditing({ food: null })}>Add a food</Button>}>
+          <EmptyState icon="bookmark" title="No saved foods yet" action={<Button icon="plus" onClick={addNew}>Add a food</Button>}>
             Foods you save keep their exact numbers, so next time you mention one, those numbers are used. Star a food when you log it, keep a label, barcode or web lookup, or add one here.
           </EmptyState>
         </section>

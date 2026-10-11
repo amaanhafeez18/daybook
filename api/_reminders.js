@@ -247,10 +247,9 @@ function workoutInProgress(gym, today, timeZone) {
   return Number.isFinite(started) && localNow(started, timeZone).date === today
 }
 
-// 'Push' → 'Push day'; a name that already ends in "day" stays as it is ('Leg Day').
+// The routine's own name ('Upper A', 'Leg Day'), or 'Workout'.
 function gymDayName(routine) {
-  const name = typeof routine?.name === 'string' && routine.name.trim() ? routine.name.trim() : 'Workout'
-  return /\bday$/i.test(name) ? name : `${name} day`
+  return typeof routine?.name === 'string' && routine.name.trim() ? routine.name.trim() : 'Workout'
 }
 
 function workoutReminder(day, today, time, timeZone) {
@@ -263,7 +262,7 @@ function workoutReminder(day, today, time, timeZone) {
   return {
     key: `gym:${today}`,
     fireAt: zonedToUtc(today, time, timeZone),
-    title: `${gymDayName(day.routine)} today`,
+    title: `Time for ${gymDayName(day.routine)}`,
     body: parts.join(' · ') || 'Time to train',
     url: '/#/gym',
     tag: 'gym',
@@ -384,14 +383,18 @@ function byTaskTime(a, b) {
   return left < right ? -1 : left > right ? 1 : 0
 }
 
-// "Essay (9:00 AM), Call mom, Gym +2 more"; long titles are cut so the banner stays readable.
+// The first `max` UTF-16 units of `text`, without half an emoji at the cut (a lone surrogate shows
+// as a replacement character in the banner) or trailing spaces.
+export const cutText = (text, max) => String(text).slice(0, max).replace(/[\uD800-\uDBFF]$/, '').trimEnd()
+
+// "Essay (9:00 AM), Call mom, Gym and 2 more"; long titles are cut so the banner stays readable.
 function taskNames(list) {
   const short = (text) => {
     const value = String(text || '').trim()
-    return value.length > 40 ? `${value.slice(0, 38).trimEnd()}…` : value
+    return value.length > 40 ? `${cutText(value, 38)}…` : value
   }
   const names = list.slice(0, 3).map((task) => `${short(task.text)}${isTime(task.time) ? ` (${formatTime(task.time)})` : ''}`)
-  return `${names.join(', ')}${list.length > 3 ? ` +${list.length - 3} more` : ''}`
+  return `${names.join(', ')}${list.length > 3 ? ` and ${list.length - 3} more` : ''}`
 }
 
 // Class slots on a date (rows: days ["Mon"] + day_details, or [{ day, time, room }]), by start time.
@@ -423,7 +426,42 @@ function classesLine(classes, date) {
   return `${names.length} classes${first !== null ? ` from ${minutesText(first)}` : ''}`
 }
 
-// "🎂 Ali’s birthday today/tomorrow" for friends whose birthday falls on one of `dates`. Feb 29
+// The earliest timed task or class on `date` starting at or after `fromMinutes`, else null.
+// `tasks` are that day's open tasks. → { text: 'Dentist 9:30 AM', isClass }
+function firstUp(tasks, classes, date, fromMinutes) {
+  const items = []
+  for (const task of tasks) {
+    if (isTime(task.time)) items.push({ name: String(task.text || '').trim(), start: toMinutes(task.time), isClass: false })
+  }
+  for (const slot of classSlotsOn(classes, date)) if (slot.start !== null) items.push({ name: slot.name, start: slot.start, isClass: true })
+  const next = items.filter((item) => item.name && item.start >= fromMinutes).sort((a, b) => a.start - b.start)[0]
+  if (!next) return null
+  const name = next.name.length > 40 ? `${cutText(next.name, 38)}…` : next.name
+  return { text: `${name} ${minutesText(next.start)}`, isClass: next.isClass }
+}
+
+// The morning summary's weather words, or '' when rain is unlikely or unknown.
+function rainLine(forecast) {
+  const chance = forecast?.rainChance == null ? NaN : Number(forecast.rainChance)
+  if (!Number.isFinite(chance)) return ''
+  if (chance >= 50) return `Rain likely (${Math.round(chance)}%)`
+  if (chance >= 30) return `Chance of rain (${Math.round(chance)}%)`
+  return ''
+}
+
+const SUMMARY_MAX = 180 // about what an expanded lock-screen banner shows
+
+// Joins the summary's parts with " · ". Too long: each { text, short } part uses its short form, then
+// the end is cut. Plain strings stay as they are.
+function fitSummary(parts) {
+  const join = (pick) => parts.map((part) => (typeof part === 'string' ? part : pick(part))).filter(Boolean).join(' · ')
+  const full = join((part) => part.text)
+  if (full.length <= SUMMARY_MAX) return full
+  const short = join((part) => part.short)
+  return short.length <= SUMMARY_MAX ? short : `${cutText(short, SUMMARY_MAX - 1)}…`
+}
+
+// "Ali’s birthday today/tomorrow" for friends whose birthday falls on one of `dates`. Feb 29
 // birthdays are marked on Mar 1 in other years.
 function birthdayLines(friends, today, dates) {
   const lines = []
@@ -433,7 +471,7 @@ function birthdayLines(friends, today, dates) {
     for (const friend of Array.isArray(friends) ? friends : []) {
       if (!isDate(friend?.birthday)) continue
       const monthDay = friend.birthday.slice(5) === '02-29' && !leap ? '03-01' : friend.birthday.slice(5)
-      if (monthDay === date.slice(5)) lines.push(`🎂 ${friend.name}’s birthday ${date === today ? 'today' : 'tomorrow'}`)
+      if (monthDay === date.slice(5)) lines.push(`${friend.name}’s birthday ${date === today ? 'today' : 'tomorrow'}`)
     }
   }
   return lines
@@ -454,7 +492,9 @@ function taskUrl(task) {
 // unavailable (gym reminders then wait for a later run within SEND_WINDOW_MS).
 // prayerTimings: today's { Fajr: 'HH:MM', … } for the user's location (api/_prayer.js), or null when
 // unknown; prayer reminders ignore quiet hours (Fajr is early by nature).
-export function dueNotifications({ settings, tasks, friends, contactLogs = null, classes, gymSessions = null, prayerTimings = null }, now = Date.now()) {
+// forecast: { rainChance } for today at the saved location (api/_weather.js), or null; only the
+// morning summary uses it.
+export function dueNotifications({ settings, tasks, friends, contactLogs = null, classes, gymSessions = null, prayerTimings = null, forecast = null }, now = Date.now()) {
   const prefs = notificationPrefs(settings)
   // Areas switched off in Settings → What you use get no reminders either.
   const areas = isObject(settings?.areas) ? settings.areas : {}
@@ -490,10 +530,17 @@ export function dueNotifications({ settings, tasks, friends, contactLogs = null,
     const dueToday = open.filter((task) => task.date === today && !isReminderTask(task)).sort(byTaskTime)
     const overdue = counted.filter((task) => isDate(task.date) && task.date < today)
     const lines = []
-    if (dueToday.length) lines.push(`${plural(dueToday.length, 'task')}: ${taskNames(dueToday)}`)
+    // Leads with what comes first from the summary's time on, then the weather.
+    const first = firstUp(dueToday, classes, today, toMinutes(prefs.dailySummaryTime))
+    if (first) lines.push(`First: ${first.text}`)
+    const rain = rainLine(forecast)
+    if (rain) lines.push(rain)
+    if (dueToday.length) lines.push({ text: `${plural(dueToday.length, 'task')}: ${taskNames(dueToday)}`, short: plural(dueToday.length, 'task') })
     if (overdue.length) lines.push(`${overdue.length} overdue`)
     const classLine = classesLine(classes, today)
-    if (classLine) lines.push(classLine)
+    // The day's only class, already named by "First:", isn't repeated.
+    const onlyClassFirst = first?.isClass && new Set(classSlotsOn(classes, today).map((slot) => slot.name)).size === 1
+    if (classLine && !onlyClassFirst) lines.push(classLine)
     if (workout) lines.push(`Gym: ${gymDayName(workout.routine)}`)
     if (prefs.people) {
       lines.push(...birthdayLines(friends, today, [today, tomorrow]))
@@ -518,7 +565,7 @@ export function dueNotifications({ settings, tasks, friends, contactLogs = null,
       key: `summary:${today}`,
       fireAt: zonedToUtc(today, prefs.dailySummaryTime, timeZone),
       title: `Your ${weekdayName(today)}`,
-      body: lines.length ? lines.join(' · ') : 'Nothing planned. A clear day.',
+      body: !lines.length ? 'Nothing planned. A clear day.' : lines.length === 1 && rain ? `Nothing planned · ${rain}` : fitSummary(lines),
       url: '/#/today',
       tag: 'daily-summary',
     })
@@ -532,7 +579,7 @@ export function dueNotifications({ settings, tasks, friends, contactLogs = null,
     const doneCount = todays.length - stillOpen.length
     const overdue = counted.filter((task) => isDate(task.date) && task.date < today)
     const parts = []
-    if (todays.length && !stillOpen.length) parts.push(`All ${todays.length} done today ✓`)
+    if (todays.length && !stillOpen.length) parts.push(`All ${todays.length} done today`)
     else if (stillOpen.length) parts.push(`${doneCount ? `${doneCount} of ${todays.length} done · ` : ''}Still open: ${taskNames(stillOpen)}`)
     if (overdue.length) parts.push(`${overdue.length} overdue`)
     const ahead = []
@@ -550,9 +597,10 @@ export function dueNotifications({ settings, tasks, friends, contactLogs = null,
     candidates.push({
       key: `overdue:${today}`,
       fireAt: zonedToUtc(today, prefs.overdueTime, timeZone),
-      title: stillOpen.length || overdue.length ? 'Before the day ends' : 'Evening check-in',
+      // Always Today: it offers "Move to tomorrow" for what's left (and the mood) in the evening.
+      title: 'Evening check-in',
       body: parts.join(' · '),
-      url: stillOpen.length || overdue.length ? '/#/tasks' : '/#/today',
+      url: '/#/today',
       tag: 'evening-nudge',
     })
   }
@@ -567,14 +615,16 @@ export function dueNotifications({ settings, tasks, friends, contactLogs = null,
   if (prefs.prayer && isObject(prayerTimings)) {
     const wanted = Array.isArray(prefs.prayers) && prefs.prayers.length ? prefs.prayers : PRAYER_NAMES
     const lead = Number.isFinite(Number(prefs.prayerLead)) ? Math.min(120, Math.max(0, Math.round(Number(prefs.prayerLead)))) : 0
-    for (const name of PRAYER_NAMES) {
+    for (const [index, name] of PRAYER_NAMES.entries()) {
       if (!wanted.includes(name) || !isTime(prayerTimings[name])) continue
       const at = zonedToUtc(today, prayerTimings[name], timeZone)
+      // The next of the day's five (wanted or not), so the banner also says what comes after.
+      const next = PRAYER_NAMES.slice(index + 1).find((other) => isTime(prayerTimings[other]) && prayerTimings[other] > prayerTimings[name])
       candidates.push({
         key: `prayer:${today}:${name}`,
         fireAt: at - lead * 60000,
         title: lead ? `${name} in ${lead} min` : `Time for ${name}`,
-        body: `${name} at ${formatTime(prayerTimings[name])}`,
+        body: `${name} at ${formatTime(prayerTimings[name])}${next ? ` · Then ${next} at ${formatTime(prayerTimings[next])}` : ''}`,
         url: '/#/today',
         tag: `prayer-${name}`,
         noQuiet: true,

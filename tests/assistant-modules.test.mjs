@@ -6,7 +6,7 @@ import { mergeSettings, patchSettingsAtomic, resetSettingsRpcMemo, writeSettings
 import {
   FOOD_LOOKUP_TOOLS, FOOD_TOOL_DEFS, FOOD_TOOL_NAMES, checkFoodTool, describeFoodAction, executeFoodTool, foodSnapshot, loadFoodData,
 } from '../api/_food-tools.js'
-import { DEFAULT_NOTIFICATIONS, combineReminders, dueNotifications, groupDue, reminderPreview } from '../api/_reminders.js'
+import { DEFAULT_NOTIFICATIONS, combineReminders, cutText, dueNotifications, groupDue, reminderPreview } from '../api/_reminders.js'
 
 // ---- a small in-memory stand-in for the Supabase client ----------------------------------------------
 
@@ -787,7 +787,7 @@ describe('reminderPreview and the late all-day reminder (B5)', () => {
     assert.deepEqual(run(quick, `${TODAY}T14:30:00Z`), [])
     const evening = run(quick, `${TODAY}T18:00:00Z`)
     assert.deepEqual(evening.map((item) => item.key), [`overdue:${TODAY}`])
-    assert.equal(evening[0].body, 'Still open: Item 0, Item 1, Item 2 +2 more · Tomorrow: nothing planned yet')
+    assert.equal(evening[0].body, 'Still open: Item 0, Item 1, Item 2 and 2 more · Tomorrow: nothing planned yet')
     // Also within the send window of the 9:00 reminder: a task typed at 9:10 isn't pinged at 9:11.
     const morning = { id: 'q9', text: 'Morning add', date: TODAY, created_at: `${TODAY}T09:10:00Z` }
     assert.deepEqual(run([morning], `${TODAY}T09:11:00Z`), [])
@@ -841,9 +841,9 @@ describe('reminderPreview and the late all-day reminder (B5)', () => {
       { id: 'b', text: 'Call mom', date: TODAY, time: '19:00' },
       { id: 'c', text: 'Rent', date: '2026-09-20' },
     ]
-    assert.equal(summary(tasks, { classes }).body, '2 tasks: Call mom (7:00 PM), Essay · 1 overdue · 2 classes from 11:30 AM')
-    assert.equal(summary([], { classes: [classes[0]] }).body, 'ECON 1022 at 2:30 PM')
-    assert.equal(summary([], { friends: [{ id: 'f', name: 'Ali', birthday: '2000-09-24' }] }).body, '🎂 Ali’s birthday tomorrow')
+    assert.equal(summary(tasks, { classes }).body, 'First: CS 3331 11:30 AM · 2 tasks: Call mom (7:00 PM), Essay · 1 overdue · 2 classes from 11:30 AM')
+    assert.equal(summary([], { classes: [classes[0]] }).body, 'First: ECON 1022 2:30 PM') // the only class isn't named twice
+    assert.equal(summary([], { friends: [{ id: 'f', name: 'Ali', birthday: '2000-09-24' }] }).body, 'Ali’s birthday tomorrow')
     // Turned off: nothing.
     assert.equal(dueNotifications({ settings: { timeZone: 'UTC', notifications: { dailySummary: false } }, tasks: [], friends: [], classes: [] }, at(`${TODAY}T08:00:00Z`)).length, 0)
   })
@@ -863,12 +863,12 @@ describe('reminderPreview and the late all-day reminder (B5)', () => {
     const classes = [{ id: 'c1', name: 'ECON 1022', days: [{ day: 'Thu', time: '2:30 PM - 4:30 PM' }] }]
     assert.deepEqual(evening(done, { classes }), {
       key: `overdue:${TODAY}`, fireAt: at(`${TODAY}T18:00:00Z`), title: 'Evening check-in',
-      body: 'All 2 done today ✓ · Tomorrow: 2 tasks (first 11:30 AM), ECON 1022 at 2:30 PM', url: '/#/today', tag: 'evening-nudge',
+      body: 'All 2 done today · Tomorrow: 2 tasks (first 11:30 AM), ECON 1022 at 2:30 PM', url: '/#/today', tag: 'evening-nudge',
     })
     const mixed = evening([...done, { id: 'e', text: 'Read', date: TODAY, time: '21:00' }, { id: 'f', text: 'Old', date: '2026-09-20' }])
-    assert.equal(mixed.title, 'Before the day ends')
+    assert.equal(mixed.title, 'Evening check-in') // always the same name as the switch in Settings
     assert.equal(mixed.body, '2 of 3 done · Still open: Read (9:00 PM) · 1 overdue · Tomorrow: 2 tasks (first 11:30 AM)')
-    assert.equal(mixed.url, '/#/tasks')
+    assert.equal(mixed.url, '/#/today') // Today offers "Move to tomorrow" for what's left
   })
 
   test('prayer reminders: off by default, at the time or with a lead, chosen prayers, never held by quiet hours', () => {
@@ -879,7 +879,8 @@ describe('reminderPreview and the late all-day reminder (B5)', () => {
     assert.equal(asr.length, 1)
     assert.equal(asr[0].key, `prayer:${TODAY}:Asr`)
     assert.equal(asr[0].title, 'Time for Asr')
-    assert.equal(asr[0].body, 'Asr at 4:30 PM')
+    assert.equal(asr[0].body, 'Asr at 4:30 PM · Then Maghrib at 7:10 PM')
+    assert.equal(run({ prayer: true }, `${TODAY}T20:40:00Z`)[0].body, 'Isha at 8:40 PM') // the last one names nothing after it
     assert.equal(asr[0].fireAt, at(`${TODAY}T16:30:00Z`))
     const early = run({ prayer: true, prayerLead: 10 }, `${TODAY}T16:20:00Z`)
     assert.equal(early[0].title, 'Asr in 10 min')
@@ -929,5 +930,93 @@ describe('reminderPreview and the late all-day reminder (B5)', () => {
     const server = block('../api/_reminders.js')
     assert.deepEqual(block('../src/lib/notifications.js'), server)
     assert.equal(Object.keys(server).length, Object.keys(DEFAULT_NOTIFICATIONS).length)
+  })
+})
+
+describe('push copy: morning brief, weather and workout wording', () => {
+  const at = (iso) => Date.parse(iso)
+  const summary = (input, nowIso = `${TODAY}T08:00:00Z`) => dueNotifications({ settings: { timeZone: 'UTC' }, tasks: [], friends: [], classes: [], ...input }, at(nowIso)).find((item) => item.tag === 'daily-summary')
+
+  test('leads with the first timed task or class from the summary time on', () => {
+    const tasks = [
+      { id: 'a', text: 'Early run', date: TODAY, time: '07:00' }, // before the 8 AM summary: not "first"
+      { id: 'b', text: 'Dentist', date: TODAY, time: '09:30' },
+      { id: 'c', text: 'Essay', date: TODAY },
+    ]
+    const classes = [{ id: 'c1', name: 'ECON 1022', days: [{ day: 'Wed', time: '2:30 PM - 4:30 PM' }] }]
+    assert.equal(summary({ tasks, classes }).body, 'First: Dentist 9:30 AM · 3 tasks: Early run (7:00 AM), Dentist (9:30 AM), Essay · ECON 1022 at 2:30 PM')
+    // Only untimed tasks: no "First:".
+    assert.equal(summary({ tasks: [tasks[2]] }).body, '1 task: Essay')
+  })
+
+  test('adds the chance of rain when it is likely; unknown or low says nothing', () => {
+    const tasks = [{ id: 'b', text: 'Dentist', date: TODAY, time: '09:30' }]
+    assert.equal(summary({ tasks, forecast: { rainChance: 70 } }).body, 'First: Dentist 9:30 AM · Rain likely (70%) · 1 task: Dentist (9:30 AM)')
+    assert.equal(summary({ tasks, forecast: { rainChance: 35 } }).body, 'First: Dentist 9:30 AM · Chance of rain (35%) · 1 task: Dentist (9:30 AM)')
+    assert.equal(summary({ tasks, forecast: { rainChance: 10 } }).body, 'First: Dentist 9:30 AM · 1 task: Dentist (9:30 AM)')
+    assert.equal(summary({ tasks, forecast: { rainChance: null } }).body, 'First: Dentist 9:30 AM · 1 task: Dentist (9:30 AM)')
+    assert.equal(summary({ forecast: { rainChance: 80 } }).body, 'Nothing planned · Rain likely (80%)')
+    assert.equal(summary({}).body, 'Nothing planned. A clear day.')
+  })
+
+  test('a long morning stays under 180 characters with "First:" first', () => {
+    const long = 'A rather long task title that goes on and on for a while'
+    const tasks = Array.from({ length: 6 }, (_, i) => ({ id: `t${i}`, text: `${long} ${i}`, date: TODAY, time: `1${i}:00` }))
+    const friends = [{ id: 'f', name: 'Sam Example', birthday: '2000-09-23' }]
+    const body = summary({ tasks, friends, forecast: { rainChance: 90 } }).body
+    assert.ok(body.length <= 180, body)
+    // The task list shrinks to a count; the birthday still fits.
+    assert.equal(body, 'First: A rather long task title that goes on… 10:00 AM · Rain likely (90%) · 6 tasks · Sam Example’s birthday today')
+  })
+
+  test('a cut never leaves half an emoji', () => {
+    assert.equal(cutText('ab🎉cd', 3), 'ab') // the cut lands inside the emoji: it goes
+    assert.equal(cutText('ab🎉cd', 4), 'ab🎉')
+    assert.equal(cutText('plain text  ', 11), 'plain text')
+    // 37 letters + an emoji straddling the 38-unit cut in a long first item.
+    const tasks = [{ id: 'e', text: `${'x'.repeat(37)}🎉🎉 party prep`, date: TODAY, time: '09:30' }]
+    const body = summary({ tasks }).body
+    assert.ok(!/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(body), body)
+    assert.ok(body.startsWith(`First: ${'x'.repeat(37)}…`), body)
+    // A long summary cut at 180 keeps whole emoji too.
+    const many = Array.from({ length: 3 }, (_, i) => ({ id: `m${i}`, text: `${'🎉'.repeat(19)}${i}`, date: TODAY }))
+    const friends = Array.from({ length: 6 }, (_, i) => ({ id: `f${i}`, name: `${'🎂'.repeat(12)} ${i}`, birthday: '2000-09-23' }))
+    const long = summary({ tasks: many, friends }).body
+    assert.ok(long.length <= 180, long)
+    assert.ok(!/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(long), long)
+  })
+
+  test('the workout reminder and summary use the routine name as it is', () => {
+    const gym = {
+      schedule: { versions: [{ id: 'v1', effectiveFrom: '2026-09-01', mode: 'weekly', weekly: Array(7).fill({ kind: 'routine', routineId: 'r1' }) }], shifts: [], skips: {}, overrides: {}, deload: { everyWeeks: 0 } },
+      routines: [{ id: 'r1', name: 'Upper A', exercises: [{ id: 'x1', exerciseId: 'bench-press', sets: [{ reps: 8 }] }, { id: 'x2', exerciseId: 'barbell-row', sets: [{ reps: 8 }] }] }],
+    }
+    const run = (nowIso) => dueNotifications({ settings: { timeZone: 'UTC', gym, notifications: { gym: true } }, tasks: [], friends: [], classes: [], gymSessions: [] }, at(nowIso))
+    const reminder = run(`${TODAY}T17:00:00Z`).find((item) => item.tag === 'gym')
+    assert.equal(reminder.title, 'Time for Upper A')
+    assert.match(reminder.body, /^2 exercises/)
+    assert.match(run(`${TODAY}T08:00:00Z`).find((item) => item.tag === 'daily-summary').body, /Gym: Upper A$/)
+  })
+
+  test('fetchRainChance reads the day’s maximum, caches it and never throws', async () => {
+    const { fetchRainChance, rainRequestUrl } = await import('../api/_weather.js')
+    assert.match(rainRequestUrl(1.5, 2.5, TODAY, 'Europe/London'), /latitude=1\.5&longitude=2\.5&daily=precipitation_probability_max&timezone=Europe%2FLondon&start_date=2026-09-23&end_date=2026-09-23/)
+    let calls = 0
+    const ok = async () => { calls += 1; return { ok: true, json: async () => ({ daily: { precipitation_probability_max: [72.4] } }) } }
+    assert.equal(await fetchRainChance(10, 20, TODAY, 'UTC', { fetchImpl: ok }), 72)
+    assert.equal(await fetchRainChance(10, 20, TODAY, 'UTC', { fetchImpl: ok }), 72)
+    assert.equal(calls, 1)
+    const broken = async () => { throw new Error('offline') }
+    assert.equal(await fetchRainChance(11, 21, TODAY, 'UTC', { fetchImpl: broken }), null)
+    assert.equal(await fetchRainChance(12, 22, TODAY, 'UTC', { fetchImpl: async () => ({ ok: false }) }), null)
+    assert.equal(await fetchRainChance(13, 23, TODAY, 'UTC', { fetchImpl: async () => ({ ok: true, json: async () => ({ daily: {} }) }) }), null)
+    assert.equal(await fetchRainChance('x', 20, TODAY, 'UTC', { fetchImpl: ok }), null)
+    // A failure is retried after a while, not every minute.
+    let tries = 0
+    const flaky = async () => { tries += 1; throw new Error('down') }
+    await fetchRainChance(14, 24, TODAY, 'UTC', { fetchImpl: flaky, now: 0 })
+    await fetchRainChance(14, 24, TODAY, 'UTC', { fetchImpl: flaky, now: 60000 })
+    assert.equal(tries, 1)
+    assert.equal(await fetchRainChance(14, 24, TODAY, 'UTC', { fetchImpl: ok, now: 11 * 60000 }), 72)
   })
 })

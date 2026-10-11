@@ -297,10 +297,22 @@ export function dayPresets(today = todayISO()) {
 // "Later…" for a task: [{ id, label, hint, date, time }], soonest first, keeping only choices
 // later than when it's due now. "In 1 hour" needs a time (rounded up to 5 minutes); "This
 // evening" (6 PM) is offered until 5 PM; the day choices keep the task's time.
+// options.busy: today's busy stretches ([{ start, end }] in minutes, lib/timing.js busySlots). With
+// it, "This evening" starts at the first :00/:30 after both 6 PM and the last of them ends (up to
+// 9:30 PM), offered while that is more than an hour away.
 const SNOOZE_LABELS = { tomorrow: 'Tomorrow', weekend: 'This weekend', 'next-week': 'Next week' }
 const EVENING = '18:00'
+const EVENING_LATEST = 21 * 60 + 30
 
-export function snoozeOptions(task = {}, now = new Date()) {
+function eveningSlot(now, busy) {
+  if (!Array.isArray(busy)) return nowTimeHHMM(now) < '17:00' ? EVENING : ''
+  const after = Math.max(18 * 60, ...busy.map((slot) => (Number.isFinite(slot?.end) ? slot.end : 0)))
+  const slot = Math.ceil(after / 30) * 30
+  const nowMinutes = now.getHours() * 60 + now.getMinutes()
+  return slot <= EVENING_LATEST && slot - nowMinutes > 60 ? hhmm(Math.floor(slot / 60), slot % 60) : ''
+}
+
+export function snoozeOptions(task = {}, now = new Date(), { busy } = {}) {
   const today = toISO(now)
   const time = task.date ? task.time || '' : ''
   const options = []
@@ -309,7 +321,8 @@ export function snoozeOptions(task = {}, now = new Date()) {
     at.setMinutes(Math.ceil(at.getMinutes() / 5) * 5, 0, 0)
     options.push({ id: 'hour', label: 'In 1 hour', date: toISO(at), time: nowTimeHHMM(at), hint: formatTime(nowTimeHHMM(at)) })
   }
-  if (nowTimeHHMM(now) < '17:00') options.push({ id: 'evening', label: 'This evening', date: today, time: EVENING, hint: formatTimeShort(EVENING) })
+  const evening = eveningSlot(now, busy)
+  if (evening) options.push({ id: 'evening', label: 'This evening', date: today, time: evening, hint: formatTimeShort(evening) })
   for (const preset of dayPresets(today)) {
     if (!SNOOZE_LABELS[preset.id]) continue
     options.push({ id: preset.id, label: SNOOZE_LABELS[preset.id], date: preset.date, time, hint: time ? `${preset.day} · ${formatTimeShort(time)}` : preset.day })
@@ -329,7 +342,12 @@ export function snoozeOptions(task = {}, now = new Date()) {
 //          Friday), next fri (Friday of next week), next week (Monday), this weekend,
 //          oct 2 / 2nd of october, in 3 days / in 2 weeks
 //   times: 5pm, 5:30 pm, 17:30, at 5 (1–6 mean PM), noon, in 20 min / in 2 hours / in an hour,
-//          tonight (8 PM), this morning / tomorrow evening
+//          tonight (8 PM), this morning / tomorrow evening (a part of today that has passed means
+//          soon: now + 15 min, or + 30 for tonight); at the end only: at lunch (12:30), after work
+//          (5:30 PM), first thing (8 AM), before bed (10 PM)
+//   end-only days: day after tomorrow, the 15th (the next 15th; the ordinal is required)
+//   urgent: a trailing " !", "!!" or "urgent" gives priority 'urgent' (a "!" glued to the last
+//          word is ordinary writing: "Pay rent!")
 // hasDay: the words named a day (or "in 2 hours", "tonight"), not just a clock time. A time without
 // a day is on `day` when given (the day a form already has: the calendar's selected day, a picked
 // "Tomorrow"), else today, or tomorrow once that time has passed. No AI: plain patterns.
@@ -341,7 +359,12 @@ const MONTH_INDEX = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, au
 const COUNT_WORDS = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, fifteen: 15, twenty: 20, thirty: 30, 'forty-five': 45 }
 const COUNT = `\\d{1,3}(?:\\.\\d+)?|${Object.keys(COUNT_WORDS).join('|')}`
 const MERIDIEM = 'a\\.?m\\.?|p\\.?m\\.?'
-const DAY_PARTS = { morning: 9, afternoon: 14, evening: 18, night: 20 }
+// The assistant's defaults too ("this afternoon" = 3 PM).
+const DAY_PARTS = { morning: 9, afternoon: 15, evening: 18, night: 20 }
+// "tomorrow" and its usual typos, shared with the assistant's day words (api/_temporal.js).
+export const TOMORROW_WORDS = new Set(['tomorrow', 'tomorow', 'tommorow', 'tommorrow', 'tommorw', 'tomorrw', 'tomorro', 'tomoro', 'tomrrow', 'tomrow', 'tomrw', 'tmrw', 'tmr', 'tmw', 'tmrrw', 'tmrow', 'tmro', 'tmorrow', 'tommrow', '2moro', '2morrow', '2morow', '2mrw'])
+// Longest first, so the alternation never settles for a shorter spelling.
+const TOMORROW = [...TOMORROW_WORDS].sort((a, b) => b.length - a.length).join('|')
 const DAY_PREFIX = '(?:(?:on|by|due|for)\\s+)?'
 const TIME_PREFIX = '(?:(?:at|by|around)\\s+|@\\s*)?'
 
@@ -361,7 +384,7 @@ const countValue = (word) => {
 // kind: 'date' sets the day, 'time' the clock, 'daypart' the day plus a part of it (a clock time
 // may still follow: "tonight at 9"), 'offset' both at once ("in 2 hours").
 const QUICK_PATTERNS = [
-  { kind: 'daypart', re: '(?:(this)|(tomorrow|tmrw|tmr))\\s+(morning|afternoon|evening|night)', read: (m) => ({ dayOffset: m[2] ? 1 : 0, dayPart: m[3].toLowerCase() }) },
+  { kind: 'daypart', re: `(?:(this)|(${TOMORROW}))\\s+(morning|afternoon|evening|night)`, read: (m) => ({ dayOffset: m[2] ? 1 : 0, dayPart: m[3].toLowerCase() }) },
   { kind: 'daypart', re: 'tonight', read: () => ({ dayOffset: 0, dayPart: 'night' }) },
   {
     kind: 'offset',
@@ -386,8 +409,14 @@ const QUICK_PATTERNS = [
   { kind: 'time', re: `${TIME_PREFIX}(\\d{1,2})\\s*(${MERIDIEM})`, read: (m) => clockParts(m[1], '00', m[2]) },
   { kind: 'time', re: '(?:at\\s+)?(?:noon|midday)', read: () => ({ hour: 12, minute: 0, meridiem: '24' }) },
   { kind: 'time', re: '(?:at|@)\\s*(\\d{1,2})', read: (m) => clockParts(m[1], '00', '') },
+  // endOnly: only at the end of the text, so "Lunch with Sam" and "After work drinks" stay titles.
+  { kind: 'time', endOnly: true, re: '(?:at|around)\\s+lunch(?:time)?', read: () => ({ hour: 12, minute: 30, meridiem: '24' }) },
+  { kind: 'time', endOnly: true, re: 'after\\s+work', read: () => ({ hour: 17, minute: 30, meridiem: '24' }) },
+  { kind: 'time', endOnly: true, re: 'first\\s+thing', read: () => ({ hour: 8, minute: 0, meridiem: '24' }) },
+  { kind: 'time', endOnly: true, re: 'before\\s+bed', read: () => ({ hour: 22, minute: 0, meridiem: '24' }) },
+  { kind: 'date', endOnly: true, re: `${DAY_PREFIX}(?:the\\s+)?day\\s+after\\s+(?:${TOMORROW})`, read: () => ({ dayOffset: 2 }) },
   { kind: 'date', re: `${DAY_PREFIX}next\\s+week`, read: () => ({ relative: 'next-week' }) },
-  { kind: 'date', re: `${DAY_PREFIX}(today|tomorrow|tmrw|tmr)`, read: (m) => ({ dayOffset: /^today$/i.test(m[1]) ? 0 : 1 }) },
+  { kind: 'date', re: `${DAY_PREFIX}(today|${TOMORROW})`, read: (m) => ({ dayOffset: /^today$/i.test(m[1]) ? 0 : 1 }) },
   { kind: 'date', re: `${DAY_PREFIX}this\\s+weekend`, read: () => ({ relative: 'weekend' }) },
   {
     kind: 'date',
@@ -401,6 +430,8 @@ const QUICK_PATTERNS = [
   },
   { kind: 'date', re: `${DAY_PREFIX}(${MONTH_WORDS})\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?`, read: (m) => monthDay(m[1], m[2]) },
   { kind: 'date', re: `${DAY_PREFIX}(?:the\\s+)?(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?(${MONTH_WORDS})`, read: (m) => monthDay(m[2], m[1]) },
+  // "the 15th": the next 15th. The ordinal is required ("the 3 of us" isn't a date).
+  { kind: 'date', endOnly: true, re: `${DAY_PREFIX}the\\s+(\\d{1,2})(?:st|nd|rd|th)`, read: (m) => (Number(m[1]) >= 1 && Number(m[1]) <= 31 ? { monthDay: Number(m[1]) } : null) },
 ]
 
 function monthDay(monthWord, dayText) {
@@ -422,6 +453,8 @@ function clockParts(hourText, minuteText, meridiemText) {
 const SEPARATORS = '[\\s,;:(\\[–—-]'
 const END_TAIL = '[\\s.,!?;:)\\]]*$'
 const START_LOOK = '(?=$|[\\s.,!?;)\\]]|:(?!\\d))'
+// Trailing "(" / "[" (and leading ")" / "]") belonged to a bracketed phrase that was taken out.
+const TITLE_EDGES = /^[\s,;:)\]–—-]+|[\s,;:(\[–—-]+$/g
 const COMPILED = QUICK_PATTERNS.map((pattern) => ({
   ...pattern,
   end: new RegExp(`(^|${SEPARATORS}+)(${pattern.re})${END_TAIL}`, 'i'),
@@ -439,7 +472,7 @@ function blocked(kind, found) {
 // The first pattern that matches at this end (side 'end') or start (side 'start') of the text.
 function takePhrase(text, side, found, allowWeak) {
   for (const pattern of COMPILED) {
-    if (blocked(pattern.kind, found)) continue
+    if (blocked(pattern.kind, found) || (side === 'start' && pattern.endOnly)) continue
     const match = text.match(pattern[side])
     if (!match) continue
     const phrase = match[2]
@@ -461,6 +494,18 @@ function resolveDay(parts, today) {
     if (parts.which === 'next') return addDaysISO(nextWeekISO(today), (parts.weekday + 6) % 7)
     const ahead = (parts.weekday - weekday + 7) % 7
     return addDaysISO(today, parts.which === 'this' ? ahead : ahead || 7)
+  }
+  if (Number.isInteger(parts.monthDay)) {
+    // This month's, or the next month that has that day (the 31st skips the short months).
+    let year = Number(today.slice(0, 4))
+    let month = Number(today.slice(5, 7))
+    for (let step = 0; step < 13; step += 1) {
+      const iso = `${year}-${String(month).padStart(2, '0')}-${String(parts.monthDay).padStart(2, '0')}`
+      if (isISODate(iso) && iso >= today) return iso
+      month = month === 12 ? 1 : month + 1
+      if (month === 1) year += 1
+    }
+    return ''
   }
   if (Number.isInteger(parts.month)) {
     const year = Number(today.slice(0, 4))
@@ -516,8 +561,7 @@ function parseOnce(text, now, allowWeak, day) {
   }
   if (!matched.length) return null
 
-  // Trailing "(" / "[" (and leading ")" / "]") belonged to the bracketed phrase just removed.
-  const title = text.slice(lo, hi).replace(/^[\s,;:)\]–—-]+|[\s,;:(\[–—-]+$/g, '')
+  const title = text.slice(lo, hi).replace(TITLE_EDGES, '')
   if (!/[\p{L}\p{N}]/u.test(title)) return null
 
   let date = ''
@@ -532,21 +576,52 @@ function parseOnce(text, now, allowWeak, day) {
       if (!date) return null
     }
     if (found.clock) time = resolveClock(found.clock, found.dayPart, date || day, today, nowHHMM)
-    else if (found.dayPart) time = hhmm(DAY_PARTS[found.dayPart], 0)
+    else if (found.dayPart) {
+      time = hhmm(DAY_PARTS[found.dayPart], 0)
+      // "Call the bank this morning" typed at 3 PM means soon, as with the assistant: now + 15 min
+      // (+ 30 for tonight), rounded up to 5 minutes; past midnight that's tomorrow.
+      if (date === today && time <= nowHHMM) {
+        const at = new Date(now.getTime() + (found.dayPart === 'night' ? 30 : 15) * 60000)
+        at.setMinutes(Math.ceil(at.getMinutes() / 5) * 5, 0, 0)
+        date = toISO(at)
+        time = nowTimeHHMM(at)
+      }
+    }
     if (time && !date) date = day || (time > nowHHMM ? today : addDaysISO(today, 1))
   }
   return { title, date, time, matched: matched.sort((a, b) => a.start - b.start), weak: found.weak, hasDay: !!found.day }
 }
 
+// A trailing " !", "!!" or "urgent" (but not "not urgent") makes the task urgent.
+const URGENT = /(?:\s+!+|!{2,}|\s+urgent[.!]*)\s*$/i
+const NOT_URGENT = /(?:^|\s)(?:not|non|less|never|isn['’]?t)$/i
+
+function takeUrgent(text) {
+  const match = text.match(URGENT)
+  if (!match) return null
+  const body = text.slice(0, match.index)
+  if (!/[\p{L}\p{N}]/u.test(body) || (/urgent/i.test(match[0]) && NOT_URGENT.test(body.trimEnd()))) return null
+  const marker = match[0].trim()
+  const start = match.index + match[0].indexOf(marker)
+  return { body, span: { start, end: start + marker.length, text: marker } }
+}
+
 // options.day: the day a time on its own goes on (see above); ignored unless it's a YYYY-MM-DD.
+// priority: 'urgent' or ''. An urgent marker with no day or time still counts as understood.
 export function parseQuickAdd(text, now = new Date(), { day = '' } = {}) {
   const source = String(text ?? '')
-  const none = { title: source.trim(), date: '', time: '', matched: [], hasDay: false }
+  const none = { title: source.trim(), date: '', time: '', matched: [], hasDay: false, priority: '' }
   if (!source.trim()) return none
   const preset = isISODate(day) ? day : ''
-  let result = parseOnce(source, now, true, preset)
+  const urgent = takeUrgent(source)
+  const body = urgent ? urgent.body : source
+  let result = parseOnce(body, now, true, preset)
   // A bare "sun"/"sat" is only a day next to a time ("brunch sat 10am"), not in "Sun cream".
-  if (result?.weak && !result.time) result = parseOnce(source, now, false, preset)
-  if (!result) return none
-  return { title: result.title, date: result.date, time: result.time, matched: result.matched, hasDay: result.hasDay }
+  if (result?.weak && !result.time) result = parseOnce(body, now, false, preset)
+  if (!result) {
+    if (!urgent) return none
+    return { title: body.replace(TITLE_EDGES, ''), date: '', time: '', matched: [urgent.span], hasDay: false, priority: 'urgent' }
+  }
+  const matched = urgent ? [...result.matched, urgent.span] : result.matched
+  return { title: result.title, date: result.date, time: result.time, matched, hasDay: result.hasDay, priority: urgent ? 'urgent' : '' }
 }

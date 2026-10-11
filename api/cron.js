@@ -2,6 +2,7 @@ import { getSupabase } from './db.js'
 import { removeOldUploads } from './_uploads.js'
 import { combineReminders, dueNotifications, groupDue, localDateFor, notificationPrefs, pushConfigured, sendToUser } from './_reminders.js'
 import { fetchPrayerDay, savedLocation } from './_prayer.js'
+import { fetchRainChance } from './_weather.js'
 
 // Called every minute by the Supabase scheduler (pg_cron + pg_net), see
 // supabase/migrations/2026-09-24-notifications.sql. Protected by CRON_SECRET.
@@ -85,7 +86,7 @@ export default async function handler(req, res) {
             console.error('Prayer times failed:', userId, error.message || error) // retried next minute
           }
         }
-        const due = dueNotifications({
+        const input = {
           settings: userSettings,
           tasks: tasks.data || [],
           friends: friends.data || [],
@@ -93,7 +94,17 @@ export default async function handler(req, res) {
           classes: classes.data || [],
           gymSessions: gym.error ? (gymMissing ? [] : null) : (gym.data || []),
           prayerTimings,
-        }, now)
+        }
+        let due = dueNotifications(input, now)
+        // The morning summary mentions rain: the forecast is fetched only in the run that sends it.
+        // The summary stays "due" for the whole send window even once sent, so only its first few
+        // minutes look the weather up (a late send just goes without it).
+        const today = localDateFor(userSettings, now)
+        const summary = due.find((item) => item.key === `summary:${today}`)
+        if (location && summary && now - summary.fireAt < 5 * 60000) {
+          const rainChance = await fetchRainChance(location.lat, location.lon, today, userSettings.timeZone)
+          if (rainChance !== null) due = dueNotifications({ ...input, forecast: { rainChance } }, now)
+        }
 
         for (const group of groupDue(due)) {
           if (dryRun) {

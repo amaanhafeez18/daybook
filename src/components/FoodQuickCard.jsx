@@ -4,15 +4,18 @@ import { Button } from './ui/primitives.jsx'
 import { toast } from './ui/feedback.jsx'
 import { imageToJpegDataUrl } from '../lib/media.js'
 import { formatSeconds, useRecorder } from '../lib/recorder.js'
-import { dayTotals, entryMeal } from '../lib/food/nutrition.js'
+import { haptic } from '../lib/haptics.js'
+import { useAnimatedNumber } from '../lib/useAnimatedNumber.js'
+import { dayTotals, entryCalories, entryMeal, foodKey, recents } from '../lib/food/nutrition.js'
+import { matchFoods } from '../lib/food/shortcuts.js'
 import { addEntries, dayEntries, estimateFood, useFood, useFoodEntries } from '../lib/food/state.js'
 import { useStore } from '../lib/store.js'
 import EstimateReview, { BARCODE_HINT, barcodeDigits, canAutoLog, logEstimate, prepareEstimate, reviewTotals } from '../pages/food/EstimateReview.jsx'
 import MealShortcuts, { hasShortcuts, useMealShortcuts } from '../pages/food/MealShortcuts.jsx'
-import { CameraChoice } from '../pages/food/QuickAddBar.jsx'
+import { CameraChoice, quickLog } from '../pages/food/QuickAddBar.jsx'
 import { Ring, ringState } from '../pages/food/ring.jsx'
 import PhotoInput from '../pages/food/PhotoInput.jsx'
-import { defaultMeal, energyNumber, isSubmitKey, mealIdFor, unitLabel } from '../pages/food/format.js'
+import { defaultMeal, energyNumber, entryName, fmtEnergy, isSubmitKey, mealIdFor, unitLabel } from '../pages/food/format.js'
 import './food-quick.css'
 
 // Today-page food card: today's total against the goal with a tiny ring, and one line to log
@@ -20,7 +23,9 @@ import './food-quick.css'
 // opens right here as an editable review with Save / Cancel (or logs straight away when
 // "auto-log if sure" is on); items with "Save to My foods" on are saved there on Save too.
 // Below the line, up to 3 one-tap chips for the meal of the moment (and "Same as <day>" while
-// that meal is empty), hidden while an estimate is open.
+// that meal is empty), hidden while an estimate is open. While typing (2+ letters), those chips
+// make way for up to 3 matching foods from My foods and recent days: a tap logs the saved numbers
+// at once (offline too) without asking the AI; Enter still estimates anything new.
 
 function statusText(request) {
   if (request?.image && request.text === BARCODE_HINT) return 'Reading the barcode…'
@@ -58,6 +63,17 @@ export default function FoodQuickCard({ today, loaded }) {
   const shortcuts = useMealShortcuts({ entries, meal: nowMeal || { id: nowMealId }, date: today, today, meals, sameAs: nowMealEmpty })
   const ring = ringState(eaten, goal)
   const left = goal ? goal - eaten : null
+  // The numbers count to their new value after logging (shown as is on first render).
+  const shownEaten = useAnimatedNumber(eaten)
+  const shownLeft = useAnimatedNumber(left ?? 0)
+
+  // Foods you've had before that match what's typed: My foods first, then recent days.
+  const recent = useMemo(() => recents(entries, today, { limit: 25 }), [entries, today])
+  const query = text.trim()
+  const matches = useMemo(
+    () => (query.length >= 2 && !barcodeDigits(query) ? matchFoods(query, { favorites: food.favorites, recent, limit: 3 }) : []),
+    [query, food.favorites, recent],
+  )
 
   useEffect(() => () => controllerRef.current?.abort(), [])
 
@@ -162,6 +178,14 @@ export default function FoodQuickCard({ today, loaded }) {
     if (logEstimate({ review, meal, date: today, source: request.source, today, meals, unit })) finish()
   }
 
+  // Logs a matching food with its saved numbers into the meal of the moment (toast with Undo).
+  function logMatch(item) {
+    const undo = quickLog(item, { meal: defaultMeal(meals), date: today, favorites: food.favorites, meals, unit, today })
+    if (!undo?.entries?.length) return
+    haptic()
+    setText('')
+  }
+
   function saveNameOnly() {
     const name = request?.text?.trim()
     if (!name || name === BARCODE_HINT || barcodeDigits(name)) return
@@ -178,10 +202,15 @@ export default function FoodQuickCard({ today, loaded }) {
   if (!loaded) summary = <span className="skeleton fq-skel" aria-hidden="true" />
   else if (!totals.count) summary = <span className="fq-sum">{goal ? `${energyNumber(goal, unit)} ${unitLabel(unit)} to go` : 'Nothing logged yet'}</span>
   else {
+    // Screen readers get the final numbers; the counting copy is for the eye only.
+    const final = `${energyNumber(eaten, unit)} ${unitLabel(unit)}${goal ? ` · ${energyNumber(Math.abs(left), unit)} ${left < 0 ? 'over' : 'left'}` : ''}`
     summary = (
       <span className="fq-sum">
-        {energyNumber(eaten, unit)} {unitLabel(unit)}
-        {goal ? <span className={left < 0 ? 'is-over' : ''}> · {energyNumber(Math.abs(left), unit)} {left < 0 ? 'over' : 'left'}</span> : null}
+        <span className="sr-only">{final}</span>
+        <span aria-hidden="true">
+          <span className="num-display">{energyNumber(shownEaten, unit)}</span> {unitLabel(unit)}
+          {goal ? <span className={left < 0 ? 'is-over' : ''}> · <span className="num-display">{energyNumber(Math.abs(shownLeft), unit)}</span> {left < 0 ? 'over' : 'left'}</span> : null}
+        </span>
       </span>
     )
   }
@@ -189,7 +218,7 @@ export default function FoodQuickCard({ today, loaded }) {
   return (
     <section className="card fq-card" aria-labelledby="fq-title">
       <header className="fq-head">
-        <Ring size={40} stroke={4} progress={loaded ? ring.progress : 0} tone={ring.tone} className="fq-ring" />
+        <Ring size={40} stroke={4} progress={loaded ? ring.progress : 0} tone={ring.tone} className="fq-ring" intro={loaded ? `fq:${today}` : null} />
         <div className="fq-head-text">
           <h3 id="fq-title">Food</h3>
           {summary}
@@ -246,7 +275,31 @@ export default function FoodQuickCard({ today, loaded }) {
       )}
       <PhotoInput inputRef={fileRef} onChange={onPhoto} />
 
-      {loaded && phase === 'idle' && !recorder.recording && nowMeal && hasShortcuts(shortcuts) && (
+      {loaded && phase === 'idle' && !recorder.recording && matches.length > 0 && (
+        <div className="fq-shortcuts">
+          <span className="fq-shortcuts-label" aria-hidden="true">You’ve had</span>
+          <div className="food-chips" role="group" aria-label="Log a food you’ve had before">
+            {matches.map((item) => {
+              const kcal = entryCalories(item)
+              return (
+                <button
+                  key={item.id || foodKey(item.name, item.brand)}
+                  type="button"
+                  className="food-suggest"
+                  onClick={() => logMatch(item)}
+                  aria-label={`Log ${entryName(item)}${kcal ? `, ${fmtEnergy(kcal, unit)}` : ''}`}
+                >
+                  <Icon name={item.aliases ? 'star' : 'plus'} size={14} strokeWidth={2.4} />
+                  <span>{entryName(item)}</span>
+                  {kcal > 0 && <small className="food-suggest-kcal" aria-hidden="true">{energyNumber(kcal, unit)}</small>}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {loaded && phase === 'idle' && !recorder.recording && !matches.length && nowMeal && hasShortcuts(shortcuts) && (
         <div className="fq-shortcuts">
           <span className="fq-shortcuts-label" aria-hidden="true">{nowMeal.name}</span>
           <MealShortcuts shortcuts={shortcuts} meal={nowMeal} date={today} today={today} food={food} />

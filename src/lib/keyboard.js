@@ -44,6 +44,49 @@ export function revealFocused(container) {
   if (delta) body.scrollTop += delta
 }
 
+// Keyboard with the sheet (phones). iOS only raises the keyboard for a focus that happens inside a
+// tap, and a sheet focuses its first field 40 ms after it opens: too late. So the tap that opens an
+// add sheet calls primeKeyboard() first: it focuses a hidden 16px field (16px, or iOS zooms) right
+// away, the keyboard starts rising, and the sheet's own focus moves it to the real field, which
+// keeps the keyboard up. If nothing takes focus within 800 ms the proxy lets go (keyboard down).
+// Desktop (fine pointer) does nothing. Call it synchronously in the click handler, only for a sheet
+// that focuses a field when it opens.
+const PRIME_GUARD_MS = 800
+let proxy = null
+let primeTimer = 0
+let primedFrom = null
+
+export function primeKeyboard() {
+  if (typeof document === 'undefined' || !document.body) return
+  if (!window.matchMedia?.('(pointer: coarse)').matches) return
+  try {
+    if (!proxy?.isConnected) {
+      proxy = document.createElement('input')
+      proxy.type = 'text'
+      proxy.tabIndex = -1
+      proxy.autocomplete = 'off'
+      proxy.setAttribute('aria-hidden', 'true')
+      // In the viewport (iOS won't raise the keyboard for a field it would have to scroll to), but
+      // invisible and untouchable.
+      proxy.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;padding:0;border:0;margin:0;font-size:16px;opacity:0;pointer-events:none;caret-color:transparent;'
+      document.body.appendChild(proxy)
+    }
+    if (document.activeElement !== proxy) primedFrom = document.activeElement
+    proxy.focus({ preventScroll: true })
+    clearTimeout(primeTimer)
+    primeTimer = setTimeout(() => {
+      if (document.activeElement === proxy) proxy.blur()
+    }, PRIME_GUARD_MS)
+  } catch {
+    // no keyboard head start; the sheet still focuses its field
+  }
+}
+
+// The Sheet asks this when it opens: focus should go back to what had it before the proxy took it.
+export function focusBeforePrime(element) {
+  return proxy && element === proxy ? primedFrom : element
+}
+
 const watchers = new Set()
 let stopWatching = null
 

@@ -1,7 +1,7 @@
 // Day words in a message ("tmrw", "Thursday", "next Fri", "Oct 8", "10/8", "the 8th") resolved to dates
 // against the user's local today, for the assistant: a developer note before the newest message, the
 // check that a staged edit is on the day the user named, and the check on the assistant's own reply.
-// Pure ESM: no imports and no clock (today is always passed in as YYYY-MM-DD).
+// Pure ESM: no clock (today is always passed in as YYYY-MM-DD); the only import is the tomorrow word list.
 //
 // Rules (also echoed in the note so the model can overrule them from context):
 // - today / tonight / this morning|afternoon|evening = today; tomorrow (+ typos: tmrw, tommorw …) = +1;
@@ -22,6 +22,8 @@
 //   ("thrusday", "mondya"), so "subway", "monkey" and "Freddy" aren't days; "Sun Life" (two capitalised
 //   words) isn't Sunday.
 
+import { TOMORROW_WORDS as TOMORROW } from '../src/lib/dates.js'
+
 const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
 const SHORT_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']
@@ -30,7 +32,6 @@ const MONTH_WORDS = new Map([...MONTHS.map((name, index) => [name, index]), ...M
 
 const DAY_ABBREVS = new Map([['tue', 2], ['tues', 2], ['weds', 3], ['thu', 4], ['thur', 4], ['thurs', 4], ['thrs', 4], ['thrus', 4], ['fri', 5]])
 const SHY_ABBREVS = new Map([['mon', 1], ['wed', 3], ['sat', 6], ['sun', 0]]) // also English words
-const TOMORROW = new Set(['tomorrow', 'tomorow', 'tommorow', 'tommorrow', 'tommorw', 'tomorrw', 'tomorro', 'tomoro', 'tomrrow', 'tomrow', 'tomrw', 'tmrw', 'tmr', 'tmw', 'tmrrw', 'tmrow', 'tmro', 'tmorrow', 'tommrow', '2moro', '2morrow', '2morow', '2mrw'])
 const YESTERDAY = new Set(['yesterday', 'yday', 'yesterdy', 'yesteday', 'yesturday', 'yestarday', 'yesterdat', 'ysterday'])
 const TODAY = new Map([['today', 'today'], ['todays', 'today'], ['2day', 'today'], ['tonight', 'tonight'], ['tonite', 'tonight'], ['2nite', 'tonight']])
 const DAY_PARTS = new Set(['morning', 'afternoon', 'evening', 'night', 'noon', 'lunch', 'lunchtime'])

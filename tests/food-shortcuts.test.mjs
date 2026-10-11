@@ -2,9 +2,9 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { MEALS_DEFAULT } from '../src/lib/food/nutrition.js'
-import { addedSummary, lastMealDay, mealChips } from '../src/lib/food/shortcuts.js'
+import { addedSummary, lastMealDay, matchFoods, mealChips, quickRow } from '../src/lib/food/shortcuts.js'
 import { activityForWorkouts, planWorkoutsPerWeek } from '../src/lib/food/activity.js'
-import { pastDayName, shortDay } from '../src/pages/food/format.js'
+import { copiedText, pastDayName, shortDay } from '../src/pages/food/format.js'
 
 const meals = MEALS_DEFAULT
 const TODAY = '2026-10-06'
@@ -98,6 +98,14 @@ describe('pastDayName', () => {
   })
 })
 
+describe('copiedText', () => {
+  test('the "Same as" toast reads naturally for a named or a dated day', () => {
+    assert.equal(copiedText(2, 'Breakfast', 'yesterday'), 'Copied 2 items from yesterday’s breakfast')
+    assert.equal(copiedText(1, 'Lunch', 'Monday'), 'Copied 1 item from Monday’s lunch')
+    assert.equal(copiedText(3, 'Dinner', 'Wed 23 Sep'), 'Copied 3 items from dinner on Wed 23 Sep')
+  })
+})
+
 describe('addedSummary', () => {
   test('count, calories, and the meal / date when they are all the same', () => {
     assert.deepEqual(addedSummary([
@@ -110,6 +118,79 @@ describe('addedSummary', () => {
     ]), { count: 2, kcal: 100, meal: null, date: TODAY })
     assert.deepEqual(addedSummary([]), { count: 0, kcal: 0, meal: null, date: null })
     assert.deepEqual(addedSummary(undefined), { count: 0, kcal: 0, meal: null, date: null })
+  })
+})
+
+describe('matchFoods', () => {
+  const favorites = [
+    { id: 'fav1', name: 'Protein shake', brand: 'Acme', calories: 160, aliases: ['shake', 'whey'], barcode: '0123456789012' },
+    { id: 'fav2', name: 'Greek yogurt', brand: null, calories: 120, aliases: [] },
+  ]
+  const recent = [
+    { key: 'protein shake|acme', name: 'Protein shake', brand: 'Acme', calories: 150 },
+    { key: 'protein bar', name: 'Protein bar', calories: 200 },
+    { key: 'oatmeal', name: 'Oatmeal', brand: 'Granary', calories: 152 },
+    { key: 'apple', name: 'Apple', calories: 95 },
+  ]
+
+  test('saved foods first, then recent ones; one per food (the saved one wins)', () => {
+    const found = matchFoods('prot', { favorites, recent })
+    assert.deepEqual(found.map((item) => item.name), ['Protein shake', 'Protein bar'])
+    assert.equal(found[0].id, 'fav1', 'the My foods copy, with its exact numbers')
+  })
+
+  test('two recent rows that would look the same (one with a brand, one without) show once', () => {
+    const twins = [
+      { key: 'iced coffee|cafe', name: 'Iced coffee', brand: 'Cafe', calories: 180 },
+      { key: 'iced coffee', name: 'Iced coffee', calories: 180 },
+      { key: 'iced coffee large', name: 'Iced coffee', calories: 260 },
+    ]
+    assert.deepEqual(matchFoods('iced', { recent: twins }).map((item) => item.calories), [180, 260])
+  })
+
+  test('matches aliases and brands, ignoring case and spaces around', () => {
+    assert.deepEqual(matchFoods('  WHEY ', { favorites, recent }).map((item) => item.name), ['Protein shake'])
+    assert.deepEqual(matchFoods('granary', { favorites, recent }).map((item) => item.name), ['Oatmeal'])
+  })
+
+  test('a typed barcode matches by its digits', () => {
+    assert.deepEqual(matchFoods('0123 4567 89012', { favorites, recent }).map((item) => item.id), ['fav1'])
+    assert.deepEqual(matchFoods('9999999999999', { favorites, recent }), [])
+  })
+
+  test('at most `limit`; nothing for empty text or junk lists', () => {
+    assert.equal(matchFoods('e', { favorites, recent, limit: 2 }).length, 2)
+    assert.deepEqual(matchFoods('', { favorites, recent }), [])
+    assert.deepEqual(matchFoods('   ', { favorites, recent }), [])
+    assert.deepEqual(matchFoods(null, { favorites, recent }), [])
+    assert.deepEqual(matchFoods('prot', { favorites: null, recent: [null, 3, 'x'] }), [])
+    assert.deepEqual(matchFoods('prot'), [])
+  })
+})
+
+describe('quickRow', () => {
+  const favorites = [{ id: 'fav1', name: 'Protein shake', brand: 'Acme', calories: 160, aliases: [] }]
+
+  test('a saved food logs as a favorite, linked by id, without its own bookkeeping', () => {
+    const row = quickRow(favorites[0], { meal: 'snack', date: TODAY, favorites })
+    assert.equal(row.source, 'favorite')
+    assert.equal(row.favoriteId, 'fav1')
+    assert.equal(row.meal, 'snack')
+    assert.equal(row.date, TODAY)
+    assert.equal(row.calories, 160)
+    assert.equal(row.id, undefined)
+    assert.equal(row.aliases, undefined)
+  })
+
+  test('a recent food links to the saved one with the same name and brand, else stays recent', () => {
+    const linked = quickRow({ key: 'k', count: 3, score: 1, lastDate: TODAY, name: 'protein shake', brand: 'acme', calories: 150 }, { meal: 'lunch', date: TODAY, favorites })
+    assert.equal(linked.source, 'favorite')
+    assert.equal(linked.favoriteId, 'fav1')
+    assert.equal(linked.key, undefined)
+    assert.equal(linked.count, undefined)
+    const plain = quickRow({ key: 'apple', name: 'Apple', calories: 95 }, { meal: 'snack', date: TODAY, favorites })
+    assert.equal(plain.source, 'recent')
+    assert.equal(plain.favoriteId, null)
   })
 })
 

@@ -1,8 +1,10 @@
-import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react'
+import React, { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import AuthScreen from './components/AuthScreen.jsx'
 import Icon, { BrandMark } from './components/ui/Icon.jsx'
 import { Avatar } from './components/ui/primitives.jsx'
 import { ConfirmHost, Toaster, toast } from './components/ui/feedback.jsx'
+import Sheet from './components/ui/Sheet.jsx'
+import { useSlidingThumb } from './components/ui/useSlidingThumb.js'
 import TodayPage from './pages/TodayPage.jsx'
 import WorkoutPill from './components/WorkoutPill.jsx'
 import Welcome from './components/Welcome.jsx'
@@ -14,32 +16,38 @@ import { applyTheme } from './lib/theme.js'
 import { toISO } from './lib/dates.js'
 import { useNow } from './lib/environment.js'
 import { areasFrom, healthOn, useAreas } from './lib/areas.js'
-import { navigate } from './lib/router.js'
+import { FOCUS_HASH, navigate, subscribeRoute } from './lib/router.js'
 import { scrollBehavior } from './lib/motion.js'
+import { lazyPage } from './lib/lazyPage.js'
+import { clearSessionState } from './lib/sessionState.js'
+import { clearAssistantSession, useAssistantStreaming } from './lib/assistantSession.js'
+import { isTyping } from './lib/keyboard.js'
 import './components/today.css'
 import './components/shell.css'
+import './components/transitions.css'
 
-// Only Today ships in the first bundle; other pages load on first visit (then stay cached).
-const PAGE_LOADERS = {
-  tasks: () => import('./pages/TasksPage.jsx'),
-  calendar: () => import('./pages/CalendarPage.jsx'),
-  people: () => import('./pages/PeoplePage.jsx'),
-  assistant: () => import('./pages/AssistantPage.jsx'),
-  journal: () => import('./pages/JournalPage.jsx'),
-  gym: () => import('./pages/GymPage.jsx'),
-  food: () => import('./pages/FoodPage.jsx'),
-  health: () => import('./pages/HealthPage.jsx'),
-  settings: () => import('./pages/SettingsPage.jsx'),
+// Only Today ships in the first bundle; other pages load on first visit (then stay cached). Once a
+// page's code has loaded it opens without the loading skeleton (lib/lazyPage.js).
+const LAZY_PAGES = {
+  tasks: lazyPage(() => import('./pages/TasksPage.jsx'), 'tasks'),
+  calendar: lazyPage(() => import('./pages/CalendarPage.jsx'), 'calendar'),
+  people: lazyPage(() => import('./pages/PeoplePage.jsx'), 'people'),
+  assistant: lazyPage(() => import('./pages/AssistantPage.jsx'), 'assistant'),
+  journal: lazyPage(() => import('./pages/JournalPage.jsx'), 'journal'),
+  gym: lazyPage(() => import('./pages/GymPage.jsx'), 'gym'),
+  food: lazyPage(() => import('./pages/FoodPage.jsx'), 'food'),
+  health: lazyPage(() => import('./pages/HealthPage.jsx'), 'health'),
+  settings: lazyPage(() => import('./pages/SettingsPage.jsx'), 'settings'),
 }
-const TasksPage = lazy(PAGE_LOADERS.tasks)
-const CalendarPage = lazy(PAGE_LOADERS.calendar)
-const PeoplePage = lazy(PAGE_LOADERS.people)
-const AssistantPage = lazy(PAGE_LOADERS.assistant)
-const JournalPage = lazy(PAGE_LOADERS.journal)
-const GymPage = lazy(PAGE_LOADERS.gym)
-const FoodPage = lazy(PAGE_LOADERS.food)
-const HealthPage = lazy(PAGE_LOADERS.health)
-const SettingsPage = lazy(PAGE_LOADERS.settings)
+const TasksPage = LAZY_PAGES.tasks
+const CalendarPage = LAZY_PAGES.calendar
+const PeoplePage = LAZY_PAGES.people
+const AssistantPage = LAZY_PAGES.assistant
+const JournalPage = LAZY_PAGES.journal
+const GymPage = LAZY_PAGES.gym
+const FoodPage = LAZY_PAGES.food
+const HealthPage = LAZY_PAGES.health
+const SettingsPage = LAZY_PAGES.settings
 // Warmed one by one once the first screen is up, so the first visit to a tab doesn't wait for its
 // code (it's precached by the service worker, so this costs no network). Most used first.
 const PREFETCH_ORDER = ['tasks', 'calendar', 'assistant', 'people', 'health', 'food', 'gym', 'journal']
@@ -93,7 +101,7 @@ function scrollIfCurrent(event, id) {
 // and tab bar on phones (shell.css, workout.css); its minimise chevron leads back out. The routine
 // editor (#/gym/routine/<id>, #/gym/routine/new) too, so it reads as a modal like on iOS: only its
 // own Cancel · Save bar, which then sticks to the top safe area (routines.css). Not #/gym/routines.
-const FOCUS_HASH = /^#\/?gym\/(?:workout|routine)(?:[/?]|$)/
+// (FOCUS_HASH lives in lib/router.js, which slides focus mode up and down.)
 const FOCUS_CLASS = 'is-focus'
 
 function useFocusMode() {
@@ -101,9 +109,9 @@ function useFocusMode() {
     const root = document.documentElement
     const update = () => root.classList.toggle(FOCUS_CLASS, FOCUS_HASH.test(window.location.hash))
     update()
-    window.addEventListener('hashchange', update)
+    const unsubscribe = subscribeRoute(update) // inside the slide, so the bars leave with the page
     return () => {
-      window.removeEventListener('hashchange', update)
+      unsubscribe()
       root.classList.remove(FOCUS_CLASS)
     }
   }, [])
@@ -117,6 +125,9 @@ function routeFromHash() {
   return ROUTES.includes(route) ? route : null
 }
 
+// Where each screen was scrolled to, by its hash without the query ('tasks', 'gym/stats').
+const scrollKey = (hash) => String(hash || '').replace(/^#\/?/, '').split('?')[0].replace(/\/+$/, '')
+
 export default function App() {
   const [user, setUser] = useState(() => (getToken() ? getCachedUser() : null))
   // Only block on the network when there's a token but no cached user to show.
@@ -127,6 +138,9 @@ export default function App() {
     const hadSession = !!getToken()
     clearSession()
     resetStore()
+    // Nothing of this account's searches, drafts or running assistant reply carries over.
+    clearSessionState()
+    clearAssistantSession()
     applyTheme({})
     setUser(null)
     if (message && hadSession) toast(message)
@@ -242,28 +256,51 @@ function Shell({ user, onUserChange, onSignOut }) {
       const id = PREFETCH_ORDER.slice(index).find((item) => item !== route && pageInUse(item))
       if (!id) return
       index = PREFETCH_ORDER.indexOf(id) + 1
-      PAGE_LOADERS[id]().catch(() => {})
+      LAZY_PAGES[id].preload().catch(() => {})
       timer = setTimeout(next, 400)
     }, 1500)
     return () => clearTimeout(timer)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Each tab comes back where it was scrolled to: the position is noted as you leave (the old page
+  // is still on screen when the hash changes) and put back once the new page has rendered.
+  const scrolls = useRef({})
+  const routeRef = useRef(route)
+  routeRef.current = route
   useEffect(() => {
-    const onHash = () => {
+    const unsubscribe = subscribeRoute(({ from }) => {
       const next = routeFromHash()
-      if (next) setRoute(next)
-    }
-    window.addEventListener('hashchange', onHash)
-    if (!routeFromHash()) window.history.replaceState(null, '', `#/${route}`)
-    return () => window.removeEventListener('hashchange', onHash)
+      if (!next) return
+      if (next !== routeRef.current) scrolls.current[scrollKey(from)] = window.scrollY
+      setRoute(next)
+    })
+    // Keeps the entry's history.state: lib/router.js stamps its depth there for goBack.
+    if (!routeFromHash()) window.history.replaceState(window.history.state, '', `#/${route}`)
+    return unsubscribe
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const firstRoute = useRef(true)
+  useLayoutEffect(() => {
+    if (firstRoute.current) {
+      firstRoute.current = false // a launch starts at the top (or where an update's reload left it)
+      return undefined
+    }
+    const y = scrolls.current[scrollKey(window.location.hash)] || 0
+    window.scrollTo({ top: y })
+    // A page still drawing its rows may be too short for now: once more on the next frame.
+    if (!y || Math.abs(window.scrollY - y) <= 1) return undefined
+    const frame = requestAnimationFrame(() => window.scrollTo({ top: y }))
+    return () => cancelAnimationFrame(frame)
+  }, [route])
 
   useEffect(() => {
     writePref('lastRoute', route)
-    window.scrollTo({ top: 0 })
     const page = PAGES.find((item) => item.id === route)
     document.title = `${page?.title || page?.label || 'Daybook'} · Daybook`
   }, [route])
+
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  useShortcuts({ route, tabs, onHelp: () => setShortcutsOpen(true) })
 
   const displayName = rawName?.trim() || user.username
   const routeLabel = PAGES.find((item) => item.id === route)?.label || 'Daybook'
@@ -276,13 +313,8 @@ function Shell({ user, onUserChange, onSignOut }) {
           <BrandMark size={30} />
           <span>Daybook</span>
         </div>
-        <ul className="nav-list nav-tabs">
-          {tabs.map((item) => (
-            <li key={item.id}>
-              <NavLink item={item} active={route === item.id} />
-            </li>
-          ))}
-        </ul>
+        {/* Keyed by space: the highlight slides between tabs, never from one space's bar to the other's. */}
+        <NavTabs key={spaceNow} tabs={tabs} route={route} />
         <div className="nav-groups">
           {health && <p className="nav-group-title">Plan</p>}
           <ul className="nav-list">
@@ -334,7 +366,130 @@ function Shell({ user, onUserChange, onSignOut }) {
         <WorkoutPill />
       </div>
       <Welcome user={user} />
+      <ShortcutsSheet open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} tabs={tabs} />
     </div>
+  )
+}
+
+// The phone tab bar. The selected tab's highlight slides to the next one (useSlidingThumb).
+function NavTabs({ tabs, route }) {
+  const ref = useRef(null)
+  useSlidingThumb(ref, route)
+  return (
+    <ul ref={ref} className="nav-list nav-tabs">
+      {tabs.map((item) => (
+        <li key={item.id} data-key={item.id}>
+          <NavLink item={item} active={route === item.id} />
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+// ---- keyboard shortcuts (desktop, or an iPad with a keyboard) -----------------------------------
+// N new task, / search, 1–5 the tabs, ⌘K / Ctrl K the assistant, ? the list of them. Never while
+// typing, while a sheet or the welcome tour is open, or during a workout. Pages act on N and / through the
+// 'daybook:command' event on window ({ detail: { name: 'new-task' | 'search' } }; preventDefault
+// says the page took it). Elsewhere N goes to Tasks first, and / to the page's search field (or
+// Tasks' when the page has none).
+
+const COMMAND = 'daybook:command'
+const NEW_TASK_PAGES = new Set(['today', 'tasks', 'calendar'])
+const isApple = () => typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || '')
+
+// False when a page took the command.
+const sendCommand = (name) => window.dispatchEvent(new CustomEvent(COMMAND, { detail: { name }, cancelable: true }))
+
+function focusSearch() {
+  const field = [...document.querySelectorAll('#main input[type="search"]')].find((input) => input.offsetParent !== null)
+  if (!field) return false
+  field.focus()
+  field.select?.()
+  return true
+}
+
+// Whether something on this page handled it.
+function runCommand(name) {
+  if (name === 'search') return !sendCommand('search') || focusSearch()
+  sendCommand(name)
+  return true
+}
+
+function useShortcuts({ route, tabs, onHelp }) {
+  const latest = useRef({})
+  latest.current = { route, tabs, onHelp }
+  const pending = useRef(null) // a command waiting for Tasks to open
+
+  useEffect(() => {
+    const onKey = (event) => {
+      if (event.defaultPrevented || event.isComposing || event.repeat) return
+      const root = document.documentElement
+      if (['has-sheet', 'has-welcome', 'has-att-viewer', FOCUS_CLASS].some((name) => root.classList.contains(name)) || isTyping(document.activeElement)) return
+      const { route: current, tabs: shown, onHelp: help } = latest.current
+      const key = event.key || ''
+      if (event.metaKey || event.ctrlKey) {
+        if (!event.altKey && !event.shiftKey && key.toLowerCase() === 'k') {
+          event.preventDefault()
+          navigate('assistant')
+        }
+        return
+      }
+      if (event.altKey) return
+      if (key === '?') {
+        event.preventDefault()
+        help()
+        return
+      }
+      const command = key === 'n' || key === 'N' ? 'new-task' : key === '/' ? 'search' : null
+      if (command) {
+        event.preventDefault() // the key isn't typed into the field the command focuses
+        if ((command === 'search' || NEW_TASK_PAGES.has(current)) && runCommand(command)) return
+        if (current === 'tasks') return
+        pending.current = command
+        navigate('tasks')
+        return
+      }
+      if (/^[1-9]$/.test(key)) {
+        const tab = shown[Number(key) - 1]
+        if (!tab) return
+        event.preventDefault()
+        if (tab.id !== current) navigate(tab.id)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  // Tasks has opened: give it a moment to mount (and listen), then send the command.
+  useEffect(() => {
+    if (route !== 'tasks' || !pending.current) return undefined
+    const command = pending.current
+    pending.current = null
+    const timer = setTimeout(() => runCommand(command), 60)
+    return () => clearTimeout(timer)
+  }, [route])
+}
+
+function ShortcutsSheet({ open, onClose, tabs }) {
+  const mod = isApple() ? '⌘' : 'Ctrl'
+  const rows = [
+    { keys: ['N'], label: 'New task' },
+    { keys: ['/'], label: 'Search' },
+    { keys: [tabs.length > 1 ? `1–${Math.min(tabs.length, 9)}` : '1'], label: tabs.map((tab) => tab.label).join(', ') },
+    { keys: [mod, 'K'], label: 'Ask the assistant' },
+    { keys: ['?'], label: 'These shortcuts' },
+  ]
+  return (
+    <Sheet open={open} onClose={onClose} title="Keyboard shortcuts" size="sm" initialFocus={false}>
+      <dl className="kbd-list">
+        {rows.map((row) => (
+          <div key={row.label} className="kbd-row">
+            <dt>{row.keys.map((key) => <kbd key={key}>{key}</kbd>)}</dt>
+            <dd>{row.label}</dd>
+          </div>
+        ))}
+      </dl>
+    </Sheet>
   )
 }
 
@@ -389,18 +544,22 @@ function TopBar({ route, health, space, areas, displayName, routeLabel }) {
 
 // Plan | Health in the top bar. A tap goes back to the page you last had open in that space
 // (its Today the first time, or when that page's area has since been turned off).
+// The highlight slides across (useSlidingThumb) and the page crossfades (lib/router.js).
 function SpaceSwitch({ space, areas }) {
+  const ref = useRef(null)
+  useSlidingThumb(ref, space)
   const open = (item) => {
     if (item.id === space) return
     const last = readPref(`space.${item.id}`, item.home)
     const page = PAGES.find((entry) => entry.id === last)
-    navigate(page && SPACE_OF[last] === item.id && pageOn(areas)(page) ? last : item.home)
+    navigate(page && SPACE_OF[last] === item.id && pageOn(areas)(page) ? last : item.home, { transition: 'fade' })
   }
   return (
-    <div className="segmented topbar-spaces" role="tablist" aria-label="Plan or Health">
+    <div ref={ref} className="segmented topbar-spaces" role="tablist" aria-label="Plan or Health">
       {SPACES.map((item) => (
         <button
           key={item.id}
+          data-key={item.id}
           type="button"
           role="tab"
           aria-selected={space === item.id}
@@ -473,11 +632,24 @@ function NavLink({ item, active }) {
       title={item.label}
       onClick={(event) => scrollIfCurrent(event, item.id)}
     >
-      <span className="nav-icon"><Icon name={item.icon} size={24} strokeWidth={active ? 2.1 : 1.8} /></span>
+      <span className="nav-icon"><Icon name={item.icon} size={24} strokeWidth={active ? 2.1 : 1.8} filled={active} /></span>
       <span className="nav-label">{item.label}</span>
       {item.id === 'tasks' && <OverdueBadge />}
       {item.id === 'journal' && <JournalDot />}
+      {item.id === 'assistant' && !active && <AssistantDot />}
     </a>
+  )
+}
+
+// A reply still being written while you're on another tab (lib/assistantSession.js keeps it going).
+function AssistantDot() {
+  const streaming = useAssistantStreaming()
+  if (!streaming) return null
+  return (
+    <>
+      <span className="nav-live-dot" aria-hidden="true" />
+      <span className="sr-only">, still writing a reply</span>
+    </>
   )
 }
 
