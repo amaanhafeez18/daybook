@@ -828,3 +828,199 @@ describe('portionText', () => {
     assert.equal(portionText({ amount: 1, unit: 'bottle (12 fl oz)', grams: 355 }), '1 bottle (12 fl oz)')
   })
 })
+
+// ---- measured maintenance (food coach) ----------------------------------------------------------
+
+import { goalFromMaintenance, maintenanceLine, measuredMaintenance } from '../src/lib/food/nutrition.js'
+
+describe('measuredMaintenance', () => {
+  const today = '2026-10-11' // the window ends yesterday, 2026-10-10
+  const end = '2026-10-10'
+  const back = (n) => addDays(end, -n)
+  // Food on days back(from)..back(to) (from ≥ to) at kcal(n), where n counts back from yesterday.
+  const foods = (from, to = 0, kcal = () => 2200) => {
+    const out = []
+    for (let n = from; n >= to; n -= 1) out.push(entry(back(n), 'Meals', kcal(n)))
+    return out
+  }
+  // Weigh-ins on days back(from)..back(to), losing `perWeek` kg a week (a straight line).
+  const scale = (from, to = 0, perWeek = 0.5, skip = () => false) => {
+    const out = []
+    for (let n = from; n >= to; n -= 1) if (!skip(n)) out.push(weight(back(n), 80 + (perWeek / 7) * n))
+    return out
+  }
+
+  test('28 steady days of logging and losing 0.5 kg a week → ready, 2750, good', () => {
+    const m = measuredMaintenance(foods(27), scale(34), today)
+    assert.equal(m.status, 'ready')
+    assert.equal(m.kcal, 2750)
+    assert.equal(m.days, 28)
+    assert.equal(m.keptDays, 28)
+    assert.equal(m.avgKcal, 2200)
+    assert.equal(m.confidence, 'good')
+    assert.equal(m.differsFromFormula, false)
+    assert.equal(m.from, back(27))
+    assert.equal(m.to, end)
+    close(m.paceKgPerWeek, -0.5, 1e-9)
+    close(m.changeKg, -1.93, 1e-9)
+    assert.equal(maintenanceLine(m, { unit: 'kcal' }), 'You ate ~2,200 kcal a day for 28 days and your trend fell 1.9 kg, so you burn about 2,750.')
+    assert.equal(maintenanceLine(m, { unit: 'kcal', weightUnit: 'lb' }), 'You ate ~2,200 kcal a day for 28 days and your trend fell 4.3 lb, so you burn about 2,750.')
+  })
+
+  test('a steady weight gives about the average eaten, and says so', () => {
+    const m = measuredMaintenance(foods(27, 0, (n) => (n % 2 ? 2100 : 2300)), scale(34, 0, 0), today)
+    assert.equal(m.status, 'ready')
+    assert.equal(m.kcal, 2200)
+    assert.equal(m.changeKg, 0)
+    assert.equal(maintenanceLine(m, { unit: 'kcal' }), 'You ate ~2,200 kcal a day for 28 days and your weight held steady, so that’s about what you burn.')
+    assert.equal(maintenanceLine({ status: 'gathering' }), '')
+  })
+
+  test('not enough logging or weigh-ins → gathering, with progress', () => {
+    const few = measuredMaintenance(foods(9), scale(34), today)
+    assert.equal(few.status, 'gathering')
+    assert.equal(few.kcal, null)
+    assert.equal(few.progress.keptDays, 10)
+    assert.equal(few.progress.needDays, 12)
+    assert.equal(few.progress.needWeighIns, 8)
+    const sparse = measuredMaintenance(foods(27), scale(24, 0, 0.5, (n) => n % 4 !== 0), today)
+    assert.equal(sparse.status, 'gathering')
+    assert.equal(sparse.progress.weighIns, 7)
+    assert.equal(sparse.progress.keptDays, 28)
+  })
+
+  test('partly logged days are dropped, so the estimate holds', () => {
+    const low = new Set([3, 8, 13, 18, 23])
+    const m = measuredMaintenance(foods(27, 0, (n) => (low.has(n) ? 400 : 2200)), scale(34), today)
+    assert.equal(m.status, 'ready')
+    assert.equal(m.kcal, 2750)
+    assert.equal(m.keptDays, 23)
+    assert.equal(m.avgKcal, 2200)
+    assert.equal(m.confidence, 'early') // 23 of 28 days kept is under 85%
+  })
+
+  test('big swings, odd numbers and a stale weigh-in', () => {
+    assert.equal(measuredMaintenance(foods(27), scale(34, 0, 2), today).status, 'swing')
+    const odd = measuredMaintenance(foods(27, 0, () => 850), scale(34, 0, 0), today)
+    assert.equal(odd.status, 'odd')
+    assert.equal(odd.rawKcal, 850)
+    assert.equal(odd.kcal, null)
+    // Last weigh-in 6 days before the window's end.
+    assert.equal(measuredMaintenance(foods(27), scale(34, 6), today).status, 'gathering')
+    assert.equal(measuredMaintenance(foods(27), scale(34, 5), today).status, 'ready')
+  })
+
+  test('very different from the formula → early, flagged', () => {
+    const m = measuredMaintenance(foods(27), scale(34), today, { formulaTdee: 1960 })
+    assert.equal(m.status, 'ready')
+    assert.equal(m.confidence, 'early')
+    assert.equal(m.differsFromFormula, true)
+    assert.equal(measuredMaintenance(foods(27), scale(34), today, { formulaTdee: 2600 }).differsFromFormula, false)
+  })
+
+  test('uses the longest window that passes (18 days when the first weeks have no weigh-ins)', () => {
+    // Weigh-ins until 28 days back, then none until 11 days back: a 28-day window has no weigh-in
+    // in its first week; the longest window that has one is 18 days.
+    const m = measuredMaintenance(foods(27), scale(40, 0, 0.5, (n) => n < 28 && n > 11), today)
+    assert.equal(m.status, 'ready')
+    assert.equal(m.days, 18)
+    assert.equal(m.kcal, 2750)
+    assert.equal(m.confidence, 'early')
+  })
+
+  test('junk input never throws', () => {
+    for (const args of [[null, null, null], ['x', 5, 'bad'], [[null, { date: 'x' }, 7], [{ kg: 'a' }, null], today, 'opts'], [undefined, undefined, undefined, { formulaTdee: 'x' }]]) {
+      const m = measuredMaintenance(...args)
+      assert.equal(m.status, 'gathering')
+      assert.equal(m.days, 0)
+    }
+  })
+})
+
+describe('goalFromMaintenance', () => {
+  const ready = (kcal) => ({ status: 'ready', kcal, avgKcal: kcal, days: 28 })
+  const macros = { calories: 2200, protein: 150, carbs: 200, fat: 70, source: 'manual' }
+
+  test('maintain: calories become the measured maintenance; protein and fat kept, carbs recomputed', () => {
+    const plan = goalFromMaintenance(ready(2500), { goals: macros, profile: { goal: 'maintain' } })
+    assert.equal(plan.calories, 2500)
+    assert.equal(plan.pace, 0)
+    assert.equal(plan.protein, 150)
+    assert.equal(plan.fat, 70)
+    assert.equal(plan.carbs, 318) // (2500 − 600 − 630) / 4
+    assert.equal(plan.fiber, null)
+    assert.equal(plan.same, false)
+    assert.deepEqual(plan.changes, [{ key: 'calories', from: 2200, to: 2500 }, { key: 'carbs', from: 200, to: 318 }])
+    assert.deepEqual(plan.warnings, [])
+  })
+
+  test('lose 0.5 kg a week → 550 under; the floor applies with a note', () => {
+    const plan = goalFromMaintenance(ready(2500), { goals: macros, profile: { goal: 'lose', rateKgPerWeek: 0.5 } })
+    assert.equal(plan.calories, 1950)
+    assert.equal(plan.pace, -0.5)
+    const floored = goalFromMaintenance(ready(1500), { goals: { calories: 1400 }, profile: { sex: 'female', goal: 'lose', rateKgPerWeek: 0.5 } })
+    assert.equal(floored.calories, 1200)
+    assert.ok(floored.warnings.includes('Raised to the 1,200 kcal minimum.'), floored.warnings.join(' | '))
+    assert.equal(floored.pace, -0.27)
+  })
+
+  test('carbs under 50 g: fat falls back to 20 % of calories', () => {
+    const plan = goalFromMaintenance(ready(1500), { goals: { calories: 1800, protein: 200, carbs: 100, fat: 100 }, profile: { sex: 'male', goal: 'maintain' } })
+    assert.equal(plan.calories, 1500)
+    assert.equal(plan.fat, 33)
+    assert.equal(plan.carbs, 101)
+    const tight = goalFromMaintenance(ready(1500), { goals: { calories: 1800, protein: 330, carbs: 100, fat: 100 }, profile: { sex: 'male', goal: 'maintain' } })
+    assert.equal(tight.carbs, 0)
+    assert.ok(tight.warnings.includes('Protein and fat use most of this budget.'))
+  })
+
+  test('fiber follows calculated goals only', () => {
+    assert.equal(goalFromMaintenance(ready(2500), { goals: { ...macros, fiber: 30, source: 'calculator' }, profile: {} }).fiber, 35)
+    assert.equal(goalFromMaintenance(ready(2500), { goals: { ...macros, fiber: 30 }, profile: {} }).fiber, 30)
+  })
+
+  test('same under 100 kcal; no goal yet', () => {
+    assert.equal(goalFromMaintenance(ready(2500), { goals: { calories: 2450 }, profile: {} }).same, true)
+    assert.equal(goalFromMaintenance(ready(2500), { goals: { calories: 2600 }, profile: {} }).same, false)
+    const none = goalFromMaintenance(ready(2500), {})
+    assert.equal(none.same, false)
+    assert.equal(none.diffKcal, null)
+    assert.deepEqual(none.changes, [{ key: 'calories', from: null, to: 2500 }])
+    assert.equal(goalFromMaintenance({ status: 'gathering' }, {}), null)
+    assert.equal(goalFromMaintenance(null, null), null)
+  })
+
+  test('a saved pace the calorie floor slowed gives way to the pace asked for', () => {
+    // Saved at the 1,200 floor, so the pace left was -0.27 rather than the -0.5 asked for.
+    const applied = { pace: -0.27, calories: 1200, askedGoal: 'lose', askedRate: 0.5 }
+    const food = { goals: { calories: 1200, source: 'calculator' }, profile: { sex: 'female', goal: 'lose', rateKgPerWeek: 0.5, applied } }
+    const plan = goalFromMaintenance(ready(1900), food, { weightKg: 70 })
+    assert.equal(plan.calories, 1350)
+    assert.equal(plan.pace, -0.5)
+    // Still under the floor: the floor applies again.
+    const low = goalFromMaintenance(ready(1500), food, { weightKg: 70 })
+    assert.equal(low.calories, 1200)
+    assert.ok(low.warnings.includes('Raised to the 1,200 kcal minimum.'))
+  })
+
+  test('the saved goal’s pace wins; a blocked loss keeps the weight; the cap applies', () => {
+    const applied = { pace: -0.3, calories: 2000, askedGoal: 'lose', askedRate: 0.5 }
+    const food = { goals: { calories: 2000, source: 'calculator' }, profile: { goal: 'lose', rateKgPerWeek: 0.5, applied } }
+    assert.equal(goalFromMaintenance(ready(2500), food).calories, 2170)
+    const thin = { goals: { calories: 2000 }, profile: { sex: 'male', birthYear: 1996, heightCm: 180, goal: 'lose', rateKgPerWeek: 0.5 } }
+    const blocked = goalFromMaintenance(ready(2500), thin, { weightKg: 58, today: '2026-10-11' })
+    assert.equal(blocked.calories, 2500)
+    assert.equal(blocked.pace, 0)
+    // The calculator's cap: 1 % of 60 kg is 0.6, under the 1 kg asked for.
+    const capped = goalFromMaintenance(ready(2500), { goals: {}, profile: { sex: 'male', birthYear: 1996, heightCm: 170, goal: 'lose', rateKgPerWeek: 1 } }, { weightKg: 60, today: '2026-10-11' })
+    assert.equal(capped.calories, 1840)
+  })
+})
+
+describe('food nudge prefs', () => {
+  test('nudges default to on; an explicit false is kept', () => {
+    assert.deepEqual(normalizeFood(null).prefs.nudges, { protein: true, weighIn: true })
+    assert.deepEqual(normalizeFood({ prefs: { nudges: { protein: false } } }).prefs.nudges, { protein: false, weighIn: true })
+    assert.deepEqual(normalizeFood({ prefs: { nudges: 'x' } }).prefs.nudges, { protein: true, weighIn: true })
+  })
+})

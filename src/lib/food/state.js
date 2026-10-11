@@ -5,7 +5,7 @@ import { isISODate, nowTimeHHMM, todayISO } from '../dates.js'
 import { getGym, useGym } from '../gym/state.js'
 import { getState, newId, updateData, updateSettings, useStore } from '../store.js'
 import {
-  ENTRY_SOURCES, FAVORITES_MAX, GOAL_KEYS, SAVED_SOURCES, cleanEntry, entryMeal, entryTemplate, foodKey, macroCalories, mealForTime, normalizeFood,
+  ENTRY_SOURCES, FAVORITES_MAX, GOAL_KEYS, SAVED_SOURCES, appliedGoal, cleanEntry, entryMeal, entryTemplate, foodKey, macroCalories, mealForTime, normalizeFood,
   scaleEntry, sortDayEntries,
 } from './nutrition.js'
 
@@ -84,6 +84,67 @@ export function setGoals(goals) {
   return () => {
     if (changed) updateFood({ goals: before })
   }
+}
+
+// ---- food coach -------------------------------------------------------------------------------
+// settings.food.coach.maintenance = { dismissedOn, dismissedKcal, appliedOn };
+// settings.food.profile.measured = { kcal, on, days, confidence } (the measured maintenance a goal
+// was set from); settings.food.prefs.nudges = { protein, weighIn }.
+
+const rawPart = (key) => (isPlainObject(rawFood()[key]) ? rawFood()[key] : {})
+
+// An undo puts back {} for a part that wasn't there yet: undefined would be dropped from the
+// PATCH body, so the server would keep the new value. The normalizers read {} as "not set".
+const restorable = (value) => (isPlainObject(value) ? value : {})
+
+// Saves the goal worked out from a measured maintenance (plan: goalFromMaintenance; m:
+// measuredMaintenance), keeping the goals' source, and records what it was set from. options:
+// { today, weightKg, weighedOn }. Returns an undo that puts back the goals, profile and coach.
+export function applyMaintenanceGoal(plan, m, options) {
+  requireLoaded()
+  if (!isPlainObject(plan) || !isPlainObject(m) || !isFiniteNumber(m.kcal) || !isFiniteNumber(plan.calories)) return () => {}
+  const { today, weightKg, weighedOn } = isPlainObject(options) ? options : {}
+  const day = isISODate(today) ? today : todayISO()
+  const raw = rawFood()
+  const before = { goals: getFood().goals, profile: raw.profile, coach: raw.coach }
+  setGoals({
+    calories: plan.calories, protein: plan.protein, carbs: plan.carbs, fat: plan.fat, fiber: plan.fiber, source: before.goals.source,
+  })
+  const profile = getFood().profile
+  const applied = appliedGoal({ tdee: m.kcal, calories: plan.calories, pace: plan.pace }, {
+    calories: plan.calories, weightKg, weighedOn, goal: profile.goal, rateKgPerWeek: profile.rateKgPerWeek,
+  })
+  const coach = rawPart('coach')
+  updateFood({
+    profile: { ...rawPart('profile'), applied, measured: { kcal: m.kcal, on: day, days: m.days ?? null, confidence: m.confidence ?? null } },
+    coach: { ...coach, maintenance: { ...(isPlainObject(coach.maintenance) ? coach.maintenance : {}), appliedOn: day } },
+  })
+  return () => updateFood({ goals: before.goals, profile: restorable(before.profile), coach: restorable(before.coach) })
+}
+
+// "Not now" on the measured-maintenance card: hidden until the estimate moves 100 kcal or 14
+// days pass. Returns an undo.
+export function dismissMaintenance(kcal, today) {
+  if (!getState().hydrated) return () => {}
+  const before = rawFood().coach
+  const coach = rawPart('coach')
+  const maintenance = isPlainObject(coach.maintenance) ? coach.maintenance : {}
+  updateFood({
+    coach: { ...coach, maintenance: { ...maintenance, dismissedOn: isISODate(today) ? today : todayISO(), dismissedKcal: isFiniteNumber(kcal) ? kcal : null } },
+  })
+  return () => updateFood({ coach: restorable(before) })
+}
+
+// Turns a Health → Today nudge on or off: kind 'protein' | 'weighIn'. Returns an undo.
+export function setNudge(kind, on) {
+  if (kind !== 'protein' && kind !== 'weighIn') return () => {}
+  if (!getState().hydrated) return () => {}
+  const before = rawFood().prefs
+  const prefs = rawPart('prefs')
+  const nudges = getFood().prefs.nudges
+  if (nudges[kind] === !!on) return () => {}
+  updateFood({ prefs: { ...prefs, nudges: { protein: nudges.protein, weighIn: nudges.weighIn, [kind]: !!on } } })
+  return () => updateFood({ prefs: restorable(before) })
 }
 
 // ---- favorites ("My foods") ----------------------------------------------------------------------

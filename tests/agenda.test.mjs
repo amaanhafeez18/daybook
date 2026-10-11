@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { eveningLeftovers, nowNext, timePassed } from '../src/lib/agenda.js'
+import { badgeCount, eveningLeftovers, nowNext, timePassed } from '../src/lib/agenda.js'
 
 const TODAY = '2026-09-23'
 const at = (hours, minutes = 0) => hours * 60 + minutes
@@ -76,5 +76,50 @@ describe('timePassed', () => {
     assert.equal(timePassed(task('a', '14:00', { done: true }), TODAY, at(15, 0)), false)
     assert.equal(timePassed(task('a', '14:00', { date: '2026-09-24' }), TODAY, at(15, 0)), false)
     assert.equal(timePassed(task('a', ''), TODAY, at(15, 0)), false)
+  })
+})
+
+describe('badgeCount', () => {
+  const row = (id, date, extra = {}) => ({ id, text: `Task ${id}`, date, done: false, ...extra })
+
+  test('overdue and due-today open tasks are counted', () => {
+    const tasks = [row('old', '2026-09-01'), row('yesterday', '2026-09-22'), row('today', TODAY), row('timed', TODAY, { time: '09:00' })]
+    assert.equal(badgeCount(tasks, TODAY), 4)
+  })
+
+  test('done, archived, future, undated and malformed dates are left out', () => {
+    const tasks = [
+      row('done', TODAY, { done: true }),
+      row('archived', '2026-09-20', { archived: true }),
+      row('future', '2026-09-24'),
+      row('undated', ''),
+      { id: 'missing', text: 'No date', done: false },
+      row('short', '2026-1-5'),
+      row('null', null),
+      row('number', 20260923),
+      row('counted', TODAY),
+    ]
+    assert.equal(badgeCount(tasks, TODAY), 1)
+  })
+
+  test('catch-up reminders count unless People is off', () => {
+    const tasks = [row('a', TODAY), row('talk', TODAY, { details: 'friend-reminder:f1:2026-09-23' })]
+    assert.equal(badgeCount(tasks, TODAY), 2)
+    assert.equal(badgeCount(tasks, TODAY, { people: true }), 2)
+    assert.equal(badgeCount(tasks, TODAY, { people: false }), 1)
+  })
+
+  test('a non-list is 0 and rows that are not tasks are skipped', () => {
+    assert.equal(badgeCount(null, TODAY), 0)
+    assert.equal(badgeCount(undefined, TODAY), 0)
+    assert.equal(badgeCount({ length: 2 }, TODAY), 0)
+    assert.equal(badgeCount('tasks', TODAY), 0)
+    assert.equal(badgeCount([null, 5, 'x', [], row('a', TODAY)], TODAY), 1)
+    assert.equal(badgeCount([], TODAY), 0)
+  })
+
+  test('the count stops at 9999', () => {
+    const tasks = Array.from({ length: 10050 }, (_, i) => row(`t${i}`, TODAY))
+    assert.equal(badgeCount(tasks, TODAY), 9999)
   })
 })

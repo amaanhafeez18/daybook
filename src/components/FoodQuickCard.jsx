@@ -5,10 +5,13 @@ import { toast } from './ui/feedback.jsx'
 import { imageToJpegDataUrl } from '../lib/media.js'
 import { formatSeconds, useRecorder } from '../lib/recorder.js'
 import { haptic } from '../lib/haptics.js'
+import { readPref, writePref } from '../lib/api.js'
+import { useNow } from '../lib/environment.js'
 import { useAnimatedNumber } from '../lib/useAnimatedNumber.js'
+import { proteinNudge } from '../lib/food/coach.js'
 import { dayTotals, entryCalories, entryMeal, foodKey, recents } from '../lib/food/nutrition.js'
-import { matchFoods } from '../lib/food/shortcuts.js'
-import { addEntries, dayEntries, estimateFood, useFood, useFoodEntries } from '../lib/food/state.js'
+import { matchFoods, quickRow } from '../lib/food/shortcuts.js'
+import { addEntries, dayEntries, estimateFood, setNudge, useFood, useFoodEntries } from '../lib/food/state.js'
 import { useStore } from '../lib/store.js'
 import EstimateReview, { BARCODE_HINT, barcodeDigits, canAutoLog, logEstimate, prepareEstimate, reviewTotals } from '../pages/food/EstimateReview.jsx'
 import MealShortcuts, { hasShortcuts, useMealShortcuts } from '../pages/food/MealShortcuts.jsx'
@@ -26,6 +29,11 @@ import './food-quick.css'
 // that meal is empty), hidden while an estimate is open. While typing (2+ letters), those chips
 // make way for up to 3 matching foods from My foods and recent days: a tap logs the saved numbers
 // at once (offline too) without asking the AI; Enter still estimates anything new.
+// From 6 PM, when protein is well behind its goal, a nudge chip suggests something to close the gap:
+// a saved or recent food logs on a tap (with Undo); a generic idea only fills the box (an AI
+// estimate costs money, so it never sends by itself). × hides it for the day on this device.
+
+const NUDGE_PREF = 'food.nudge.protein' // the day the protein nudge was hidden (this device)
 
 function statusText(request) {
   if (request?.image && request.text === BARCODE_HINT) return 'Reading the barcode…'
@@ -51,6 +59,7 @@ export default function FoodQuickCard({ today, loaded }) {
   const [fixing, setFixing] = useState(false) // a "Fix" request in the review is running
   const controllerRef = useRef(null)
   const fileRef = useRef(null)
+  const inputRef = useRef(null)
   const photoMode = useRef('photo') // 'photo' | 'barcode': what the picked photo shows
 
   const todayRows = useMemo(() => dayEntries(entries, today, meals), [entries, today, meals])
@@ -73,6 +82,18 @@ export default function FoodQuickCard({ today, loaded }) {
   const matches = useMemo(
     () => (query.length >= 2 && !barcodeDigits(query) ? matchFoods(query, { favorites: food.favorites, recent, limit: 3 }) : []),
     [query, food.favorites, recent],
+  )
+
+  // The evening protein nudge (Food settings → Nudges).
+  const now = useNow(60000)
+  const nowMinutes = now.getHours() * 60 + now.getMinutes()
+  const [nudgeHiddenOn, setNudgeHiddenOn] = useState(() => readPref(NUDGE_PREF, null))
+  const nudgeOn = food.prefs.nudges?.protein !== false
+  const nudge = useMemo(
+    () => (loaded && nudgeOn && nudgeHiddenOn !== today
+      ? proteinNudge({ goals: food.goals, totals, rowsToday: todayRows.length, nowMinutes, entries, favorites: food.favorites, today })
+      : null),
+    [loaded, nudgeOn, nudgeHiddenOn, today, food.goals, totals, todayRows.length, nowMinutes, entries, food.favorites],
   )
 
   useEffect(() => () => controllerRef.current?.abort(), [])
@@ -186,6 +207,45 @@ export default function FoodQuickCard({ today, loaded }) {
     setText('')
   }
 
+  // A saved food logs at once; a generic idea fills the box and focuses it (never sends).
+  function takeNudge() {
+    const idea = nudge?.idea
+    if (!idea) return
+    if (idea.saved) {
+      const undo = addEntries([quickRow(idea.template, { meal: defaultMeal(meals), date: today, favorites: food.favorites })], {
+        toastLabel: `Logged ${entryName(idea.template)}`,
+      })
+      if (undo?.entries?.length) haptic('light')
+      return
+    }
+    setText(idea.text)
+    const input = inputRef.current
+    if (input) {
+      input.focus() // in the tap itself, so iOS opens the keyboard
+      requestAnimationFrame(() => {
+        try {
+          input.setSelectionRange(input.value.length, input.value.length)
+        } catch {
+          // not a text input any more
+        }
+      })
+    }
+  }
+
+  function hideNudge() {
+    writePref(NUDGE_PREF, today)
+    setNudgeHiddenOn(today)
+    toast('Hidden for today', {
+      action: {
+        label: 'Turn off',
+        onClick: () => {
+          const undo = setNudge('protein', false)
+          toast('Protein nudge turned off', { action: { label: 'Undo', onClick: undo } })
+        },
+      },
+    })
+  }
+
   function saveNameOnly() {
     const name = request?.text?.trim()
     if (!name || name === BARCODE_HINT || barcodeDigits(name)) return
@@ -245,6 +305,7 @@ export default function FoodQuickCard({ today, loaded }) {
       ) : (
         <form className="fq-bar" onSubmit={submit}>
           <input
+            ref={inputRef}
             className="fq-input"
             value={text}
             onChange={(event) => setText(event.target.value)}
@@ -274,6 +335,30 @@ export default function FoodQuickCard({ today, loaded }) {
         </form>
       )}
       <PhotoInput inputRef={fileRef} onChange={onPhoto} />
+
+      {nudge && phase === 'idle' && !text && !recorder.recording && (
+        <div className="fq-nudge">
+          {nudge.idea ? (
+            <button
+              type="button"
+              className="fq-nudge-main"
+              onClick={takeNudge}
+              aria-label={`${nudge.leftG} g protein to go. ${nudge.idea.saved ? `Log ${nudge.idea.name}` : `Type ${nudge.idea.name} in the food box`}`}
+            >
+              <Icon name="target" size={16} />
+              <span><strong>{nudge.leftG} g protein to go</strong> · e.g. {nudge.idea.name}</span>
+            </button>
+          ) : (
+            <span className="fq-nudge-main is-static">
+              <Icon name="target" size={16} />
+              <span><strong>{nudge.leftG} g protein to go</strong></span>
+            </span>
+          )}
+          <button type="button" className="fq-nudge-x" onClick={hideNudge} aria-label="Hide the protein nudge for today">
+            <Icon name="close" size={16} />
+          </button>
+        </div>
+      )}
 
       {loaded && phase === 'idle' && !recorder.recording && matches.length > 0 && (
         <div className="fq-shortcuts">

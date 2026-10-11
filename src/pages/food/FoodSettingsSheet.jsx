@@ -6,13 +6,13 @@ import { IconButton, Segmented, Switch } from '../../components/ui/primitives.js
 import { toast } from '../../components/ui/feedback.jsx'
 import { updateGym, useGym } from '../../lib/gym/state.js'
 import { MEALS_DEFAULT, entryCalories } from '../../lib/food/nutrition.js'
-import { deleteFavorite, setWebSetting, updateFood, useFood, useWebSetting } from '../../lib/food/state.js'
+import { deleteFavorite, setNudge, setWebSetting, updateFood, useFood, useWebSetting } from '../../lib/food/state.js'
 import { navigate } from '../../lib/router.js'
 import { NUTRIENT_INFO, energyNumber, entryName, fmtEnergy, fmtInt, portionText, unitLabel } from './format.js'
 import '../gym/cfg.css' // grouped settings rows, shared with Gym settings
 
 // Food settings. Basics: goals (link), meals (rename, reorder, 3–6; a disclosure that shows the
-// names while closed) and units. Everything else sits in an "Advanced" disclosure that remembers
+// names while closed) and units. Nudges: the two Health → Today reminders. Everything else sits in an "Advanced" disclosure that remembers
 // whether it was left open: which nutrients show, the ring, week start, the Add food sheet's
 // default, AI review, web search (settings.assistantWeb, shared with the assistant) and My foods
 // (link + the saved list). The weight unit is the gym's (one setting).
@@ -106,6 +106,15 @@ export default function FoodSettingsSheet({ open, onClose }) {
           </div>
           <Row label="Energy"><Segmented options={ENERGY_UNITS} value={unit} onChange={(value) => setPrefs({ energyUnit: value })} label="Energy unit" /></Row>
           <Row label="Body weight" hint="Shared with Gym"><Segmented options={WEIGHT_UNITS} value={weightUnit} onChange={(value) => updateGym((g) => ({ prefs: { ...g.prefs, unit: value } }))} label="Weight unit" /></Row>
+        </Group>
+
+        <Group title="Nudges" footer="Shown on Health → Today. Tap × to hide one for the day.">
+          <div className="food-cfg-row is-switch">
+            <Switch checked={prefs.nudges.protein} onChange={(value) => setNudge('protein', value)} label="Protein in the evening" description="After 6 PM, when you’re 20 g+ behind" />
+          </div>
+          <div className="food-cfg-row is-switch">
+            <Switch checked={prefs.nudges.weighIn} onChange={(value) => setNudge('weighIn', value)} label="Weigh-in reminder" description="When it’s been 4+ days" />
+          </div>
         </Group>
 
         <section className="food-cfg-group food-cfg-advanced">

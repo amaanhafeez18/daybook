@@ -184,6 +184,71 @@ a.food-rv-src:active { opacity: 0.6; }
 .btn.td-health-pill .icon path { fill: currentColor; }
 @media (hover: hover) { .td-health-row.has-pill .td-health-link:hover .td-hl-main { color: var(--accent); } }
 
+/* ---- food coach: the evening protein nudge (FoodQuickCard) and the weigh-in nudge (WeightCard) --
+   One soft accent strip: the tappable suggestion, then a 44px ×. */
+.fq-nudge {
+  display: flex; align-items: center; gap: 2px; min-height: 44px; padding-left: 12px;
+  border-radius: 14px; background: var(--accent-soft); color: var(--text);
+  animation: rise 0.22s var(--ease, ease);
+}
+.fq-nudge-main {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0;
+  color: inherit; font-size: 15px; letter-spacing: -0.01em; text-align: left;
+}
+.fq-nudge-main > .icon { flex-shrink: 0; color: var(--accent); }
+/* Up to 2 lines, so "e.g. <idea>" isn't cut off on a 375 pt phone. */
+.fq-nudge-main > span {
+  min-width: 0; overflow: hidden; white-space: normal; overflow-wrap: anywhere; line-height: 1.3; padding: 6px 0;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
+}
+.fq-nudge-main strong { font-weight: 600; color: var(--accent); }
+.fq-nudge-main:not(.is-static):active { opacity: 0.6; }
+.fq-nudge-x, .card.td-weight .td-nudge-x {
+  flex-shrink: 0; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; color: var(--text-2);
+}
+.fq-nudge-x:active, .td-nudge-x:active { opacity: 0.6; }
+.card.td-weight .td-nudge-x { margin: 0 -6px; }
+/* The × leaves the line ~154 px on a 375 pt phone: wrap to 2 lines rather than cut the message. */
+.td-weight .td-hl-sub.td-nudge {
+  color: var(--accent); font-weight: 500; white-space: normal; line-height: 1.25;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
+}
+
+/* ---- food coach: measured maintenance (Goals → MaintenanceCard; the Insights link) ------------ */
+.card.food-mx { display: flex; flex-direction: column; gap: 8px; padding: 16px 16px 14px; }
+.food-mx-label { display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); }
+.food-mx-label .icon { color: var(--accent); }
+.food-mx-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.food-mx-num {
+  display: inline-flex; align-items: baseline; gap: 5px; color: var(--text); font-size: 28px; font-weight: 700;
+  letter-spacing: -0.02em; font-variant-numeric: tabular-nums; line-height: 1.15;
+}
+.food-mx-num small { font-size: 15px; font-weight: 600; color: var(--text-2); letter-spacing: 0; }
+.food-mx-pill {
+  display: inline-flex; align-items: center; min-height: 24px; padding: 2px 10px; border-radius: 999px;
+  background: var(--surface-2); color: var(--text-2); font-size: 13px; font-weight: 600;
+}
+.food-mx-pill.is-good { background: var(--accent-soft); color: var(--accent); }
+.food-mx-text { font-size: 15px; line-height: 1.4; color: var(--text); }
+.card.food-mx.is-quiet .food-mx-text { color: var(--text-2); }
+.food-mx-hint, .food-mx-warn { display: flex; align-items: flex-start; gap: 6px; font-size: 14px; line-height: 1.4; color: var(--text-2); }
+.food-mx-hint .icon, .food-mx-warn .icon { flex-shrink: 0; margin-top: 2px; }
+.food-mx-hint .icon { color: var(--accent); }
+.food-mx-warn .icon { color: var(--food-over, var(--danger)); }
+.food-mx-confirm { display: flex; flex-direction: column; gap: 10px; padding-top: 4px; animation: rise 0.22s var(--ease, ease); }
+.food-mx-changes {
+  display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2);
+  font-size: 15px; font-variant-numeric: tabular-nums; list-style: none;
+}
+.food-mx-actions { display: flex; gap: 8px; padding-top: 2px; }
+.food-ins-mx {
+  display: flex; align-items: center; gap: 4px; width: 100%; min-height: 44px; margin-top: 4px; padding: 0;
+  color: var(--accent); font-size: 15px; font-weight: 600; text-align: left;
+}
+.food-ins-mx > span { min-width: 0; }
+.food-ins-mx .icon { flex-shrink: 0; }
+.food-ins-mx:active { opacity: 0.6; }
+
 @media (pointer: coarse) {
   /* 44 pt touch targets on phones. */
   .food-rv-act, .food-rv-save { min-height: 44px; }
@@ -194,6 +259,10 @@ a.food-rv-src:active { opacity: 0.6; }
   .food-rv-act:hover:not(:disabled), a.food-rv-src:hover { opacity: 0.75; }
   .food-rv-save:hover:not(:disabled) { color: var(--text); }
 }
+@media (hover: hover) {
+  .fq-nudge-main:not(.is-static):hover strong, .food-ins-mx:hover { opacity: 0.8; }
+  .fq-nudge-x:hover, .td-nudge-x:hover { color: var(--text); }
+}
 @media (prefers-reduced-motion: reduce) {
-  .food-cam-menu { animation: none; }
+  .food-cam-menu, .fq-nudge, .food-mx-confirm { animation: none; }
 }

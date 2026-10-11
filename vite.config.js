@@ -38,6 +38,9 @@ export default defineConfig({
       workbox: {
         // Every page chunk is precached so the installed app opens offline.
         globPatterns: ['**/*.{js,css,html,png,svg,webmanifest}'],
+        // Launch images (16 PNGs, scripts/make_launch.py) are only read by iOS when the Home Screen
+        // app starts, so they stay out of the precache.
+        globIgnores: ['**/node_modules/**/*', 'launch/**'],
         navigateFallback: 'index.html',
         navigateFallbackDenylist: [/^\/api\//],
         cleanupOutdatedCaches: true,

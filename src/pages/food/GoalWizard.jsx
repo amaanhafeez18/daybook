@@ -6,12 +6,14 @@ import { toast } from '../../components/ui/feedback.jsx'
 import { useAreas } from '../../lib/areas.js'
 import { addDaysISO, diffDays } from '../../lib/dates.js'
 import { activityForWorkouts, planWorkoutsPerWeek } from '../../lib/food/activity.js'
-import { ACTIVITY_LEVELS, KCAL_PER_G, RATE_OPTIONS, appliedGoal, calcGoals, currentApplied, energyInUnit, energyToKcal } from '../../lib/food/nutrition.js'
+import { ACTIVITY_LEVELS, KCAL_PER_G, RATE_OPTIONS, appliedGoal, approxEnergy, calcGoals, currentApplied, energyInUnit, energyToKcal } from '../../lib/food/nutrition.js'
 import { addBodyWeight, deleteBodyWeight, getFood, latestBodyWeight, setGoals, updateFood, useBodyWeights, useFood, useWeightUnit } from '../../lib/food/state.js'
 import { hasPlan, useGym } from '../../lib/gym/state.js'
 import { refresh, useStore } from '../../lib/store.js'
+import { useAnimatedNumber } from '../../lib/useAnimatedNumber.js'
 import { DetailTop, goBack } from './common.jsx'
-import { NUTRIENT_INFO, dayLabel, fmtInt, fmtNum, fmtWeight, isNum, kgToUnit, plural, shortDay, toNum, unitLabel, unitToKg, weightUnitLabel } from './format.js'
+import MaintenanceCard from './MaintenanceCard.jsx'
+import { NUTRIENT_INFO, dayLabel, fmtInt, fmtNum, fmtWeight, isNum, kgToUnit, monthDay, plural, shortDay, toNum, unitLabel, unitToKg, weightUnitLabel } from './format.js'
 import '../gym/cfg.css' // grouped settings rows, shared with Gym settings
 
 // #/food/goals. With a calorie goal set, the page opens on a summary of it (and what it was
@@ -179,7 +181,8 @@ export default function GoalWizard({ today }) {
       calories: kcal, weightKg, weighedOn: newWeight ? today : latestWeighIn?.date || today, goal: profile.goal, rateKgPerWeek: profile.rateKgPerWeek,
     })
     const undoGoals = setGoals({ calories: kcal, protein: values.protein, carbs: values.carbs, fat: values.fat, fiber: values.fiber, source: 'calculator' })
-    updateFood((current) => ({ profile: { ...current.profile, ...profile, applied } }))
+    // A calculated goal replaces one set from the measured maintenance.
+    updateFood((current) => ({ profile: { ...current.profile, ...profile, applied, measured: null } }))
     let undoWeight = null
     if (newWeight) {
       try {
@@ -384,8 +387,12 @@ function GoalSummary({ food, unit, weightUnit, weighIn, today, onAdjust, onRecal
   const basis = applied && isNum(applied.weightKg) ? { kg: applied.weightKg, date: applied.weighedOn } : weighIn
   const basisAge = basis?.date ? diffDays(basis.date, today) : null
   const basisOld = basisAge !== null && basisAge > WEIGHT_OLD_DAYS
+  // Set from the measured maintenance (MaintenanceCard's "Update my goal"), while still current.
+  const measured = applied && profile.measured && typeof profile.measured === 'object' && isNum(profile.measured.kcal) ? profile.measured : null
+  const shownCalories = useAnimatedNumber(goals.calories)
   const rows = calculated
     ? [
+        measured && { label: 'Maintenance', value: `Measured ~${approxEnergy(measured.kcal, unit, 50)} ${e}`, note: typeof measured.on === 'string' ? monthDay(measured.on) : null },
         { label: 'Activity', value: activity?.label },
         { label: 'Goal', value: aim, note: askedNote },
         basis && { label: 'Weight', value: `${fmtWeight(basis.kg, weightUnit)} ${u}`, note: basis.date ? dayLabel(basis.date, today) : null, old: basisOld },
@@ -398,7 +405,9 @@ function GoalSummary({ food, unit, weightUnit, weighIn, today, onAdjust, onRecal
       <section className="card food-goal-hero" aria-label="Daily goals">
         <span className="ui-label food-goal-hero-label">Daily calories</span>
         <span className="food-goal-hero-value">
-          <strong className="food-goal-hero-num">{fmtInt(energyInUnit(goals.calories, unit))}</strong>
+          {/* Counts to a new goal (e.g. after "Update my goal"); screen readers get the final number. */}
+          <span className="sr-only">{fmtInt(energyInUnit(goals.calories, unit))}</span>
+          <strong className="food-goal-hero-num" aria-hidden="true">{fmtInt(energyInUnit(shownCalories, unit))}</strong>
           <small>{e}</small>
         </span>
         {facts.length > 0 && (
@@ -417,6 +426,8 @@ function GoalSummary({ food, unit, weightUnit, weighIn, today, onAdjust, onRecal
           </span>
         )}
       </section>
+
+      <MaintenanceCard food={food} unit={unit} weightUnit={weightUnit} today={today} />
 
       <section className="food-cfg-group">
         <h3 className="ui-label food-cfg-title">{calculated ? 'Worked out from' : 'How it was set'}</h3>
