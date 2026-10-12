@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../components/ui/Icon.jsx'
 import Sheet from '../components/ui/Sheet.jsx'
 import Disclosure from '../components/ui/Disclosure.jsx'
@@ -27,6 +27,8 @@ import { hasGymPlan as gymPlanExists } from '../lib/setup.js'
 import { calorieGoalText, gymPlanSummary, savedFoodsText } from '../lib/hub.js'
 import { openWelcome } from '../components/welcome/rules.js'
 import { scrollBehavior } from '../lib/motion.js'
+import { haptic } from '../lib/haptics.js'
+import { learnedSuggestions, withAnswered } from '../lib/learnPrefs.js'
 import '../components/settings.css'
 
 // settings.assistantWeb (also set in Food settings): when the assistant and food search may use the web.
@@ -654,6 +656,72 @@ function BadgeHint({ onTurnOn, busy }) {
   )
 }
 
+// "Suggested": one reminder change learned from what the owner does (lib/learnPrefs.js), e.g. the
+// workout reminder vs when workouts actually start. Change applies it (with Undo); Change or Not
+// now marks it answered in settings.learned.dismissed, so it is offered once and never again.
+function LearnedOffer({ settings }) {
+  const hydrated = useStore((state) => state.hydrated)
+  const tasks = useData('tasks')
+  const gymSessions = useData('gymSessions')
+  const today = todayISO()
+  const offer = useMemo(
+    () => (hydrated ? learnedSuggestions({ settings, prefs: notificationPrefs(settings), tasks, gymSessions, today, limit: 1 })[0] || null : null),
+    [hydrated, settings, tasks, gymSessions, today],
+  )
+  if (!offer) return null
+
+  const current = () => getState().data.settings || {}
+  const rawNotifications = () => {
+    const value = current().notifications
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+  }
+  const answer = () => withAnswered(current().learned, offer.key, new Date().toISOString())
+
+  function change() {
+    const before = rawNotifications()
+    updateSettings({ notifications: { ...before, ...offer.patch }, learned: answer() })
+    haptic('success')
+    toast(offer.done, {
+      tone: 'success',
+      action: {
+        label: 'Undo',
+        onClick: () => {
+          const now = rawNotifications()
+          // Only puts back what this change set, and only while it is still as this left it.
+          if (!Object.keys(offer.patch).every((key) => now[key] === offer.patch[key])) return
+          const restored = { ...now }
+          for (const key of Object.keys(offer.patch)) {
+            if (key in before) restored[key] = before[key]
+            else delete restored[key]
+          }
+          updateSettings({ notifications: restored })
+        },
+      },
+    })
+  }
+
+  function notNow() {
+    const before = current().learned
+    updateSettings({ learned: answer() })
+    toast('Okay — won’t suggest that again', {
+      action: { label: 'Undo', onClick: () => updateSettings({ learned: before === undefined ? { dismissed: [] } : before }) },
+    })
+  }
+
+  return (
+    <div className="card set-list set-learned" role="group" aria-label="Suggested">
+      <div className="set-row is-stacked">
+        <span className="set-learned-head"><Icon name="sparkles" size={16} />Suggested</span>
+        <p className="set-learned-text">{offer.text}</p>
+        <div className="set-learned-actions">
+          <Button size="sm" onClick={change}>Change</Button>
+          <Button size="sm" variant="secondary" onClick={notNow}>Not now</Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function NotificationSettings({ settings, location, onChooseCity }) {
   const prefs = notificationPrefs(settings)
   // Shared with the hints under the reminder switches and on Today: turning on in one updates all.
@@ -726,6 +794,7 @@ function NotificationSettings({ settings, location, onChooseCity }) {
   return (
     <section className="settings-group" id="notifications">
       <h2>Notifications</h2>
+      <LearnedOffer settings={settings} />
       <div className="card settings-card settings-list">
         <div className="settings-row is-static">
           <span className="settings-row-icon"><Icon name="bell" size={18} /></span>

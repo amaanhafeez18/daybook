@@ -149,8 +149,10 @@ export default async function handler(req, res) {
             report.push(row)
             continue
           }
-          // Record first: the unique key means overlapping runs can never send twice. A batch sends
-          // only the reminders this run claimed.
+          // Record first: the unique key means overlapping runs can never send twice. A group (the
+          // run's all-day reminders and whatever quiet hours held back, or timed tasks at the same
+          // minute: see groupDue) sends only the reminders this run claimed, as one push; a group
+          // left with one claimed reminder sends it exactly as that reminder.
           const claimed = []
           for (const item of group) {
             const { error: logError } = await supabase.from('notification_log').insert({ user_id: userId, key: item.key })

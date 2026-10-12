@@ -272,6 +272,9 @@ function workoutReminder(day, today, time, timeZone) {
     body: parts.join(' · ') || 'Time to train',
     url: '/#/gym',
     tag: 'gym',
+    kind: 'gym',
+    name: `${gymDayName(day.routine)} workout`,
+    day: 'today',
   }
 }
 
@@ -318,7 +321,7 @@ function taskReminderPlan(task, prefs, timeZone) {
   if (Number.isFinite(created) && created > scheduled && localNow(created, timeZone).date <= task.date) {
     if (allDayOverride === null || isReminderTask(task)) return { off: 'added', time, dayBefore }
     const fireAt = outsideQuietHours(created + LATE_ALLDAY_DELAY_MS, prefs, timeZone)
-    if (localNow(fireAt, timeZone).date <= task.date) return { ...plan, fireAt, late: true }
+    if (localNow(fireAt, timeZone).date <= task.date) return { ...plan, fireAt, late: true, held: fireAt !== created + LATE_ALLDAY_DELAY_MS }
   }
   return plan
 }
@@ -627,20 +630,42 @@ export function dueNotifications(input, now = Date.now()) {
   const workout = areas.gym !== false && (prefs.gym || prefs.dailySummary) ? plannedWorkout(settings, gymSessions, today) : null
   const candidates = []
 
-  // Task reminders
+  // Task reminders. `kind`, `name`, `day`, `when` and `urgent` are for groupDue / combineReminders.
   for (const task of open) {
     const plan = taskReminderPlan(task, prefs, timeZone)
     if (plan.off) continue
+    // Where quiet hours put it (already applied to a late one): an all-day reminder held past midnight
+    // says "Due today", not the "Due tomorrow" it was planned with.
+    const fireAt = outsideQuietHours(plan.fireAt, prefs, timeZone)
+    const held = fireAt !== plan.fireAt || plan.held === true
     let body
+    let day
+    let when = ''
     if (plan.timed) {
-      const when = `${dayLabel(task.date, today)} at ${formatTime(task.time)}`
-      body = plan.lead === 0 ? `Due now (${formatTime(task.time)})` : task.date < today ? `Was due ${when}` : `Due ${when}`
-    } else if (plan.late) {
-      body = localNow(plan.fireAt, timeZone).date === task.date ? 'Due today' : 'Due tomorrow'
+      day = dayLabel(task.date, today)
+      when = `${day === 'today' ? '' : `${day} `}at ${formatTime(task.time)}`
+      body = plan.lead === 0 ? `Due now (${formatTime(task.time)})` : task.date < today ? `Was due ${day} at ${formatTime(task.time)}` : `Due ${day} at ${formatTime(task.time)}`
     } else {
-      body = plan.dayBefore ? 'Due tomorrow' : 'Due today'
+      // Held past midnight from late on its own day (a late all-day time), it was due yesterday.
+      const fireDate = localNow(fireAt, timeZone).date
+      day = fireDate === task.date ? 'today' : fireDate < task.date ? 'tomorrow' : 'yesterday'
+      body = day === 'yesterday' ? 'Was due yesterday' : `Due ${day}`
     }
-    candidates.push({ key: plan.key, fireAt: plan.fireAt, title: taskTitle(task), body, url: taskUrl(task), tag: `task-${task.id}`, ...(plan.late ? { batch: LATE_ALLDAY_BATCH } : {}) })
+    candidates.push({
+      key: plan.key,
+      fireAt,
+      title: taskTitle(task),
+      body,
+      url: taskUrl(task),
+      tag: `task-${task.id}`,
+      kind: plan.timed ? 'timed' : 'allday',
+      name: String(task.text || '').trim() || 'Task',
+      urgent: task.priority === 'urgent',
+      day,
+      ...(plan.timed ? { when, time: task.time, now: plan.lead === 0 } : {}),
+      ...(held ? { held: true } : {}),
+      ...(plan.late ? { batch: LATE_ALLDAY_BATCH } : {}),
+    })
   }
 
   // Morning summary: every day it's on, a clear day included (so it's plain the reminders work).
@@ -655,6 +680,7 @@ export function dueNotifications(input, now = Date.now()) {
       body: summaryBody(facts),
       url: '/#/today',
       tag: 'daily-summary',
+      kind: 'summary',
       facts,
     })
   }
@@ -690,6 +716,7 @@ export function dueNotifications(input, now = Date.now()) {
       body: parts.join(' · '),
       url: '/#/today',
       tag: 'evening-nudge',
+      kind: 'evening',
     })
   }
 
@@ -715,12 +742,21 @@ export function dueNotifications(input, now = Date.now()) {
         body: `${name} at ${formatTime(prayerTimings[name])}${next ? ` · Then ${next} at ${formatTime(prayerTimings[next])}` : ''}`,
         url: '/#/today',
         tag: `prayer-${name}`,
+        kind: 'prayer',
         noQuiet: true,
       })
     }
   }
 
-  const scheduled = candidates.map((item) => ({ ...item, fireAt: item.noQuiet ? item.fireAt : outsideQuietHours(item.fireAt, prefs, timeZone) }))
+  // Quiet hours move a reminder to the moment they end; the ones moved there are sent together
+  // (groupDue), marked `held` ('overnight' when quiet hours span midnight).
+  const overnight = toMinutes(prefs.quietStart) > toMinutes(prefs.quietEnd)
+  const scheduled = candidates.map((item) => {
+    if (item.noQuiet) return item
+    const fireAt = outsideQuietHours(item.fireAt, prefs, timeZone)
+    const held = item.held || fireAt !== item.fireAt
+    return { ...item, fireAt, ...(held ? { held: overnight ? 'overnight' : 'quiet' } : {}) }
+  })
   // A late all-day reminder for a task added under a minute ago holds back the due ones for a little
   // while, so tasks added together are reminded together (api/cron.js sends a batch as one).
   const waiting = scheduled.some((item) => item.batch && item.fireAt > now && item.fireAt - now <= LATE_ALLDAY_DELAY_MS)
@@ -730,40 +766,114 @@ export function dueNotifications(input, now = Date.now()) {
     .sort((a, b) => a.fireAt - b.fireAt)
 }
 
-// dueNotifications' list → groups, each sent as one notification by api/cron.js: items of the same
-// `batch` (late all-day reminders) together, at the first one's place; everything else on its own.
+// ---- one notification for reminders due together --------------------------------------------
+//
+// Everything a cron run finds due for one user counts as one moment. groupDue decides what shares a
+// banner (api/cron.js claims every item's key in notification_log on its own, so nothing is sent
+// twice, then sends each group's newly claimed items as one push via combineReminders):
+//   * one push for the run's all-day task reminders (on the day, the day before, or the late ping for
+//     a task just added) together with everything quiet hours held back (tasks and the workout
+//     reminder): '4 tasks due today' / '3 reminders held overnight';
+//   * a timed task at its reminder time keeps its own banner, apart from the all-day ones (it is about
+//     that moment); timed tasks due in the same run share one: '2 tasks at 3:00 PM' (runs are a minute
+//     apart, so that is the same minute unless a run was late: then '2 tasks coming up', with times);
+//   * on their own: the morning summary and evening check-in (digests already), prayer reminders
+//     (time-critical, never held) and the workout reminder at its time.
+// A group with one item is sent exactly as that item (tapping it still opens that task).
+
+// The group an item of dueNotifications belongs to, or null for its own notification.
+function groupKey(item) {
+  if (!isObject(item) || item.noQuiet || item.facts || ['summary', 'evening', 'prayer'].includes(item.kind)) return null
+  if (item.held && ['timed', 'allday', 'gym'].includes(item.kind)) return 'together'
+  if (item.kind === 'allday') return 'together'
+  if (item.kind === 'timed') return 'timed'
+  if (item.batch) return `batch:${item.batch}` // an item from before `kind` existed
+  return null
+}
+
+// dueNotifications' list → groups (arrays), each sent as one notification by api/cron.js, in the
+// order their first item came.
 export function groupDue(due) {
   const groups = []
-  const byBatch = new Map()
+  const byKey = new Map()
   for (const item of Array.isArray(due) ? due : []) {
-    if (!item?.batch) {
+    const key = groupKey(item)
+    if (key === null) {
       groups.push([item])
-    } else if (byBatch.has(item.batch)) {
-      byBatch.get(item.batch).push(item)
+    } else if (byKey.has(key)) {
+      byKey.get(key).push(item)
     } else {
       const group = [item]
-      byBatch.set(item.batch, group)
+      byKey.set(key, group)
       groups.push(group)
     }
   }
   return groups
 }
 
-// One notification for reminders of the same batch sent together (see api/cron.js): '3 tasks due
-// today' / 'Buy milk, Pay rent, Call Ali and 2 more'. A single item is sent as it is.
+const BODY_NAME_MAX = 40
+
+// One line in a combined body: 'Urgent: Pay rent', 'Dentist (3:00 PM)', 'Push day workout'.
+function reminderName(item, withTime) {
+  const raw = String(item.name || item.title || '').trim()
+  const name = raw.length > BODY_NAME_MAX ? `${cutText(raw, BODY_NAME_MAX - 2)}…` : raw
+  const time = withTime && item.kind === 'timed' && isTime(item.time) ? ` (${formatTime(item.time)})` : ''
+  return `${item.urgent && item.name ? 'Urgent: ' : ''}${name}${time}`
+}
+
+// One notification for reminders sent together (see groupDue). A single item is sent as it is.
+// → { title, body (≤ SUMMARY_MAX), url, tag }
 export function combineReminders(items) {
   const list = (Array.isArray(items) ? items : []).filter(isObject)
   if (list.length <= 1) {
     const item = list[0] || {}
     return { title: item.title, body: item.body, url: item.url, tag: item.tag }
   }
-  const bodies = [...new Set(list.map((item) => item.body))]
-  const day = bodies.length === 1 ? /^Due (today|tomorrow)$/.exec(bodies[0])?.[1] : null
-  const names = list.map((item) => item.title)
+  // Urgent ones first, then what quiet hours held (it's late already); otherwise in the order they
+  // came (oldest reminder first).
+  const ordered = [...list.filter((item) => item.urgent), ...list.filter((item) => !item.urgent && item.held), ...list.filter((item) => !item.urgent && !item.held)]
+  const count = list.length
+  const heldCount = list.filter((item) => item.held).length
+  const allDay = list.every((item) => item.kind === 'allday' || (!item.kind && /^Due (today|tomorrow)$/.test(String(item.body))))
+  const timed = list.every((item) => item.kind === 'timed')
+  const whens = new Set(list.map((item) => (item.now ? 'now' : item.when)))
+  // Held ones aren't at their moment any more, so they always say their own times.
+  const sameMoment = timed && whens.size === 1 && !whens.has(undefined) && !list.some((item) => item.held)
+
+  let title
+  if (allDay) {
+    const dayOf = (item) => item.day || /^Due (today|tomorrow)$/.exec(String(item.body))?.[1]
+    const today = list.filter((item) => dayOf(item) === 'today').length
+    const tomorrow = list.filter((item) => dayOf(item) === 'tomorrow').length
+    if (today === count) title = `${count} tasks due today`
+    else if (tomorrow === count) title = `${count} tasks due tomorrow`
+    else if (today + tomorrow === count) title = `${count} tasks due: ${today} today, ${tomorrow} tomorrow`
+    else title = `${count} tasks coming up`
+  } else if (heldCount) {
+    // Only what quiet hours held is "held": all-day ones due now just share the banner.
+    const heldText = list.some((item) => item.held === 'overnight') ? 'held overnight' : 'from quiet hours'
+    title = heldCount === count ? `${count} reminders ${heldText}` : `${count} reminders, ${heldCount} ${heldText}`
+  } else if (sameMoment) {
+    title = whens.has('now') ? `${count} tasks due now` : `${count} tasks ${[...whens][0]}`
+  } else if (timed) {
+    title = `${count} tasks coming up`
+  } else {
+    title = `${count} reminders`
+  }
+
+  const names = ordered.map((item) => reminderName(item, !sameMoment))
+  const shown = names.slice(0, 3).join(', ')
+  const body = `${shown}${count > 3 ? ` and ${count - 3} more` : ''}`
+
+  // Today lists today's tasks and the workout; anything else opens the task list.
+  const urls = new Set(list.map((item) => item.url))
+  const url = urls.size === 1 && [...urls][0] ? [...urls][0]
+    : list.every((item) => (item.day || /^Due (today)$/.exec(String(item.body))?.[1]) === 'today') ? '/#/today' : '/#/tasks'
+  const minute = Math.floor(Number(list[0].fireAt) / 60000)
   return {
-    title: day ? `${list.length} tasks due ${day}` : `${list.length} tasks coming up`,
-    body: `${names.slice(0, 3).join(', ')}${names.length > 3 ? ` and ${names.length - 3} more` : ''}`,
-    url: '/#/tasks',
-    tag: LATE_ALLDAY_BATCH,
+    title,
+    body: body.length > SUMMARY_MAX ? `${cutText(body, SUMMARY_MAX - 1)}…` : body,
+    url,
+    tag: Number.isFinite(minute) ? `reminders-${minute}` : 'reminders',
   }
 }

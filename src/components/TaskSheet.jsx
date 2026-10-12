@@ -6,6 +6,7 @@ import { AutoTextarea, Button, Field, Segmented } from './ui/primitives.jsx'
 import { toast } from './ui/feedback.jsx'
 import AttachmentStrip from './AttachmentStrip.jsx'
 import SnoozeSheet from './SnoozeSheet.jsx'
+import { offerCatchUp } from './catchUpOffer.js'
 import { UnderstoodChip, understand } from './QuickParse.jsx'
 import { archiveTask, classesOn, createTask, deleteTaskForever, isReminderMarker, restoreTask, setTaskDone, updateTask } from '../lib/planner.js'
 import { dayPresets, dueLine, dueSentence, formatTime, formatTimeShort, nowTimeHHMM, todayISO } from '../lib/dates.js'
@@ -272,6 +273,7 @@ export default function TaskSheet({ open, onClose, task: taskProp = null, defaul
     setTaskDone(task.id, !task.done)
     finish()
     toast(task.done ? 'Marked as not done' : 'Completed', { action: { label: 'Undo', onClick: () => setTaskDone(task.id, task.done) } })
+    if (!task.done) offerCatchUp(task)
   }
 
   // "Pick a date…" from Later: the Due field right here, once the Later sheet has gone (it hands

@@ -138,6 +138,14 @@
 /* A paperclip chip on rows with photos or files (the count shows from two up). */
 .task-meta .meta-chip.tr-files { gap: 2px; padding-left: 6px; padding-right: 7px; }
 
+/* "Overlaps ECON 101": a timed task that clashes with a class, an event or another task
+   (lib/timing.js taskClashes). One quiet amber tag; a long title is cut short, never wraps. */
+.task-meta .meta-chip.tr-overlap { background: var(--warning-soft); color: var(--warning); min-width: 0; max-width: 100%; }
+.task-meta .meta-chip.tr-overlap .icon { flex: none; }
+/* The chip (max-width 100%) sets the limit: the class name is the useful part, so no cap of its own. */
+.tr-overlap-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (min-width: 640px) { .tr-overlap-text { max-width: 40ch; } }
+
 /* ---- task sheet: "Photos & files" and "Archive" at the end of More options ---------------------- */
 
 .btn.ts-archive { align-self: flex-start; }

@@ -4,7 +4,7 @@ import Sheet from '../../components/ui/Sheet.jsx'
 import { Button } from '../../components/ui/primitives.jsx'
 import { isISODate } from '../../lib/dates.js'
 import { primeKeyboard } from '../../lib/keyboard.js'
-import { addEntries, estimateFood, useFood } from '../../lib/food/state.js'
+import { addEntries, estimateFood, useFood, useMealTimes } from '../../lib/food/state.js'
 import EstimateReview, { BARCODE_HINT, MealSelect, barcodeDigits, canAutoLog, logEstimate, prepareEstimate, reviewTotals } from './EstimateReview.jsx'
 import { dayLabel, defaultMeal, energyNumber, mealIdFor, openDatePicker, unitLabel } from './format.js'
 
@@ -25,10 +25,11 @@ function loadingText(request) {
 export default function EstimateSheet({ request, onClose, onManual, today }) {
   const food = useFood()
   const { meals, energyUnit: unit, aiReview } = food.prefs
+  const mealTimes = useMealTimes() // the owner's usual meal times (learned from what they log)
   const [phase, setPhase] = useState('loading') // loading | ready | error
   const [review, setReview] = useState(null)
   const [error, setError] = useState(null)
-  const [meal, setMeal] = useState(() => mealIdFor(request?.meal || defaultMeal(meals), meals))
+  const [meal, setMeal] = useState(() => mealIdFor(request?.meal || defaultMeal(meals, mealTimes), meals))
   const [date, setDate] = useState(request?.date || today)
   const [run, setRun] = useState(0)
   const [fixing, setFixing] = useState(false) // a "Fix" request in the review is running
@@ -46,7 +47,7 @@ export default function EstimateSheet({ request, onClose, onManual, today }) {
     setPhase('loading')
     setReview(null)
     setError(null)
-    const startMeal = mealIdFor(request.meal || defaultMeal(meals), meals)
+    const startMeal = mealIdFor(request.meal || defaultMeal(meals, mealTimes), meals)
     setMeal(startMeal)
     setDate(isISODate(request.date) ? request.date : today)
     estimateFood({ text: request.text, image: request.image, audio: request.audio, mimeType: request.mimeType, meal: request.meal || undefined, date: request.date, signal: controller.signal })

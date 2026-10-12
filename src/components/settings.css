@@ -140,6 +140,22 @@
 .set-hint-actions { display: flex; flex-wrap: wrap; gap: 0 16px; margin-left: auto; }
 .set-hint-actions .link-btn { min-height: 44px; }
 
+/* Notifications → "Suggested": one reminder change learned from what you do, with Change / Not now. */
+.set-learned .set-row.is-stacked { gap: 8px; }
+.set-learned-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.set-learned-text { margin: 0; font-size: 15px; line-height: 1.4; color: var(--text); overflow-wrap: anywhere; }
+.set-learned-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
+.set-learned-actions .btn { min-width: 88px; }
+
 /* Help → Add to Home Screen sheet. */
 .set-install-other { margin: 16px 0 0; font-size: 14px; line-height: 1.4; color: var(--text-2); }
 

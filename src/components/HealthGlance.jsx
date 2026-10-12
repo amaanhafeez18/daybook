@@ -7,6 +7,7 @@ import { resolveDay } from '../lib/gym/schedule.js'
 import { hasPlan, useActiveWorkout, useGym, useGymSessions } from '../lib/gym/state.js'
 import { dayTotals, entryMeal } from '../lib/food/nutrition.js'
 import { lastMealDay } from '../lib/food/shortcuts.js'
+import { learnedMealTimes } from '../lib/food/mealTimes.js'
 import { copyMeal, dayEntries, useFood, useFoodEntries } from '../lib/food/state.js'
 import { copiedText, defaultMeal, fmtEnergy, mealName, pastDayName } from '../pages/food/format.js'
 import { loadStart, missedWorkout, startRoutine } from './gymStart.js'
@@ -85,7 +86,7 @@ function foodLine({ food, entries, today }) {
   const eaten = dayTotals(rows).calories
   const goal = Number(food.goals.calories) > 0 ? Number(food.goals.calories) : null
   // The meal of the moment, while it's still empty: "Same as <day>" copies it in one tap.
-  const nowMeal = defaultMeal(meals)
+  const nowMeal = defaultMeal(meals, learnedMealTimes(entries, meals, today))
   const same = rows.some((entry) => entryMeal(entry, meals) === nowMeal) ? null : lastMealDay(entries, nowMeal, today, meals)
   const sameName = same ? pastDayName(same.date, today) : ''
   const action = same ? {

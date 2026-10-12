@@ -6,13 +6,14 @@ import { nowTimeHHMM } from '../../lib/dates.js'
 import { imageToJpegDataUrl } from '../../lib/media.js'
 import { entryCalories, foodKey, recents, suggestions } from '../../lib/food/nutrition.js'
 import { addedSummary, matchFoods, quickRow } from '../../lib/food/shortcuts.js'
+import { learnedMealTimes, mealClock } from '../../lib/food/mealTimes.js'
 import { haptic } from '../../lib/haptics.js'
 import { primeKeyboard } from '../../lib/keyboard.js'
 import { addEntries } from '../../lib/food/state.js'
 import { formatSeconds, useRecorder } from '../../lib/recorder.js'
 import { BARCODE_HINT, FoodGlyph, MealSelect, barcodeDigits } from './EstimateReview.jsx'
 import PhotoInput from './PhotoInput.jsx'
-import { dayLabel, energyNumber, entryName, isSubmitKey, mealName, mealTime, plural, portionText, unitLabel } from './format.js'
+import { dayLabel, energyNumber, entryName, isSubmitKey, mealName, plural, portionText, unitLabel } from './format.js'
 import '../../components/food-quick.css'
 
 // The Food page's quick-add bar, pinned above the tab bar: describe food (Enter runs the AI
@@ -258,14 +259,16 @@ export default function QuickAddBar({ date, today, meal, mealChosen = false, onM
   const query = text.trim().toLowerCase()
   const code = barcodeDigits(text)
   // Recent and Suggested don't depend on what's typed: worked out once per tray, not per keystroke.
+  // Another day's suggestions are scored for the meal's usual time (learned, else a fixed one).
+  const usualTimes = learnedMealTimes(entries, meals, today)
   const quickLists = useMemo(() => {
     if (!trayOpen) return null
-    const hhmm = date === today ? nowTimeHHMM() : mealTime(meal)
+    const hhmm = date === today ? nowTimeHHMM() : mealClock(meal, usualTimes) || nowTimeHHMM()
     return {
       suggested: suggestions(shownEntries, meal, hhmm, today, 8),
       recent: recents(shownEntries, today, { limit: 25 }),
     }
-  }, [trayOpen, shownEntries, meal, date, today])
+  }, [trayOpen, shownEntries, meal, date, today, usualTimes])
   const lists = useMemo(() => {
     if (!quickLists) return null
     const favorites = food.favorites

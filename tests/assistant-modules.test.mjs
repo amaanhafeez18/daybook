@@ -818,12 +818,16 @@ describe('reminderPreview and the late all-day reminder (B5)', () => {
     assert.deepEqual(due.map((item) => item.key), ['a', 'b', 'c'].map((id) => `task:${id}:${TODAY}:allday:day`))
     const groups = groupDue([...due, { key: 'summary', title: 'Your day', body: 'x' }])
     assert.deepEqual(groups.map((group) => group.length), [3, 1])
-    assert.deepEqual(combineReminders(groups[0]), { title: '3 tasks due today', body: 'Buy milk, Pay rent, Urgent: Call Ali', url: '/#/tasks', tag: 'late-allday' })
+    // Urgent first; all due today, so it opens Today.
+    assert.deepEqual(combineReminders(groups[0]), { title: '3 tasks due today', body: 'Urgent: Call Ali, Buy milk, Pay rent', url: '/#/today', tag: `reminders-${Math.floor(due[0].fireAt / 60000)}` })
     // One claimed item is sent as it is (tapping it opens that task); mixed days and long lists read naturally.
     assert.deepEqual(combineReminders([due[0]]), { title: 'Buy milk', body: 'Due today', url: '/#/tasks/a', tag: 'task-a' })
     assert.equal(run([task('x y/z', 'Odd id', '00', { created_at: `${TODAY}T14:50:00Z` })], `${TODAY}T15:00:00Z`)[0].url, '/#/tasks/x%20y%2Fz')
-    const many = [...due, { ...due[0], title: 'D', body: 'Due tomorrow' }, { ...due[0], title: 'E' }]
-    assert.deepEqual(combineReminders(many), { title: '5 tasks coming up', body: 'Buy milk, Pay rent, Urgent: Call Ali and 2 more', url: '/#/tasks', tag: 'late-allday' })
+    const many = [...due, { ...due[0], name: 'D', title: 'D', body: 'Due tomorrow', day: 'tomorrow', url: '/#/tasks/d' }, { ...due[0], name: 'E', title: 'E', url: '/#/tasks/e' }]
+    const combined = combineReminders(many)
+    assert.equal(combined.title, '5 tasks due: 4 today, 1 tomorrow')
+    assert.equal(combined.body, 'Urgent: Call Ali, Buy milk, Pay rent and 2 more')
+    assert.equal(combined.url, '/#/tasks')
     // A pending task doesn't hold back reminders due for more than a few minutes.
     const old = task('o', 'Old', '00', { created_at: `${TODAY}T14:50:00Z` })
     const fresh = task('f', 'Fresh', '00', { created_at: `${TODAY}T14:59:30Z` })
@@ -838,7 +842,7 @@ describe('reminderPreview and the late all-day reminder (B5)', () => {
     ]
     const summary = (tasks, extra = {}) => dueNotifications({ settings: { timeZone: 'UTC' }, tasks, friends: [], classes: [], ...extra }, at(`${TODAY}T08:00:00Z`)).find((item) => item.tag === 'daily-summary')
     const { facts, ...clear } = summary([])
-    assert.deepEqual(clear, { key: `summary:${TODAY}`, fireAt: at(`${TODAY}T08:00:00Z`), title: 'Your Wednesday', body: 'Nothing planned. A clear day.', url: '/#/today', tag: 'daily-summary' })
+    assert.deepEqual(clear, { key: `summary:${TODAY}`, fireAt: at(`${TODAY}T08:00:00Z`), title: 'Your Wednesday', body: 'Nothing planned. A clear day.', url: '/#/today', tag: 'daily-summary', kind: 'summary' })
     assert.equal(facts.date, TODAY) // the facts ride along for the assistant-written version
     const tasks = [
       { id: 'a', text: 'Essay', date: TODAY, time: '' },
@@ -867,7 +871,7 @@ describe('reminderPreview and the late all-day reminder (B5)', () => {
     const classes = [{ id: 'c1', name: 'ECON 1022', days: [{ day: 'Thu', time: '2:30 PM - 4:30 PM' }] }]
     assert.deepEqual(evening(done, { classes }), {
       key: `overdue:${TODAY}`, fireAt: at(`${TODAY}T18:00:00Z`), title: 'Evening check-in',
-      body: 'All 2 done today · Tomorrow: 2 tasks (first 11:30 AM), ECON 1022 at 2:30 PM', url: '/#/today', tag: 'evening-nudge',
+      body: 'All 2 done today · Tomorrow: 2 tasks (first 11:30 AM), ECON 1022 at 2:30 PM', url: '/#/today', tag: 'evening-nudge', kind: 'evening',
     })
     const mixed = evening([...done, { id: 'e', text: 'Read', date: TODAY, time: '21:00' }, { id: 'f', text: 'Old', date: '2026-09-20' }])
     assert.equal(mixed.title, 'Evening check-in') // always the same name as the switch in Settings
