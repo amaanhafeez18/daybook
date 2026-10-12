@@ -2,10 +2,11 @@ import { useMemo, useState } from 'react'
 import Icon from '../../components/ui/Icon.jsx'
 import { Button, EmptyState, Segmented, Skeleton } from '../../components/ui/primitives.jsx'
 import { toast } from '../../components/ui/feedback.jsx'
-import { addDaysISO } from '../../lib/dates.js'
 import { weightTrend } from '../../lib/food/nutrition.js'
 import { deleteBodyWeight, useBodyWeights, useFood, useWeightUnit } from '../../lib/food/state.js'
+import { primeKeyboard } from '../../lib/keyboard.js'
 import { navigate } from '../../lib/router.js'
+import { DEFAULT_WEIGHT_RANGE, WEIGHT_RANGES, rangeStart } from '../../lib/weighIn.js'
 import { DetailTop, MigrationNote, StatTile, SwipeRow } from './common.jsx'
 import { WeightChart } from './charts.jsx'
 import WeightSheet from './WeightSheet.jsx'
@@ -13,13 +14,8 @@ import { dayLabel, fmtNum, fmtWeight, fmtWeightChange, isNum, kgToUnit, shortDay
 
 // #/food/weight: the shared body-weight log (Gym and Food) — trend chart with range chips, the
 // trend, weekly change, pace and ETA to the goal weight, and every weigh-in (swipe to delete).
+// The ranges (1M/3M/1Y/All) are the same as Gym → Stats' body-weight chart (lib/weighIn.js).
 
-const RANGES = [
-  { id: '1m', label: '1M', days: 31 },
-  { id: '3m', label: '3M', days: 92 },
-  { id: '1y', label: '1Y', days: 366 },
-  { id: 'all', label: 'All', days: null },
-]
 const PAGE = 30
 
 export default function WeightView({ today, loaded }) {
@@ -27,18 +23,23 @@ export default function WeightView({ today, loaded }) {
   const unit = useWeightUnit()
   const food = useFood()
   const targetKg = food.profile.targetKg
-  const [range, setRange] = useState('3m')
+  const [range, setRange] = useState(DEFAULT_WEIGHT_RANGE)
   const [sheet, setSheet] = useState(null) // { date } while logging
   const [shown, setShown] = useState(PAGE)
   const u = weightUnitLabel(unit)
 
   const trend = useMemo(() => weightTrend(bodyWeights, today, { targetKg }), [bodyWeights, today, targetKg])
   const points = useMemo(() => {
-    const days = RANGES.find((item) => item.id === range)?.days
-    if (!days) return trend.points
-    const from = addDaysISO(today, -(days - 1))
+    const from = rangeStart(range, today)
+    if (!from) return trend.points
     return trend.points.filter((point) => point.date >= from)
   }, [trend.points, range, today])
+
+  // The tap that opens the sheet also raises the keyboard with it (iPhone).
+  function weighIn(date) {
+    primeKeyboard()
+    setSheet({ date })
+  }
 
   function remove(entry) {
     const undo = deleteBodyWeight(entry.id)
@@ -64,7 +65,7 @@ export default function WeightView({ today, loaded }) {
   return (
     <div className="food-weightview">
       <DetailTop>
-        <Button size="sm" icon="plus" onClick={() => setSheet({ date: today })}>Weigh in</Button>
+        <Button size="sm" icon="plus" onClick={() => weighIn(today)}>Weigh in</Button>
       </DetailTop>
       <header className="food-page-head">
         <h1>Weight</h1>
@@ -76,7 +77,7 @@ export default function WeightView({ today, loaded }) {
         <section className="card"><Skeleton lines={5} /></section>
       ) : !bodyWeights.length ? (
         <section className="card">
-          <EmptyState icon="scale" title="No weigh-ins yet" action={<Button icon="plus" onClick={() => setSheet({ date: today })}>Weigh in</Button>}>
+          <EmptyState icon="scale" title="No weigh-ins yet" action={<Button icon="plus" onClick={() => weighIn(today)}>Weigh in</Button>}>
             Weigh in a few mornings a week — the trend smooths out day-to-day water swings.
           </EmptyState>
         </section>
@@ -88,8 +89,8 @@ export default function WeightView({ today, loaded }) {
               <span>{u} {isNum(trend.trendKg) ? '· 7-day trend' : `· ${dayLabel(trend.latestDate, today)}`}</span>
             </div>
             <p className="food-wv-line">{headline}</p>
-            <Segmented options={RANGES} value={range} onChange={setRange} label="Range" className="food-wv-range" />
-            <WeightChart points={points} unit={unit} targetKg={targetKg} ariaLabel={`Weight trend, ${RANGES.find((item) => item.id === range)?.label}`} />
+            <Segmented options={WEIGHT_RANGES} value={range} onChange={setRange} label="Range" className="food-wv-range wi-range" />
+            <WeightChart points={points} unit={unit} targetKg={targetKg} ariaLabel={`Weight trend, ${WEIGHT_RANGES.find((item) => item.id === range)?.label}`} />
             {!trend.reliable && trend.weighIns28 > 0 && (
               <p className="food-chart-note"><Icon name="info" size={14} />Weigh in 3× a week for a reliable trend ({trend.weighIns28} in the last 4 weeks).</p>
             )}
@@ -119,7 +120,7 @@ export default function WeightView({ today, loaded }) {
                 return (
                   <SwipeRow key={entry.id} className="food-row" onDelete={() => remove(entry)}>
                     <div className="food-row-inner">
-                      <button type="button" className="food-row-main" onClick={() => setSheet({ date: entry.date })} aria-label={`${shortDay(entry.date)}: ${fmtWeight(entry.kg, unit)} ${u}. Edit`}>
+                      <button type="button" className="food-row-main" onClick={() => weighIn(entry.date)} aria-label={`${shortDay(entry.date)}: ${fmtWeight(entry.kg, unit)} ${u}. Edit`}>
                         <span className="food-row-text">
                           <span className="food-row-name">{dayLabel(entry.date, today)}</span>
                           {delta !== null && <span className="food-row-sub">{fmtWeightChange(delta, unit)} {u} vs {shortDay(older.date)}</span>}

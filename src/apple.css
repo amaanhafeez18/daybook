@@ -274,6 +274,11 @@ body { font-size: 16px; line-height: 1.35; letter-spacing: -0.015em; }
 .assistant-header { margin-bottom: 16px; }
 
 /* ---- "+" in the header instead of a floating action button (phones) ------------------------------ */
+/* The screen's main add is always this round "+" beside the large title (labelled on desktop). A
+   title block marked .page-header-text takes the room the "+" leaves, so a long subtitle wraps
+   beside it instead of pushing the "+" onto a line of its own. */
+.page-header-row > .page-header-text { flex: 1 1 0; min-width: 0; }
+.page-header-row > .btn { flex-shrink: 0; }
 @media (max-width: 899px) {
   /* Titles hang from the top of the row, not centred against taller buttons, so every large title
      sits at the same height on every tab. */

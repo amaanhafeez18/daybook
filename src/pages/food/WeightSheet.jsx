@@ -4,11 +4,13 @@ import Sheet from '../../components/ui/Sheet.jsx'
 import { Button } from '../../components/ui/primitives.jsx'
 import { toast } from '../../components/ui/feedback.jsx'
 import { isISODate } from '../../lib/dates.js'
+import { haptic } from '../../lib/haptics.js'
 import { addBodyWeight, deleteBodyWeight, latestBodyWeight, useBodyWeights, useWeightUnit } from '../../lib/food/state.js'
 import { dayLabel, fmtNum, kgToUnit, toNum, unitToKg, weightUnitLabel } from './format.js'
 
 // Log a weigh-in: a big number prefilled with the last weight (or that day's), ±0.1 steppers and
 // the date (the viewed day by default). One entry per day: saving again replaces that day's value.
+// Every "Weigh in" in the app opens this sheet (components/WeighIn.jsx, Food → Weight).
 
 export default function WeightSheet({ open, onClose, date, today }) {
   const bodyWeights = useBodyWeights()
@@ -48,6 +50,9 @@ export default function WeightSheet({ open, onClose, date, today }) {
     const previous = existing ? existing.kg : null
     try {
       const saved = addBodyWeight(day, kg)
+      // Saved: let the keyboard go first (haptic() stays quiet while a field has focus).
+      if (document.activeElement?.tagName === 'INPUT') document.activeElement.blur()
+      haptic('success')
       const label = `${fmtNum(number, 1)} ${weightUnitLabel(unit)}${day !== today ? ` · ${dayLabel(day, today)}` : ''}`
       toast(previous !== null ? `Updated to ${label}` : `Logged ${label}`, {
         action: {

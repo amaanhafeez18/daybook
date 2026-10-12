@@ -73,49 +73,53 @@
   transform-origin: calc(100% - 22px) 100%;
 }
 
-/* "Continue chat · N messages · last 3 h ago" + "Start fresh" on the start screen. */
-.asst-resume { display: flex; flex-direction: column; align-items: stretch; gap: 8px; width: min(100%, 420px); margin-bottom: 6px; }
+/* ---- start screen: greeting, prompts, then "Continue chat · N messages · 3 hours ago  Start fresh" --
+   Left-aligned and right under the large title (App.css centres .chat-welcome in the chat area;
+   .assistant .chat-welcome outweighs it). */
+.assistant .chat-welcome { margin: 0; align-items: stretch; text-align: left; gap: 10px; padding: 4px 0 16px; }
+.assistant .chat-welcome > .assistant-avatar-lg { align-self: flex-start; margin-bottom: 2px; }
+.assistant .chat-welcome > h2 { font-size: 22px; letter-spacing: -0.02em; }
+.chat-welcome > p { font-size: 15px; line-height: 1.45; max-width: 46ch; }
+.chat-welcome .suggestion span { line-height: 1.3; }
+.assistant .chat-welcome > .asst-hint { align-self: flex-start; }
+/* Someone who has chatted before: no avatar or introduction, so every prompt fits above the composer. */
+.assistant .chat-welcome.is-returning { gap: 8px; padding-top: 0; }
+.assistant .chat-welcome.is-returning > h2 { font-size: 20px; }
+.chat-welcome.is-returning .suggestions { margin-top: 4px; }
+
+/* One compact row: tap it to go back to the chat; "Start fresh" is its trailing text button. */
+.asst-resume {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 560px;
+  margin-top: 6px;
+  padding-right: 16px;
+  border-radius: var(--r-lg, 16px);
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+}
 .asst-resume-main {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex: 1;
+  min-width: 0;
   min-height: 56px;
-  padding: 10px 14px;
-  border-radius: var(--r-lg, 16px);
-  background: var(--card-bg);
-  border: 1px solid var(--border);
+  padding: 9px 4px 9px 14px;
+  border-radius: var(--r-lg, 16px) 0 0 var(--r-lg, 16px);
   color: var(--text);
   text-align: left;
+  transition: opacity 0.15s;
 }
+.asst-resume-main:active { opacity: 0.6; }
 .asst-resume-main > .icon:first-child, .asst-resume-main > svg:first-child { color: var(--accent); flex: none; }
-.asst-resume-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.asst-resume-text { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
 .asst-resume-text strong { font-size: 16px; }
-.asst-resume-text small { font-size: 13px; color: var(--text-2); }
-.asst-resume-note { margin: -2px 0 0; font-size: 13px; color: var(--text-2); text-align: center; }
-.asst-resume-new {
-  align-self: center;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 44px;
-  padding: 0 18px 0 14px;
-  border-radius: 999px;
-  background: var(--card-bg);
-  color: var(--text);
-  font-size: 15px;
-  font-weight: 600;
-  transition: transform 0.35s var(--spring, ease), opacity 0.2s;
-}
-.asst-resume-new .icon { color: var(--accent); }
-.asst-resume-new:active:not(:disabled) { transform: scale(0.96); transition-duration: 0.1s; }
-.asst-resume-new:disabled { opacity: 0.5; }
-
-.chat-welcome > p { font-size: 15px; line-height: 1.45; max-width: 40ch; }
-.chat-welcome .suggestion span { line-height: 1.3; }
-/* Someone who has chatted before: no avatar or introduction, so every prompt fits above the composer. */
-.chat-welcome.is-returning { gap: 8px; padding-top: 8px; }
-.chat-welcome.is-returning h2 { font-size: 20px; }
-.chat-welcome.is-returning .suggestions { margin-top: 4px; }
+.asst-resume-text small { font-size: 13px; line-height: 1.35; color: var(--text-2); }
+.link-btn.asst-resume-new { flex-shrink: 0; white-space: nowrap; }
+.link-btn.asst-resume-new:disabled { opacity: 0.45; }
 
 /* "Not sure what to ask?": one dismissible line above the composer for the first few messages. */
 .asst-tip {

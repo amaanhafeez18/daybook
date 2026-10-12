@@ -2,8 +2,10 @@ import { useMemo, useState } from 'react'
 import Burst from '../../components/ui/Burst.jsx'
 import Icon from '../../components/ui/Icon.jsx'
 import Sheet from '../../components/ui/Sheet.jsx'
-import { EmptyState, IconButton } from '../../components/ui/primitives.jsx'
+import { Button, EmptyState, IconButton } from '../../components/ui/primitives.jsx'
+import WeighIn from '../../components/WeighIn.jsx'
 import { toast } from '../../components/ui/feedback.jsx'
+import { useAreas } from '../../lib/areas.js'
 import { WEEKDAY_SHORT, addDaysISO, formatDateShort, formatDuration as formatMinutes, relativeDay, weekdayIndex } from '../../lib/dates.js'
 import { abbreviationOptions, routineAbbreviations } from '../../lib/gym/abbreviations.js'
 import { TRACKING, exerciseById, newRoutineExercise } from '../../lib/gym/library.js'
@@ -17,6 +19,7 @@ import {
   useActiveWorkout, useBodyWeights, useGym, useGymSessions,
 } from '../../lib/gym/state.js'
 import { formatDistance, formatDuration, formatNumber, formatVolume, formatWeight, fromKg, fromMeters, toMeters } from '../../lib/gym/units.js'
+import { haptic } from '../../lib/haptics.js'
 import { navigate } from '../../lib/router.js'
 import { useAnimatedNumber } from '../../lib/useAnimatedNumber.js'
 import { letMissedGo, missedWorkout, useGoalMoment } from '../../components/gymStart.js'
@@ -227,6 +230,7 @@ function withWorkingCount(row, count, tracking) {
 
 export default function TodayTab({ today }) {
   const gym = useGym()
+  const areas = useAreas()
   const sessions = useGymSessions()
   const active = useActiveWorkout()
   const { prefs } = gym
@@ -357,7 +361,11 @@ export default function TodayTab({ today }) {
             </button>
           </div>
 
-          <BodyWeightCard today={today} unit={prefs.unit} />
+          {/* The shared weigh-in card, with the gym's one-step entry under it and "Stats" in the header.
+              The "Last weigh-in N days ago" reminder only with Food on: its switch lives in Food settings. */}
+          <WeighIn today={today} to="gym/stats" link={{ label: 'Stats', to: 'gym/stats' }} capsule={false} nudge={areas.food} className="gym-td-bw">
+            {({ open, summary }) => <BodyWeightEntry today={today} unit={prefs.unit} latestKg={summary?.latestKg ?? null} onOpen={open} />}
+          </WeighIn>
         </div>
       </div>
 
@@ -833,7 +841,7 @@ function TargetEditor({ routine, plan, gym, deload }) {
   )
 }
 
-// ---- progress tiles & body weight ---------------------------------------------------------------------
+// ---- progress tiles & body weight entry ---------------------------------------------------------------------
 
 function GoalRing({ value, goal }) {
   const r = 21
@@ -848,14 +856,11 @@ function GoalRing({ value, goal }) {
   )
 }
 
-function BodyWeightCard({ today, unit }) {
+// The one-step weigh-in under the weight card: type today's weight and tap "Weigh in" (or press
+// Enter). With nothing typed, "Weigh in" opens the full weigh-in sheet (steppers, another date).
+function BodyWeightEntry({ today, unit, latestKg, onOpen }) {
   const weights = useBodyWeights()
   const [draft, setDraft] = useState(null)
-  const latest = weights[0] || null
-  const previous = weights[1] || null
-  const delta = latest && previous ? latest.kg - previous.kg : null
-  const shownDelta = delta === null ? null : fromKg(delta, unit)
-  const hasToday = latest?.date === today
 
   function log() {
     if (draft === null) return
@@ -863,7 +868,10 @@ function BodyWeightCard({ today, unit }) {
     try {
       const saved = addBodyWeight(today, draft)
       setDraft(null)
-      toast(`Logged ${formatWeight(draft, unit)}`, {
+      // The entry is done: let the keyboard go first (haptic() stays quiet while a field has focus).
+      if (document.activeElement?.tagName === 'INPUT') document.activeElement.blur()
+      haptic('success')
+      toast(`${before ? 'Updated to' : 'Logged'} ${formatWeight(draft, unit)}`, {
         action: { label: 'Undo', onClick: () => (before ? addBodyWeight(today, before.kg) : deleteBodyWeight(saved.id)) },
       })
     } catch (error) {
@@ -872,53 +880,25 @@ function BodyWeightCard({ today, unit }) {
   }
 
   return (
-    <section className="card gym-td-bw">
-      <header className="gym-td-card-head">
-        <h3><Icon name="scale" size={18} />Body weight</h3>
-        <button type="button" className="link-btn" onClick={() => navigate('gym/stats')}>Stats</button>
-      </header>
-      <div className="gym-td-bw-body">
-        <div className="gym-td-bw-latest">
-          {latest ? (
-            <>
-              <span className="gym-td-bw-value">
-                <strong>{formatWeight(latest.kg, unit, { withUnit: false })}</strong>
-                <span>{unit}</span>
-              </span>
-              <small>
-                {relativeDay(latest.date, today)}
-                {shownDelta !== null && Math.abs(shownDelta) >= 0.005 && (
-                  <span className="gym-td-bw-delta">
-                    <Icon name={shownDelta > 0 ? 'arrowUp' : 'arrowDown'} size={12} strokeWidth={2.6} />
-                    {formatNumber(Math.abs(shownDelta), 1)} {unit}
-                  </span>
-                )}
-              </small>
-            </>
-          ) : (
-            <small className="gym-td-bw-empty">Log it now and then to see the trend.</small>
-          )}
-        </div>
-        <div className="gym-td-bw-form">
-          <WeightInput
-            valueKg={draft}
-            unit={unit}
-            onChange={setDraft}
-            placeholder={latest ? latest.kg : unit === 'lb' ? '170' : '75'}
-            ariaLabel={`Today’s body weight in ${unit}`}
-            onKeyDown={(event) => {
-              if (event.key !== 'Enter') return
-              event.preventDefault()
-              log()
-              event.currentTarget.blur()
-            }}
-          />
-          <button type="button" className="btn btn-primary btn-sm" disabled={draft === null} onClick={log}>
-            {hasToday ? 'Update' : 'Log'}
-          </button>
-        </div>
-      </div>
-    </section>
+    <div className="gym-td-bw-entry">
+      <label className="gym-td-bw-field">
+        <WeightInput
+          valueKg={draft}
+          unit={unit}
+          onChange={setDraft}
+          placeholder={latestKg === null ? (unit === 'lb' ? '170' : '75') : formatNumber(fromKg(latestKg, unit), 1)}
+          ariaLabel={`Today’s weight in ${unit}`}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter') return
+            event.preventDefault()
+            log()
+            event.currentTarget.blur()
+          }}
+        />
+        <span className="gym-td-bw-unit" aria-hidden="true">{unit}</span>
+      </label>
+      <Button variant="secondary" size="sm" icon="plus" className="wi-capsule" onClick={draft === null ? onOpen : log}>Weigh in</Button>
+    </div>
   )
 }
 

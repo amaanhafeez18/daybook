@@ -1,31 +1,29 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../../components/ui/Icon.jsx'
+import WeighIn from '../../components/WeighIn.jsx'
 import Sheet from '../../components/ui/Sheet.jsx'
 import { Button, IconButton, Skeleton } from '../../components/ui/primitives.jsx'
 import { toast } from '../../components/ui/feedback.jsx'
 import { addDaysISO, formatDateLong, isISODate, weekdayIndex } from '../../lib/dates.js'
 import {
-  cleanEntry, dayTotals, entryCalories, entryMeal, findFavorite, logStreak, macroCalories, mealTotals, weightSeries, weightTrend,
+  cleanEntry, dayTotals, entryCalories, entryMeal, findFavorite, logStreak, macroCalories, mealTotals,
 } from '../../lib/food/nutrition.js'
 import {
-  addEntries, copyDay, dayEntries, deleteEntry, deleteFavorite, saveFavorite, updateEntry, updateFood, useBodyWeights, useFood, useFoodEntries,
-  useWeightUnit,
+  addEntries, copyDay, dayEntries, deleteEntry, deleteFavorite, saveFavorite, updateEntry, updateFood, useFood, useFoodEntries,
 } from '../../lib/food/state.js'
 import { navigate } from '../../lib/router.js'
 import { useStore } from '../../lib/store.js'
 import { useAnimatedNumber } from '../../lib/useAnimatedNumber.js'
 import { Menu, MigrationNote, SwipeRow } from './common.jsx'
-import { Sparkline } from './charts.jsx'
 import EntrySheet from './EntrySheet.jsx'
 import EstimateSheet from './EstimateSheet.jsx'
 import FoodSettingsSheet from './FoodSettingsSheet.jsx'
 import MealShortcuts, { hasShortcuts, useMealShortcuts } from './MealShortcuts.jsx'
 import QuickAddBar from './QuickAddBar.jsx'
 import { MacroBars, Ring, ringState } from './ring.jsx'
-import WeightSheet from './WeightSheet.jsx'
 import {
-  confidenceLevel, dayLabel, defaultMeal, energyNumber, entryConfidence, entryName, fmtEnergy, fmtWeight, fmtWeightChange, isEstimate, isNum,
-  mealName, openDatePicker, plural, portionText, shortDay, unitLabel, weekdayLetter, weightUnitLabel,
+  confidenceLevel, dayLabel, defaultMeal, energyNumber, entryConfidence, entryName, fmtEnergy, isEstimate, isNum,
+  mealName, openDatePicker, plural, portionText, shortDay, unitLabel, weekdayLetter,
 } from './format.js'
 
 // #/food and #/food/day/<date>: the day's ring, meals and weight, with the quick-add bar.
@@ -49,12 +47,10 @@ function copyOf(entry, patch) {
 export default function DayView({ date, today, loaded }) {
   const food = useFood()
   const entries = useFoodEntries()
-  const bodyWeights = useBodyWeights()
-  const weightUnit = useWeightUnit()
   const offline = useStore((state) => state.offline)
   const { meals, energyUnit: unit, weekStart } = food.prefs
   const [targetMeal, setTargetMeal] = useState(null)
-  const [sheet, setSheet] = useState(null) // { type: 'entry' | 'actions' | 'weight' | 'copyDay' | 'settings', ... }
+  const [sheet, setSheet] = useState(null) // { type: 'entry' | 'actions' | 'copyDay' | 'settings', ... }
   const [estimate, setEstimate] = useState(null)
   const barRef = useRef(null)
   // The entry sheet keeps showing what it opened with while it slides away.
@@ -156,7 +152,8 @@ export default function DayView({ date, today, loaded }) {
           ) : (
             <section className="card food-summary" aria-busy="true"><Skeleton lines={4} /></section>
           )}
-          <WeightCard bodyWeights={bodyWeights} unit={weightUnit} today={today} targetKg={food.profile.targetKg} loaded={loaded} onLog={() => setSheet({ type: 'weight' })} />
+          {/* The shared weigh-in card (components/WeighIn.jsx); "Weigh in" logs for the day on screen. */}
+          <WeighIn className="food-weight" today={today} date={date} loaded={loaded} to="food/weight" headingLevel={2} />
         </div>
 
         <div className="food-day-main">
@@ -211,7 +208,6 @@ export default function DayView({ date, today, loaded }) {
         onEdit={(entry) => setSheet({ type: 'entry', entry })}
         onDelete={(entry) => { setSheet(null); removeEntry(entry) }}
       />
-      <WeightSheet open={sheet?.type === 'weight'} date={date} today={today} onClose={() => setSheet(null)} />
       <CopyDaySheet open={sheet?.type === 'copyDay'} date={date} today={today} count={rows.length} onClose={() => setSheet(null)} />
       <FoodSettingsSheet open={sheet?.type === 'settings'} onClose={() => setSheet(null)} />
       <EstimateSheet request={estimate} today={today} onClose={() => setEstimate(null)} onManual={openEntry} />
@@ -453,47 +449,6 @@ function EmptyMeal({ shortcuts, meal, date, today, food, onAdd }) {
     )
   }
   return <MealShortcuts shortcuts={shortcuts} meal={meal} date={date} today={today} food={food} />
-}
-
-// ---- weight -----------------------------------------------------------------------------------
-
-function WeightCard({ bodyWeights, unit, today, targetKg, loaded, onLog }) {
-  const trend = useMemo(() => weightTrend(bodyWeights, today, { targetKg }), [bodyWeights, today, targetKg])
-  const spark = useMemo(() => weightSeries(bodyWeights, addDaysISO(today, -29), today).map((point) => point.kg), [bodyWeights, today])
-  const u = weightUnitLabel(unit)
-  const change = trend.weeklyChangeKg
-  const icon = isNum(change) && Math.abs(change) >= 0.05 ? (change < 0 ? 'trendingDown' : 'trendingUp') : null
-
-  return (
-    <section className="card food-weight" aria-labelledby="food-weight-title">
-      <div className="food-card-head">
-        <h2 id="food-weight-title" className="food-card-title"><Icon name="scale" size={18} />Weight</h2>
-        <Button variant="secondary" size="sm" icon="plus" onClick={onLog}>Weigh in</Button>
-      </div>
-      {!loaded ? <Skeleton lines={2} /> : trend.latestKg === null ? (
-        <p className="food-weight-empty">Weigh in a few mornings a week and a smoothed trend shows here.</p>
-      ) : (
-        <button type="button" className="food-weight-body" onClick={() => navigate('food/weight')} aria-label={`Weight ${fmtWeight(trend.latestKg, unit)} ${u}. Open weight details`}>
-          <span className="food-weight-text">
-            <span className="food-weight-now">
-              <strong>{fmtWeight(trend.latestKg, unit)}</strong>
-              <small>{u}{trend.latestDate && trend.latestDate !== today ? ` · ${dayLabel(trend.latestDate, today)}` : ''}</small>
-            </span>
-            <span className="food-weight-change">
-              {isNum(change) ? (
-                <>
-                  {icon && <Icon name={icon} size={15} />}
-                  {fmtWeightChange(change, unit)} {u}/wk
-                </>
-              ) : 'Trend after a few weigh-ins'}
-            </span>
-          </span>
-          <Sparkline values={spark} width={96} height={34} />
-          <Icon name="chevronRight" size={18} className="food-weight-chevron" />
-        </button>
-      )}
-    </section>
-  )
 }
 
 // ---- row actions ------------------------------------------------------------------------------

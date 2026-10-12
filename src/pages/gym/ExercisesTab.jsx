@@ -3,6 +3,7 @@ import Icon from '../../components/ui/Icon.jsx'
 import { Button } from '../../components/ui/primitives.jsx'
 import { searchExercises } from '../../lib/gym/library.js'
 import { useGym, useGymSessions } from '../../lib/gym/state.js'
+import { primeKeyboard } from '../../lib/keyboard.js'
 import { navigate } from '../../lib/router.js'
 import { GymEmpty } from './common.jsx'
 import CustomExerciseSheet from './CustomExerciseSheet.jsx'
@@ -12,6 +13,8 @@ import './exercises.css'
 // The search and filters survive a trip to an exercise and back (GymPage restores the scroll).
 const remembered = { query: '', muscle: '', equipment: '' }
 
+// The library page with its own large title and "New exercise" as the round "+" beside it (the
+// screen's main add, as on Tasks and People; labelled on desktop).
 export default function ExercisesTab() {
   const gym = useGym()
   const sessions = useGymSessions()
@@ -54,8 +57,19 @@ export default function ExercisesTab() {
     setEquipment('')
   }
 
+  const startNew = () => {
+    primeKeyboard() // the sheet opens with the keyboard already up (iPhone), as on Tasks and People
+    setCreating({ name: trimmed })
+  }
+
   return (
     <div className="gym-lib">
+      <header className="page-header page-header-row">
+        <div className="page-header-text">
+          <h1>Exercises</h1>
+        </div>
+        <Button icon="plus" onClick={startNew}>New exercise</Button>
+      </header>
       <ExerciseFilters
         query={query}
         onQuery={setQuery}
@@ -63,11 +77,6 @@ export default function ExercisesTab() {
         onMuscle={setMuscle}
         equipment={equipment}
         onEquipment={setEquipment}
-        trailing={(
-          <button type="button" className="gym-lib-new" onClick={() => setCreating({ name: trimmed })} aria-label="New exercise" title="New exercise">
-            <Icon name="plus" size={22} />
-          </button>
-        )}
       />
 
       {results.length === 0 ? (
@@ -76,7 +85,7 @@ export default function ExercisesTab() {
           title="No exercises found"
           action={(
             <div className="gym-lib-empty-actions">
-              <Button icon="plus" onClick={() => setCreating({ name: trimmed })}>
+              <Button icon="plus" onClick={startNew}>
                 {trimmed ? `Create “${trimmed}”` : 'Create an exercise'}
               </Button>
               <Button variant="ghost" onClick={clearFilters}>{muscle || equipment ? (trimmed ? 'Clear search and filters' : 'Clear filters') : 'Clear search'}</Button>

@@ -6,7 +6,7 @@
    Food page has them too).
    ========================================================================================= */
 
-/* Header: the same anatomy as the Gym card (gym-widget.css) and the weight line below: 16px inset,
+/* Header: the same anatomy as the Gym card (gym-widget.css) and the weight card (weigh-in.css): 16px inset,
    40px leading ring, 12px gap, so the text starts at 68px; title 17/600, subtitle 15px. */
 .card.fq-card { display: flex; flex-direction: column; gap: 12px; padding: 14px 14px 14px 16px; }
 .fq-head { display: flex; align-items: center; gap: 12px; min-height: 40px; }
@@ -59,15 +59,6 @@
   background: var(--danger-soft); color: var(--danger); font-size: 14px; font-weight: 500;
 }
 .fq-error .icon { flex-shrink: 0; margin-top: 1px; }
-
-/* ---- Health Today's weight line (WeightCard): its rows come from today.css; these heavier
-   selectors give it the shared header anatomy (40px soft tile, text at 68px, 17/600 + 15px). ---- */
-.card.td-headline.td-weight { padding-left: 16px; }
-.card.td-weight .td-hl-line, .td-weight .td-weight-main { gap: 12px; }
-.card.td-weight .td-hl-line { min-height: 64px; }
-.td-weight .td-hl-icon.is-soft { width: 40px; height: 40px; border-radius: 12px; }
-.td-weight .td-hl-main { font-size: 17px; font-weight: 600; letter-spacing: -0.02em; }
-.td-weight .td-hl-sub { font-size: 15px; }
 
 /* ---- meal shortcut chips (MealShortcuts: the Food page's empty meals and this card) ----------- */
 
@@ -175,7 +166,7 @@ a.food-rv-src:active { opacity: 0.6; }
 
 /* ---- Plan → Today's Health glance (HealthGlance.jsx) -------------------------------------------
    Each line is a link to Health plus, sometimes, one pill for the next step (Start, Do it today,
-   Same as <day>), side by side like the weight line's Log button. */
+   Same as <day>), side by side like the weight card's Weigh in button. */
 .td-health-row.has-pill { gap: 10px; }
 .td-health-link { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; align-self: stretch; color: inherit; text-decoration: none; }
 .td-health-row.has-pill:active { opacity: 1; }
@@ -184,8 +175,8 @@ a.food-rv-src:active { opacity: 0.6; }
 .btn.td-health-pill .icon path { fill: currentColor; }
 @media (hover: hover) { .td-health-row.has-pill .td-health-link:hover .td-hl-main { color: var(--accent); } }
 
-/* ---- food coach: the evening protein nudge (FoodQuickCard) and the weigh-in nudge (WeightCard) --
-   One soft accent strip: the tappable suggestion, then a 44px ×. */
+/* ---- food coach: the evening protein nudge (FoodQuickCard; the weigh-in nudge copies it in
+   weigh-in.css). One soft accent strip: the tappable suggestion, then a 44px ×. */
 .fq-nudge {
   display: flex; align-items: center; gap: 2px; min-height: 44px; padding-left: 12px;
   border-radius: 14px; background: var(--accent-soft); color: var(--text);
@@ -203,16 +194,10 @@ a.food-rv-src:active { opacity: 0.6; }
 }
 .fq-nudge-main strong { font-weight: 600; color: var(--accent); }
 .fq-nudge-main:not(.is-static):active { opacity: 0.6; }
-.fq-nudge-x, .card.td-weight .td-nudge-x {
+.fq-nudge-x {
   flex-shrink: 0; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; color: var(--text-2);
 }
-.fq-nudge-x:active, .td-nudge-x:active { opacity: 0.6; }
-.card.td-weight .td-nudge-x { margin: 0 -6px; }
-/* The × leaves the line ~154 px on a 375 pt phone: wrap to 2 lines rather than cut the message. */
-.td-weight .td-hl-sub.td-nudge {
-  color: var(--accent); font-weight: 500; white-space: normal; line-height: 1.25;
-  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
-}
+.fq-nudge-x:active { opacity: 0.6; }
 
 /* ---- food coach: measured maintenance (Goals → MaintenanceCard; the Insights link) ------------ */
 .card.food-mx { display: flex; flex-direction: column; gap: 8px; padding: 16px 16px 14px; }
@@ -261,7 +246,7 @@ a.food-rv-src:active { opacity: 0.6; }
 }
 @media (hover: hover) {
   .fq-nudge-main:not(.is-static):hover strong, .food-ins-mx:hover { opacity: 0.8; }
-  .fq-nudge-x:hover, .td-nudge-x:hover { color: var(--text); }
+  .fq-nudge-x:hover { color: var(--text); }
 }
 @media (prefers-reduced-motion: reduce) {
   .food-cam-menu, .fq-nudge, .food-mx-confirm { animation: none; }

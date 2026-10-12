@@ -211,9 +211,6 @@ function ExercisesPage({ today }) {
           Routines
         </button>
       </div>
-      <header className="gym-st-head">
-        <h1>Exercises</h1>
-      </header>
       <ExercisesTab today={today} />
     </div>
   )
