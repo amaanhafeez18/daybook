@@ -27,6 +27,8 @@ import { dayTotals, remaining } from '../lib/food/nutrition.js'
 import { freshClass, scrollBehavior } from '../lib/motion.js'
 import { useSessionState } from '../lib/sessionState.js'
 import { voicePrefs } from '../lib/voice/prefs.js'
+import { getVoice, subscribeVoice } from '../lib/voice/session.js'
+import { cardWords } from '../components/voice/cardWords.js'
 import { useAiUsage, voiceBlocked } from '../lib/aiUsageClient.js'
 import ActionChips from '../components/ActionChips.jsx'
 import TalkButton, { prefetchVoice, voiceAvailable } from '../components/voice/TalkButton.jsx'
@@ -261,6 +263,38 @@ export default function AssistantPage({ displayName }) {
     }
     window.addEventListener('scroll', onScroll, { passive: true })
     return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+
+  // The dock's real height (offline line, tip, Prompts row, attachment tray, a taller field) as
+  // --dock-h, so the newest message scrolls clear of it (assistant.css .chat-end) instead of a guess.
+  useEffect(() => {
+    const dock = dockRef.current
+    const root = dock?.closest('.assistant')
+    if (!dock || !root || typeof ResizeObserver !== 'function') return undefined
+    const measure = () => root.style.setProperty('--dock-h', `${Math.round(dock.offsetHeight)}px`)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(dock)
+    return () => observer.disconnect()
+  }, [])
+
+  // A voice chat that just closed adds or updates its card: keep the newest message in view.
+  useEffect(() => {
+    let status = getVoice().status
+    let frame = 0
+    const unsubscribe = subscribeVoice(() => {
+      const next = getVoice().status
+      if (next === status) return
+      const closed = next === 'idle' && status !== 'idle'
+      status = next
+      if (!closed || !followRef.current) return
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => endRef.current?.scrollIntoView({ block: 'end', behavior: scrollBehavior() }))
+    })
+    return () => {
+      unsubscribe()
+      cancelAnimationFrame(frame)
+    }
   }, [])
 
   // While a reply streams in, jump rather than restart a smooth scroll on every token.
@@ -908,6 +942,7 @@ export default function AssistantPage({ displayName }) {
                     proposal={item.proposal}
                     createdAt={item.createdAt}
                     isLast={cardIsLast}
+                    yesLabel={cardWords(item.proposal).yes}
                     // Only a card this device is running spins; any other "executing" one was cut off.
                     busy={anyBusy && (cardIsLast || (!!confirmingId && item.proposal.id === confirmingId))}
                     onDecide={(decision) => onDecide(item.proposal.id, decision)}
@@ -1330,7 +1365,8 @@ function WorkoutOffer({ offer, proposal, actions, createdAt, disabled, onUse }) 
 // "I'll do:" with the server's labels, then Yes / No. Buttons work only on the newest message, and
 // not while a question with quick replies waits under it (the answer comes first). An expired card
 // on the newest message offers to check it again; a settled one further up is one line until tapped.
-export function ProposalCard({ proposal, createdAt, isLast, busy, question = false, onDecide, onAlternative, arriving = false, now = Date.now() }) {
+// `yesLabel`: the Yes button's words (the voice chat says "Log it" / "Save"; the chat keeps "Yes, do it").
+export function ProposalCard({ proposal, createdAt, isLast, busy, question = false, onDecide, onAlternative, arriving = false, now = Date.now(), yesLabel = 'Yes, do it' }) {
   const [expanded, setExpanded] = useState(false)
   const actions = (Array.isArray(proposal.actions) ? proposal.actions : [])
     .map((action, index) => ({ action, index }))
@@ -1398,7 +1434,7 @@ export function ProposalCard({ proposal, createdAt, isLast, busy, question = fal
         <div className="asst-proposal-actions">
           <button type="button" className="btn btn-primary btn-grow" disabled={!canDecide} aria-busy={status === 'executing' || undefined} onClick={() => onDecide('yes')}>
             {status === 'executing' ? <span className="spinner" aria-hidden="true" /> : <Icon name="check" size={18} strokeWidth={2.4} />}
-            {status === 'executing' ? 'Working…' : 'Yes, do it'}
+            {status === 'executing' ? 'Working…' : yesLabel}
           </button>
           <button type="button" className="btn btn-secondary asst-proposal-no" disabled={!canDecide} onClick={() => onDecide('no')}>No</button>
         </div>

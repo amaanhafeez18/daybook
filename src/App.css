@@ -725,6 +725,11 @@ select.input { background-image: linear-gradient(45deg, transparent 50%, var(--t
 .action-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .action-chips li { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px; font-size: 13px; font-weight: 500; }
 .action-chips li.is-ok { background: var(--success-soft); color: var(--success); }
+/* Small green text on its own tint is under 4.5:1 in light mode: nudged toward the text colour
+   (darker in light, lighter in dark), so it passes in every theme. */
+@supports (color: color-mix(in srgb, red, blue)) {
+  .action-chips li.is-ok { color: color-mix(in srgb, var(--success) 78%, var(--text)); }
+}
 .action-chips li.is-failed { background: var(--danger-soft); color: var(--danger); }
 
 .composer-dock { position: sticky; bottom: calc(var(--nav-h) + var(--safe-bottom)); z-index: 20; padding: 8px 0 12px; background: linear-gradient(to top, var(--bg) 70%, transparent); }

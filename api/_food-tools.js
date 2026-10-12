@@ -386,7 +386,10 @@ function planLog(args, data, ctx) {
     const stated = num(item.calories)
     const fromMacros = macroCalories({ proteinG: num(item.protein_g), carbsG: num(item.carbs_g), fatG: num(item.fat_g), fiberG: num(item.fiber_g), alcoholG: num(item.alcohol_g) })
     const close = stated > 0 && fromMacros > 0 && Math.abs(stated - fromMacros) <= 0.3 * Math.max(stated, fromMacros)
-    const locked = savedFood || item.user_calories === true || boozy || close ? ['calories'] : []
+    // Macros that add up to nothing ("100 calories extra for miscellaneous" sent with 0/0/0) can't
+    // overrule a stated number.
+    const emptyMacros = stated > 0 && !(fromMacros > 0)
+    const locked = savedFood || item.user_calories === true || boozy || close || emptyMacros ? ['calories'] : []
     const clamped = clampEstimateItem({ ...item, name: name || 'Quick add', locked, options: [], assumptions: [] })
     if (clamped.calories === null) return { error: `Estimate the calories for "${name || 'each item'}" (kcal for the amount eaten) and try again.` }
     const extra = extrasOf(clamped)

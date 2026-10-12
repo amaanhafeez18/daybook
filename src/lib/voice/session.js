@@ -20,7 +20,7 @@ import { voicePrefs } from './prefs.js'
 import {
   applyEvent, createTranscript, dropItem, lastAssistantWords, orderedTurns, seedTurns, startSegment, storedTurns, transcriptFor,
 } from './transcript.js'
-import { HOLD_MIN_MS, HOLD_TAIL_MS, canContinue, capCheck, isEcho, newTalkId } from './policy.js'
+import { HOLD_MIN_MS, HOLD_TAIL_MS, canContinue, capCheck, isEcho, newTalkId, skipFollowUp, tapNote } from './policy.js'
 import { holdWakeLock, levelMeter, primeAudio, routeOf, setAudioSession, stopStream, lastRoute, supportsVoice as audioSupported } from './audio.js'
 import { connectRealtime } from './rtc.js'
 
@@ -58,6 +58,9 @@ const IDLE = {
   seconds: 0, usd: 0, mode: 'open', muted: false, holding: false, keyboard: false, quiet: false,
   route: 'speaker', error: null, pauseReason: null, endReason: null, intro: null,
   turns: [], actions: [], proposal: null, deciding: false, working: 0,
+  // The last Yes/No tapped on the card: { proposalId, decision, ok, status, already, at } (the screen
+  // can confirm it; Daybook says it out loud).
+  ack: null,
   notice: null, warnTime: false, leftSec: null, hasUserTurn: false, startedAt: null,
   summary: null, limits: null, dailyMinutes: 30, budgetUsd: 0, spentUsd: 0, startChips: [],
 }
@@ -475,6 +478,7 @@ function requestResponse(c, options = replyOptions(c)) {
   }
   c.pendingCreate = null
   c.lastCreate = options || true
+  c.createSentAt = Date.now()
   send(c, options ? { type: 'response.create', response: options } : { type: 'response.create' })
 }
 
@@ -548,6 +552,7 @@ function onEvent(c, event) {
         c.activeResponseId = id
         c.responseUser[id] = c.lastUserItemId
       }
+      c.createSentAt = 0
       c.idleSec = 0
       break
     }
@@ -610,6 +615,7 @@ function onResponseDone(c, response) {
   if (c.pendingCreate && !c.activeResponseId) {
     const options = c.pendingCreate === true ? null : c.pendingCreate
     c.pendingCreate = null
+    c.createSentAt = Date.now()
     send(c, options ? { type: 'response.create', response: options } : { type: 'response.create' })
   }
   maybeCheckpoint(c)
@@ -623,6 +629,7 @@ function hasAudio(response) {
 let lastErrorNotice = 0
 function onError(c, error) {
   const code = String(error.code || error.type || '')
+  c.createSentAt = 0
   if (code === 'conversation_already_has_active_response') {
     c.pendingCreate = c.pendingCreate || c.lastCreate || true
     return
@@ -762,12 +769,25 @@ async function runCalls(c, calls, responseId) {
   for (const item of calls) {
     send(c, { type: 'conversation.item.create', item: { type: 'function_call_output', call_id: item.call_id, output: outputs.get(item.call_id) || JSON.stringify({ ok: false, message: 'Not run.' }) } })
   }
-  if (!(calls.length === 1 && endCall)) requestResponse(c)
+  // Like the text assistant: when every call was staged cleanly and Daybook already asked whether to
+  // go ahead in this response, it doesn't read the card back a second time.
+  const said = responseSpeech(responseId)
+  const quietAfter = skipFollowUp({ calls: calls.map((item) => ({ name: item.name, output: outputs.get(item.call_id) })), said })
+  // (A reply queued meanwhile, like a typed turn, still goes out.)
+  if (!(calls.length === 1 && endCall) && (!quietAfter || c.pendingCreate)) requestResponse(c)
   if (endCall) {
     waitForSpeechEnd(c, SPEECH_END_WAIT_MS).then(() => {
       if (live(c)) finishSegment(c, 'user')
     })
   }
+}
+
+// What Daybook said (as heard) in one response.
+function responseSpeech(responseId) {
+  const record = responseId ? talk?.transcript.responses[responseId] : null
+  if (!record) return ''
+  return record.items.map((id) => talk.transcript.items[id]).filter((item) => item?.kind === 'message' && item.role === 'assistant')
+    .map((item) => String(item.text || '').trim()).filter(Boolean).join(' ')
 }
 
 function timeoutSignal(ms) {
@@ -784,6 +804,9 @@ async function askDaybook(c, args, heardItemId = null) {
   const request = String(args?.request || '').trim()
   if (!request) return JSON.stringify({ ok: false, message: 'Say what to ask Daybook in one sentence.' })
   set({ working: state.working + 1 })
+  // A hand-off settles every card still waiting (the full assistant starts a new turn): if this call's
+  // card was waiting, the model is told it's gone, so it doesn't ask for a yes to it later.
+  const waitingBefore = talk.proposal?.status === 'pending' ? talk.proposal : null
   try {
     await Promise.race([checkpoint(c).catch(noop), new Promise((resolve) => setTimeout(resolve, 4000))])
     const reply = await apiRequest('/api/assistant', {
@@ -795,11 +818,14 @@ async function askDaybook(c, args, heardItemId = null) {
     applyResult({ actions: reply?.actions, proposal: reply?.proposal, proposalUpdate: reply?.proposalUpdate, dataChanged: reply?.dataChanged })
     const waiting = Array.isArray(reply?.proposal?.actions) ? reply.proposal.actions.map((action) => action?.label).filter(Boolean) : []
     const done = Array.isArray(reply?.actions) ? reply.actions.map((action) => action?.message).filter(Boolean) : []
+    const replaced = waitingBefore && reply?.proposal?.id !== waitingBefore.id ? waitingBefore : null
+    if (replaced) patchProposal({ id: replaced.id, status: 'superseded' })
     return JSON.stringify({
       ok: true,
       reply: String(reply?.reply || '').slice(0, 600),
       ...(waiting.length ? { waiting_for_yes: waiting } : {}),
       ...(done.length ? { done } : {}),
+      ...(replaced ? { replaced: `${String(replaced.summary || 'The change that was waiting').slice(0, 200)}: no longer waiting and not saved. Stage it again if they still want it.` } : {}),
       ...(Array.isArray(reply?.choices) && reply.choices.length ? { choices: reply.choices.slice(0, 6) } : {}),
     })
   } catch (error) {
@@ -1398,27 +1424,58 @@ export function sendTyped(text) {
   return true
 }
 
-// Yes / No on the card waiting for a yes.
+// Save / No tapped on the card waiting for a yes. Daybook stops talking, the card is answered, and
+// Daybook says in one short spoken line that it's saved (or not): the model is told the card is
+// settled, so it never calls confirm_pending for it (which used to come back "nothing is waiting").
+// A reply that is running, or was asked for and is about to start, when a tap has settled the card:
+// it would ask "Save it?" about something already saved. Waits at most ~1 s for one just requested.
+async function cancelStale(c) {
+  const until = Date.now() + 1000
+  while (live(c) && !c.activeResponseId && c.createSentAt && Date.now() - c.createSentAt < 2500 && Date.now() < until) {
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+  if (live(c) && (c.activeResponseId || c.speaking)) cancelResponse(c)
+}
+
 export async function decideCard(proposalId, decision) {
   if (!talk || !proposalId || state.deciding) return
   const c = call
+  const yes = decision === 'yes'
   set({ deciding: true })
-  if (decision === 'yes') patchProposal({ id: proposalId, status: 'executing', executingAt: new Date().toISOString() })
+  // Usually it was still reading the card back or asking "Save it?".
+  if (live(c) && (c.activeResponseId || c.speaking)) cancelResponse(c)
+  const summary = talk.proposal?.id === proposalId ? talk.proposal.summary || '' : ''
+  // The version of the card on screen: if it changed on the server meanwhile, the tap doesn't count.
+  const revision = talk.proposal?.id === proposalId ? talk.proposal.revision || 1 : undefined
+  if (yes) patchProposal({ id: proposalId, status: 'executing', executingAt: new Date().toISOString(), answeredBy: 'tap' })
   try {
     const result = await apiRequest('/api/voice?op=confirm', {
       method: 'POST',
-      body: { talkId: talk.talkId, proposalId, decision: decision === 'yes' ? 'yes' : 'no', tapped: true, context: clientContext() },
+      body: { talkId: talk.talkId, proposalId, decision: yes ? 'yes' : 'no', tapped: true, revision, context: clientContext() },
     })
     applyResult(result)
-    if (!result?.proposalUpdate) patchProposal({ id: proposalId, status: result?.ok === false ? 'failed' : decision === 'yes' ? 'done' : 'cancelled' })
+    if (result?.changed) {
+      // The server's newer card replaces the one on screen (still waiting); nothing was saved.
+      if (!result.proposal) patchProposal({ id: proposalId, status: 'pending', executingAt: undefined, answeredBy: undefined })
+      toast('The card just changed. Check it and tap again.')
+      return
+    }
+    const failed = result?.ok === false
+    if (!result?.proposalUpdate) patchProposal({ id: proposalId, status: failed ? 'failed' : yes ? 'done' : 'cancelled', answeredBy: 'tap' })
+    else if (!result.proposalUpdate.answeredBy) patchProposal({ id: proposalId, answeredBy: 'tap' })
+    const status = talk.proposal?.id === proposalId ? talk.proposal.status : (failed ? 'failed' : yes ? 'done' : 'cancelled')
+    set({ ack: { proposalId, decision: yes ? 'yes' : 'no', ok: !failed, status, already: result?.already === true, at: Date.now() } })
     if (live(c)) {
-      const said = String(result?.say || (decision === 'yes' ? 'done' : 'nothing was saved')).slice(0, 400)
-      systemItem(c, `(The user tapped ${decision === 'yes' ? 'Yes' : 'No'} on the card. Result: ${said})`)
+      // A reply that started while the tap was on its way (a follow-up sent just before it) is stale.
+      await cancelStale(c)
+      const chips = (Array.isArray(result?.actions) ? result.actions : []).map((action) => action?.message).filter(Boolean)
+      systemItem(c, tapNote({ decision: yes ? 'yes' : 'no', status, what: chips.join('; ') || summary, said: result?.say || '' }))
       c.lastTurnTyped = false
-      requestResponse(c)
+      // Spoken (a tap isn't typing), unless the keyboard is open with Quiet replies on.
+      requestResponse(c, state.quiet && state.keyboard ? { output_modalities: ['text'] } : null)
     }
   } catch (error) {
-    patchProposal({ id: proposalId, status: talk.proposal?.status === 'executing' ? 'pending' : talk.proposal?.status })
+    patchProposal({ id: proposalId, status: talk.proposal?.status === 'executing' ? 'pending' : talk.proposal?.status, answeredBy: undefined })
     toast(error?.message || 'That didn’t work. Please try again.', { tone: 'error' })
   } finally {
     set({ deciding: false })

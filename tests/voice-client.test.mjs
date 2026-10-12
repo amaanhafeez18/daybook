@@ -4,6 +4,7 @@ import {
   NOT_CAUGHT, applyEvent, createTranscript, dropItem, lastAssistantWords, latestPair, orderedTurns, seedTurns, startSegment, storedTurns, transcriptFor,
 } from '../src/lib/voice/transcript.js'
 import { canContinue, capCheck, clock, echoScore, isEcho, newTalkId, routeFromLabel } from '../src/lib/voice/policy.js'
+import { cardWords } from '../src/components/voice/cardWords.js'
 
 // Feeds a list of realtime events (shapes from the live probe) into a fresh transcript.
 function feed(events, state = createTranscript()) {
@@ -270,5 +271,36 @@ describe('policy: helpers', () => {
     assert.equal(clock(3725), '1:02:05')
     assert.match(newTalkId(), /^talk_[a-z0-9]{8,32}$/)
     assert.notEqual(newTalkId(), newTalkId())
+  })
+})
+
+describe('cardWords (the voice card says what Yes does)', () => {
+  const card = (...tools) => ({ actions: tools.map((tool) => ({ label: 'x', tool })) })
+  test('food, a workout, a weight or a catch-up: Log it', () => {
+    assert.deepEqual(cardWords(card('food_log')), { yes: 'Log it', say: 'yes, log it' })
+    assert.equal(cardWords(card('food_log', 'gym_quick_log')).yes, 'Log it')
+    assert.equal(cardWords(card('gym_log_workout')).yes, 'Log it')
+    assert.equal(cardWords(card('log_contact')).yes, 'Log it')
+  })
+  test('the journal: Save entry; anything else: Save', () => {
+    assert.equal(cardWords(card('write_journal')).yes, 'Save entry')
+    assert.deepEqual(cardWords(card('create_task', 'food_log')), { yes: 'Save', say: 'yes, save it' })
+    assert.equal(cardWords(card('update_settings')).yes, 'Save')
+  })
+  test('a delete, or a card without tools, keeps the plain Yes', () => {
+    assert.equal(cardWords(card('delete_task')).yes, 'Yes, do it')
+    assert.equal(cardWords(card('create_task', 'delete_event')).yes, 'Yes, do it')
+    assert.equal(cardWords({ actions: [{ label: 'Something' }] }).yes, 'Yes, do it')
+    assert.equal(cardWords(null).yes, 'Yes, do it')
+  })
+  test('deletes anywhere in the name keep the plain Yes; edits and goals say Save', () => {
+    for (const tool of ['food_delete_entry', 'weight_delete', 'gym_delete_session', 'gym_delete_routine', 'gym_delete_exercise', 'forget', 'delete_task_forever']) {
+      assert.deepEqual(cardWords(card(tool)), { yes: 'Yes, do it', say: 'yes' }, tool)
+    }
+    assert.equal(cardWords(card('food_log', 'food_delete_entry')).yes, 'Yes, do it')
+    for (const tool of ['food_set_goals', 'food_update_entry', 'food_update_prefs', 'food_calculate_goals', 'gym_edit_session']) {
+      assert.equal(cardWords(card(tool)).yes, 'Save', tool)
+    }
+    assert.equal(cardWords(card('gym_log_bodyweight', 'food_copy_entries')).yes, 'Log it')
   })
 })

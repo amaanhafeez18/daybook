@@ -195,9 +195,18 @@ describe('POST ?op=tools', () => {
     const second = await run('tools', { talkId: TALK, ...heard('add milk and eggs'), calls: [tool('save_note', { text: 'Eggs are free range' })] })
     assert.equal(second.body.proposal.id, first.body.proposal.id, 'same card')
     assert.equal(talkOf(supabase, TALK).proposal.staged.length, 2)
-    const third = await run('tools', { talkId: TALK, ...heard('also remind me about rent', 'item_u2'), calls: [tool('create_task', { text: 'Rent reminder' })] })
-    assert.notEqual(third.body.proposal.id, first.body.proposal.id)
+    // A later turn with the same kind of change updates the waiting card in place (a new revision
+    // with a fresh turn, so only an answer to the new read-back confirms it).
+    const third = await run('tools', { talkId: TALK, ...heard('actually just the eggs, and rent', 'item_u2'), calls: [tool('create_task', { text: 'Rent reminder' })] })
+    assert.equal(third.body.proposal.id, first.body.proposal.id, 'the same card, updated')
+    assert.equal(third.body.proposal.revision, 2)
+    assert.equal(third.body.proposalUpdate, null, 'nothing superseded')
     assert.equal(talkOf(supabase, TALK).proposal.staged.length, 1)
+    assert.equal(talkOf(supabase, TALK).proposal.turnId, 'item_u2')
+    // A different kind of change is a new card; the old one is replaced.
+    const fourth = await run('tools', { talkId: TALK, ...heard('write in my journal that today was calm', 'item_u3'), calls: [tool('write_journal', { date: TODAY, body: 'A calm day.' })] })
+    assert.notEqual(fourth.body.proposal.id, first.body.proposal.id)
+    assert.deepEqual(fourth.body.proposalUpdate, { id: first.body.proposal.id, status: 'superseded' })
   })
 
   test('tools the call doesn’t have, bad JSON and unknown refs are refused for the model', async () => {
@@ -269,16 +278,81 @@ describe('answering a card', () => {
     assert.equal(talkOf(supabase, TALK).proposal.status, 'cancelled')
   })
 
-  test('a tapped yes runs once; a second tap finds nothing waiting', async () => {
+  test('a tapped yes runs once; a second tap hears it is already saved', async () => {
     const { run, supabase, card } = await staged()
     const first = await run('confirm', { talkId: TALK, proposalId: card.id, decision: 'yes', tapped: true })
     assert.equal(first.body.ok, true)
     assert.equal(first.body.dataChanged, true)
     assert.equal(first.body.proposalUpdate.status, 'done')
+    assert.equal(first.body.proposalUpdate.answeredBy, 'tap')
+    assert.equal(talkOf(supabase, TALK).proposal.answeredBy, 'tap')
     const second = await run('confirm', { talkId: TALK, proposalId: card.id, decision: 'yes', tapped: true })
-    assert.equal(second.body.ok, false)
-    assert.match(second.body.say, /Nothing is waiting/)
+    assert.equal(second.body.ok, true)
+    assert.equal(second.body.already, true)
+    assert.equal(second.body.say, 'Already saved.')
     assert.equal(supabase.db.tables.tasks.filter((task) => task.text === 'Call mom').length, 1)
+  })
+
+  // The owner's case: they tapped Save while Daybook was still asking, then said "yes confirm add".
+  test('a spoken yes after the card was tapped: "already saved", never "nothing was added"', async () => {
+    const { run, supabase, card } = await staged()
+    await run('confirm', { talkId: TALK, proposalId: card.id, decision: 'yes', tapped: true })
+    const reply = await run('tools', { talkId: TALK, heard: 'yes confirm add', heardItemId: 'item_u2', calls: [tool('confirm_pending', { decision: 'yes' })] })
+    const output = outputOf(reply)
+    assert.equal(output.ok, true)
+    assert.equal(output.done, true)
+    assert.equal(output.already, true)
+    assert.match(output.message, /Already saved: they tapped Save/)
+    assert.doesNotMatch(reply.body.outputs[0].output, /Nothing is waiting/)
+    assert.equal(supabase.db.tables.tasks.filter((task) => task.text === 'Call mom').length, 1, 'not saved twice')
+    const no = await run('tools', { talkId: TALK, heard: 'no wait', heardItemId: 'item_u3', calls: [tool('confirm_pending', { decision: 'no' })] })
+    assert.match(outputOf(no).message, /already saved .*undo_last/)
+  })
+
+  test('a tap on a card that changed since the phone showed it saves nothing', async () => {
+    const { run, supabase, card } = await staged()
+    const amended = await run('tools', { talkId: TALK, heard: 'and add pick up the parcel too', heardItemId: 'item_u2', calls: [tool('create_task', { text: 'Call mom', date: TOMORROW }), tool('create_task', { text: 'Pick up the parcel', date: TOMORROW })] })
+    assert.equal(amended.body.proposal.id, card.id, 'changed in place')
+    assert.equal(amended.body.proposal.revision, 2)
+    const stale = await run('confirm', { talkId: TALK, proposalId: card.id, decision: 'yes', tapped: true, revision: 1 })
+    assert.equal(stale.body.ok, false)
+    assert.equal(stale.body.changed, true)
+    assert.equal(stale.body.proposal.revision, 2)
+    assert.equal(talkOf(supabase, TALK).proposal.status, 'pending')
+    assert.ok(!supabase.db.tables.tasks.some((task) => task.text === 'Pick up the parcel'), 'nothing saved')
+    const fresh = await run('confirm', { talkId: TALK, proposalId: card.id, decision: 'yes', tapped: true, revision: 2 })
+    assert.equal(fresh.body.ok, true)
+    assert.ok(supabase.db.tables.tasks.some((task) => task.text === 'Pick up the parcel'))
+  })
+
+  test('after a tap saved it, the whole list sent again is flagged, not silently staged twice', async () => {
+    const { run } = setup({ settings: {} })
+    const first = await run('tools', { talkId: TALK, heard: 'log breakfast: scrambled eggs and toast', heardItemId: 'item_u1', calls: [tool('food_log', { date: TODAY, meal: 'breakfast', items: [{ name: 'Scrambled eggs', calories: 200 }, { name: 'Toast', calories: 150 }] })] })
+    await run('confirm', { talkId: TALK, proposalId: first.body.proposal.id, decision: 'yes', tapped: true, revision: 1 })
+    const again = await run('tools', { talkId: TALK, heard: 'and add a chocolate bar', heardItemId: 'item_u2', calls: [tool('food_log', { date: TODAY, meal: 'breakfast', items: [{ name: 'Scrambled eggs', calories: 200 }, { name: 'Toast', calories: 150 }, { name: 'Chocolate bar', calories: 250 }] })] })
+    const output = outputOf(again)
+    assert.equal(output.staged, true, again.body.outputs[0].output)
+    assert.match(output.warning, /^Already saved a moment ago: Scrambled eggs, Toast\./)
+    const only = await run('tools', { talkId: TALK, heard: 'just the chocolate bar', heardItemId: 'item_u3', calls: [tool('food_log', { date: TODAY, meal: 'breakfast', items: [{ name: 'Chocolate bar', calories: 250 }] })] })
+    assert.equal(outputOf(only).warning, undefined)
+  })
+
+  test('calories they said stand even with macros of 0 ("100 calories extra for miscellaneous")', async () => {
+    const { run, supabase } = setup({ settings: { assistantConfirm: 'off' } })
+    const reply = await run('tools', { talkId: TALK, heard: 'and add 100 calories extra for miscellaneous', heardItemId: 'item_u1', calls: [tool('food_log', { date: TODAY, items: [{ name: 'Miscellaneous', calories: 100, protein_g: 0, carbs_g: 0, fat_g: 0 }, { name: 'Rice', calories: 300, protein_g: 2, carbs_g: 5, fat_g: 1 }] })] })
+    assert.equal(outputOf(reply).done, true, reply.body.outputs[0].output)
+    const byName = Object.fromEntries(supabase.db.tables.food_entries.map((row) => [row.name, row.calories]))
+    assert.equal(byName.Miscellaneous, 100)
+    assert.ok(byName.Rice < 100, 'a number they didn’t say still follows its macros')
+  })
+
+  test('a spoken no after a tapped No: "already cancelled"', async () => {
+    const { run, card } = await staged()
+    const tap = await run('confirm', { talkId: TALK, proposalId: card.id, decision: 'no', tapped: true })
+    assert.equal(tap.body.proposalUpdate.status, 'cancelled')
+    const reply = await run('tools', { talkId: TALK, heard: 'no', heardItemId: 'item_u2', calls: [tool('confirm_pending', { decision: 'no' })] })
+    assert.equal(outputOf(reply).cancelled, true)
+    assert.equal(outputOf(reply).already, true)
   })
 
   test('a card that waited too long expires instead of running', async () => {
@@ -487,5 +561,105 @@ describe('GET ?op=usage', () => {
     const { run } = setup()
     assert.equal((await run('usage', {})).status, 405)
     assert.equal((await run('nope', {})).status, 400)
+  })
+})
+
+// "I did legs and shoulders": the kind of day, then the sets, logged by the voice model itself.
+describe('gym sets by voice', () => {
+  const lb = { gym: { prefs: { unit: 'lb' } } }
+  const legsDay = [
+    { name: 'Squats', sets: 3, reps: 10, weight: 135 },
+    { name: 'leg press', sets: 3, reps: 12, weight: 270 },
+    { name: 'dumbbell shoulder press', sets: 3, reps: 8, weight: 40 },
+  ]
+  const setCounts = (session) => session.exercises.map((exercise) => [exercise.name, exercise.sets.length, exercise.sets[0].reps])
+
+  test('flat entries log every set, under the name of the day they said, with a read-back', async () => {
+    const { run, supabase } = setup({ settings: { ...lb, assistantConfirm: 'changes' } })
+    const reply = await run('tools', { talkId: TALK, heard: 'legs and shoulders today, squats 3 sets of 10 at 135…', heardItemId: 'item_u1', calls: [tool('gym_log_workout', { date: TODAY, routine: 'Legs and shoulders', exercises: legsDay })] })
+    const output = outputOf(reply)
+    assert.equal(output.done, true, reply.body.outputs[0].output)
+    assert.equal(output.readBack, 'Squats 3 by 10 at 135 lb, leg press 3 by 12 at 270, dumbbell shoulder press 3 by 8 at 40')
+    const [session] = supabase.db.tables.gym_sessions
+    assert.equal(session.name, 'Legs & Shoulders')
+    assert.deepEqual(setCounts(session), [['Squat (Barbell)', 3, 10], ['Leg Press (Machine)', 3, 12], ['Seated Shoulder Press (Dumbbell)', 3, 8]])
+  })
+
+  test('a set count sent inside the set ("sets": 3) still logs 3 sets', async () => {
+    const { run, supabase } = setup({ settings: { ...lb, assistantConfirm: 'off' } })
+    await run('tools', { talkId: TALK, heard: 'squats 3 sets of 10 at 135', heardItemId: 'item_u1', calls: [tool('gym_log_workout', { date: TODAY, exercises: [{ name: 'Squat (Barbell)', sets: [{ sets: 3, reps: 10, weight: 135 }] }] })] })
+    assert.deepEqual(setCounts(supabase.db.tables.gym_sessions[0]), [['Squat (Barbell)', 3, 10]])
+  })
+
+  test('sets after a saved quick log fill that workout instead of adding a second one', async () => {
+    const { run, supabase } = setup({ settings: { ...lb, assistantConfirm: 'changes' } })
+    const quick = await run('tools', { talkId: TALK, heard: 'I did legs and shoulders this morning', heardItemId: 'item_u1', calls: [tool('gym_quick_log', { date: TODAY, routine: 'Legs and shoulders' })] })
+    assert.equal(outputOf(quick).done, true, quick.body.outputs[0].output)
+    assert.equal(supabase.db.tables.gym_sessions[0].name, 'Legs & Shoulders')
+    const sets = await run('tools', { talkId: TALK, heard: 'squats 3 by 10 at 135, leg press 3 by 12 at 270, dumbbell shoulder press 3 by 8 with 40s', heardItemId: 'item_u2', calls: [tool('gym_log_workout', { date: TODAY, routine: 'Legs and shoulders', exercises: legsDay })] })
+    assert.equal(outputOf(sets).done, true, sets.body.outputs[0].output)
+    assert.equal(supabase.db.tables.gym_sessions.length, 1, 'one workout')
+    assert.equal(supabase.db.tables.gym_sessions[0].exercises.length, 3)
+  })
+
+  test('confirm "all": the workout card replaces the quick-log card (a different kind of change)', async () => {
+    const { run, supabase } = setup({ settings: lb })
+    const quick = await run('tools', { talkId: TALK, heard: 'did legs and shoulders', heardItemId: 'item_u1', calls: [tool('gym_quick_log', { date: TODAY, routine: 'Legs and shoulders' })] })
+    const sets = await run('tools', { talkId: TALK, heard: 'squats 3 by 10 at 135…', heardItemId: 'item_u2', calls: [tool('gym_log_workout', { date: TODAY, routine: 'Legs and shoulders', exercises: legsDay })] })
+    assert.equal(outputOf(sets).staged, true, sets.body.outputs[0].output)
+    assert.match(outputOf(sets).readBack, /^Squats 3 by 10 at 135 lb/)
+    assert.notEqual(sets.body.proposal.id, quick.body.proposal.id, 'a different kind of change is a new card')
+    assert.deepEqual(sets.body.proposalUpdate, { id: quick.body.proposal.id, status: 'superseded' })
+    const yes = await run('tools', { talkId: TALK, heard: 'yes log it', heardItemId: 'item_u3', calls: [tool('confirm_pending', { decision: 'yes' })] })
+    assert.equal(outputOf(yes).done, true, yes.body.outputs[0].output)
+    assert.equal(supabase.db.tables.gym_sessions.length, 1)
+    assert.equal(supabase.db.tables.gym_sessions[0].exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0), 9)
+  })
+
+  test('a barbell lift without a weight is asked about first; weight_unknown logs it as said', async () => {
+    const { run, supabase } = setup({ settings: { ...lb, assistantConfirm: 'off' } })
+    const bench = { name: 'barbell bench press', sets: 3, reps: 8 }
+    const reply = await run('tools', { talkId: TALK, heard: 'I did chest: barbell bench press 3 sets of 8', heardItemId: 'item_u1', calls: [tool('gym_log_workout', { date: TODAY, routine: 'Chest', exercises: [bench, { name: 'push-ups', sets: 2, reps: 20 }] })] })
+    const output = outputOf(reply)
+    assert.equal(output.ok, false, reply.body.outputs[0].output)
+    assert.equal(output.needsWeight, 'Bench Press (Barbell)')
+    assert.match(output.message, /Ask in a few words/)
+    assert.equal(supabase.db.tables.gym_sessions.length, 0)
+    const unknown = await run('tools', { talkId: TALK, heard: 'I don’t remember', heardItemId: 'item_u2', calls: [tool('gym_log_workout', { date: TODAY, routine: 'Chest', weight_unknown: true, exercises: [bench] })] })
+    assert.equal(outputOf(unknown).done, true, unknown.body.outputs[0].output)
+    assert.equal(supabase.db.tables.gym_sessions.length, 1)
+  })
+
+  test('sets for a different kind of day don’t fill a quick log ("Cardio", then "Push")', async () => {
+    const { run, supabase } = setup({ settings: { ...lb, assistantConfirm: 'changes' } })
+    await run('tools', { talkId: TALK, heard: 'did cardio this morning', heardItemId: 'item_u1', calls: [tool('gym_quick_log', { date: TODAY, routine: 'Cardio' })] })
+    const push = await run('tools', { talkId: TALK, heard: 'push tonight, bench 3 by 8 at 135', heardItemId: 'item_u2', calls: [tool('gym_log_workout', { date: TODAY, routine: 'Push', exercises: [{ name: 'barbell bench press', sets: 3, reps: 8, weight: 135 }] })] })
+    assert.equal(outputOf(push).done, true, push.body.outputs[0].output)
+    assert.equal(supabase.db.tables.gym_sessions.length, 2, 'the cardio quick log is kept')
+  })
+
+  test('Undo on a quick log that sets filled since refuses, and the sets have no Undo of their own', async () => {
+    const { run, supabase } = setup({ settings: { ...lb, assistantConfirm: 'changes' } })
+    await run('tools', { talkId: TALK, heard: 'I did legs and shoulders this morning', heardItemId: 'item_u1', calls: [tool('gym_quick_log', { date: TODAY, routine: 'Legs and shoulders' })] })
+    await run('tools', { talkId: TALK, heard: 'squats 3 by 10 at 135', heardItemId: 'item_u2', calls: [tool('gym_log_workout', { date: TODAY, routine: 'Legs and shoulders', exercises: legsDay.slice(0, 1) })] })
+    const chips = talkOf(supabase, TALK).actions
+    assert.equal(chips.length, 2)
+    assert.ok(chips[0].undoId, 'the quick log has an Undo')
+    assert.equal(chips[1].undoId, undefined, 'the filled sets have none')
+    const undo = await run('tools', { talkId: TALK, heard: 'undo that', heardItemId: 'item_u3', calls: [tool('undo_last', {})] })
+    assert.equal(outputOf(undo).ok, false, undo.body.outputs[0].output)
+    assert.match(outputOf(undo).message, /sets were added/)
+    assert.equal(supabase.db.tables.gym_sessions.length, 1)
+    assert.equal(supabase.db.tables.gym_sessions[0].exercises.length, 1)
+  })
+
+  test('an unclear exercise comes back as a short question, and nothing is logged', async () => {
+    const { run, supabase } = setup({ settings: { ...lb, assistantConfirm: 'off' } })
+    const reply = await run('tools', { talkId: TALK, heard: 'dumbbell press 3 by 8 at 40', heardItemId: 'item_u1', calls: [tool('gym_log_workout', { date: TODAY, exercises: [{ name: 'dumbbell press', sets: 3, reps: 8, weight: 40 }] })] })
+    const output = outputOf(reply)
+    assert.equal(output.ok, false)
+    assert.ok(output.choices.includes('arnold press') && output.choices.includes('seated shoulder press'), output.message)
+    assert.match(output.message, /^Not logged yet: "dumbbell press" could be .* or /)
+    assert.equal(supabase.db.tables.gym_sessions.length, 0)
   })
 })

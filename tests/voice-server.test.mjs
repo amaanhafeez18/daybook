@@ -42,16 +42,20 @@ describe('voiceTools', () => {
   const allOn = voiceTools({})
   const names = allOn.map((item) => item.name)
 
-  test('23 tools with unique names: the shared ones as the text assistant defines them, then the voice-only ones', () => {
-    assert.equal(allOn.length, 23)
+  test('24 tools with unique names: the shared ones as the text assistant defines them, then the voice-only ones', () => {
+    assert.equal(allOn.length, 24)
     assert.equal(new Set(names).size, names.length)
-    assert.equal(VOICE_SHARED_TOOLS.length, 19)
+    assert.equal(VOICE_SHARED_TOOLS.length, 20)
     assert.deepEqual(VOICE_SERVER_TOOLS, [...VOICE_SHARED_TOOLS, 'confirm_pending', 'undo_last'])
     for (const item of allOn) {
       assert.equal(item.type, 'function')
       assert.equal('strict' in item, false, `${item.name} must not carry strict`)
       const shared = TOOL_DEFS.find((def) => def.name === item.name)
-      if (shared) {
+      if (item.name === 'gym_log_workout') {
+        // The voice schema: flat entries with a top-level set count (see voiceWorkoutArgs).
+        assert.deepEqual(item.parameters.properties.exercises.items.required, ['name', 'sets'])
+        assert.equal(item.parameters.properties.exercises.items.properties.sets.type, 'integer')
+      } else if (shared) {
         const { strict, ...rest } = shared
         assert.deepEqual(item, rest, `${item.name} is the text assistant's schema`)
       } else assert.ok(VOICE_ONLY_TOOLS.some((def) => def.name === item.name), `${item.name} is unknown`)
@@ -70,8 +74,8 @@ describe('voiceTools', () => {
     assert.deepEqual(names.filter((name) => !without({ people: false }).includes(name)), ['person_history', 'create_friend', 'update_friend', 'log_contact'])
     assert.deepEqual(names.filter((name) => !without({ journal: false }).includes(name)), ['read_journal', 'write_journal'])
     assert.deepEqual(names.filter((name) => !without({ food: false }).includes(name)), ['food_day', 'food_log'])
-    assert.deepEqual(names.filter((name) => !without({ gym: false }).includes(name)), ['gym_quick_log', 'gym_log_bodyweight'])
-    assert.equal(without({ people: true, gym: true }).length, 23)
+    assert.deepEqual(names.filter((name) => !without({ gym: false }).includes(name)), ['gym_quick_log', 'gym_log_workout', 'gym_log_bodyweight'])
+    assert.equal(without({ people: true, gym: true }).length, 24)
   })
 })
 
