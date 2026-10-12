@@ -5,9 +5,10 @@ import { isISODate, nowTimeHHMM, todayISO } from '../dates.js'
 import { getGym, useGym } from '../gym/state.js'
 import { getState, newId, updateData, updateSettings, useStore } from '../store.js'
 import {
-  ENTRY_SOURCES, FAVORITES_MAX, GOAL_KEYS, SAVED_SOURCES, appliedGoal, cleanEntry, entryMeal, entryTemplate, foodKey, macroCalories, mealForTime, normalizeFood,
+  ENTRY_SOURCES, FAVORITES_MAX, GOAL_KEYS, SAVED_SOURCES, appliedGoal, cleanEntry, entryMeal, entryTemplate, foodKey, macroCalories, normalizeFood,
   scaleEntry, sortDayEntries,
 } from './nutrition.js'
+import { learnedMealTimes, mealForNow } from './mealTimes.js'
 
 // Client glue for the food tracker: tolerant reads of settings.food and the foodEntries list,
 // and actions that save through the shared store (list actions return an undo). Body weight is
@@ -375,6 +376,14 @@ export function getFoodEntries() {
   return selectEntries(getState())
 }
 
+// The owner's usual time per meal, learned from their entries (see mealTimes.js); {} until there's
+// enough to go on.
+export function useMealTimes() {
+  const entries = useFoodEntries()
+  const { meals } = useFood().prefs
+  return learnedMealTimes(entries, meals, todayISO())
+}
+
 // Entries of one day in meal order, then by time.
 export function dayEntries(entries, date, meals) {
   return sortDayEntries(entryList(entries).filter((entry) => entry.date === date), meals)
@@ -393,7 +402,7 @@ function pickMeal(id, meals) {
 
 // A new row from anything entry-like; null when it has neither a name nor calories. Calories
 // missing but macros given: calories from the macros.
-function prepareEntry(raw, { today, now, createdAt, meals, taken }) {
+function prepareEntry(raw, { today, now, createdAt, meals, taken, learned }) {
   if (!isPlainObject(raw)) return null
   const clean = cleanEntry(raw)
   if (clean.calories === null) {
@@ -403,7 +412,7 @@ function prepareEntry(raw, { today, now, createdAt, meals, taken }) {
   if (!clean.name && clean.calories === null) return null
   const date = clean.date || today
   const time = clean.time || (date === today ? now : null)
-  const meal = meals.some((item) => item.id === clean.meal) ? clean.meal : pickMeal(time ? mealForTime(time) : 'snack', meals)
+  const meal = meals.some((item) => item.id === clean.meal) ? clean.meal : pickMeal(time ? mealForNow(time, learned()) : 'snack', meals)
   const id = validId(clean.id) && !taken.has(clean.id) ? clean.id : newId()
   return { ...clean, id, date, time, meal, createdAt }
 }
@@ -425,6 +434,8 @@ export function addEntries(entries, options) {
     createdAt: nowIso(),
     meals: getFood().prefs.meals,
     taken: new Set(rawList().map((entry) => entry?.id)),
+    // The owner's usual meal times, worked out only when a row needs a meal picked for it.
+    learned: () => learnedMealTimes(getFoodEntries(), getFood().prefs.meals, todayISO()),
   }
   const rows = []
   for (const raw of input) {

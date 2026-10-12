@@ -14,7 +14,7 @@ import MorningNote from '../components/MorningNote.jsx'
 import { readPref, writePref } from '../lib/api.js'
 import { getState, updateSettings, useData } from '../lib/store.js'
 import { MOODS, classOver, classesOn, compareTasks, createTask, deleteTaskForever, friendStatus, lastContactMap, saveJournalEntry, updateTask } from '../lib/planner.js'
-import { addDaysISO, compareTimes, dueSentence, formatDateLong, formatDuration, formatTime, formatTimeShort, greeting, nowTimeHHMM, timeAgo, todayISO } from '../lib/dates.js'
+import { WEEKDAY_SHORT, addDaysISO, compareTimes, dueSentence, formatDateLong, formatDuration, formatTime, formatTimeShort, greeting, nowTimeHHMM, timeAgo, todayISO } from '../lib/dates.js'
 import { eveningLeftovers, nowNext, timePassed } from '../lib/agenda.js'
 import { useLinger } from '../lib/useLinger.js'
 import { haptic } from '../lib/haptics.js'
@@ -26,6 +26,8 @@ import { dailyForecast, describeWeather, prayerSchedule, upcomingHours, useLocat
 import CardBoundary, { CardSkeleton } from '../components/CardBoundary.jsx'
 import { useAreas } from '../lib/areas.js'
 import { dismissRhythm, learnRhythms, readRhythms, restoreRhythm, rhythmLabel, showTimeChip, usualToday, visibleNow } from '../lib/rhythms.js'
+import { taskClashes } from '../lib/timing.js'
+import { dismissRadar, hasPrep, radarWhen, readRadar, restoreRadar, studyPlan, upcomingDeadlines } from '../lib/radar.js'
 import '../components/today.css'
 
 // The Health glance (gym + food state) loads as its own chunk so the first bundle stays small.
@@ -45,6 +47,7 @@ const PEOPLE_SHOWN = 3
 // details open on a tap (remembered per device). Areas turned off (lib/areas.js) don't appear.
 export default function TodayPage({ displayName, loaded }) {
   const tasks = useData('tasks')
+  const events = useData('events')
   const friends = useData('friends')
   const contactLogs = useData('contactLogs')
   const settings = useData('settings')
@@ -98,6 +101,7 @@ export default function TodayPage({ displayName, loaded }) {
           <TodayCard
             tasks={active}
             allTasks={tasks}
+            events={events}
             classes={classes}
             today={today}
             now={now}
@@ -161,7 +165,7 @@ export default function TodayPage({ displayName, loaded }) {
 // "14:30" from minutes after midnight, for the short time labels.
 const clock = (minutes) => `${String(Math.floor(minutes / 60) % 24).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`
 
-function TodayCard({ tasks, allTasks, classes, today, now, loaded, settings, journal, journalEntries, onOpen, onOpenClass }) {
+function TodayCard({ tasks, allTasks, events, classes, today, now, loaded, settings, journal, journalEntries, onOpen, onOpenClass }) {
   const tomorrow = addDaysISO(today, 1)
   const todayTasks = useMemo(() => tasks.filter((task) => task.date === today), [tasks, today])
   const open = useMemo(() => todayTasks.filter((task) => !task.done), [todayTasks])
@@ -187,6 +191,18 @@ function TodayCard({ tasks, allTasks, classes, today, now, loaded, settings, jou
     ...todayClasses.map((item, index) => ({ kind: 'class', key: `c-${item.id}-${item.time}-${index}`, time: item.time, item })),
   ].sort((a, b) => compareTimes(a.time, b.time) || (a.task && b.task ? compareTasks(a.task, b.task) : 0)), [open, done, lingering, todayClasses])
   const folded = done.filter((task) => !lingering.has(task.id))
+
+  // A timed task that overlaps a class, an event or another task says so on its row (lib/timing.js).
+  const clashes = useMemo(() => taskClashes({ tasks: todayTasks, events, classes, from: today, to: today }), [todayTasks, events, classes, today])
+
+  // "Coming up": exams and deadlines in the next week (lib/radar.js), at most two, each with
+  // "Plan 2 study blocks" when nothing is planned for it yet.
+  const radarPrefs = useMemo(() => readRadar(settings), [settings?.radar]) // eslint-disable-line react-hooks/exhaustive-deps
+  const deadlines = useMemo(
+    // A few spare: RadarRows drops tomorrow's ones that have nothing to offer (the Tomorrow card lists them).
+    () => (loaded ? upcomingDeadlines({ tasks, events, classes, today, dismissed: radarPrefs.dismissed }).slice(0, 4) : []),
+    [loaded, tasks, events, classes, today, radarPrefs],
+  )
 
   // "Now · Economics · until 4:30 PM" / "Next · Dentist 2:30 PM · in 25 min" / "Free until 4 PM · then Dentist".
   const line = useMemo(() => nowNext({ tasks: open, classSlots: todayClasses, nowMinutes }), [open, todayClasses, nowMinutes])
@@ -342,6 +358,7 @@ function TodayCard({ tasks, allTasks, classes, today, now, loaded, settings, jou
                     leaving={leaving.has(entry.task.id)}
                     onLeft={onLeft}
                     onToggle={onToggle}
+                    overlap={clashes[entry.task.id]}
                   />
                 )
                 : <ClassRow key={entry.key} item={entry.item} onOpen={onOpenClass} />))}
@@ -349,6 +366,8 @@ function TodayCard({ tasks, allTasks, classes, today, now, loaded, settings, jou
           )}
 
           {usual.length > 0 && <UsualRows list={usual} today={today} nowHHMM={nowHHMM} />}
+
+          {deadlines.length > 0 && <RadarRows list={deadlines} tasks={tasks} events={events} classes={classes} today={today} nowHHMM={nowHHMM} />}
 
           {leftovers.length > 0 && (
             <div className="td-section td-evening">
@@ -431,6 +450,69 @@ function UsualRows({ list, today, nowHHMM }) {
                   Add
                 </button>
               </span>
+            </li>
+          )
+        })}
+      </ul>
+    </section>
+  )
+}
+
+// "Coming up: ECON 101 midterm" / "Thu, in 4 days", × = Not now (remembered in settings.radar).
+// When nothing is planned for it yet: "Plan 2 study blocks", two tasks on the freest evenings
+// before it (lib/radar.js studyPlan), made through the planner so each gets its calendar event,
+// with one Undo for both. Nothing is added without the tap.
+function RadarRows({ list, tasks, events, classes, today, nowHHMM }) {
+  const plans = useMemo(() => Object.fromEntries(list.map((item) => [
+    item.key,
+    hasPrep(item, tasks, { today, classes }) ? [] : studyPlan({ item, tasks, events, classes, today, now: nowHHMM }),
+  ])), [list, tasks, events, classes, today, nowHHMM])
+  // A task due tomorrow is already in the Tomorrow card: it shows here only to offer a study block.
+  const tomorrow = addDaysISO(today, 1)
+  const shown = list.filter((item) => item.source !== 'task' || item.date !== tomorrow || (plans[item.key] || []).length > 0).slice(0, 2)
+
+  function plan(item) {
+    const blocks = plans[item.key] || []
+    if (!blocks.length) return
+    const created = blocks.map((block) => createTask({ text: block.text, date: block.date, time: block.time, priority: 'medium' }))
+    haptic('light')
+    const when = blocks.map((block) => `${block.date === today ? 'Today' : WEEKDAY_SHORT[new Date(`${block.date}T12:00:00`).getDay()]} ${formatTimeShort(block.time)}`).join(', ')
+    toast(`Study ${blocks.length === 1 ? 'block' : 'blocks'} added · ${when}`, {
+      action: { label: 'Undo', onClick: () => created.forEach((task) => deleteTaskForever(task.id)) },
+    })
+  }
+
+  function dismiss(item) {
+    const current = () => getState().data.settings?.radar
+    updateSettings({ radar: dismissRadar(current(), item.key, today) })
+    toast(`Hid “${truncate(item.title, 28)}”`, { action: { label: 'Undo', onClick: () => updateSettings({ radar: restoreRadar(current(), item.key) }) } })
+  }
+
+  if (!shown.length) return null
+  return (
+    <section className="td-section td-usual td-radar" aria-label="Coming up">
+      <ul className="td-usual-list">
+        {shown.map((item) => {
+          const blocks = plans[item.key] || []
+          const when = [radarWhen(item.date, today), item.time && formatTimeShort(item.time)].filter(Boolean).join(' · ')
+          return (
+            <li key={item.key} className="td-usual-row">
+              <span className="td-row-icon is-quiet" aria-hidden="true"><Icon name={item.className || item.exam ? 'graduation' : 'flag'} size={14} strokeWidth={2.2} /></span>
+              <span className="td-usual-text">
+                <span className="td-usual-title"><span className="td-usual-lead">Coming up: </span><strong>{item.title}</strong></span>
+                <span className="td-usual-sub">{when}</span>
+              </span>
+              <button type="button" className="td-usual-x" onClick={() => dismiss(item)} aria-label={`Not now: hide “${item.title}”`} title="Not now">
+                <Icon name="close" size={16} strokeWidth={2.2} />
+              </button>
+              {blocks.length > 0 && (
+                <span className="td-usual-actions">
+                  <button type="button" className="td-usual-btn is-add" onClick={() => plan(item)} aria-label={`Plan ${blocks.length === 1 ? 'a study block' : `${blocks.length} study blocks`} before “${item.title}”`}>
+                    <Icon name="calendarCheck" size={15} strokeWidth={2.2} />
+                    {blocks.length === 1 ? 'Plan a study block' : `Plan ${blocks.length} study blocks`}
+                  </button>
+                </span>
+              )}
             </li>
           )
         })}

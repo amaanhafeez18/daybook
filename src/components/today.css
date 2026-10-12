@@ -368,6 +368,8 @@
 .td-usual-title, .td-usual-sub { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .td-usual-title { color: var(--text); font-size: var(--fs-body, 17px); letter-spacing: -0.02em; }
 .td-usual-title strong { font-weight: 600; }
+/* "Coming up": the deadline's name is the point, so it gets two lines before it's cut. */
+.td-radar .td-usual-title { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow-wrap: anywhere; }
 .td-usual-sub { color: var(--text-2); font-size: var(--fs-subhead, 15px); letter-spacing: -0.01em; }
 .td-today .td-usual-x {
   grid-column: 3; grid-row: 1; justify-self: end; display: grid; place-items: center;

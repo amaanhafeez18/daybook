@@ -11,14 +11,15 @@ import { useAnimatedNumber } from '../lib/useAnimatedNumber.js'
 import { proteinNudge } from '../lib/food/coach.js'
 import { dayTotals, entryCalories, entryMeal, foodKey, recents } from '../lib/food/nutrition.js'
 import { matchFoods, quickRow } from '../lib/food/shortcuts.js'
-import { addEntries, dayEntries, estimateFood, setNudge, useFood, useFoodEntries } from '../lib/food/state.js'
+import { nowMeal as usualMealNow } from '../lib/food/mealTimes.js'
+import { addEntries, dayEntries, estimateFood, setNudge, useFood, useFoodEntries, useMealTimes } from '../lib/food/state.js'
 import { useStore } from '../lib/store.js'
 import EstimateReview, { BARCODE_HINT, barcodeDigits, canAutoLog, logEstimate, prepareEstimate, reviewTotals } from '../pages/food/EstimateReview.jsx'
 import MealShortcuts, { hasShortcuts, useMealShortcuts } from '../pages/food/MealShortcuts.jsx'
 import { CameraChoice, quickLog } from '../pages/food/QuickAddBar.jsx'
 import { Ring, ringState } from '../pages/food/ring.jsx'
 import PhotoInput from '../pages/food/PhotoInput.jsx'
-import { defaultMeal, energyNumber, entryName, fmtEnergy, isSubmitKey, mealIdFor, unitLabel } from '../pages/food/format.js'
+import { energyNumber, entryName, fmtEnergy, isSubmitKey, mealIdFor, unitLabel } from '../pages/food/format.js'
 import './food-quick.css'
 
 // Today-page food card: today's total against the goal with a tiny ring, and one line to log
@@ -49,6 +50,9 @@ export default function FoodQuickCard({ today, loaded }) {
   const offline = useStore((state) => state.offline)
   const { meals, energyUnit: unit, aiReview } = food.prefs
   const goal = food.goals.calories
+  // The meal of the moment follows when the owner usually logs each meal (fixed windows until known).
+  const mealTimes = useMealTimes()
+  const defaultMeal = (list) => usualMealNow(list, mealTimes)
   const [text, setText] = useState('')
   const [phase, setPhase] = useState('idle') // idle | estimating | review | error
   const [request, setRequest] = useState(null)

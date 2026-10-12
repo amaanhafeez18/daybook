@@ -12,6 +12,7 @@ import { addDaysISO, dueSentence, formatDateShort, toISO } from '../lib/dates.js
 import { useNow } from '../lib/environment.js'
 import { timePassed } from '../lib/agenda.js'
 import { useLinger } from '../lib/useLinger.js'
+import { taskClashes } from '../lib/timing.js'
 import { primeKeyboard } from '../lib/keyboard.js'
 import { useSessionState } from '../lib/sessionState.js'
 import '../components/tasks.css'
@@ -37,6 +38,8 @@ const byRecent = (a, b) => String(b.date || b.createdAt || '').localeCompare(Str
 
 export default function TasksPage({ loaded }) {
   const tasks = useData('tasks')
+  const events = useData('events')
+  const classes = useData('classes')
   // Kept while the app is open (lib/sessionState.js), so the tab comes back as it was left.
   const [view, setView] = useSessionState('tasks.view', 'open')
   const [query, setQuery] = useSessionState('tasks.query', '')
@@ -65,6 +68,9 @@ export default function TasksPage({ loaded }) {
   const open = useMemo(() => active.filter((task) => !task.done && matches(task)).sort(compareTasks), [active, query]) // eslint-disable-line react-hooks/exhaustive-deps
   const listed = useMemo(() => active.filter((task) => (!task.done || lingering.has(task.id)) && matches(task)).sort(compareTasks), [active, query, lingering]) // eslint-disable-line react-hooks/exhaustive-deps
   const done = useMemo(() => active.filter((task) => task.done && matches(task)).sort(byRecent), [active, query]) // eslint-disable-line react-hooks/exhaustive-deps
+  // "Overlaps ECON 101" on timed tasks from today on that clash with a class, an event or another
+  // task (lib/timing.js). Not tied to the search, so typing doesn't recompute it.
+  const clashes = useMemo(() => taskClashes({ tasks: active, events, classes, from: today }), [active, events, classes, today])
   const archived = useMemo(() => tasks.filter((task) => task.archived && matches(task)).sort(byRecent), [tasks, query]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const groups = useMemo(() => {
@@ -217,6 +223,7 @@ export default function TasksPage({ loaded }) {
                     passed={group.id === 'today' && timePassed(task, today, nowMinutes)}
                     leaving={leaving.has(task.id)}
                     onLeft={onLeft}
+                    overlap={clashes[task.id]}
                     trailing={group.id === 'overdue' && !task.done ? (
                       <button type="button" className="tk-chip-today" onClick={() => moveToToday([task])} aria-label={`Move “${task.text}” to today`}>Today</button>
                     ) : null}

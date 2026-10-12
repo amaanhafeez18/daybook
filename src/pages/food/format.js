@@ -1,4 +1,5 @@
-import { energyInUnit, energyToKcal, entryMeal, mealForTime, unitFor } from '../../lib/food/nutrition.js'
+import { energyInUnit, energyToKcal, entryMeal, unitFor } from '../../lib/food/nutrition.js'
+import { mealClock, mealForNow } from '../../lib/food/mealTimes.js'
 import { nowTimeHHMM, parseISO, diffDays } from '../../lib/dates.js'
 import { LB } from '../../lib/gym/units.js'
 
@@ -154,11 +155,11 @@ export function confidenceLevel(confidence) {
 
 export const mealIdFor = (id, meals) => entryMeal({ meal: id }, meals)
 export const mealName = (meals, id) => (Array.isArray(meals) ? meals.find((meal) => meal.id === id)?.name : null) || 'Snacks'
-export const defaultMeal = (meals) => mealIdFor(mealForTime(nowTimeHHMM()), meals)
+// The meal of the moment; `learned` = useMealTimes() (the owner's usual meal times), else the fixed windows.
+export const defaultMeal = (meals, learned) => mealIdFor(mealForNow(nowTimeHHMM(), learned), meals)
 
-// A representative time per default meal (for per-meal suggestions on other days).
-const MEAL_TIMES = { breakfast: '08:00', lunch: '12:30', dinner: '19:00', snack: '15:30' }
-export const mealTime = (id) => MEAL_TIMES[id] || nowTimeHHMM()
+// A meal's usual time (learned, else the fixed one for a default meal), for per-meal suggestions on other days.
+export const mealTime = (id, learned) => mealClock(id, learned) || nowTimeHHMM()
 
 const dayFormats = new Map()
 function dayFormat(options) {

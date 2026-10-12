@@ -9,8 +9,9 @@ import {
   cleanEntry, dayTotals, entryCalories, entryMeal, findFavorite, logStreak, macroCalories, mealTotals,
 } from '../../lib/food/nutrition.js'
 import {
-  addEntries, copyDay, dayEntries, deleteEntry, deleteFavorite, saveFavorite, updateEntry, updateFood, useFood, useFoodEntries,
+  addEntries, copyDay, dayEntries, deleteEntry, deleteFavorite, saveFavorite, updateEntry, updateFood, useFood, useFoodEntries, useMealTimes,
 } from '../../lib/food/state.js'
+import { nowMeal } from '../../lib/food/mealTimes.js'
 import { navigate } from '../../lib/router.js'
 import { useStore } from '../../lib/store.js'
 import { useAnimatedNumber } from '../../lib/useAnimatedNumber.js'
@@ -22,7 +23,7 @@ import MealShortcuts, { hasShortcuts, useMealShortcuts } from './MealShortcuts.j
 import QuickAddBar from './QuickAddBar.jsx'
 import { MacroBars, Ring, ringState } from './ring.jsx'
 import {
-  confidenceLevel, dayLabel, defaultMeal, energyNumber, entryConfidence, entryName, fmtEnergy, isEstimate, isNum,
+  confidenceLevel, dayLabel, energyNumber, entryConfidence, entryName, fmtEnergy, isEstimate, isNum,
   mealName, openDatePicker, plural, portionText, shortDay, unitLabel, weekdayLetter,
 } from './format.js'
 
@@ -63,7 +64,8 @@ export default function DayView({ date, today, loaded }) {
   const totals = useMemo(() => dayTotals(rows), [rows])
   const groups = useMemo(() => mealTotals(rows, meals), [rows, meals])
   const streak = useMemo(() => logStreak(entries, today), [entries, today])
-  const currentMeal = targetMeal || defaultMeal(meals)
+  const mealTimes = useMealTimes()
+  const currentMeal = targetMeal || nowMeal(meals, mealTimes) // the owner's usual meal for now
 
   function startEstimate(partial) {
     const request = { key: `${Date.now()}`, date, meal: targetMeal, ...partial }

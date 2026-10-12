@@ -12,6 +12,8 @@ import { fetchPrayerDay, savedLocation } from './_prayer.js'
 import { WEB_SETTINGS, webAnswer, webNutrition, webSetting } from './_web.js'
 import { dayHintNote, dayLabel, editDistance, fixRelativeDates, resolveDayWords } from './_temporal.js'
 import { timeRangeMinutes } from '../src/lib/dates.js'
+// Pure clash and free-time helpers shared with the app's task sheet (browser-free).
+import { busyOn, classSlotsFor, clashesAt, nextFreeStart } from '../src/lib/timing.js'
 // The gym modules are pure ESM shared with the app, so days, records and suggestions match the Gym page.
 import * as sched from '../src/lib/gym/schedule.js'
 import * as gymLib from '../src/lib/gym/library.js'
@@ -3982,6 +3984,63 @@ function similarItem(data, title, date, ctx) {
   }
 }
 
+// ---- a time that clashes with a class, an event or another timed task ---------------------------
+
+// A new task or event without an end keeps half an hour, as in the app's task sheet (lib/timing.js).
+const CLASH_MINUTES = 30
+
+// '14:30', '15:45' → '2:30–3:45 PM'; across noon '11:30 AM–12:45 PM'.
+function clockRange(start, end) {
+  const from = time12(start)
+  const to = time12(end)
+  if (!from || !to) return from
+  return from.slice(-2) === to.slice(-2) ? `${from.slice(0, -3)}–${to}` : `${from}–${to}`
+}
+
+// What a time on a date overlaps that day: classes (from the class rows), timed events and open timed
+// tasks, never the item itself (exceptId: its task's id, or an event's own id; a dated task's event
+// stands for the task). Only warns: nothing is blocked or moved. Skipped for past dates and for
+// "remind me at …" pings (skip), which don't block time out.
+// → null | { text: 'Clashes with ECON 101 (2:30–3:45 PM)', nextFree: '4:00 PM' | null, note (for the
+//   model), move: { plain: 'Move to 4:00 PM', titled: 'Move “Dentist” to 4:00 PM' } | undefined }
+function clashCheck(data, { date, time, title = '', exceptId = null, skip = false } = {}, ctx = {}) {
+  if (skip || !isIsoDate(date) || !isTime(time)) return null
+  if (isIsoDate(ctx?.localDate) && date < ctx.localDate) return null
+  try {
+    const classSlots = classSlotsFor(Array.isArray(data?.classes) ? data.classes : [], date)
+    const events = Array.isArray(data?.events) ? data.events : []
+    const tasks = Array.isArray(data?.tasks) ? data.tasks : []
+    // Its title names a class ("ECON 101 midterm") → it happens in that class, not against it.
+    const found = clashesAt({ date, time, minutes: CLASH_MINUTES, classSlots, events, tasks, exceptId, title })
+    if (!found.length) return null
+    const named = found.slice(0, 2).map((slot) => `${truncate(String(slot.title || '').trim() || 'something', 40)} (${clockRange(slot.start, slot.end)})`)
+    const text = `Clashes with ${named.join(' and ')}${found.length > 2 ? ` and ${found.length - 2} more` : ''}.`
+    const busy = busyOn({ date, classSlots, events, tasks, exceptId, title })
+    // Late in the evening the day runs to midnight; otherwise a move lands by 10 PM.
+    const free = nextFreeStart({ date, time, minutes: CLASH_MINUTES, busy, to: time >= '21:00' ? '23:59' : '22:00' })
+    const nextFree = free && free !== time ? time12(free) : null
+    const name = String(title || '').trim()
+    const move = nextFree ? { plain: `Move to ${nextFree}`, titled: name ? `Move “${truncate(name, 18)}” to ${nextFree}` : `Move to ${nextFree}` } : undefined
+    const note = nextFree
+      ? `${text} The next free start that day is ${nextFree}. Say so in one short clause and don't move it unasked: with a card waiting, add offer_alternatives(["${move.plain}"]); if it's already saved, offer the move with ask_choice ("Keep ${time12(time)}" / "${move.plain}").`
+      : `${text} Nothing is free later that day. Say so in one short clause; don't move it unasked.`
+    return { text, nextFree, note, ...(move ? { move } : {}) }
+  } catch (error) {
+    // The check is a courtesy: it must never stop the change itself.
+    console.error('Clash check failed:', error.message || error)
+    return null
+  }
+}
+
+// The one-tap "Move … to 4:00 PM" alternatives for a card whose staged times clash: the plain form for
+// a single clash, named ones when several items would move (up to 3).
+function clashMoves(list) {
+  const moves = (Array.isArray(list) ? list : []).map((item) => item?.move).filter((move) => move && typeof move.plain === 'string')
+  if (!moves.length) return []
+  if (moves.length === 1) return [moves[0].plain]
+  return [...new Set(moves.map((move) => move.titled))].slice(0, 3)
+}
+
 const rememberCreated = (ctx, ...ids) => ids.forEach((id) => (ctx.createdIds ||= new Set()).add(id))
 
 async function executeTool(supabase, userId, name, rawArgs, data, ctx, { refs = {} } = {}) {
@@ -4011,7 +4070,8 @@ async function executeTool(supabase, userId, name, rawArgs, data, ctx, { refs = 
     }
     data.tasks.unshift(task)
     const reminder = reminderFields(task, data, ctx)
-    return { ok: true, message: `Created task "${task.text}"${task.date ? ` for ${whenText(task.date, task.time, ctx.localDate)}` : ''}.${reminderText(reminder)}`, id: task.id, ...reminder, ...similar }
+    const clash = clashCheck(data, { date: task.date, time: task.time, title: task.text, exceptId: task.id, skip: args.reminderMinutes === 0 }, ctx)
+    return { ok: true, message: `Created task "${task.text}"${task.date ? ` for ${whenText(task.date, task.time, ctx.localDate)}` : ''}.${reminderText(reminder)}`, id: task.id, ...reminder, ...similar, ...(clash ? { clash } : {}) }
   }
 
   if (name === 'update_task') {
@@ -4104,8 +4164,9 @@ async function executeTool(supabase, userId, name, rawArgs, data, ctx, { refs = 
     const timing = patch.date !== undefined || patch.time !== undefined || patch.reminder_minutes !== undefined || patch.done === false || patch.archived === false
     const reminder = timing ? reminderFields(task, data, ctx) : {}
     const moved = patch.date !== undefined || patch.time !== undefined ? (task.date ? ` (now ${whenText(task.date, task.time, ctx.localDate)})` : ' (no date now)') : ''
-    if (syncWarning) return { ok: true, warning: syncWarning, message: `${verb} task "${task.text}"${moved}, but ${syncWarning}`, ...reminder }
-    return { ok: true, message: `${verb} task "${task.text}"${moved}${markerNote}.${reminderText(reminder)}`, ...reminder }
+    const clash = moved && !task.done && !task.archived && !isReminderMarker(task.details) ? clashCheck(data, { date: task.date, time: task.time, title: task.text, exceptId: task.id }, ctx) : null
+    if (syncWarning) return { ok: true, warning: syncWarning, message: `${verb} task "${task.text}"${moved}, but ${syncWarning}`, ...reminder, ...(clash ? { clash } : {}) }
+    return { ok: true, message: `${verb} task "${task.text}"${moved}${markerNote}.${reminderText(reminder)}`, ...reminder, ...(clash ? { clash } : {}) }
   }
 
   if (name === 'update_tasks') {
@@ -4170,7 +4231,8 @@ async function executeTool(supabase, userId, name, rawArgs, data, ctx, { refs = 
     data.events.push(event)
     data.tasks.unshift(taskRow)
     const reminder = reminderFields(taskRow, data, ctx)
-    return { ok: true, message: `Added "${event.title}" to the calendar for ${whenText(event.date, event.time, ctx.localDate)}.${reminderText(reminder)}`, id: event.id, taskId: event.task_id, ...reminder, ...similar }
+    const clash = clashCheck(data, { date: event.date, time: event.time, title: event.title, exceptId: event.task_id }, ctx)
+    return { ok: true, message: `Added "${event.title}" to the calendar for ${whenText(event.date, event.time, ctx.localDate)}.${reminderText(reminder)}`, id: event.id, taskId: event.task_id, ...reminder, ...similar, ...(clash ? { clash } : {}) }
   }
 
   if (name === 'update_event') {
@@ -4201,7 +4263,8 @@ async function executeTool(supabase, userId, name, rawArgs, data, ctx, { refs = 
       }
     }
     const moved = patch.date !== undefined || patch.time !== undefined
-    return { ok: true, message: `${moved ? 'Moved' : 'Updated'} "${event.title}"${moved ? ` to ${cardSlot(event.date, event.time, ctx.localDate)}` : ''}.` }
+    const clash = moved ? clashCheck(data, { date: event.date, time: event.time, title: event.title, exceptId: event.task_id || event.id }, ctx) : null
+    return { ok: true, message: `${moved ? 'Moved' : 'Updated'} "${event.title}"${moved ? ` to ${cardSlot(event.date, event.time, ctx.localDate)}` : ''}.`, ...(clash ? { clash } : {}) }
   }
 
   if (name === 'delete_event') {
@@ -4857,7 +4920,9 @@ function describeAction(name, args, data, ctx, refs) {
       const minutes = Number.isInteger(args.reminderMinutes) ? args.reminderMinutes : null
       const ping = pingInfo({ date, time, reminder_minutes: minutes, done: false, archived: false }, data, ctx)
       const when = date ? `, ${whenText(date, time, today)}` : ''
-      return { label: `${minutes === 0 && time ? 'Remind' : 'Add task'}: ${String(args.text ?? '').trim()}${when}${ping.text ? ` (${ping.text})` : ''}`, detail: ping.warning }
+      // A "remind me at 2:45" ping isn't time blocked out, so it never clashes.
+      const clash = clashCheck(data, { date, time, title: String(args.text ?? '').trim(), skip: minutes === 0 }, ctx)
+      return { label: `${minutes === 0 && time ? 'Remind' : 'Add task'}: ${String(args.text ?? '').trim()}${when}${ping.text ? ` (${ping.text})` : ''}`, detail: [ping.warning, clash?.text].filter(Boolean).join(' ') || undefined }
     }
     case 'update_task': {
       const item = task(args.taskId)
@@ -4894,7 +4959,8 @@ function describeAction(name, args, data, ctx, refs) {
       }
       const sep = head.startsWith('Move ') || head.startsWith('Schedule ') ? '; ' : ': '
       const built = editLabel(head, parts, sep, details)
-      return { label: `${built.label}${ping.text ? ` (${ping.text})` : ''}`, detail: [built.detail, ping.warning].filter(Boolean).join(' ') || undefined }
+      const clash = moved && !next.done && !next.archived && !isReminderMarker(item.details) ? clashCheck(data, { date: next.date, time: next.time, title: args.text !== undefined ? String(args.text ?? '').trim() : item.text, exceptId: item.id }, ctx) : null
+      return { label: `${built.label}${ping.text ? ` (${ping.text})` : ''}`, detail: [built.detail, ping.warning, clash?.text].filter(Boolean).join(' ') || undefined }
     }
     case 'update_tasks': {
       const items = (Array.isArray(args.taskIds) ? args.taskIds : []).map(task).filter(Boolean)
@@ -4908,8 +4974,10 @@ function describeAction(name, args, data, ctx, refs) {
       const item = task(args.taskId)
       return item ? { label: `Delete ${quoted(item.text)} for good`, detail: 'This can’t be undone.' } : null
     }
-    case 'create_event':
-      return { label: `Add to calendar: ${String(args.title ?? '').trim()}${isIsoDate(args.date) ? `, ${whenText(args.date, args.time, today)}` : ''}` }
+    case 'create_event': {
+      const clash = isIsoDate(args.date) ? clashCheck(data, { date: args.date, time: args.time, title: String(args.title ?? '').trim() }, ctx) : null
+      return { label: `Add to calendar: ${String(args.title ?? '').trim()}${isIsoDate(args.date) ? `, ${whenText(args.date, args.time, today)}` : ''}`, ...(clash ? { detail: clash.text } : {}) }
+    }
     case 'update_event': {
       const event = data.events.find((item) => item.id === args.eventId)
       if (!event) return null
@@ -4922,7 +4990,9 @@ function describeAction(name, args, data, ctx, refs) {
       const details = typeof args.details === 'string' && args.details.trim() !== String(linked?.details || '').trim() && !isReminderMarker(linked?.details) ? detailsPart(args.details) : null
       // Always where it is now (or exactly where it moves): 'Change “Advising” (today, Wed, Oct 7, 1:30 PM): details → “Room 12”'.
       const head = moved ? `Move ${quoted(event.title, 50)} ${moveText(now, next, today)}` : `Change ${quoted(event.title, 50)} (${cardSlot(now.date, now.time, today)})`
-      return editLabel(head, parts, moved ? '; ' : ': ', details)
+      const built = editLabel(head, parts, moved ? '; ' : ': ', details)
+      const clash = moved ? clashCheck(data, { date: next.date, time: next.time, title: args.title !== undefined ? String(args.title ?? '').trim() : event.title, exceptId: event.task_id || event.id }, ctx) : null
+      return clash ? { ...built, detail: [built.detail, clash.text].filter(Boolean).join(' ') } : built
     }
     case 'delete_event': {
       const event = data.events.find((item) => item.id === args.eventId)
@@ -5114,7 +5184,7 @@ async function stageTool(supabase, userId, name, rawArgs, data, ctx, stage) {
   // A person matched by name is pinned to the one the label shows, so Yes does what the card says.
   // (attach_file pins the resolved file's path instead, so the Yes tap can find it next request.)
   const pinned = described?.pin && (name === 'attach_file' || Object.values(described.pin).every((id) => data.friends.some((friend) => friend.id === id)))
-  stage.list.push({ tool: name, args: pinned ? { ...rawArgs, ...described.pin } : rawArgs, ref, label, detail, key })
+  stage.list.push({ tool: name, args: pinned ? { ...rawArgs, ...described.pin } : rawArgs, ref, label, detail, key, ...(result.clash?.move ? { move: result.clash.move } : {}) })
   return compact({
     ok: true,
     staged: true,
@@ -5128,6 +5198,7 @@ async function stageTool(supabase, userId, name, rawArgs, data, ctx, stage) {
     preview: result.preview,
     hint: result.hint,
     similar: result.similar,
+    clash: result.clash,
     message: STAGED_MESSAGE,
   })
 }
@@ -5166,8 +5237,9 @@ function stagesWrite(name, args, { level = 'all', risky = false, staged = false,
 }
 
 // A dry run that found something to check with the user first: a similar person already in People, a
-// guessed name, an unusually heavy weight, a workout that isn't today's plan.
-const needsCheck = (result) => Boolean(result?.warning || result?.assumed || result?.hint)
+// guessed name, an unusually heavy weight, a workout that isn't today's plan, a time that clashes with
+// a class, an event or another timed task.
+const needsCheck = (result) => Boolean(result?.warning || result?.assumed || result?.hint || result?.clash)
 
 // ---- an edit that doesn't land on the day the user named
 
@@ -6653,13 +6725,15 @@ export default async function handler(req, res) {
           if (write.staged) {
             // A refused call's message is meant for the model (it fixes the call or asks): the app hides it.
             if (!result.duplicate) emit(result.ok ? { type: 'staged', tool: call.name, ok: true, label: result.label } : { type: 'staged', tool: call.name, ok: false, internal: true, label: TOOL_LABELS[call.name] || call.name })
-            if (!result.ok || result.duplicate || result.warning || result.reminderWarning || result.assumed || result.hint || (result.detail && ['create_task', 'update_task'].includes(call.name))) {
+            // A clash alone needs no follow-up: the card shows it and gets the "Move to …" chip.
+            const ownDetail = result.detail && result.clash?.text ? result.detail.replace(result.clash.text, '').trim() : result.detail
+            if (!result.ok || result.duplicate || result.warning || result.reminderWarning || result.assumed || result.hint || (ownDetail && ['create_task', 'update_task'].includes(call.name))) {
               roundStaged = false
               roundClean = false
             }
           } else {
             roundStaged = false
-            if (!result.ok || result.warning || result.reminderWarning || result.assumed || result.hint) roundClean = false
+            if (!result.ok || result.warning || result.reminderWarning || result.assumed || result.hint || result.clash) roundClean = false
             touched.push(...touchedBy(call.name, args, result))
             // The Undo calls stay out of what the model reads.
             results.push({ tool: call.name, ...result, ...(write.undo.length ? { undoCalls: write.undo } : {}) })
@@ -6767,6 +6841,9 @@ export default async function handler(req, res) {
     // A log that reuses My foods always offers fresh numbers instead.
     const fromSaved = stage.list.some(({ tool: toolName, args }) => toolName === 'food_log' && Array.isArray(args?.items) && args.items.some((item) => item?.saved_food_id))
     if (fromSaved && !alternatives.length) alternatives = webMode === 'off' ? ['Estimate instead'] : ['Look it up online', 'Estimate instead']
+    // A staged time that clashes offers the next free start under the card ("Move “Dentist” to
+    // 4:00 PM"), unless the model offered alternatives of its own.
+    if (!alternatives.length) alternatives = clashMoves(stage.list)
     // Alternatives offered without anything staged are just quick replies.
     if (!stage.list.length && !choice && alternatives.length) choice = { question: '', choices: alternatives }
     if (choice) emit({ type: 'choices', question: choice.question, choices: choice.choices })
@@ -6889,3 +6966,5 @@ export { runWrite, undoState, historyContent, foldCount, foldHistory, carriedUnd
 export { staticInstructions, parseDecision, findPendingProposal, isCorrection, correctionTurn, recentItemsNote, readChoice, describeAction, normalizeTouched, touchedBy }
 // tests/assistant-gym-tools.test.mjs: what a spoken exercise name resolves to.
 export { exerciseMatches }
+// tests/assistant-clash.test.mjs: the clash check on cards and the "Move to …" chips.
+export { clashCheck, clashMoves }

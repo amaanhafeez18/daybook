@@ -4,6 +4,7 @@ import { Checkbox } from './ui/primitives.jsx'
 import { toast } from './ui/feedback.jsx'
 import SnoozeSheet from './SnoozeSheet.jsx'
 import { archiveTask, isReminderMarker, restoreTask, setTaskDone, updateTask } from '../lib/planner.js'
+import { offerCatchUp } from './catchUpOffer.js'
 import { useAttachmentCount } from '../lib/attachments.js'
 import { addDaysISO, formatTime, relativeDay, todayISO } from '../lib/dates.js'
 import { collapseOut, restoreCollapsed } from '../lib/collapse.js'
@@ -30,7 +31,9 @@ let openRow = null // { ref, close }: only one row stays swiped open at a time
 // leaving / onLeft(id): a ticked-off row folds away (lib/useLinger.js), then reports back.
 // onToggle(task, done): after it's ticked or reopened here (the checkbox or a swipe), in the tap.
 // On a computer, hovering shows Tomorrow, Later… and Archive (the swipe's actions).
-export default function TaskRow({ task, onOpen, showDate = true, trailing = null, swipe = true, overdueGroup = false, passed = false, leaving = false, onLeft, onToggle }) {
+// overlap: what the task's time overlaps ({ title }, lib/timing.js taskClashes), shown as one
+// quiet "Overlaps …" tag while it's open and its time hasn't passed.
+export default function TaskRow({ task, onOpen, showDate = true, trailing = null, swipe = true, overdueGroup = false, passed = false, leaving = false, onLeft, onToggle, overlap = null }) {
   const today = todayISO()
   const tomorrow = addDaysISO(today, 1)
   const overdue = !task.done && task.date && task.date < today
@@ -42,6 +45,7 @@ export default function TaskRow({ task, onOpen, showDate = true, trailing = null
   const actionW = actions > 2 ? 64 : ACTION_W
   const openX = actions * actionW + (actions - 1) * ACTION_GAP + 2 * EDGE
   const fullAt = (width) => Math.max(width * FULL_SWIPE, openX + 48)
+  const clash = !task.done && !passed && task.time && overlap?.title ? overlap.title : ''
 
   const rowRef = useRef(null)
   const drag = useRef(null)
@@ -55,7 +59,10 @@ export default function TaskRow({ task, onOpen, showDate = true, trailing = null
   function toggle(done) {
     setTaskDone(task.id, done)
     onToggle?.(task, done)
-    if (done) toast(`Completed “${truncate(task.text, 32)}”`, { action: { label: 'Undo', onClick: () => setTaskDone(task.id, false) } })
+    if (done) {
+      toast(`Completed “${truncate(task.text, 32)}”`, { action: { label: 'Undo', onClick: () => setTaskDone(task.id, false) } })
+      offerCatchUp(task)
+    }
     // Reopened (a right swipe or the checkbox on a done row): it may leave the list it's in.
     else toast(`Marked “${truncate(task.text, 28)}” as not done`, { action: { label: 'Undo', onClick: () => setTaskDone(task.id, true) } })
   }
@@ -291,7 +298,7 @@ export default function TaskRow({ task, onOpen, showDate = true, trailing = null
         <button type="button" className="task-body" onClick={() => onOpen?.(task)}>
           <span className="task-title">{task.text}</span>
           {details && <span className="task-notes">{details}</span>}
-          {(showDate && task.date) || task.time || task.priority === 'urgent' || files > 0 ? (
+          {(showDate && task.date) || task.time || task.priority === 'urgent' || files > 0 || clash ? (
             <span className="task-meta">
               {showDate && task.date && (
                 <span className={`meta-chip ${overdue ? `is-danger${overdueGroup ? ' tr-overdue-day' : ''}` : task.date === today ? 'is-accent' : ''}`}>
@@ -304,6 +311,12 @@ export default function TaskRow({ task, onOpen, showDate = true, trailing = null
                   <Icon name="clock" size={13} />
                   {formatTime(task.time)}
                   {passed && <span className="sr-only">, passed</span>}
+                </span>
+              )}
+              {clash && (
+                <span className="meta-chip tr-overlap" title={`Overlaps ${clash}`}>
+                  <Icon name="layers" size={13} />
+                  <span className="tr-overlap-text">Overlaps {clash}</span>
                 </span>
               )}
               {task.priority === 'urgent' && (

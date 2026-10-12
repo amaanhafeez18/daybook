@@ -3,10 +3,11 @@ import Icon from '../../components/ui/Icon.jsx'
 import { toast } from '../../components/ui/feedback.jsx'
 import { entryCalories, foodKey } from '../../lib/food/nutrition.js'
 import { lastMealDay, mealChips } from '../../lib/food/shortcuts.js'
-import { copyMeal } from '../../lib/food/state.js'
+import { copyMeal, useMealTimes } from '../../lib/food/state.js'
+import { mealClock } from '../../lib/food/mealTimes.js'
 import { haptic } from '../../lib/haptics.js'
 import { quickLog } from './QuickAddBar.jsx'
-import { copiedText, energyNumber, entryName, fmtEnergy, mealTime, pastDayName, plural } from './format.js'
+import { copiedText, energyNumber, entryName, fmtEnergy, pastDayName, plural } from './format.js'
 import '../../components/food-quick.css'
 
 // One-tap chips for a meal: up to 3 foods usually logged in it (with their calories) and
@@ -27,10 +28,13 @@ export function useMealShortcuts({ entries, meal, date, today, meals, sameAs = t
   const [held, setHeld] = useState(null) // { scope, chips, same, added: { [key]: undo } }
   if (held && held.scope !== scope) setHeld(null)
   const current = held && held.scope === scope ? held : null
+  // Scored for the meal's usual time: learned from the owner's logs, else a fixed one.
+  const mealTimes = useMealTimes()
+  const hhmm = mealClock(meal.id, mealTimes) // null for a custom meal with no usual time yet
   const live = useMemo(() => (current || !active ? null : {
-    chips: mealChips(entries, meal.id, { hhmm: mealTime(meal.id), today, date, meals, limit: 3 }),
+    chips: mealChips(entries, meal.id, { hhmm, today, date, meals, limit: 3 }),
     same: sameAs ? lastMealDay(entries, meal.id, date, meals) : null,
-  }), [current, active, entries, meal.id, date, today, meals, sameAs])
+  }), [current, active, entries, meal.id, date, today, meals, sameAs, hhmm])
   // A food taken back out some other way (the toast's Undo, a swipe) no longer shows as added.
   const added = useMemo(() => {
     if (!current) return NONE

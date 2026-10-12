@@ -7,7 +7,7 @@ import { toast } from '../../components/ui/feedback.jsx'
 import { haptic } from '../../lib/haptics.js'
 import { primeKeyboard } from '../../lib/keyboard.js'
 import { energyInUnit, energyToKcal, entryCalories } from '../../lib/food/nutrition.js'
-import { deleteFavorite, rememberFoods, updateFavorite, useFood } from '../../lib/food/state.js'
+import { deleteFavorite, rememberFoods, updateFavorite, useFood, useMealTimes } from '../../lib/food/state.js'
 import { DetailTop, MigrationNote, SwipeRow } from './common.jsx'
 import { FoodGlyph, fmtSavedDay, hostOf, safeUrl } from './EstimateReview.jsx'
 import { quickLog } from './QuickAddBar.jsx'
@@ -52,6 +52,7 @@ function matches(food, query) {
 export default function MyFoodsView({ today, loaded }) {
   const food = useFood()
   const { meals, energyUnit: unit } = food.prefs
+  const mealTimes = useMealTimes() // the owner's usual meal times (learned from what they log)
   const favorites = food.favorites
   const [query, setQuery] = useState('')
   const [shown, setShown] = useState(PAGE)
@@ -77,7 +78,7 @@ export default function MyFoodsView({ today, loaded }) {
 
   function log(item) {
     haptic()
-    quickLog(item, { meal: defaultMeal(meals), date: today, favorites, meals, unit, today })
+    quickLog(item, { meal: defaultMeal(meals, mealTimes), date: today, favorites, meals, unit, today })
   }
 
   return (
