@@ -16,9 +16,9 @@ export function awayLongEnough(hiddenAt, now) {
 
 // Whether a waiting update may be applied right now without asking. `typed` = text or photos left in
 // a field that isn't focused (a half-typed message lives only in memory), `replying` = the assistant
-// is still writing a reply.
-export function canUpdateQuietly({ inWindow, waiting, unsaved, sheetOpen, typing, workoutActive, typed = false, replying = false }) {
-  return !!inWindow && !!waiting && !unsaved && !sheetOpen && !typing && !workoutActive && !typed && !replying
+// is still writing a reply, `inCall` = a voice chat is open (a reload would cut it off).
+export function canUpdateQuietly({ inWindow, waiting, unsaved, sheetOpen, typing, workoutActive, typed = false, replying = false, inCall = false }) {
+  return !!inWindow && !!waiting && !unsaved && !sheetOpen && !typing && !workoutActive && !typed && !replying && !inCall
 }
 
 // Whether a field holds text someone typed and a reload would lose: a non-empty textarea or text-like

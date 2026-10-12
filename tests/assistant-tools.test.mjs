@@ -573,8 +573,24 @@ const CASES = [
       { args: { assistantConfirm: 'off', assistantWeb: 'always' }, check(s) { assert.equal(settingsOf(s).assistantWeb, 'always') } },
       { args: { darkMode: true }, check(s) { assert.equal(settingsOf(s).appearance, 'dark') } },
       { args: { areas: { gym: false } }, check(s, d) { assert.equal(settingsOf(s).areas.gym, false); assert.equal(d.settings.areas.gym, false); assert.ok(settingsOf(s).gym.routines.length === 3, 'hiding an area keeps its data') } },
+      // Voice chats (settings.voice, merged field by field) and the monthly AI budget (settings.aiBudgetUsd).
+      { args: { voice_enabled: false, voice_daily_minutes: 20, voice_name: 'cedar' }, check(s, d, r) { assert.deepEqual(settingsOf(s).voice, { enabled: false, dailyMinutes: 20, voice: 'cedar' }); assert.equal(d.settings.voice.enabled, false); assert.match(r.message, /voice chats off, voice chats up to 20 minutes a day, the Cedar voice/); assert.ok(settingsOf(s).gym.routines.length === 3, 'other settings survive') } },
+      { args: { voice_call_minutes: 10, voice_quiet_seconds: 120, ai_monthly_budget: 0 }, check(s, d, r) { assert.equal(settingsOf(s).voice.sessionMinutes, 10); assert.equal(settingsOf(s).voice.silenceSeconds, 120); assert.equal(settingsOf(s).aiBudgetUsd, 0); assert.match(r.message, /hangs up after 2 minutes, no monthly AI budget/) } },
+      { args: { ai_monthly_budget: 12.5 }, check(s, d, r) { assert.equal(settingsOf(s).aiBudgetUsd, 12.5); assert.match(r.message, /monthly AI budget of \$12\.50/) } },
     ],
-    invalid: [{}, { areas: { gym: 'no' } }, { theme: 'purple' }, { appearance: 'blue' }, { notifications: { taskLead: '30' } }, { notifications: { dailySummaryTime: '8am' } }, { notifications: { gymTime: '' } }, { prayerMethod: '99' }, { assistantConfirm: 'sometimes' }, { notifications: {} }, { assistantWeb: 'maybe' }],
+    invalid: [{}, { areas: { gym: 'no' } }, { theme: 'purple' }, { appearance: 'blue' }, { notifications: { taskLead: '30' } }, { notifications: { dailySummaryTime: '8am' } }, { notifications: { gymTime: '' } }, { prayerMethod: '99' }, { assistantConfirm: 'sometimes' }, { notifications: {} }, { assistantWeb: 'maybe' },
+      { voice_daily_minutes: 45 }, { voice_name: 'robot' }, { voice_enabled: 'yes' }, { voice_call_minutes: 30 }, { ai_monthly_budget: -1 }, { ai_monthly_budget: 900 }, { ai_monthly_budget: 'lots' }],
+  },
+  // What Daybook's AI has cost (assistant_conversations.usage): nothing recorded yet reads as $0.00.
+  {
+    name: 'ai_usage',
+    lookup: true,
+    valid: [
+      { args: {}, check(s, d, r) { assert.equal(r.period, 'month'); assert.equal(r.total, '$0.00'); assert.deepEqual(r.byFeature, []); assert.match(r.note, /OpenAI bill is final/) } },
+      { args: { period: 'today' }, check(s, d, r) { assert.equal(r.period, 'today'); assert.equal(r.projected, undefined) } },
+      { args: { period: 'last_30_days' }, check(s, d, r) { assert.equal(r.period, 'last_30_days') } },
+    ],
+    invalid: [{ period: 'week' }],
   },
   {
     name: 'food_update_prefs',
@@ -1443,5 +1459,32 @@ describe('snapshot and instructions', () => {
     for (const name of RULED_TOOLS) assert.ok(confirm.includes(name), `instructions do not mention ${name}`)
     const defined = new Set(TOOL_DEFS.map((def) => def.name))
     for (const name of confirm.match(/\b(?:gym|food)_[a-z_]+\b/g) || []) assert.ok(defined.has(name), `instructions mention ${name}, which is not a tool`)
+  })
+})
+
+describe('ai_usage with a ledger', () => {
+  test('this month by feature, with the projection and the budget', async () => {
+    const { addToLedger, emptyLedger } = await import('../src/lib/aiLedger.js')
+    let ai = emptyLedger(TODAY)
+    ai = addToLedger(ai, { day: TODAY, feature: 'voice', micros: 410_000, n: 1, s: 600 })
+    ai = addToLedger(ai, { day: TODAY, feature: 'chat', micros: 90_000, n: 12 })
+    const tables = { ...buildTables(), assistant_conversations: [{ id: 'c', user_id: USER, messages: [], usage: { rev: 2, ai } }] }
+    const supabase = fakeSupabase({ tables })
+    const data = buildData(tables)
+    data.settings.aiBudgetUsd = 10
+    const result = await executeTool(supabase, USER, 'ai_usage', { period: 'month' }, data, ctx)
+    assert.equal(result.ok, true)
+    assert.equal(result.total, '$0.50')
+    assert.deepEqual(result.byFeature.map((item) => item.feature), ['Voice chats', 'Assistant (typing)'])
+    assert.equal(result.byFeature[0].minutes, 10)
+    assert.ok(result.projected)
+    assert.match(result.budget, /\$10\.00 a month, 5% used/)
+  })
+
+  test('without the usage column (or the table) it says so instead of a number', async () => {
+    const supabase = fakeSupabase({ tables: buildTables(), missingTables: ['assistant_conversations'] })
+    const result = await executeTool(supabase, USER, 'ai_usage', {}, buildData(buildTables()), ctx)
+    assert.equal(result.ok, false)
+    assert.match(result.message, /2026-09-23/)
   })
 })

@@ -12,7 +12,7 @@ const quietLevels = () => Array(LEVEL_BARS).fill(QUIET_LEVEL)
 export const recordingSupported = typeof window !== 'undefined' && typeof window.MediaRecorder !== 'undefined' && !!window.navigator?.mediaDevices?.getUserMedia
 
 // start() must run from a tap (iOS only grants the microphone inside a user gesture).
-// onAudio(base64, mimeType) receives the finished recording; the latest handler is always used.
+// onAudio(base64, mimeType, seconds) receives the finished recording; the latest handler is always used.
 export function useRecorder({ onAudio, maxSeconds = 120 } = {}) {
   const [recording, setRecording] = useState(false)
   const [seconds, setSeconds] = useState(0)
@@ -103,6 +103,7 @@ export function useRecorder({ onAudio, maxSeconds = 120 } = {}) {
 
     const chunks = []
     let session = null
+    let startedAt = Date.now()
     try {
       const mimeType = RECORDING_TYPES.find((type) => typeof MediaRecorder.isTypeSupported === 'function' && MediaRecorder.isTypeSupported(type))
       const recorder = new MediaRecorder(stream, mimeType ? { mimeType, audioBitsPerSecond: 32000 } : undefined)
@@ -124,12 +125,14 @@ export function useRecorder({ onAudio, maxSeconds = 120 } = {}) {
           return
         }
         try {
-          await onAudioRef.current?.(await blobToBase64(blob), blob.type)
+          // The length goes along (the server books the transcription's cost by it).
+          await onAudioRef.current?.(await blobToBase64(blob), blob.type, Math.max(0, (Date.now() - startedAt) / 1000))
         } catch (err) {
           setError(err?.message || 'Could not send the recording.')
         }
       }
       sessionRef.current = session
+      startedAt = Date.now()
       recorder.start()
     } catch {
       cleanup()

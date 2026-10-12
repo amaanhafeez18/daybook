@@ -1,0 +1,186 @@
+/* Ways into a voice chat (TalkButton), a voice chat in the chat history (TalkCard) and the shared
+   action chips outside a chat bubble (ActionChips). Colours come from the theme tokens only, so the
+   light / dark modes and every accent follow. Targets are at least 44px. */
+
+/* ---- action chips anywhere (the chat scopes its own under .msg-body) ---------------------------- */
+.asst-chips { padding-left: 0; margin: 0; list-style: none; flex-direction: column; align-items: flex-start; gap: 6px; }
+.asst-chips li { line-height: 1.35; padding-top: 6px; padding-bottom: 6px; }
+.asst-chips li .icon { flex-shrink: 0; }
+.asst-chips li.has-undo { padding-top: 4px; padding-bottom: 4px; padding-right: 4px; }
+
+/* ---- Talk in the message bar: an accent pill in the send slot ----------------------------------- */
+.talk-pill {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 44px;
+  min-width: 44px;
+  padding: 0 16px 0 13px;
+  border-radius: 22px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.12s, opacity 0.15s;
+}
+.talk-pill:active:not(:disabled) { transform: scale(0.94); }
+.talk-pill:disabled { opacity: 0.4; }
+/* Paused (daily minutes or the budget): still tappable, it explains. */
+.talk-pill.is-blocked { background: var(--surface-2); color: var(--text-2); }
+/* A very narrow bar keeps just the waveform. */
+@media (max-width: 340px) {
+  .talk-pill { width: 44px; padding: 0; }
+  .talk-pill > span { display: none; }
+}
+
+/* ---- "Talk it through" on the start screen --------------------------------------------------------- */
+.talk-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 560px;
+  min-height: 60px;
+  padding: 10px 14px 10px 10px;
+  border-radius: var(--r-lg, 16px);
+  background: var(--card-bg, var(--surface));
+  border: 1px solid var(--border);
+  color: var(--text);
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.15s, opacity 0.15s;
+}
+.talk-row:active:not(:disabled) { transform: scale(0.985); opacity: 0.8; }
+.talk-row:disabled { opacity: 0.5; }
+.talk-row-disc {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.talk-row.is-blocked .talk-row-disc { background: var(--surface-2); color: var(--text-2); }
+.talk-row-text { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
+.talk-row-text strong { font-size: 16px; font-weight: 600; }
+.talk-row-text small { font-size: 13px; line-height: 1.35; color: var(--text-2); }
+.talk-row-chevron { flex: none; color: var(--text-3); }
+@media (hover: hover) { .talk-row:hover:not(:disabled) { border-color: var(--accent); } }
+
+/* ---- Today's evening chip and Journal's inline button ------------------------------------------------ */
+.talk-chip, .talk-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 22px;
+  font-size: 15px;
+  font-weight: 600;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.12s, opacity 0.15s, background 0.15s;
+}
+.talk-chip { background: var(--accent-soft); color: var(--accent); }
+.talk-inline { padding: 0 12px; color: var(--accent); }
+.talk-chip:active:not(:disabled), .talk-inline:active:not(:disabled) { transform: scale(0.96); }
+.talk-chip:disabled, .talk-inline:disabled { opacity: 0.45; }
+@media (hover: hover) { .talk-inline:hover:not(:disabled) { background: var(--accent-soft); } }
+.td-talk { display: flex; align-items: center; }
+.jr-talk-row { display: flex; justify-content: flex-start; margin-top: 4px; }
+
+/* ---- "Voice chats are off" sheet ---------------------------------------------------------------------- */
+.talk-off-note { margin: 10px 4px 0; font-size: 13px; line-height: 1.4; color: var(--text-2); }
+.talk-off-actions { display: flex; gap: 10px; margin-top: 16px; }
+
+/* ---- a voice chat in the chat history ------------------------------------------------------------------ */
+.talk-avatar { color: var(--accent); }
+.msg-body.talk-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 10px 14px 12px;
+  border-radius: 20px;
+  background: var(--card-bg, var(--surface));
+  border: 1px solid var(--border);
+  min-width: min(100%, 280px);
+}
+.talk-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  margin: -6px 0 -4px;
+  padding: 6px 0;
+  color: var(--text);
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+.talk-card-title { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 6px; flex: 1; min-width: 0; }
+.talk-card-title strong { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+.talk-card-cost { font-size: 14px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.talk-card-chevron { flex: none; margin-top: 2px; color: var(--text-3); transition: transform 0.2s var(--ease, ease); }
+.talk-card-chevron.is-open { transform: rotate(180deg); }
+.talk-card-gist {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.4;
+  color: var(--text);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.talk-card-meta { margin: 0; font-size: 13px; color: var(--text-2); }
+.talk-card-live { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; font-weight: 600; color: var(--accent); }
+.talk-live-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; animation: talk-pulse 1.6s ease-in-out infinite; }
+@keyframes talk-pulse { 50% { opacity: 0.35; } }
+
+.talk-transcript { display: flex; flex-direction: column; gap: 6px; max-height: min(60vh, 520px); overflow-y: auto; overscroll-behavior: contain; }
+.talk-transcript ol { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.talk-transcript li {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  max-width: 88%;
+  padding: 7px 11px;
+  border-radius: 16px;
+  font-size: 14px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.talk-transcript li.is-you { align-self: flex-end; background: var(--accent-soft); color: var(--text); border-bottom-right-radius: 6px; }
+.talk-transcript li.is-daybook { align-self: flex-start; background: var(--surface-2); color: var(--text); border-bottom-left-radius: 6px; }
+.talk-typed { flex: none; color: var(--text-2); transform: translateY(1px); }
+.talk-transcript-note { margin: 0; font-size: 13px; color: var(--text-2); }
+.talk-card .asst-proposal { margin: 0; }
+.talk-card .action-chips { margin: 0; }
+
+.talk-continue {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 44px;
+  margin: -4px 0 -6px -10px;
+  padding: 0 10px;
+  border-radius: 22px;
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 600;
+  -webkit-tap-highlight-color: transparent;
+}
+.talk-continue:active { opacity: 0.6; }
+@media (hover: hover) { .talk-continue:hover { background: var(--accent-soft); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .talk-pill, .talk-row, .talk-chip, .talk-inline, .talk-card-chevron { transition: none; }
+  .talk-live-dot { animation: none; }
+}

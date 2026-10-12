@@ -11,6 +11,8 @@ import { addDaysISO, dayHeading, formatDateLong, formatDateShort, relativeDay, t
 import { useNow } from '../lib/environment.js'
 import { scrollBehavior } from '../lib/motion.js'
 import { useSessionState } from '../lib/sessionState.js'
+import { voicePrefs } from '../lib/voice/prefs.js'
+import TalkButton, { voiceAvailable } from '../components/voice/TalkButton.jsx'
 import '../components/journal.css'
 
 const AUTOSAVE_MS = 700
@@ -68,6 +70,7 @@ export default function JournalPage() {
 
 function JournalEditor() {
   const entries = useData('journalEntries')
+  const settings = useData('settings')
   // Re-rendered every minute (and on coming back to the app), so "today" moves on at midnight.
   const now = useNow(60000)
   const today = toISO(now)
@@ -247,6 +250,14 @@ function JournalEditor() {
           minRows={7}
           maxRows={30}
         />
+
+        {/* Talk it through: a voice chat that listens, then reads back an entry to save (appended
+            to what's here). Today only, with voice chats on. */}
+        {date === today && voicePrefs(settings).enabled && voiceAvailable() && (
+          <div className="jr-talk-row">
+            <TalkButton variant="inline" intent="journal" from="journal" label="Talk about today" />
+          </div>
+        )}
 
         <footer className="journal-footer">
           <span className="journal-status" aria-live="polite">

@@ -140,7 +140,7 @@ export default async function handler(req, res) {
               if (tryAi) {
                 try {
                   const result = await aiLimit(() => generateBriefing(row.digest, { userId }))
-                  Object.assign(row, { text: result.text, cleaned: cleanBriefing(result.text, row.digest), usage: result.usage, costUsd: briefingCost(result.usage), ms: result.ms })
+                  Object.assign(row, { text: result.text, cleaned: cleanBriefing(result.text, row.digest), usage: result.usage, costUsd: briefingCost(result.usage, result.model), ms: result.ms })
                 } catch (error) {
                   row.aiError = error.message || String(error)
                 }

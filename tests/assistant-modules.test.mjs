@@ -1134,3 +1134,90 @@ describe('morning summary facts and the app icon count', () => {
     assert.equal(appBadgeFor(on, null, now), 0)
   })
 })
+
+// ---- voice chats in the chat history (api/assistant.js + api/_talk.js) ---------------------------
+
+describe('talk messages in the history', async () => {
+  process.env.SUPABASE_URL ||= 'http://x'
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'k'
+  process.env.JWT_SECRET ||= 's'
+  process.env.OPENAI_API_KEY ||= 'sk-test'
+  const { createHash } = await import('node:crypto')
+  const { normalizeMessage, publicMessage, historyContent, staticInstructions, readConfirm, cardDecision } = await import('../api/assistant.js')
+  const talkCtx = { localDate: '2026-10-11', localTime: '21:30', timeZone: 'America/Toronto' }
+  const chip = (index) => ({ tool: 'create_task', ok: true, message: `Created task ${index}.`, undoId: `u${index}` })
+  const talk = (extra = {}) => ({
+    id: 'talk_abc12345',
+    startedAt: '2026-10-12T01:12:00.000Z',
+    endedAt: '2026-10-12T01:23:00.000Z',
+    seconds: 660,
+    segments: 1,
+    mode: 'open',
+    intent: 'chat',
+    usd: 0.38,
+    end: 'user',
+    turns: [{ id: 'u1', r: 'u', t: 'Add call mom tomorrow at 5' }, { id: 'a1', r: 'a', t: 'Added it for tomorrow at 5 PM.' }],
+    ...extra,
+  })
+
+  test('normalizeMessage keeps a talk, its server state and up to 25 chips; via on hand-off messages', () => {
+    const stored = normalizeMessage({ role: 'assistant', content: '', createdAt: '2026-10-12T01:12:00.000Z', talk: talk(), talkState: { turnId: 'item_1', refs: { $1: 'abc', bad: 'x' }, direct: 1 }, actions: Array.from({ length: 30 }, (_, i) => chip(i)), proposal: { id: 'p1', status: 'pending', createdAt: '2026-10-12T01:20:00.000Z', turnId: 'item_1', actions: [], staged: [] } })
+    assert.equal(stored.talk.id, 'talk_abc12345')
+    assert.equal(stored.talk.turns.length, 2)
+    assert.deepEqual(stored.talkState, { turnId: 'item_1', refs: { $1: 'abc' }, direct: 1 })
+    assert.equal(stored.actions.length, 25)
+    assert.equal(stored.proposal.turnId, 'item_1')
+    const plain = normalizeMessage({ role: 'assistant', content: 'hi', actions: Array.from({ length: 30 }, (_, i) => chip(i)), talkState: { turnId: 'x' } })
+    assert.equal(plain.actions.length, 10, 'other replies keep 10')
+    assert.equal(plain.talkState, undefined, 'no talk, no talk state')
+    assert.equal(normalizeMessage({ role: 'user', content: 'x', talk: talk() }).talk, undefined, 'only assistant messages hold a talk')
+    assert.equal(normalizeMessage({ role: 'assistant', content: '', talk: { id: 'nope' } }).talk, undefined)
+    assert.deepEqual(normalizeMessage({ role: 'user', content: 'move it', via: { talk: 'talk_abc12345', other: 1 } }).via, { talk: 'talk_abc12345' })
+    assert.equal(normalizeMessage({ role: 'user', content: 'x', via: { talk: 'bad id' } }).via, undefined)
+  })
+
+  test('publicMessage hides the talk state; a live talk that stopped checking in shows as cut off', () => {
+    const message = normalizeMessage({ role: 'assistant', content: '', createdAt: '2026-10-12T01:12:00.000Z', talk: talk(), talkState: { turnId: 'item_1', refs: {}, direct: 0 } })
+    const shown = publicMessage(message)
+    assert.equal(shown.talkState, undefined)
+    assert.equal(shown.talk.end, 'user')
+    const live = publicMessage(normalizeMessage({ role: 'assistant', content: '', createdAt: '2026-10-12T01:12:00.000Z', talk: talk({ endedAt: null, end: null }) }))
+    assert.equal(live.talk.end, 'cut')
+    const now = new Date().toISOString()
+    const fresh = publicMessage(normalizeMessage({ role: 'assistant', content: '', createdAt: now, talk: talk({ startedAt: now, endedAt: null, end: null, seconds: 0 }) }))
+    assert.equal(fresh.talk.end, null, 'a call still going is left alone')
+  })
+
+  test('historyContent gives the model the transcript, then what the call did', () => {
+    const message = normalizeMessage({ role: 'assistant', content: '', createdAt: '2026-10-12T01:12:00.000Z', talk: talk(), actions: [chip(1)] })
+    const text = historyContent(message, talkCtx)
+    assert.equal(text, '[Voice chat Sun Oct 11, 9:12–9:23 PM, 11 min]\nUser: Add call mom tomorrow at 5\nDaybook: Added it for tomorrow at 5 PM.\n[Done: Created task 1.]')
+    const long = normalizeMessage({ role: 'assistant', content: '', createdAt: '2026-10-12T01:12:00.000Z', talk: talk({ turns: Array.from({ length: 80 }, (_, i) => ({ id: `t${i}`, r: i % 2 ? 'a' : 'u', t: `${'blah '.repeat(15)}${i}` })) }) })
+    const cut = historyContent(long, talkCtx)
+    assert.ok(cut.length < 3200)
+    assert.match(cut, /^\[Voice chat/)
+    assert.match(cut, / … /)
+    assert.match(cut, /79$/)
+  })
+
+  // The text assistant's instructions must stay byte-identical (OpenAI's prompt cache): these are the
+  // hashes from main before the voice work. Change them only on purpose.
+  test('a hand-off from a voice chat (via) never answers the waiting card', () => {
+    const pending = { index: 3, proposal: { id: 'p1', status: 'pending' } }
+    const via = { talk: 'talk_abc12345' }
+    assert.equal(readConfirm({ confirm: { proposalId: 'p1', decision: 'yes' } }, via), null, 'a confirm sent with via is ignored')
+    assert.equal(readConfirm({ confirm: { proposalId: 'p1', decision: 'yes' } }, null).decision, 'yes')
+    assert.equal(cardDecision({ confirm: null, pending, via, text: 'Yes please add it' }), null)
+    assert.equal(cardDecision({ confirm: null, pending, via: null, text: 'Yes please add it' }), 'yes')
+    assert.equal(cardDecision({ confirm: null, pending, via: null, text: 'yes', tappedChoice: true }), null)
+    assert.equal(cardDecision({ confirm: null, pending, via: null, text: 'yes', attachments: [{}] }), null)
+    assert.equal(cardDecision({ confirm: { decision: 'no' }, pending: null, via: null, text: '' }), 'no')
+  })
+
+  test('staticInstructions is unchanged', () => {
+    const hash = (confirmMode) => createHash('sha256').update(staticInstructions({ confirmMode })).digest('hex')
+    assert.equal(hash(true), '5cf996bb89456d6a5964782cf0fd656b0065363a8df9ea3173843f3fade12388')
+    assert.equal(hash(false), '202d9f211f84e3baa19f6144182e9371507a762ad9496f4690ecfa2e47e87913')
+    assert.equal(hash('changes'), '22988db050f5fed7d66265d12934e4108ac8f70177f02aab03b8173623025b4d')
+  })
+})

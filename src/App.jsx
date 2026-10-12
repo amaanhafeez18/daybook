@@ -23,6 +23,8 @@ import { lazyPage } from './lib/lazyPage.js'
 import { clearSessionState } from './lib/sessionState.js'
 import { clearAssistantSession, useAssistantStreaming } from './lib/assistantSession.js'
 import { isTyping } from './lib/keyboard.js'
+import { clearVoice } from './lib/voice/session.js'
+import VoiceHost from './components/voice/VoiceHost.jsx'
 import './components/today.css'
 import './components/shell.css'
 import './components/transitions.css'
@@ -143,6 +145,7 @@ export default function App() {
     // Nothing of this account's searches, drafts or running assistant reply carries over.
     clearSessionState()
     clearAssistantSession()
+    clearVoice() // a voice chat stops at once, unsaved (the session that would save it is gone)
     applyTheme({})
     setUser(null)
     if (message && hadSession) toast(message)
@@ -369,6 +372,7 @@ function Shell({ user, onUserChange, onSignOut }) {
         <WorkoutPill />
       </div>
       <Welcome user={user} />
+      <VoiceHost />
       <AppBadgeSync />
       <ShortcutsSheet open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} tabs={tabs} />
     </div>
@@ -392,7 +396,7 @@ function NavTabs({ tabs, route }) {
 
 // ---- keyboard shortcuts (desktop, or an iPad with a keyboard) -----------------------------------
 // N new task, / search, 1–5 the tabs, ⌘K / Ctrl K the assistant, ? the list of them. Never while
-// typing, while a sheet or the welcome tour is open, or during a workout. Pages act on N and / through the
+// typing, while a sheet, the welcome tour or a voice chat is open, or during a workout. Pages act on N and / through the
 // 'daybook:command' event on window ({ detail: { name: 'new-task' | 'search' } }; preventDefault
 // says the page took it). Elsewhere N goes to Tasks first, and / to the page's search field (or
 // Tasks' when the page has none).
@@ -428,7 +432,7 @@ function useShortcuts({ route, tabs, onHelp }) {
     const onKey = (event) => {
       if (event.defaultPrevented || event.isComposing || event.repeat) return
       const root = document.documentElement
-      if (['has-sheet', 'has-welcome', 'has-att-viewer', FOCUS_CLASS].some((name) => root.classList.contains(name)) || isTyping(document.activeElement)) return
+      if (['has-sheet', 'has-welcome', 'has-att-viewer', 'voice-open', FOCUS_CLASS].some((name) => root.classList.contains(name)) || isTyping(document.activeElement)) return
       const { route: current, tabs: shown, onHelp: help } = latest.current
       const key = event.key || ''
       if (event.metaKey || event.ctrlKey) {

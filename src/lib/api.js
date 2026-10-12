@@ -1,7 +1,7 @@
 const TOKEN_KEY = 'daybook.session.token'
 const USER_KEY = 'daybook.session.user'
 // Everything the app caches for the signed-in user. Device preferences live under daybook.prefs.
-const USER_CACHE_PREFIXES = ['daybook.data.', 'daybook.synced.', 'daybook.chat', 'daybook.backup.']
+const USER_CACHE_PREFIXES = ['daybook.data.', 'daybook.synced.', 'daybook.chat', 'daybook.backup.', 'daybook.aiUsage', 'daybook.voice.unsent']
 // Gym and food keep drafts and state under their own prefixes. A sign-out leaves them: the active
 // workout there is tied to its account and resumes when that account signs in again.
 const FEATURE_PREFIXES = ['daybook.gym.', 'daybook.food.']
