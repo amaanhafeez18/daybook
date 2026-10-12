@@ -78,7 +78,10 @@ export function buildSuggestions({ tasks, friends, settings, foodEntries, gymDay
 }
 
 // The composer's hint, by space.
-export const composerPlaceholder = (space) => (space === 'health' ? 'Log food, a workout or your weight…' : 'Ask, or tell me what to add…')
+// short: the field is narrow (the mic and the Talk pill sit beside it), so it must fit on one line.
+export const composerPlaceholder = (space, { short = false } = {}) => (short
+  ? (space === 'health' ? 'Log food or gym…' : 'Ask or add…')
+  : (space === 'health' ? 'Log food, a workout or your weight…' : 'Ask, or tell me what to add…'))
 
 const sameText = (text) => String(text || '').toLowerCase().replace(/[“”"‘’']/g, '').replace(/\s+/g, ' ').replace(/[.!\s]+$/, '').trim()
 
@@ -197,21 +200,25 @@ const sameJson = (a, b) => {
     return false
   }
 }
-// A message this device sent and the server's copy of it differ only in their time stamps.
+// A message this device sent and the server's copy of it differ only in their time stamps. A voice
+// chat (talk) only ever matches the same voice chat.
 const TWIN_WINDOW_MS = 10 * 60 * 1000
-const twins = (local, server) => local.role === server.role && !local.error && (local.content || '') === (server.content || '')
+const sameTalk = (a, b) => (isTalk(a) || isTalk(b) ? isTalk(a) && isTalk(b) && a.talk.id === b.talk.id : true)
+const twins = (local, server) => local.role === server.role && !local.error && (local.content || '') === (server.content || '') && sameTalk(local, server)
   && Math.abs((Date.parse(local.createdAt || '') || 0) - (Date.parse(server.createdAt || '') || 0)) < TWIN_WINDOW_MS
 
 // The server's history in place of what's on screen, keeping each message object that didn't change
 // (so memoised rows and their cards keep their state and don't animate again). A message sent from
-// here is matched to the server's copy by role, text and time, and keeps its key and photo previews.
+// here is matched to the server's copy by role, text and time, and keeps its key and photo previews;
+// a voice chat by its talk id (the call's screen may have put it in before the server saved it).
 export function mergeHistory(current, history) {
   const local = Array.isArray(current) ? current : []
   const byId = new Map(local.map((message) => [message.id, message]))
   const used = new Set()
   return withKeys((Array.isArray(history) ? history : []).filter((message) => message && typeof message === 'object').map((server) => {
-    let match = byId.get(messageKey(server))
-    if (match && used.has(match)) match = null
+    let match = isTalk(server) ? local.find((message) => !used.has(message) && isTalk(message) && message.talk.id === server.talk.id) || null : null
+    if (!match) match = byId.get(messageKey(server)) || null
+    if (match && (used.has(match) || !sameTalk(match, server))) match = null
     if (!match) match = local.find((message) => !used.has(message) && twins(message, server)) || null
     if (!match) return server
     used.add(match)
@@ -249,14 +256,19 @@ export function chipFields({ tool, ok, message, undoId, undone }) {
 // stays free of browser code).
 const CACHED_ATTACHMENTS = 10
 
-// The shape kept in localStorage: no photos or file contents, and no in-flight states.
-export function cacheMessage({ role, content, voice, actions, proposal, choices, attachments, createdAt }) {
+// The shape kept in localStorage: no photos or file contents, and no in-flight states. A voice chat
+// keeps its newest turns (CACHED_TALK_TURNS, each cut to CACHED_TURN_CHARS) and up to 25 chips; a
+// message relayed from a voice chat keeps which call it belongs to.
+export function cacheMessage({ role, content, voice, actions, proposal, choices, attachments, createdAt, talk, via }) {
+  const talkShape = isTalk({ talk }) ? cacheTalk(talk) : null
   return {
     role,
     content: typeof content === 'string' ? content : '',
     ...(createdAt ? { createdAt } : {}),
     ...(voice ? { voice } : {}),
-    ...(actions?.length ? { actions: actions.slice(0, 10).map(chipFields) } : {}),
+    ...(talkShape ? { talk: talkShape } : {}),
+    ...(typeof via?.talk === 'string' && via.talk ? { via: { talk: via.talk } } : {}),
+    ...(actions?.length ? { actions: actions.slice(0, talkShape ? TALK_ACTIONS : 10).map(chipFields) } : {}),
     ...(proposal?.id ? {
       proposal: {
         id: proposal.id,
@@ -277,3 +289,121 @@ export function cacheMessage({ role, content, voice, actions, proposal, choices,
     ...(attachments?.length ? { attachments: attachments.slice(0, CACHED_ATTACHMENTS).map(({ kind, name }) => ({ kind, name })) } : {}),
   }
 }
+
+// ---- voice chats ---------------------------------------------------------------------------------
+
+// A voice chat is one assistant message with `talk` ({ id, startedAt, endedAt, seconds, usd, end,
+// turns: [{ r: 'u' | 't' | 'a', t }] }); what it handed to the full assistant is saved as ordinary
+// messages carrying `via: { talk }`, shown inside the voice chat's card instead of on their own.
+export const TALK_ACTIONS = 25
+const CACHED_TALK_TURNS = 30
+const CACHED_TURN_CHARS = 300
+// "Continue this voice chat" is offered this long after a call that stopped by itself.
+export const TALK_CONTINUE_MS = 30 * 60 * 1000
+const CONTINUABLE_ENDS = new Set(['cap', 'quiet', 'background', 'network', 'interrupted'])
+const TALK_TURN_ROLES = new Set(['u', 't', 'a'])
+
+export const isTalk = (message) => !!message?.talk && typeof message.talk === 'object' && typeof message.talk.id === 'string' && !!message.talk.id
+export const viaTalk = (message) => (typeof message?.via?.talk === 'string' ? message.via.talk : '')
+const talkTurns = (talk) => (Array.isArray(talk?.turns) ? talk.turns : []).filter((turn) => turn && TALK_TURN_ROLES.has(turn.r) && typeof turn.t === 'string')
+const finite = (value) => (Number.isFinite(Number(value)) ? Number(value) : 0)
+
+function cacheTalk(talk) {
+  const turns = talkTurns(talk)
+  const kept = turns.slice(-CACHED_TALK_TURNS)
+  return {
+    id: talk.id,
+    ...(talk.startedAt ? { startedAt: talk.startedAt } : {}),
+    endedAt: talk.endedAt || null,
+    seconds: Math.max(0, finite(talk.seconds)),
+    segments: Math.max(1, finite(talk.segments) || 1),
+    ...(talk.mode ? { mode: talk.mode } : {}),
+    ...(talk.intent ? { intent: talk.intent } : {}),
+    usd: Math.max(0, finite(talk.usd)),
+    end: talk.end || null,
+    turns: kept.map((turn) => ({ ...(turn.id ? { id: turn.id } : {}), r: turn.r, t: turn.t.slice(0, CACHED_TURN_CHARS), ...(turn.at ? { at: turn.at } : {}) })),
+    trimmed: Math.max(0, finite(talk.trimmed)) + (turns.length - kept.length),
+  }
+}
+
+// The chat as shown: what a voice chat handed to the full assistant (messages with `via`) is folded
+// into that voice chat's card while the card is in the list. The same array when nothing is hidden.
+export function visibleChatMessages(messages) {
+  const list = Array.isArray(messages) ? messages : []
+  const talks = new Set(list.filter(isTalk).map((message) => message.talk.id))
+  if (!talks.size) return list
+  const shown = list.filter((message) => !(viaTalk(message) && talks.has(viaTalk(message))))
+  return shown.length === list.length ? list : shown
+}
+
+// The waiting or settled cards that belong to a voice chat: its own, then those of the requests it
+// handed on, oldest first. [{ proposal, createdAt, messageId }]
+export function talkProposals(messages, talkId) {
+  if (!talkId) return []
+  return (Array.isArray(messages) ? messages : [])
+    .filter((message) => message?.proposal?.id && ((isTalk(message) && message.talk.id === talkId) || (message.role === 'assistant' && viaTalk(message) === talkId)))
+    .map((message) => ({ proposal: message.proposal, createdAt: message.createdAt, messageId: message.id }))
+    .sort((a, b) => (Date.parse(a.proposal.createdAt || a.createdAt || '') || 0) - (Date.parse(b.proposal.createdAt || b.createdAt || '') || 0))
+}
+
+// Two lines about a voice chat for its card: the last thing Daybook said ('' before it said anything).
+export function talkGist(talk, max = 240) {
+  const last = talkTurns(talk).filter((turn) => turn.r === 'a' && turn.t.trim()).pop()
+  const text = last ? last.t.replace(/\s+/g, ' ').trim() : ''
+  return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text
+}
+
+// "11 min", "1 h 5 min"; a call under a minute counts as one.
+export function talkLength(seconds) {
+  const minutes = Math.max(1, Math.round(Math.max(0, finite(seconds)) / 60))
+  if (minutes < 60) return `${minutes} min`
+  const hours = Math.floor(minutes / 60)
+  const rest = minutes % 60
+  return rest ? `${hours} h ${rest} min` : `${hours} h`
+}
+
+// "Voice chat · 9:12–9:23 PM · 11 min" (with the day in front when it wasn't today). A call still
+// going (no end yet) shows its start only. timeZone: for tests; the device's zone otherwise.
+export function talkTitle(talk, locale, { now = Date.now(), timeZone } = {}) {
+  const parts = ['Voice chat']
+  const start = Date.parse(talk?.startedAt || '')
+  if (Number.isFinite(start)) {
+    const zone = timeZone ? { timeZone } : {}
+    const format = (stamp, options) => {
+      try {
+        return new Intl.DateTimeFormat(locale, { ...options, ...zone }).format(new Date(stamp))
+      } catch {
+        return ''
+      }
+    }
+    const time = (stamp) => format(stamp, { hour: 'numeric', minute: '2-digit' })
+    const dayOf = (stamp) => format(stamp, { year: 'numeric', month: 'numeric', day: 'numeric' })
+    const end = Date.parse(talk?.endedAt || '')
+    let range = time(start)
+    if (Number.isFinite(end) && end - start >= 60000) {
+      const to = time(end)
+      const period = (text) => (/\s?[AaPp]\.?\s?[Mm]\.?$/.exec(text) || [''])[0]
+      // "9:12–9:23 PM" when both share AM or PM; otherwise each keeps its own.
+      const shared = period(range) && period(range) === period(to)
+      range = `${shared ? range.slice(0, -period(range).length).trim() : range}–${to}`
+    }
+    if (dayOf(start) !== dayOf(now)) {
+      const day = format(start, { month: 'short', day: 'numeric' })
+      if (day) range = `${day}, ${range}`
+    }
+    if (range) parts.push(range)
+  }
+  if (finite(talk?.seconds) > 0) parts.push(talkLength(talk.seconds))
+  return parts.join(' · ')
+}
+
+// A call that stopped by itself (time limit, quiet, the app was left, a dropped connection, a phone
+// call) can be picked up again for a while.
+export function talkContinuable(talk, now = Date.now()) {
+  if (!talk || !CONTINUABLE_ENDS.has(talk.end)) return false
+  const ended = Date.parse(talk.endedAt || '')
+  return Number.isFinite(ended) && now - ended >= 0 && now - ended < TALK_CONTINUE_MS
+}
+
+// How many changes a voice chat made (chips that worked and weren't taken back).
+export const talkChanges = (actions) => (Array.isArray(actions) ? actions : []).filter((action) => action?.ok && !action.undone).length

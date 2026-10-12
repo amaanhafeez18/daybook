@@ -7,11 +7,13 @@ import assert from 'node:assert/strict'
 import {
   ASK_MAX_CHARS, PROPOSAL_TTL_MS, UNDO_TTL_MS, askAssistantHash, assistantSpace, buildSuggestions, cacheMessage, canUndo, cardExpired, collapsesCard, composerPlaceholder,
   mergeHistory, messageKey, proposalExpired, readAskHash, revealCount, setsOffer, undoRefused, visibleActions, withKeys,
+  TALK_CONTINUE_MS, isTalk, talkChanges, talkContinuable, talkGist, talkLength, talkProposals, talkTitle, visibleChatMessages,
 } from '../src/lib/assistantChat.js'
 import {
   beginReply, clearAssistantSession, endReply, getSession, sessionWriter, stopReply, typeInto, useAssistantStreaming,
 } from '../src/lib/assistantSession.js'
 import { toISO } from '../src/lib/dates.js'
+import { featureFigures, voiceBlocked } from '../src/lib/aiUsageClient.js'
 
 const TODAY = '2026-10-06'
 const texts = (list) => list.map((item) => item.text)
@@ -275,6 +277,114 @@ describe('keys and the history merge', () => {
     assert.equal(cached.proposal.status, 'interrupted')
     assert.deepEqual(cached.attachments, [{ kind: 'image', name: 'a' }])
     assert.equal(cached.streaming, undefined)
+  })
+})
+
+describe('voice chats in the chat', () => {
+  const at = (minute) => `2026-10-11T21:${String(minute).padStart(2, '0')}:00.000Z`
+  const talk = (extra = {}) => ({
+    id: 'talk_abc12345', startedAt: at(12), endedAt: at(23), seconds: 660, segments: 1, mode: 'open', intent: 'chat', usd: 0.38, end: 'user',
+    turns: [{ r: 'u', t: 'Add call mom tomorrow at 5' }, { r: 'a', t: 'Done, call mom tomorrow at 5 PM.' }, { r: 't', t: 'thanks' }, { r: 'a', t: 'Anytime.  Talk soon!' }],
+    trimmed: 0,
+    ...extra,
+  })
+
+  test('the cached shape keeps a voice chat (newest 30 turns, 300 characters each, 25 chips) and the call a hand-off belongs to', () => {
+    const turns = Array.from({ length: 40 }, (_, index) => ({ id: `i${index}`, r: index % 2 ? 'a' : 'u', t: 'x'.repeat(500), at: at(12) }))
+    const actions = Array.from({ length: 30 }, (_, index) => ({ tool: 'create_task', ok: true, message: `Added ${index}`, undoId: `u${index}`, extra: 'dropped' }))
+    const cached = cacheMessage({ role: 'assistant', content: '', createdAt: at(12), talk: talk({ turns, trimmed: 2 }), actions, talkState: { turnId: 'x' } })
+    assert.equal(cached.talk.turns.length, 30)
+    assert.equal(cached.talk.turns[0].id, 'i10', 'the newest turns are kept')
+    assert.ok(cached.talk.turns.every((turn) => turn.t.length === 300))
+    assert.equal(cached.talk.trimmed, 12, 'earlier drops plus the ones the cache dropped')
+    assert.equal(cached.talk.usd, 0.38)
+    assert.equal(cached.actions.length, 25)
+    assert.deepEqual(cached.actions[0], { tool: 'create_task', ok: true, message: 'Added 0', undoId: 'u0' })
+    assert.equal(cached.talkState, undefined, 'server-only state never reaches the cache')
+    // A plain reply keeps at most 10 chips, and a relayed message keeps which call it came from.
+    assert.equal(cacheMessage({ role: 'assistant', content: 'x', actions }).actions.length, 10)
+    assert.deepEqual(cacheMessage({ role: 'user', content: 'move my gym day', via: { talk: 'talk_abc12345', extra: 1 } }).via, { talk: 'talk_abc12345' })
+    assert.equal(cacheMessage({ role: 'user', content: 'x', via: { talk: 5 } }).via, undefined)
+    assert.equal(cacheMessage({ role: 'assistant', content: 'x', talk: { turns: [] } }).talk, undefined, 'a talk needs its id')
+  })
+
+  test('what a voice chat handed to the full assistant folds into its card while the card is listed', () => {
+    const card = { id: 'a1', role: 'assistant', content: '', createdAt: at(12), talk: talk() }
+    const asked = { id: 'u2', role: 'user', content: 'Change my gym schedule', createdAt: at(15), via: { talk: 'talk_abc12345' } }
+    const answered = { id: 'a2', role: 'assistant', content: 'Here is the new plan.', createdAt: at(15), via: { talk: 'talk_abc12345' }, proposal: { id: 'p2', status: 'pending', actions: [{ label: 'Set Push / Pull / Legs' }], createdAt: at(15) } }
+    const other = { id: 'u3', role: 'user', content: 'hi', createdAt: at(30) }
+    const orphan = { id: 'u4', role: 'user', content: 'from an older call', createdAt: at(31), via: { talk: 'talk_zzzzzzzz' } }
+    const list = [card, asked, answered, other, orphan]
+    assert.deepEqual(visibleChatMessages(list).map((message) => message.id), ['a1', 'u3', 'u4'])
+    const plain = [other]
+    assert.equal(visibleChatMessages(plain), plain, 'nothing hidden: the same array')
+    assert.deepEqual(visibleChatMessages(undefined), [])
+    // The card shows its own waiting card and those of the requests it handed on, oldest first.
+    const withOwn = { ...card, proposal: { id: 'p1', status: 'cancelled', actions: [], createdAt: at(13) } }
+    assert.deepEqual(talkProposals([answered, withOwn, asked, other], 'talk_abc12345').map((item) => item.proposal.id), ['p1', 'p2'])
+    assert.deepEqual(talkProposals(list, ''), [])
+    assert.ok(isTalk(card) && !isTalk(asked) && !isTalk({ talk: { id: '' } }))
+  })
+
+  test('gist, length, title, changes and when a call can be continued', () => {
+    assert.equal(talkGist(talk()), 'Anytime. Talk soon!', 'the last thing Daybook said, spaces tidied')
+    assert.equal(talkGist(talk({ turns: [{ r: 'u', t: 'hello' }] })), '')
+    assert.equal(talkGist(talk({ turns: [{ r: 'a', t: 'y'.repeat(400) }] })).length, 240)
+    assert.equal(talkGist(null), '')
+    assert.equal(talkLength(20), '1 min')
+    assert.equal(talkLength(660), '11 min')
+    assert.equal(talkLength(3900), '1 h 5 min')
+    const now = Date.parse(at(40))
+    const flat = (text) => text.replace(/\s/g, ' ') // Intl puts a narrow space before AM / PM
+    assert.equal(flat(talkTitle(talk(), 'en-US', { now, timeZone: 'UTC' })), 'Voice chat · 9:12–9:23 PM · 11 min')
+    assert.equal(flat(talkTitle(talk({ startedAt: '2026-10-11T11:50:00Z', endedAt: '2026-10-11T12:10:00Z', seconds: 1200 }), 'en-US', { now: Date.parse('2026-10-12T09:00:00Z'), timeZone: 'UTC' })), 'Voice chat · Oct 11, 11:50 AM–12:10 PM · 20 min')
+    assert.equal(flat(talkTitle(talk({ endedAt: null, seconds: 0 }), 'en-US', { now, timeZone: 'UTC' })), 'Voice chat · 9:12 PM', 'still going: the start only')
+    assert.equal(talkTitle({}, 'en-US'), 'Voice chat')
+    assert.equal(talkChanges([{ ok: true }, { ok: true, undone: true }, { ok: false }, null]), 1)
+    const ended = Date.parse(at(23))
+    assert.equal(talkContinuable(talk({ end: 'cap' }), ended + 60000), true)
+    assert.equal(talkContinuable(talk({ end: 'quiet' }), ended + TALK_CONTINUE_MS + 1), false, 'too long ago')
+    assert.equal(talkContinuable(talk({ end: 'user' }), ended + 60000), false, 'hung up on purpose')
+    assert.equal(talkContinuable(talk({ end: 'daily' }), ended + 60000), false, 'out of minutes for today')
+    assert.equal(talkContinuable(talk({ end: 'background', endedAt: null }), ended), false)
+  })
+
+  test('the history merge matches a voice chat by its id and never to another message', () => {
+    // The call screen put the voice chat in with its own time stamp; the server saved it with the call's start.
+    const local = [{ id: 'talk:talk_abc12345', role: 'assistant', content: '', createdAt: at(24), talk: talk({ endedAt: null }) }]
+    const server = [{ role: 'assistant', content: '', createdAt: at(12), talk: talk() }]
+    const merged = mergeHistory(local, server)
+    assert.equal(merged[0].id, 'talk:talk_abc12345', 'same key: no remount')
+    assert.equal(merged[0].talk.endedAt, at(23))
+    // An empty assistant message from the same minutes is not a voice chat's twin.
+    const reply = { id: `assistant:${at(12)}`, role: 'assistant', content: '', createdAt: at(12) }
+    const mixed = mergeHistory([reply], server)
+    assert.equal(mixed[0].talk.id, 'talk_abc12345')
+    assert.notEqual(mixed[0], reply)
+    // Two different calls stay apart.
+    const otherCall = [{ id: 'talk:talk_other999', role: 'assistant', content: '', createdAt: at(12), talk: talk({ id: 'talk_other999' }) }]
+    assert.notEqual(mergeHistory(otherCall, server)[0].id, 'talk:talk_other999')
+  })
+})
+
+describe('AI usage on this device', () => {
+  const now = new Date('2026-10-11T20:00:00')
+  const summary = { voiceSecondsToday: 1790, month: { total: 3 } }
+
+  test('voice is paused by the daily minutes or the budget only from a copy fetched today', () => {
+    assert.equal(voiceBlocked({}, { summary, at: now.getTime() }, now), 'daily', 'under a minute of the 30 left')
+    assert.equal(voiceBlocked({ aiBudgetUsd: 2 }, { summary, at: now.getTime() }, now), 'budget')
+    assert.equal(voiceBlocked({ voice: { dailyMinutes: 60 } }, { summary, at: now.getTime() }, now), null)
+    assert.equal(voiceBlocked({ voice: { enabled: false } }, null, now), 'off')
+    assert.equal(voiceBlocked({}, { summary, at: now.getTime() - 86400000 }, now), null, 'yesterday’s copy: the server decides')
+    assert.equal(voiceBlocked({}, { summary: null, at: 0 }, now), null)
+  })
+
+  test('feature figures read the month totals and the 30-day amounts alike', () => {
+    assert.deepEqual(featureFigures({ voice: { usd: 0.4, n: 2, seconds: 600, handoffUsd: 0.05 } }, 'voice'), { usd: 0.4, n: 2, seconds: 600, handoffUsd: 0.05 })
+    assert.deepEqual(featureFigures({ voice: 0.2 }, 'voice'), { usd: 0.2, n: 0, seconds: 0, handoffUsd: 0 })
+    assert.deepEqual(featureFigures({ chat: { u: 1500, n: 3 } }, 'chat'), { usd: 0.0015, n: 3, seconds: 0, handoffUsd: 0 })
+    assert.deepEqual(featureFigures(null, 'chat'), { usd: 0, n: 0, seconds: 0, handoffUsd: 0 })
   })
 })
 

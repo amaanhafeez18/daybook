@@ -11,6 +11,8 @@ import TodayHint from '../components/SetupCard.jsx'
 import TaskRow from '../components/TaskRow.jsx'
 import TaskSheet from '../components/TaskSheet.jsx'
 import MorningNote from '../components/MorningNote.jsx'
+import TalkButton, { voiceAvailable } from '../components/voice/TalkButton.jsx'
+import { voicePrefs } from '../lib/voice/prefs.js'
 import { readPref, writePref } from '../lib/api.js'
 import { getState, updateSettings, useData } from '../lib/store.js'
 import { MOODS, classOver, classesOn, compareTasks, createTask, deleteTaskForever, friendStatus, lastContactMap, saveJournalEntry, updateTask } from '../lib/planner.js'
@@ -162,6 +164,9 @@ export default function TodayPage({ displayName, loaded }) {
 
 // ---- Today -------------------------------------------------------------------------------------
 
+// "Talk about your day" shows from this time.
+const TALK_DAY_FROM = '18:00'
+
 // "14:30" from minutes after midnight, for the short time labels.
 const clock = (minutes) => `${String(Math.floor(minutes / 60) % 24).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`
 
@@ -214,6 +219,10 @@ function TodayCard({ tasks, allTasks, events, classes, today, now, loaded, setti
   const leftovers = evening ? eveningLeftovers(open, today, nowHHMM) : []
   const moodSet = !!journalEntries?.find((entry) => entry.date === today)?.mood
   const askMood = loaded && evening && journal && !moodSet
+  // From 6 PM, before today's journal has any words: "Talk about your day" opens a voice chat that
+  // listens, then reads back a short entry to save (only with voice chats on).
+  const wroteToday = !!journalEntries?.some((entry) => entry.date === today && (String(entry.body || '').trim() || String(entry.title || '').trim()))
+  const talkDay = loaded && journal && nowHHMM >= TALK_DAY_FROM && !wroteToday && voicePrefs(settings).enabled && voiceAvailable()
 
   function moveAll() {
     const target = evening ? tomorrow : today
@@ -386,6 +395,12 @@ function TodayCard({ tasks, allTasks, events, classes, today, now, loaded, setti
                   </button>
                 ))}
               </span>
+            </div>
+          )}
+
+          {talkDay && (
+            <div className="td-section td-talk">
+              <TalkButton variant="chip" intent="debrief" from="today" label="Talk about your day" />
             </div>
           )}
 

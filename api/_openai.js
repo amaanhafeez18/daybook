@@ -19,8 +19,8 @@ export function modelFromEnv(...names) {
   return { model: FALLBACK_MODEL, env: null }
 }
 
-// gpt-4o-mini-transcribe: $0.003 per minute of audio.
-const TRANSCRIBE_MODEL = String(process.env.OPENAI_TRANSCRIBE_MODEL || '').trim() || 'gpt-4o-mini-transcribe'
+// gpt-4o-mini-transcribe: $0.003 per minute of audio (prices: src/lib/aiPricing.js).
+export const TRANSCRIBE_MODEL = String(process.env.OPENAI_TRANSCRIBE_MODEL || '').trim() || 'gpt-4o-mini-transcribe'
 export const DEFAULT_MODEL = modelFromEnv('OPENAI_MODEL').model
 // Food estimates: OPENAI_FOOD_MODEL, else OPENAI_MODEL, else the default.
 export const FOOD_MODEL = modelFromEnv('OPENAI_FOOD_MODEL', 'OPENAI_MODEL')
@@ -122,12 +122,16 @@ async function postResponses(body, timeoutMs, debug) {
     debug.push({ step: 'openai.invalid_response', httpStatus: response.status, bodyPreview: rawBody.slice(0, 300) })
     throw aiError(502, `The AI service returned an unexpected response (${response.status}). Please try again.`)
   }
+  const outputTypes = (payload.output || []).map((item) => item.type)
+  // model and webCalls let api/_usage.js (usageFromDebug) price the call.
   debug.push({
     step: 'openai.response',
     httpStatus: response.status,
     status: payload.status || 'unknown',
     ms: Date.now() - startedAt,
-    outputTypes: (payload.output || []).map((item) => item.type),
+    model: body.model,
+    outputTypes,
+    webCalls: outputTypes.filter((type) => type === 'web_search_call').length,
     usage: usageOf(payload),
   })
   return { response, payload }
@@ -201,8 +205,13 @@ export async function responsesJson({ model = DEFAULT_MODEL, modelEnv, instructi
 
 // ---- Voice ----------------------------------------------------------------------------------------
 
-// Same behaviour as api/assistant.js; errors also carry an HTTP status.
-export async function transcribeAudio(audioBase64, mimeType, vocabulary) {
+// About 4,000 bytes a second of compressed voice: the length of a recording when the app didn't say.
+const secondsOfAudio = (bytes) => Math.min(130, Math.max(1, Math.round(bytes / 4000)))
+
+// Same behaviour as api/assistant.js; errors also carry an HTTP status. With `debug`, a successful
+// transcription is logged as { step: 'openai.transcribe', model, seconds } so it can be priced
+// (seconds: the recording's length when known, else estimated from its size; 1–130).
+export async function transcribeAudio(audioBase64, mimeType, vocabulary, { debug, seconds } = {}) {
   const buffer = Buffer.from(String(audioBase64 || ''), 'base64')
   if (buffer.length < 500) throw aiError(400, 'That recording was too short. Try again.')
   if (buffer.length > MAX_AUDIO_BYTES) throw aiError(413, 'That recording is too long. Keep voice messages under two minutes.')
@@ -235,6 +244,10 @@ export async function transcribeAudio(audioBase64, mimeType, vocabulary) {
     // gets the same friendly messages as the other AI calls.
     if (response.status === 400 && !/model/i.test(String(payload.error?.message || ''))) throw aiError(400, 'That recording couldn’t be read. Try recording it again.')
     throw httpError(response.status, payload, { model: TRANSCRIBE_MODEL, env: 'OPENAI_TRANSCRIBE_MODEL' })
+  }
+  if (Array.isArray(debug)) {
+    const given = Number(seconds)
+    debug.push({ step: 'openai.transcribe', model: TRANSCRIBE_MODEL, seconds: Number.isFinite(given) && given > 0 ? Math.min(130, Math.max(1, Math.round(given))) : secondsOfAudio(buffer.length) })
   }
   return String(payload.text || '').trim()
 }

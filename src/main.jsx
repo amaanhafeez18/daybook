@@ -6,6 +6,7 @@ import { toast } from './components/ui/feedback.jsx'
 import { hasUnsavedChanges } from './lib/store.js'
 import { isTyping } from './lib/keyboard.js'
 import { getSession } from './lib/assistantSession.js'
+import { subscribeVoice, voiceLive } from './lib/voice/session.js'
 import { QUIET_WINDOW_MS, SCROLL_KEY, WORKOUT_KEY, awayLongEnough, canUpdateQuietly, holdsTypedText, scrollMemo, scrollToRestore, workoutRunning } from './lib/quietUpdate.js'
 import './App.css'
 import './glass.css'
@@ -25,8 +26,8 @@ restoreScrollAfterUpdate()
 // comes back to the foreground. A waiting version is applied quietly when nobody would notice (see
 // lib/quietUpdate.js): at launch or on coming back after 10+ minutes away, before the first tap,
 // with nothing unsaved or half-typed, no sheet open, no field focused, no reply being written and no
-// workout running. Otherwise it's
-// offered with a one-tap "Update" toast rather than swapping code mid-use. onNeedRefresh only fires
+// workout running and no voice chat open. Otherwise it's
+// offered with a one-tap "Update" toast rather than swapping code mid-use (held until a voice chat ends). onNeedRefresh only fires
 // once (when the worker starts waiting), so the toast is re-offered on each foreground while a
 // worker is still waiting, throttled so it doesn't stack up.
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
@@ -39,7 +40,18 @@ if ('serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('pointerdown', closeWindow, { capture: true, passive: true })
   window.addEventListener('keydown', closeWindow, { capture: true })
 
+  // A voice chat holds the toast (its overlay would hide it, and a reload would cut the call off).
+  let heldForCall = false
+  subscribeVoice(() => {
+    if (!heldForCall || voiceLive()) return
+    heldForCall = false
+    if (registration?.waiting) promptUpdate()
+  })
   const promptUpdate = () => {
+    if (voiceLive()) {
+      heldForCall = true
+      return
+    }
     if (Date.now() - lastPrompt < 60000) return
     lastPrompt = Date.now()
     toast('A new version of Daybook is ready.', { duration: 60000, action: { label: 'Update', onClick: () => updateSW(true) } })
@@ -56,6 +68,7 @@ if ('serviceWorker' in navigator && import.meta.env.PROD) {
     typed: safely(() => !!document.querySelector('#root .asst-tray li')
       || [...document.querySelectorAll('#root input, #root textarea')].some(holdsTypedText), true),
     replying: safely(() => !!getSession().busy, false),
+    inCall: safely(() => voiceLive() || document.documentElement.classList.contains('voice-open'), true),
   })
   // Apply now if it's safe, else offer it.
   const offer = (waiting) => {

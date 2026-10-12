@@ -318,7 +318,7 @@ body { font-size: 16px; line-height: 1.35; letter-spacing: -0.015em; }
   backdrop-filter: none;
 }
 .sheet.sheet-grouped :is(.card, .card-list, .settings-card) { background: var(--sheet-cell); }
-.sheet-header .icon-btn { background: var(--surface-2); width: 32px; height: 32px; color: var(--text-2); }
+.sheet-header .icon-btn { background: var(--surface-2); width: 32px; height: 32px; color: var(--text-2); flex-shrink: 0; }
 .sheet-body { padding-top: 8px; }
 
 /* ---- small details ------------------------------------------------------------------------------ */

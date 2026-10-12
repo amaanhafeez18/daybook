@@ -10,9 +10,18 @@ import { prefersReducedMotion } from './motion.js'
 // `transition: 'fade'` crossfades this one move (the Plan | Health pill).
 let nextKind = null
 export function navigate(route, { transition } = {}) {
+  // A live voice chat holds every move (WebKit can drop the microphone on a hash change): the guard
+  // queues it and the call's screen applies it after hang-up.
+  if (guard && guard(route) === false) return
   if (window.location.hash === `#/${route}`) return
   nextKind = transition || null
   window.location.hash = `/${route}`
+}
+
+// fn(route) → false to hold the move (src/lib/voice/session.js while a call is live); null clears it.
+let guard = null
+export function setNavigationGuard(fn) {
+  guard = typeof fn === 'function' ? fn : null
 }
 
 // ---- history depth ----------------------------------------------------------------------------

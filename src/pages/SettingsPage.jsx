@@ -10,6 +10,7 @@ import CitySheet from '../components/CitySheet.jsx'
 import InstallSteps from '../components/InstallSteps.jsx'
 import NotifyOffHint from '../components/NotifyOffHint.jsx'
 import RhythmSettings from '../components/RhythmSettings.jsx'
+import VoiceSettings from '../components/settings/VoiceSettings.jsx'
 import { authRequest, clearUserCaches, writePref } from '../lib/api.js'
 import { navigate } from '../lib/router.js'
 import { flushAll, getState, refresh, resetStore, updateSettings, useData, useStore } from '../lib/store.js'
@@ -53,8 +54,10 @@ const PRAYER_LEADS = [{ value: 0, label: 'At the time' }, { value: 5, label: '5 
 
 // #/settings/<id> opens Settings scrolled to that section (e.g. the prayer card's "Method" link).
 // 'security' is the Change password row inside Account & security; 'help' has the Welcome tour and
-// the Add to Home Screen steps.
-const SECTION_IDS = new Set(['areas', 'notifications', 'assistant', 'classes', 'prayer', 'suggestions', 'appearance', 'profile', 'security', 'account', 'help', 'danger'])
+// the Add to Home Screen steps. 'voice' is Voice & AI cost; 'usage' lands there too and opens the
+// usage & cost calculator (VoiceSettings).
+const SECTION_IDS = new Set(['areas', 'notifications', 'assistant', 'voice', 'usage', 'classes', 'prayer', 'suggestions', 'appearance', 'profile', 'security', 'account', 'help', 'danger'])
+const SECTION_ELEMENT = { usage: 'voice' }
 
 // The section a deep link points at, read before useSectionLink clears it from the hash, so a
 // disclosure it points into (the prayer method) can start open.
@@ -73,7 +76,7 @@ function useSectionLink() {
         frame = requestAnimationFrame(() => {
           // Back to the plain route, so tapping Settings again scrolls to the top.
           window.history.replaceState(window.history.state, '', '#/settings') // keeps the history depth (router.js)
-          const section = document.getElementById(id)
+          const section = document.getElementById(SECTION_ELEMENT[id] || id)
           if (!section) return
           section.scrollIntoView({ block: 'start', behavior: scrollBehavior() })
           section.classList.add('set-landed')
@@ -210,6 +213,8 @@ export default function SettingsPage({ user, onUserChange, onSignOut }) {
           </a>
         </div>
       </section>
+
+      <VoiceSettings settings={settings} openUsage={landed === 'usage'} />
 
       <section className="settings-group" id="appearance">
         <h2>Appearance</h2>

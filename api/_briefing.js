@@ -6,6 +6,8 @@
 import { fastestEffort, modelFromEnv, responsesJson } from './_openai.js'
 import { formatTime, notificationPrefs } from './_reminders.js'
 import { patchSettingsAtomic } from './_settings.js'
+import { raceTimeout, recordUsage } from './_usage.js'
+import { dollars, textCost } from '../src/lib/aiPricing.js'
 
 // Fixed text, so every call shares OpenAI's prompt cache (no ${} or per-user details in here).
 export const BRIEFING_INSTRUCTIONS = [
@@ -38,11 +40,6 @@ export const BRIEFING_BUDGET_MS = 20000 // after this much of a cron run, the re
 const TIMEOUT_MS = 7000
 // Reasoning tokens count toward the cap; 200 could end 'incomplete'.
 const MAX_OUTPUT_TOKENS = 400
-
-// gpt-5-mini prices, US$ per million tokens (for the log line only).
-const INPUT_PER_M = 0.25
-const CACHED_INPUT_PER_M = 0.025
-const OUTPUT_PER_M = 2
 
 const isObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 const isTime = (value) => typeof value === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(value)
@@ -176,12 +173,10 @@ export function cleanBriefing(text, digest) {
   return value
 }
 
-// usage: { input, cached, output } tokens → US$.
-export function briefingCost(usage) {
-  const input = Math.max(0, Number(usage?.input) || 0)
-  const cached = Math.min(input, Math.max(0, Number(usage?.cached) || 0))
-  const output = Math.max(0, Number(usage?.output) || 0)
-  return ((input - cached) * INPUT_PER_M + cached * CACHED_INPUT_PER_M + output * OUTPUT_PER_M) / 1e6
+// usage: { input, cached, output } tokens → US$ (prices: src/lib/aiPricing.js; an unknown model is
+// priced as gpt-5-mini).
+export function briefingCost(usage, model = 'gpt-5-mini') {
+  return dollars(textCost(usage, model).micros)
 }
 
 function usageOf(payload) {
@@ -250,11 +245,12 @@ function logBriefing(entry) {
 
 // The assistant-written morning summary for one user, or the reason to send the template.
 // facts: the claimed summary's summaryFacts. now: the time of the send. runStartedAt: when this cron
-// run began (the budget). generate/save/limit are swappable for tests.
+// run began (the budget). generate/save/limit/record are swappable for tests. Each model call is
+// booked in the AI usage ledger as the morning note (record; not with dryRun).
 // → { text: string | null, source: 'cached' | 'ai' | 'template' | 'off', reason }
 export async function morningBriefing({
   supabase, userId, settings, facts, now = Date.now(), runStartedAt = now,
-  generate = generateBriefing, save = patchSettingsAtomic, limit = (job) => job(),
+  generate = generateBriefing, save = patchSettingsAtomic, limit = (job) => job(), record = recordUsage, dryRun = false,
 } = {}) {
   const startedAt = Date.now()
   const template = (reason) => ({ text: null, source: 'template', reason })
@@ -298,7 +294,13 @@ export async function morningBriefing({
     if (!result) return template('budget')
     const text = cleanBriefing(result.text, digest)
     const usage = isObject(result.usage) ? result.usage : {}
-    logBriefing({ userId, source: text ? 'ai' : 'template', ...(text ? {} : { reason: 'rejected' }), ms: result.ms, model: result.model, ...usage, costUsd: Number(briefingCost(usage).toFixed(6)) })
+    const cost = textCost(usage, result.model)
+    logBriefing({ userId, source: text ? 'ai' : 'template', ...(text ? {} : { reason: 'rejected' }), ms: result.ms, model: result.model, ...usage, costUsd: Number(dollars(cost.micros).toFixed(6)) })
+    // The call cost money whether or not its words are used. Never holds up the push for long.
+    if (!dryRun) {
+      const entry = { feature: 'brief', micros: cost.micros, ...(cost.unpriced && result.model ? { unpricedModel: String(result.model) } : {}) }
+      await raceTimeout(Promise.resolve().then(() => record(supabase, userId, [entry], { day: facts.date })))
+    }
     if (!text) {
       await markTried()
       return template('rejected')

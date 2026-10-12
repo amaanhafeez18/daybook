@@ -1,6 +1,7 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { classify, navLevel, parseNavHash } from '../src/lib/router.js'
+import { classify, navLevel, navigate, parseNavHash, setNavigationGuard } from '../src/lib/router.js'
+import { canUpdateQuietly } from '../src/lib/quietUpdate.js'
 import { freshClass } from '../src/lib/motion.js'
 import { clearSessionState, readSessionState, writeSessionState } from '../src/lib/sessionState.js'
 import { lazyPage, preloadPage } from '../src/lib/lazyPage.js'
@@ -114,5 +115,29 @@ describe('lazyPage', () => {
     await assert.rejects(Page.preload())
     await Page.preload()
     assert.equal(attempts, 2)
+  })
+})
+
+describe('voice chat guards', () => {
+  test('the navigation guard holds a move while a call is live', () => {
+    const queued = []
+    setNavigationGuard((route) => {
+      queued.push(route)
+      return false
+    })
+    try {
+      // With the guard holding, navigate() returns before it touches window.location (none in node).
+      assert.doesNotThrow(() => navigate('tasks'))
+      assert.doesNotThrow(() => navigate('gym/stats', { transition: 'fade' }))
+      assert.deepEqual(queued, ['tasks', 'gym/stats'])
+    } finally {
+      setNavigationGuard(null)
+    }
+  })
+
+  test('a quiet update never lands during a voice chat', () => {
+    const safe = { inWindow: true, waiting: true, unsaved: false, sheetOpen: false, typing: false, workoutActive: false }
+    assert.equal(canUpdateQuietly(safe), true)
+    assert.equal(canUpdateQuietly({ ...safe, inCall: true }), false)
   })
 })

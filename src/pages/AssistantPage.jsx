@@ -17,8 +17,8 @@ import { getGym, hasPlan, useGym, useGymSessions, useToday } from '../lib/gym/st
 import { navigate } from '../lib/router.js'
 import { resolveDay } from '../lib/gym/schedule.js'
 import {
-  assistantSpace, buildSuggestions, canUndo, cardExpired, chipFields, cleanResults, collapsesCard, composerPlaceholder, mergeHistory, proposalExpired, readAskHash,
-  setsOffer, undoRefused, visibleActions,
+  assistantSpace, buildSuggestions, cardExpired, chipFields, cleanResults, collapsesCard, composerPlaceholder, isTalk, mergeHistory, proposalExpired, readAskHash,
+  setsOffer, talkProposals, undoRefused, visibleActions, visibleChatMessages,
 } from '../lib/assistantChat.js'
 import {
   CHAT_CACHE, assistantViewed, beginReply, endReply, flushTyping, getSession, sessionEpoch, sessionWriter, stopReply, typeInto, useAssistantSession, viewAssistant,
@@ -26,6 +26,11 @@ import {
 import { dayTotals, remaining } from '../lib/food/nutrition.js'
 import { freshClass, scrollBehavior } from '../lib/motion.js'
 import { useSessionState } from '../lib/sessionState.js'
+import { voicePrefs } from '../lib/voice/prefs.js'
+import { useAiUsage, voiceBlocked } from '../lib/aiUsageClient.js'
+import ActionChips from '../components/ActionChips.jsx'
+import TalkButton, { prefetchVoice, voiceAvailable } from '../components/voice/TalkButton.jsx'
+import TalkCard from '../components/voice/TalkCard.jsx'
 import '../components/assistant.css'
 
 // After this long without a message the page opens on the start screen (prompts) instead of in the
@@ -50,7 +55,7 @@ const VOICE_BYTES_PER_SECOND = 11_000
 const MAX_VOICE_SECONDS = 120
 const MIN_VOICE_SECONDS = 5
 // Fallback for a server that doesn't send done.actions yet: read-only tools never become chips.
-const LOOKUP_TOOLS = new Set(['search', 'read_journal', 'get_weather', 'get_prayer_times', 'gym_get_schedule', 'gym_list_sessions', 'gym_exercise_records', 'food_day', 'food_week', 'ask_choice'])
+const LOOKUP_TOOLS = new Set(['search', 'read_journal', 'get_weather', 'get_prayer_times', 'gym_get_schedule', 'gym_list_sessions', 'gym_exercise_records', 'food_day', 'food_week', 'ask_choice', 'ai_usage'])
 const STATUS_LABELS = {
   done: 'Done ✓',
   partial: 'Partly done',
@@ -196,6 +201,15 @@ export default function AssistantPage({ displayName }) {
       previews.clear()
     }
   }, [])
+
+  // The voice chat screen loads in a quiet moment, so Talk opens it at once.
+  const voiceOn = voicePrefs(settings).enabled && voiceAvailable()
+  useEffect(() => {
+    if (!voiceOn) return undefined
+    const idle = window.requestIdleCallback
+    const handle = idle ? idle(() => prefetchVoice(), { timeout: 4000 }) : setTimeout(prefetchVoice, 2500)
+    return () => (idle ? window.cancelIdleCallback?.(handle) : clearTimeout(handle))
+  }, [voiceOn])
 
   // Whether this device gets push reminders, so the assistant can mention it. Best effort, once.
   useEffect(() => {
@@ -514,11 +528,11 @@ export default function AssistantPage({ displayName }) {
   }
 
   // A finished voice recording, sent together with any photos or files waiting in the composer.
-  async function sendAudio(audio, mimeType) {
+  async function sendAudio(audio, mimeType, seconds) {
     setStartOpen(false)
     if (getSession().busy) throw new Error('Wait for the reply to finish, then send your voice message.')
     const ready = attachmentsRef.current.filter((item) => item.status === 'ready')
-    const payload = { audio, mimeType, ...(ready.length ? { attachments: ready.map(attachmentPayload) } : {}) }
+    const payload = { audio, mimeType, ...(seconds > 0 ? { audioSeconds: Math.round(seconds * 10) / 10 } : {}), ...(ready.length ? { attachments: ready.map(attachmentPayload) } : {}) }
     // Too big for one request: it would be refused every time, so keep the files here and say so.
     if (requestBytes(payload) > MAX_REQUEST_BYTES) {
       setAttachError(ready.length
@@ -827,7 +841,9 @@ export default function AssistantPage({ displayName }) {
 
   const online = useOnline()
   const empty = messages.length === 0
-  const lastIndex = messages.length - 1
+  // What a voice chat handed to the full assistant shows inside that voice chat's card.
+  const shown = useMemo(() => visibleChatMessages(messages), [messages])
+  const lastIndex = shown.length - 1
   const showAskHint = !empty && !askHintSeen && messages.length <= ASK_HINT_UNTIL
   const closeToolsMenu = useCallback(() => setToolsMenu(null), [])
   const toolItems = [
@@ -871,13 +887,36 @@ export default function AssistantPage({ displayName }) {
             onAsk={(prompt) => submitText(null, prompt)}
             onFill={fillComposer}
             onTimetable={openTimetablePicker}
-            messageCount={messages.length}
+            messageCount={shown.length}
             lastAt={empty ? 0 : lastMessageAt(messages)}
             onContinue={() => { jumpRef.current = true; setStartOpen(false) }}
             onNewChat={newChat}
           />
-        ) : messages.map((message, index) => {
+        ) : shown.map((message, index) => {
           const isLast = index === lastIndex
+          if (isTalk(message)) {
+            return (
+              <TalkCard
+                key={message.id}
+                message={message}
+                proposals={talkProposals(messages, message.talk.id)}
+                isLast={isLast}
+                busy={busy}
+                onUndo={onUndo}
+                renderCard={(item, cardIsLast, anyBusy) => (
+                  <ProposalCard
+                    proposal={item.proposal}
+                    createdAt={item.createdAt}
+                    isLast={cardIsLast}
+                    // Only a card this device is running spins; any other "executing" one was cut off.
+                    busy={anyBusy && (cardIsLast || (!!confirmingId && item.proposal.id === confirmingId))}
+                    onDecide={(decision) => onDecide(item.proposal.id, decision)}
+                    onAlternative={onChoose}
+                  />
+                )}
+              />
+            )
+          }
           // Only a card this device is running spins; any other "executing" one was cut off.
           const status = message.proposal?.status
           const liveCard = status === 'pending' || (status === 'executing' && !!confirmingId && message.proposal.id === confirmingId)
@@ -949,7 +988,7 @@ export default function AssistantPage({ displayName }) {
         <Composer
           text={text}
           setText={setText}
-          placeholder={composerPlaceholder(space)}
+          placeholder={composerPlaceholder(space, { short: voiceAvailable() })}
           busy={busy}
           attachments={attachments}
           notice={attachError}
@@ -964,6 +1003,7 @@ export default function AssistantPage({ displayName }) {
           onAudio={sendAudio}
           onNotice={setAttachError}
           onStop={stopReply}
+          talk={voiceAvailable()}
         />
       </div>
 
@@ -992,6 +1032,7 @@ function Welcome({ displayName, busy, space = 'plan', onAsk, onFill, onTimetable
       {!returning && <span className="assistant-avatar assistant-avatar-lg" aria-hidden="true"><Icon name="sparkles" size={30} /></span>}
       <h2>{firstName ? `Hi ${firstName}, how can I help?` : 'How can I help?'}</h2>
       {!returning && <p>Ask in plain words, type or talk: “move the dentist to Friday at 3”, “what’s on today?”, “had coffee with Ali”.{asks}</p>}
+      <TalkRow settings={settings} />
       <div className="suggestions">
         {suggestions.map((suggestion) => (
           <button
@@ -1029,6 +1070,37 @@ function Welcome({ displayName, busy, space = 'plan', onAsk, onFill, onTimetable
       )}
     </div>
   )
+}
+
+// "Talk it through": a voice chat from the start screen. In the evening, before today's journal has
+// anything, it offers to talk about the day instead. Paused (daily minutes or the monthly budget,
+// from the usage on this device) it says so, and a tap explains. Hidden while voice is off (the
+// composer's Talk button still offers to switch it on) or when the browser can't do live audio.
+const DEBRIEF_FROM_HOUR = 18
+function TalkRow({ settings }) {
+  const on = voicePrefs(settings).enabled && voiceAvailable()
+  const usage = useAiUsage({ maxAgeMs: 10 * 60 * 1000, enabled: on })
+  const journalEntries = useData('journalEntries')
+  if (!on) return null
+  const today = todayISO()
+  const wrote = (Array.isArray(journalEntries) ? journalEntries : []).some((entry) => entry?.date === today && (String(entry.body || '').trim() || String(entry.title || '').trim()))
+  const debrief = settings?.areas?.journal !== false && new Date().getHours() >= DEBRIEF_FROM_HOUR && !wrote
+  const blocked = voiceBlocked(settings, usage)
+  const paused = blocked === 'budget' || blocked === 'daily' ? blocked : null
+  const label = paused === 'budget' ? 'Voice paused: monthly budget reached'
+    : paused === 'daily' ? 'Voice paused: today’s minutes are used'
+      : debrief ? 'Talk about your day' : 'Talk it through'
+  const sub = paused ? 'Typing still works' : 'Voice chat, about 4–5¢ a minute'
+  return <TalkButton variant="row" intent={debrief ? 'debrief' : 'chat'} from="welcome" label={label} sub={sub} blocked={paused} />
+}
+
+// The composer's Talk pill: paused (daily minutes or the budget, from the usage already on this
+// device; nothing is fetched here) it explains instead of asking for the mic only to be refused.
+function ComposerTalk() {
+  const settings = useData('settings')
+  const usage = useAiUsage({ enabled: false })
+  const blocked = voiceBlocked(settings, usage)
+  return <TalkButton variant="composer" intent="chat" from="composer" blocked={blocked === 'budget' || blocked === 'daily' ? blocked : null} />
 }
 
 // "just now" / "35 min ago" / "3 hours ago" / "yesterday" / "3 days ago", for the Continue chat line
@@ -1185,25 +1257,7 @@ const Message = memo(function Message({ message, isLast, busy, onRetry, onDecide
             onAlternative={onChoose}
           />
         )}
-        {chips.length > 0 && (
-          <ul className="action-chips">
-            {chips.map((action, index) => {
-              const undoable = !message.streaming && canUndo(action, message.createdAt)
-              return (
-                <li key={index} className={`${action.ok ? 'is-ok' : 'is-failed'} ${action.undone ? 'is-undone' : ''} ${undoable ? 'has-undo' : ''}`}>
-                  <Icon name={action.undone ? 'undo' : action.ok ? 'check' : 'alert'} size={14} />
-                  <span className="asst-chip-msg">{action.message || 'That didn’t work.'}</span>
-                  {action.undone && <span className="asst-undone">Undone</span>}
-                  {undoable && (
-                    <button type="button" className="asst-undo" onClick={() => onUndo?.(action.undoId)} disabled={!!action.undoing} aria-label={`Undo: ${action.message}`}>
-                      {action.undoing ? <span className="spinner" aria-hidden="true" /> : 'Undo'}
-                    </button>
-                  )}
-                </li>
-              )
-            })}
-          </ul>
-        )}
+        <ActionChips actions={chips} createdAt={message.createdAt} streaming={!!message.streaming} onUndo={onUndo} />
         {offer && <WorkoutOffer offer={offer} proposal={proposal} actions={message.actions} createdAt={message.createdAt} disabled={!!message.streaming} onUse={() => onOffer?.(message)} />}
         {links.length > 0 && (
           <div className="asst-links">
@@ -1460,9 +1514,11 @@ function inline(text) {
 
 // iMessage-style bar: "+" (camera, photos, files) · the message · mic, send or stop. Attachments wait
 // in a tray above the field, each with its upload progress.
+// talk: the Talk button (a live voice chat) sits in the send slot while the field is empty, with
+// the voice-note mic beside it; with text or attachments the bar is as before.
 function Composer({
   text, setText, placeholder = 'Ask anything…', busy, attachments, notice, menu, onSubmit, onToggleMenu, onCloseMenu, onPick,
-  onRemoveAttachment, onRetryAttachment, onPasteFiles, onAudio, onNotice, onStop,
+  onRemoveAttachment, onRetryAttachment, onPasteFiles, onAudio, onNotice, onStop, talk = false,
 }) {
   // Attachments and the voice note travel in one request: the recording stops before it would overflow.
   const voiceSeconds = useMemo(() => voiceBudgetSeconds(attachments), [attachments])
@@ -1582,6 +1638,15 @@ function Composer({
               <button type="submit" className="send-btn" aria-label={uploading ? 'Waiting for uploads to finish' : 'Send'} disabled={uploading}>
                 {uploading ? <span className="spinner" aria-hidden="true" /> : <Icon name="send" size={20} strokeWidth={2.4} />}
               </button>
+            </>
+          ) : talk ? (
+            <>
+              {recorder.supported && (
+                <button type="button" className="asst-icon-btn is-mic" onClick={startRecording} aria-label="Record a voice message" title="Voice message">
+                  <Icon name="mic" size={21} />
+                </button>
+              )}
+              <ComposerTalk />
             </>
           ) : recorder.supported ? (
             <button type="button" className="send-btn is-mic" onClick={startRecording} aria-label="Record a voice message"><Icon name="mic" size={20} /></button>

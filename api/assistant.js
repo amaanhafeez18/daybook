@@ -11,6 +11,9 @@ import { isMissingAttachmentsTable, keepFile, listAttachments, ownsPath as ownsA
 import { fetchPrayerDay, savedLocation } from './_prayer.js'
 import { WEB_SETTINGS, webAnswer, webNutrition, webSetting } from './_web.js'
 import { dayHintNote, dayLabel, editDistance, fixRelativeDates, resolveDayWords } from './_temporal.js'
+import { TALK_ID_RE, normalizeTalk, talkHistoryText } from './_talk.js'
+import { bumpMessageCount, raceTimeout, recordUsage, usageFromDebug, usageToolResult } from './_usage.js'
+import { BUDGET_MAX, VOICE_OPTIONS } from '../src/lib/voice/prefs.js'
 import { timeRangeMinutes } from '../src/lib/dates.js'
 // Pure clash and free-time helpers shared with the app's task sheet (browser-free).
 import { busyOn, classSlotsFor, clashesAt, nextFreeStart } from '../src/lib/timing.js'
@@ -179,6 +182,8 @@ function normalizeProposal(raw) {
     createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : nowIso(),
     executingAt: typeof raw.executingAt === 'string' ? raw.executingAt : undefined,
     localDate: isIsoDate(raw.localDate) ? raw.localDate : undefined,
+    // A voice chat's card: the user turn (realtime item id) it was staged in (see api/_voice.js).
+    turnId: typeof raw.turnId === 'string' && raw.turnId ? raw.turnId.slice(0, 80) : undefined,
     summary: cleanText(raw.summary, 400),
     actions: normalizePlanActions(raw.actions),
     staged: normalizeStaged(raw.staged),
@@ -220,12 +225,20 @@ function normalizeMessage(message) {
   const files = message.role === 'user' ? normalizeFiles(message.files) : []
   // The summary carries the Undo chips of folded replies that still work (see carriedUndo).
   const undo = message.role === 'assistant' || message.role === 'summary' ? normalizeUndo(message.undo) : []
+  // A voice chat (one assistant message per call, see api/_talk.js), its server-only turn state, and
+  // the hidden messages of a request it handed to this assistant (via).
+  const talk = message.role === 'assistant' ? normalizeTalk(message.talk) : null
+  const talkState = talk ? normalizeTalkState(message.talkState) : null
+  const via = message.role !== 'summary' && TALK_ID_RE.test(message.via?.talk || '') ? { talk: message.via.talk } : null
   return {
     role: message.role === 'assistant' ? 'assistant' : message.role === 'summary' ? 'summary' : 'user',
     content: typeof message.content === 'string' ? (message.role === 'summary' ? truncate(message.content, SUMMARY_CHARS) : message.content) : '',
     createdAt: message.createdAt || nowIso(),
     ...(message.voice ? { voice: true } : {}),
-    ...(Array.isArray(message.actions) ? { actions: normalizeActions(message.actions, 10) } : {}),
+    ...(talk ? { talk } : {}),
+    ...(talkState ? { talkState } : {}),
+    ...(via ? { via } : {}),
+    ...(Array.isArray(message.actions) ? { actions: normalizeActions(message.actions, talk ? 25 : 10) } : {}),
     ...(attachments.length ? { attachments } : {}),
     ...(files.length ? { files } : {}),
     ...(proposal ? { proposal } : {}),
@@ -308,8 +321,28 @@ function normalizeTouched(list) {
     .slice(-TOUCHED_MAX).map(({ kind, id }) => ({ kind, id }))
 }
 
+// A talk's server-only state for the turn in progress: { turnId, refs: { $n: id }, direct }.
+function normalizeTalkState(raw) {
+  if (!isPlainObject(raw)) return null
+  const refs = Object.fromEntries(Object.entries(isPlainObject(raw.refs) ? raw.refs : {})
+    .filter(([key, value]) => /^\$\d{1,3}$/.test(key) && typeof value === 'string' && value && value.length <= 80).slice(0, 50))
+  return {
+    turnId: typeof raw.turnId === 'string' ? raw.turnId.slice(0, 80) : '',
+    refs,
+    direct: Number.isInteger(raw.direct) && raw.direct >= 0 ? Math.min(raw.direct, 100) : 0,
+  }
+}
+
+// A live talk that stopped checking in (the app was killed): shown as cut off.
+const TALK_STALE_MS = 3 * 60 * 1000
+
 function publicMessage(message) {
-  const { draft, files, undo, touched, ...rest } = message
+  const { draft, files, undo, touched, talkState, ...rest } = message
+  if (rest.talk && !rest.talk.endedAt) {
+    const started = Date.parse(rest.talk.startedAt) || 0
+    const last = Math.max(Date.parse(rest.createdAt) || 0, started + rest.talk.seconds * 1000, ...rest.talk.turns.map((turn) => Date.parse(turn.at || '') || 0))
+    if (Date.now() - last > TALK_STALE_MS) rest.talk = { ...rest.talk, end: rest.talk.end || 'cut' }
+  }
   if (!rest.proposal) return rest
   const { staged, ...proposal } = rest.proposal
   if (proposal.status === 'pending' && Date.now() - Date.parse(proposal.createdAt) > PROPOSAL_TTL_MS) proposal.status = 'expired'
@@ -420,10 +453,11 @@ const TOOL_LABELS = {
   food_barcode_lookup: 'Looking up the barcode',
   food_update_prefs: 'Updating food settings',
   weight_delete: 'Removing a weigh-in',
+  ai_usage: 'Checking AI usage',
 }
 
 // Read-only tools: no action chip, no data refresh and never staged for confirmation.
-const LOOKUP_TOOLS = ['search', 'read_journal', 'get_weather', 'get_prayer_times', 'gym_get_schedule', 'gym_list_sessions', 'gym_exercise_records', 'gym_stats', 'person_history', 'web_lookup', ...FOOD_LOOKUP_TOOLS]
+const LOOKUP_TOOLS = ['search', 'read_journal', 'get_weather', 'get_prayer_times', 'gym_get_schedule', 'gym_list_sessions', 'gym_exercise_records', 'gym_stats', 'person_history', 'web_lookup', 'ai_usage', ...FOOD_LOOKUP_TOOLS]
 // Tools that only shape the reply (questions, card buttons): never staged, never shown as actions.
 const UI_TOOLS = ['ask_choice', 'offer_alternatives', 'offer_workout']
 const FOOD_TOOL_NAMES = new Set(FOOD_TOOL_DEFS.map((def) => def.name))
@@ -638,7 +672,7 @@ const tools = [
     type: { type: 'string', enum: ['journal', 'notes', 'completed_tasks', 'archived_tasks', 'past_events'] },
     query: { type: 'string', description: 'Optional text to filter by.' },
   }, ['type']),
-  tool('update_settings', 'Change any Daybook setting (food goals have their own food tools and food display settings food_update_prefs; gym settings gym_update_prefs). appearance: system (follow the device), light or dark. theme is the colour theme (accent colour + background tint): sunset (default, warm orange), forest (green), midnight (indigo), lagoon (teal), glacier (icy blue), blossom (rose pink), aurora (violet with green), honey (gold), citrus (lime), neon (magenta and cyan), mocha (warm brown), graphite (monochrome grey). displayName "" clears it. assistantConfirm: "all" = the assistant asks before every change (default), "changes" = new things and logs (tasks, events, people, notes, catch-ups, food, workouts, weigh-ins) happen at once with an Undo button and it asks only before edits, deletes and schedule changes, "off" = it acts immediately. prayerMethod: "auto" (standard authority for the location) or an Aladhan method id: 1 Karachi, 2 ISNA, 3 Muslim World League, 4 Umm al-Qura, 5 Egypt, 7 Tehran, 8 Gulf, 9 Kuwait, 10 Qatar, 11 Singapore, 12 France, 13 Turkey, 15 Moonsighting Committee, 16 Dubai, 17 Malaysia, 20 Indonesia. prayerSchool: 0 standard Asr (Shafi\'i/Maliki/Hanbali), 1 Hanafi Asr.', {
+  tool('update_settings', 'Change any Daybook setting (food goals have their own food tools and food display settings food_update_prefs; gym settings gym_update_prefs). appearance: system (follow the device), light or dark. theme is the colour theme (accent colour + background tint): sunset (default, warm orange), forest (green), midnight (indigo), lagoon (teal), glacier (icy blue), blossom (rose pink), aurora (violet with green), honey (gold), citrus (lime), neon (magenta and cyan), mocha (warm brown), graphite (monochrome grey). displayName "" clears it. assistantConfirm: "all" = the assistant asks before every change (default), "changes" = new things and logs (tasks, events, people, notes, catch-ups, food, workouts, weigh-ins) happen at once with an Undo button and it asks only before edits, deletes and schedule changes, "off" = it acts immediately. prayerMethod: "auto" (standard authority for the location) or an Aladhan method id: 1 Karachi, 2 ISNA, 3 Muslim World League, 4 Umm al-Qura, 5 Egypt, 7 Tehran, 8 Gulf, 9 Kuwait, 10 Qatar, 11 Singapore, 12 France, 13 Turkey, 15 Moonsighting Committee, 16 Dubai, 17 Malaysia, 20 Indonesia. prayerSchool: 0 standard Asr (Shafi\'i/Maliki/Hanbali), 1 Hanafi Asr. Voice chats (talking with you like a phone call): voice_enabled turns them on or off, voice_daily_minutes is the daily limit, voice_call_minutes the longest call, voice_quiet_seconds how long a quiet call waits before hanging up, voice_name the voice (from the next call). ai_monthly_budget: a monthly budget in US dollars for all of Daybook\'s AI (0 = none); voice chats pause once this month\'s AI spend reaches it, typing keeps working.', {
     appearance: { type: 'string', enum: ['system', 'light', 'dark'] },
     theme: { type: 'string', enum: ['sunset', 'forest', 'midnight', 'lagoon', 'glacier', 'blossom', 'aurora', 'honey', 'citrus', 'neon', 'mocha', 'graphite'] },
     displayName: { type: 'string' },
@@ -677,6 +711,15 @@ const tools = [
       },
       additionalProperties: false,
     },
+    voice_enabled: { type: 'boolean' },
+    voice_daily_minutes: { type: 'integer', enum: VOICE_OPTIONS.dailyMinutes },
+    voice_call_minutes: { type: 'integer', enum: VOICE_OPTIONS.sessionMinutes },
+    voice_quiet_seconds: { type: 'integer', enum: VOICE_OPTIONS.silenceSeconds },
+    voice_name: { type: 'string', enum: VOICE_OPTIONS.voice },
+    ai_monthly_budget: { type: 'number', minimum: 0, maximum: BUDGET_MAX },
+  }),
+  tool('ai_usage', 'What Daybook\'s AI features (voice chats, this assistant, voice notes, food AI, morning note) have cost on the user\'s OpenAI account: today, this month (with month-end projection and budget), last month or the last 30 days. Estimates from OpenAI\'s reported usage.', {
+    period: { type: 'string', enum: ['today', 'month', 'last_month', 'last_30_days'] },
   }),
   tool('update_class', 'Edit a class by id: rename, change its weekly schedule (schedules replaces all meetings: one entry per meeting, a day may appear more than once), or its end date.', {
     classId: { type: 'string' },
@@ -1403,8 +1446,10 @@ async function requestOpenAI({ instructions, input, userId, onDelta, toolChoice,
     const payload = await readOpenAIStream(response, onDelta)
     debug.push({
       step: 'openai.response',
+      model: OPENAI_MODEL,
       status: payload.status || 'unknown',
       outputTypes: (payload.output || []).map((item) => item.type),
+      webCalls: (payload.output || []).filter((item) => item.type === 'web_search_call').length,
       usage: payload.usage ? { input: payload.usage.input_tokens, cached: payload.usage.input_tokens_details?.cached_tokens, output: payload.usage.output_tokens } : null,
     })
     return payload
@@ -1419,9 +1464,11 @@ async function requestOpenAI({ instructions, input, userId, onDelta, toolChoice,
   }
   debug.push({
     step: 'openai.response',
+    model: OPENAI_MODEL,
     httpStatus: response.status,
     status: payload.status || 'unknown',
     outputTypes: (payload.output || []).map((item) => item.type),
+    webCalls: (payload.output || []).filter((item) => item.type === 'web_search_call').length,
     usage: payload.usage ? { input: payload.usage.input_tokens, cached: payload.usage.input_tokens_details?.cached_tokens, output: payload.usage.output_tokens } : null,
   })
   if (!response.ok || payload.error) throw openAIFailure(response.status, payload.error)
@@ -3765,8 +3812,36 @@ function settingsChanges(args) {
     }
     if (Object.keys(next).length) changes.notifications = next
   }
+  // Voice chats: settings.voice merges field by field (read through voicePrefs); the AI budget is
+  // settings.aiBudgetUsd (0 = none).
+  const voice = {}
+  if (given('voice_enabled')) {
+    if (typeof args.voice_enabled !== 'boolean') return { changes, problem: 'voice_enabled is true or false.' }
+    voice.enabled = args.voice_enabled
+  }
+  for (const [key, field, words] of [['voice_daily_minutes', 'dailyMinutes', 'minutes'], ['voice_call_minutes', 'sessionMinutes', 'minutes'], ['voice_quiet_seconds', 'silenceSeconds', 'seconds']]) {
+    if (!given(key)) continue
+    const value = Number(args[key])
+    if (!VOICE_OPTIONS[field].includes(value)) return { changes, problem: `${key} is ${VOICE_OPTIONS[field].join(', ')} ${words}.` }
+    voice[field] = value
+  }
+  if (given('voice_name')) {
+    const name = String(args.voice_name).trim().toLowerCase()
+    if (!VOICE_OPTIONS.voice.includes(name)) return { changes, problem: `The voice is ${VOICE_OPTIONS.voice.join(' or ')}.` }
+    voice.voice = name
+  }
+  if (Object.keys(voice).length) changes.voice = voice
+  if (given('ai_monthly_budget')) {
+    const budget = typeof args.ai_monthly_budget === 'string' ? Number(args.ai_monthly_budget.replace(/[$,\s]/g, '')) : args.ai_monthly_budget
+    if (typeof budget !== 'number' || !Number.isFinite(budget) || budget < 0 || budget > BUDGET_MAX) return { changes, problem: `ai_monthly_budget is 0 (none) to ${BUDGET_MAX} US dollars.` }
+    changes.aiBudgetUsd = Math.round(budget * 100) / 100
+  }
   return { changes }
 }
+
+const VOICE_NAMES = { marin: 'Marin', cedar: 'Cedar' }
+const minutesText = (seconds) => (seconds % 60 === 0 ? plural(seconds / 60, 'minute') : `${seconds} seconds`)
+const dollarsText = (usd) => `$${Number.isInteger(usd) ? usd : usd.toFixed(2)}`
 
 // ---- food display settings (settings.food.prefs, the same fields as the Food page's settings)
 
@@ -3884,6 +3959,13 @@ function settingsText(changes) {
   if (n.prayerLead !== undefined) parts.push(n.prayerLead ? `prayer reminders ${n.prayerLead} min before` : 'prayer reminders at the time')
   if (Array.isArray(n.prayers)) parts.push(`prayer reminders for ${n.prayers.join(', ')}`)
   if (n.gymTime) parts.push(`workout reminder at ${time12(n.gymTime)}`)
+  const v = changes.voice || {}
+  if (v.enabled !== undefined) parts.push(`voice chats ${v.enabled ? 'on' : 'off'}`)
+  if (v.dailyMinutes !== undefined) parts.push(`voice chats up to ${v.dailyMinutes} minutes a day`)
+  if (v.sessionMinutes !== undefined) parts.push(`voice calls up to ${v.sessionMinutes} minutes each`)
+  if (v.silenceSeconds !== undefined) parts.push(`a quiet voice call hangs up after ${minutesText(v.silenceSeconds)}`)
+  if (v.voice) parts.push(`the ${VOICE_NAMES[v.voice] || v.voice} voice`)
+  if (changes.aiBudgetUsd !== undefined) parts.push(changes.aiBudgetUsd ? `a monthly AI budget of ${dollarsText(changes.aiBudgetUsd)}` : 'no monthly AI budget')
   return parts.join(', ') || 'no change'
 }
 
@@ -4568,6 +4650,11 @@ async function executeTool(supabase, userId, name, rawArgs, data, ctx, { refs = 
   }
 
   if (name === 'food_update_prefs') return updateFoodPrefs(supabase, userId, args, data)
+
+  if (name === 'ai_usage') {
+    if (args.period !== undefined && args.period !== null && !['today', 'month', 'last_month', 'last_30_days'].includes(args.period)) return { ok: false, message: 'period is today, month, last_month or last_30_days.' }
+    return usageToolResult(supabase, userId, { period: args.period || 'month', settings: data.settings, ctx })
+  }
 
   if (name === 'update_class') {
     const item = findOwned(data.classes, args.classId, 'class')
@@ -5790,6 +5877,20 @@ function parseDecision(text) {
   return null
 }
 
+// A tap on a card's Yes / No ({ confirm: { proposalId, decision } }). A hand-off from a voice chat
+// (via) never answers a card: the call's own yes goes through op=confirm or confirm_pending, which
+// check the read-back and what the user actually said.
+function readConfirm(body, via) {
+  return !via && isPlainObject(body?.confirm) && ['yes', 'no'].includes(body.confirm.decision) ? body.confirm : null
+}
+
+// The Yes / No this message gives the waiting card: a tap, or a bare "yes" / "no" typed or said
+// (never in a hand-off, with files, or from a tapped quick-reply chip). → 'yes' | 'no' | null
+function cardDecision({ confirm, pending, via, text, attachments = [], tappedChoice = false }) {
+  if (confirm) return confirm.decision
+  return pending && !via && !attachments.length && text && !tappedChoice ? parseDecision(text) : null
+}
+
 // ask_choice after staging changes: a plain "Shall I go ahead?" with yes/no answers is what the
 // proposal card already asks. Anything else is a real question that must be answered first.
 const GO_AHEAD_RE = /\b(go ahead|proceed|confirm|do (it|that|this|these|them|all of (it|them))|sounds? (good|right|ok|okay)|looks? (good|right|ok|okay)|is (that|this|it) (ok|okay|right|correct)|(shall|should|can) i (go|do|add|save|log|make|set|update|create|change|book|schedule|move|delete|remove)|want me to (go|do|add|save|log|make|set|update|create|change|book|schedule|move|delete|remove))\b/i
@@ -6170,6 +6271,8 @@ function correctionTurn(text, pending, ctx, titles = []) {
 // proposal is settled or the day rolls over), so the history prefix stays cacheable.
 function historyContent(message, ctx, { visible = false } = {}) {
   let content = message.content || ''
+  // A voice chat: its transcript (start and end when long), then the usual lines for what it did.
+  if (message.talk) content = `${talkHistoryText(message.talk, ctx)}${content ? `\n${content}` : ''}`
   if (message.attachments?.length) content += `${content ? '\n' : ''}[Attached: ${message.attachments.map((item) => `${ATTACHMENT_WORDS[item.kind] || 'file'} "${item.name}"`).join(', ')}; ${visible ? 'still attached below' : 'no longer visible'}]`
   if (message.role === 'assistant' && message.proposal?.actions?.length) {
     content += `${content ? '\n' : ''}[Proposed changes (${PROPOSAL_STATUS_WORDS[message.proposal.status] || message.proposal.status}): ${planActionsText(message.proposal.actions)}]`
@@ -6239,19 +6342,32 @@ export default async function handler(req, res) {
   debug.push = (...entries) => Array.prototype.push.apply(debug, entries.map((entry) => ({ ...entry, ms: Date.now() - startedAt })))
   let streaming = false
   let emit = () => {}
+  // What this request's AI calls cost goes into the usage ledger (api/_usage.js) before the response
+  // ends, raced against 1.5 s so it never holds the reply up for long. Entries already booked are
+  // skipped, so calling it again (a streamed reply's late history fold) only adds what's new.
+  let meterTo = null // { supabase, userId, day, feature } once the user is known
+  const meter = async () => {
+    if (!meterTo) return
+    const entries = usageFromDebug(debug, { feature: meterTo.feature })
+    if (entries.length) await raceTimeout(recordUsage(meterTo.supabase, meterTo.userId, entries, { day: meterTo.day }), 1500)
+  }
   // Errors go out as a JSON response, or as a final 'error' event once streaming has started.
-  const fail = (statusCode, message) => {
+  const fail = async (statusCode, message) => {
     if (streaming) {
       emit({ type: 'error', error: message, debug })
+      await meter()
       return res.end()
     }
+    await meter()
     return sendJson(res, statusCode, { error: message, debug })
   }
-  const respond = (payload) => {
+  const respond = async (payload) => {
     if (streaming) {
       emit({ type: 'done', ...payload, debug })
+      await meter()
       return res.end()
     }
+    await meter()
     return sendJson(res, 200, { ...payload, debug })
   }
   try {
@@ -6271,6 +6387,7 @@ export default async function handler(req, res) {
       supabase.from('assistant_conversations').select('*').eq('user_id', user.id).maybeSingle(),
     ])
     if (!account) return sendJson(res, 401, { error: 'Your session has expired. Please log in again.' })
+    meterTo = { supabase, userId: user.id, day: null, feature: 'chat' }
     // If the history can't be read, stop: saving later would overwrite it with this one exchange.
     if (conversation.error) return fail(503, 'Couldn’t load your conversation. Please try again.')
     const record = conversation.data
@@ -6325,6 +6442,13 @@ export default async function handler(req, res) {
     }
 
     const ctx = readClientContext(body.context)
+    // A request a live voice chat handed over (ask_daybook): saved with the talk's id, so the chat
+    // shows it inside that voice chat, and its cost counts towards voice.
+    const via = TALK_ID_RE.test(typeof body.via?.talk === 'string' ? body.via.talk : '') ? { talk: body.via.talk } : null
+    // The call's user turn that asked for it: a card staged here takes a spoken yes only in a later turn.
+    const viaTurn = via && typeof body.via?.turn === 'string' ? body.via.turn.slice(0, 80) : ''
+    meterTo.day = ctx.localDate
+    meterTo.feature = via ? 'voiceAsk' : 'chat'
     const foodPromise = loadFood(supabase, user.id, ctx)
     const isVoice = Boolean(body.audio)
     // A retried voice message is sent as its transcript, but it is still spoken.
@@ -6337,7 +6461,7 @@ export default async function handler(req, res) {
     const signing = attachments.length ? signAttachmentUrls(supabase, attachments) : Promise.resolve()
     signing.catch(() => {}) // awaited below; this only keeps an early reply from leaving it unhandled
     const persisting = persistInline(supabase, user.id, attachments) // never rejects
-    const confirm = isPlainObject(body.confirm) && ['yes', 'no'].includes(body.confirm.decision) ? body.confirm : null
+    const confirm = readConfirm(body, via)
     const pending = findPendingProposal(history)
 
     // Daily cap, counted in assistant_conversations.usage when that column exists. Keyed on the
@@ -6354,7 +6478,10 @@ export default async function handler(req, res) {
 
     let text = rawText.trim()
     if (isVoice) {
-      text = await transcribeAudio(body.audio, body.mimeType, transcriptionVocabulary(data))
+      // The recorder's own length when the app sends it (the cost ledger counts minutes of audio).
+      const audioSeconds = Number(body.audioSeconds)
+      const seconds = Number.isFinite(audioSeconds) && audioSeconds > 0 ? Math.min(130, Math.max(1, audioSeconds)) : undefined
+      text = await transcribeAudio(body.audio, body.mimeType, transcriptionVocabulary(data), { debug, seconds })
       debug.push({ step: 'transcribed', chars: text.length })
       if (!text && !attachments.length) return fail(422, 'I couldn’t hear anything in that recording. Try again a little closer to the mic.')
       if (text) emit({ type: 'transcript', text })
@@ -6369,6 +6496,7 @@ export default async function handler(req, res) {
       content,
       createdAt: startedIso,
       ...(spoken ? { voice: true } : {}),
+      ...(via ? { via } : {}),
       ...(attachments.length ? { attachments: attachments.map(({ kind, name }) => ({ kind, name })), files: attachments } : {}),
     })
     // Conversation writes: compare-and-swap against the version this request last read or wrote.
@@ -6408,7 +6536,7 @@ export default async function handler(req, res) {
     // ---- Yes / No to a staged proposal (a tap on the card, or a bare "yes" / "no" typed or said while
     // one waits). A tapped quick-reply chip answers its own question, never the card.
     const tappedChoice = typeof body.choice === 'string' && body.choice.trim() !== ''
-    const decision = confirm ? confirm.decision : pending && !attachments.length && text && !tappedChoice ? parseDecision(text) : null
+    const decision = cardDecision({ confirm, pending, via, text, attachments, tappedChoice })
     const notes = [] // developer notes for this turn
     let turnHistory = history
     let turnPatches = [] // proposal changes this turn makes, re-applied if the save has to merge
@@ -6428,7 +6556,7 @@ export default async function handler(req, res) {
         }
         const reply = 'OK, nothing changed. What should I do instead?'
         const patches = [{ id: proposal.id, patch: { status }, from: ['pending', 'expired'] }]
-        const added = [userMessage(answer), { role: 'assistant', content: reply, createdAt: nowIso() }]
+        const added = [userMessage(answer), { role: 'assistant', content: reply, createdAt: nowIso(), ...(via ? { via } : {}) }]
         return quickReply({ reply, save: { base: withProposal(history, index, { status }), patches, added }, extra: { proposalUpdate: { id: proposal.id, status } } })
       }
       if (stale) {
@@ -6473,7 +6601,7 @@ export default async function handler(req, res) {
         await saveTurn({
           base: withProposal(base, claimed.index, patch),
           patches: [{ id: proposal.id, patch, from: ['executing', 'interrupted'] }],
-          added: [userMessage(answer), { role: 'assistant', content: reply, createdAt: nowIso(), ...(actions.length ? { actions } : {}), ...(undo.length ? { undo } : {}) }],
+          added: [userMessage(answer), { role: 'assistant', content: reply, createdAt: nowIso(), ...(via ? { via } : {}), ...(actions.length ? { actions } : {}), ...(undo.length ? { undo } : {}) }],
         })
         return respond({
           reply,
@@ -6492,9 +6620,8 @@ export default async function handler(req, res) {
     if (!text) return fail(400, 'Message is required.')
     if (overLimit) return fail(429, 'You’ve reached today’s assistant limit. It resets tomorrow.')
     // Count the message now, so a request that fails later still counts (runs alongside the work).
-    const usageWrite = usage
-      ? supabase.from('assistant_conversations').update({ usage: { date: usage.date, count: usage.count + 1 } }).eq('user_id', user.id).then((result) => result, (error) => ({ error }))
-      : null
+    // It goes through the usage ledger's compare-and-swap (api/_usage.js), which keeps the AI ledger.
+    const usageWrite = usage ? bumpMessageCount(supabase, user.id, usageDate).then((result) => result, (error) => ({ error })) : null
 
     ctx.userText = text // the day check on edits reads it (dayMismatch)
     // "No, Thursday at 1:30" corrects the last answer: a card still waiting is declined (not just
@@ -6565,6 +6692,7 @@ export default async function handler(req, res) {
     const developerNote = [
       `Current local time: ${ctx.weekday} ${ctx.localDate} ${ctx.localTime} (${ctx.timeZone}).`,
       spoken ? 'The user is speaking by voice: reply in plain conversational sentences with no markdown, lists, or emoji, since the reply may be read aloud.' : '',
+      via ? 'This request was relayed from a live voice chat and your reply is read aloud. Answer in one to three short spoken sentences. If you stage changes, end by asking whether to go ahead.' : '',
       ctx.pushEnabled === false ? 'Push notifications are off on this phone: when you set a reminder, mention that it won’t ping here until they turn notifications on in Settings.' : '',
       attachments.length ? `The user attached ${attachments.map((item) => `${ATTACHMENT_WORDS[item.kind]} "${item.name}"`).join(', ')}. If they want it saved to a task, note or person, call attach_file; when that thing is being created in this same response, use id "$1" (the ref of the create call) in the SAME response — there is no later round before the user confirms.` : '',
       ...notes,
@@ -6885,6 +7013,7 @@ export default async function handler(req, res) {
         status: 'pending',
         createdAt: nowIso(),
         localDate: ctx.localDate,
+        ...(viaTurn ? { turnId: viaTurn } : {}),
         summary: proposalSummary(actions),
         actions,
         staged: stage.list.map(({ tool: toolName, args, ref }) => ({ tool: toolName, args, ref })),
@@ -6899,6 +7028,7 @@ export default async function handler(req, res) {
         role: 'assistant',
         content: reply,
         createdAt: nowIso(),
+        ...(via ? { via } : {}),
         ...(executed.length ? { actions: executed } : {}),
         ...(undo.length ? { undo } : {}),
         ...(proposal ? { proposal } : {}),
@@ -6909,8 +7039,8 @@ export default async function handler(req, res) {
         ...(touched.length ? { touched: normalizeTouched(touched) } : {}),
       },
     ]
-    // The usage count was written on its own (it leaves updated_at alone); only if that failed does
-    // the save carry it.
+    // The usage count is written on its own (it leaves updated_at alone). The save never carries
+    // `usage`: writing the whole object would erase the AI cost ledger kept next to the count.
     const usageResult = usageWrite ? await usageWrite : null
     if (usageResult?.error) debug.push({ step: 'usage.save_failed', message: usageResult.error.message })
     // Folding old messages into the summary is a model call of its own: a streamed reply doesn't wait
@@ -6924,7 +7054,6 @@ export default async function handler(req, res) {
       base: turnHistory,
       patches: turnPatches,
       added,
-      fields: usage && usageResult?.error ? { usage: { date: usage.date, count: usage.count + 1 } } : undefined,
     })
     const finish = foldNow !== FOLD_PENDING ? respond : (payload) => {
       emit({ type: 'done', ...payload, debug })
@@ -6932,7 +7061,12 @@ export default async function handler(req, res) {
         if (folded === unfolded || !saved.ok || saved.merged) return
         const written = await writeConversation(supabase, user.id, { exists: true, seen, messages: [...folded, ...added] })
         debug.push({ step: written.conflict ? 'history.fold_deferred' : 'history.fold_saved' })
-      }).catch((error) => console.error('Saving the folded history failed:', error)).finally(() => res.end())
+      }).catch((error) => console.error('Saving the folded history failed:', error))
+        // The reply's own calls and the fold's (it finished after 'done') are booked before the end.
+        .finally(async () => {
+          await meter()
+          res.end()
+        })
     }
 
     return finish({
@@ -6963,8 +7097,14 @@ export { confirmLevel, stagesWrite, undoCalls, rowIds, addedRows, actionChips, m
 // turns see, folding, and when "Log my sets" shows.
 export { runWrite, undoState, historyContent, foldCount, foldHistory, carriedUndo, dependentUndos, loadUndoData, workoutOfferCall }
 // tests/assistant-temporal.test.mjs: day words, card labels, the day check, corrections, recent items.
+export { readConfirm, cardDecision }
 export { staticInstructions, parseDecision, findPendingProposal, isCorrection, correctionTurn, recentItemsNote, readChoice, describeAction, normalizeTouched, touchedBy }
 // tests/assistant-gym-tools.test.mjs: what a spoken exercise name resolves to.
 export { exerciseMatches }
 // tests/assistant-clash.test.mjs: the clash check on cards and the "Move to …" chips.
 export { clashCheck, clashMoves }
+// api/_voice.js (voice chats): loading, the conversation, proposals and Undo, shared with the text assistant.
+export { loadData, loadFood, loadMemories, readClientContext, readConversation, writeConversation, findProposal,
+  proposalExpired, outcomeStatus, proposalResults, proposalSummary, publicProposal, settlePendingProposals,
+  executeProposal, undoLive, transcriptionVocabulary, summaryOf, chatOnly, isWriteTool, TOOL_LABELS, CORRECTION_NOTE,
+  newId, nowIso, dateWords, DAY_CHECK_TOOLS, recentTitles, withProposal, AREA_KEYS, normalizeTalkState }
