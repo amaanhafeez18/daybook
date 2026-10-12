@@ -6,7 +6,10 @@ import { Readable } from 'node:stream'
 import { CONTEXT, ID, TODAY, TOMORROW, USER, conversationOf, databaseFor, fakeSupabase, talkOf } from './voice-fixture.mjs'
 import { addToLedger, emptyLedger } from '../src/lib/aiLedger.js'
 
+import { transcriptionTokensCost } from '../src/lib/aiPricing.js'
+
 const { createVoiceHandler } = await import('../api/voice.js')
+const { clampTranscribeTokens } = await import('../api/_voice.js')
 
 console.error = () => {} // expected noise (resolveFriend fallbacks, failed lookups)
 
@@ -463,6 +466,33 @@ describe('POST ?op=checkpoint', () => {
     assert.ok(Math.abs(talkOf(supabase, TALK).talk.usd - after2.u / 1e6) < 0.0001)
   })
 
+  test('transcription token usage is billed from its tokens; the mint names the transcription model', async () => {
+    const billFor = async (extra) => {
+      const { run, supabase } = setup()
+      const { body: started } = await run('start', { talkId: TALK })
+      assert.equal(started.transcribeModel, 'gpt-transcribe')
+      ageSegment(supabase, started.sessionId, 120)
+      const reply = await run('checkpoint', { talkId: TALK, sessionId: started.sessionId, startedAt: new Date().toISOString(), turns, seq: 1, seconds: 60, tally: tally(), ...extra })
+      assert.equal(reply.status, 200, JSON.stringify(reply.body))
+      return voiceDay(supabase).u
+    }
+    const plain = await billFor({})
+    const withTokens = await billFor({ transcribeTokens: { in: 700, out: 40, audio: 600 } })
+    // gpt-transcribe isn't billed by tokens, so its tokens fall back to ≈ 10 audio tokens a second: 60 s.
+    assert.equal(withTokens - plain, transcriptionTokensCost({ in: 700, out: 40, audio: 600 }, 'gpt-transcribe').micros)
+    assert.equal(withTokens - plain, 4500)
+    // Junk is ignored.
+    assert.equal(await billFor({ transcribeTokens: { in: 'lots', out: -5 } }), plain)
+    assert.equal(await billFor({ transcribeTokens: [1, 2] }), plain)
+  })
+
+  test('clampTranscribeTokens keeps sane counts only', () => {
+    assert.equal(clampTranscribeTokens(null), null)
+    assert.equal(clampTranscribeTokens({ in: 0, out: 0 }), null)
+    assert.deepEqual(clampTranscribeTokens({ in: 17.4, out: 9, audio: 99 }), { in: 17, out: 9, audio: 17 })
+    assert.deepEqual(clampTranscribeTokens({ in: 5e9, out: NaN }), { in: 2_000_000, out: 0, audio: 0 })
+  })
+
   test('seconds are clamped to the time since the mint and to the call length', async () => {
     const { run, supabase } = setup()
     const { body: started } = await run('start', { talkId: TALK })
@@ -548,7 +578,7 @@ describe('GET ?op=usage', () => {
     assert.ok(Math.abs(reply.body.summary.today.total - 0.12) < 1e-9)
     assert.equal(reply.body.budgetUsd, 10)
     assert.equal(reply.body.prefs.dailyMinutes, 20)
-    assert.equal(reply.body.pricesChecked, '2026-10-11')
+    assert.equal(reply.body.pricesChecked, '2026-10-12')
   })
 
   test('without the usage column it says so', async () => {

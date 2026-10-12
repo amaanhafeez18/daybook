@@ -4,7 +4,7 @@ import Sheet from '../ui/Sheet.jsx'
 import Disclosure from '../ui/Disclosure.jsx'
 import { Button, Segmented } from '../ui/primitives.jsx'
 import { FEATURES } from '../../lib/aiLedger.js'
-import { PRICES_CHECKED, REALTIME_PRICES, TEXT_PRICES, TRANSCRIBE_PER_MIN, WEB_SEARCH_PER_CALL, capCeiling, estimateMonth, formatUsd } from '../../lib/aiPricing.js'
+import { PRICES_CHECKED, REALTIME_PRICES, TEXT_PRICES, TRANSCRIBE_PER_MIN, WEB_SEARCH_PER_CALL, capCeiling, estimateMonth, formatUsd, worstCaveat } from '../../lib/aiPricing.js'
 import { BUDGET_WARN, VOICE_OPTIONS } from '../../lib/voice/prefs.js'
 import { featureFigures } from '../../lib/aiUsageClient.js'
 import UsageBars, { BudgetMeter } from './UsageBars.jsx'
@@ -27,6 +27,8 @@ export const roughUsd = (usd) => (usd >= 9.995 ? `$${Math.round(usd).toLocaleStr
 const minutesText = (seconds) => (seconds > 0 && seconds < 60 ? '<1 min' : `${Math.round(seconds / 60)} min`)
 const round5 = (value) => Math.max(0, Math.min(60, Math.round((Number(value) || 0) / 5) * 5))
 const nearest = (value, options) => options.reduce((best, item) => (Math.abs(item - value) < Math.abs(best - value) ? item : best), options[0])
+// AI features the "Estimate a month" total leaves out.
+const OTHER_FEATURES = ['food', 'note', 'brief']
 
 function monthName(key, options = { month: 'long' }) {
   if (!/^\d{4}-\d{2}$/.test(String(key || ''))) return ''
@@ -193,6 +195,8 @@ function Estimate({ summary, prefs, budget }) {
   })()
   const limited = cappedTotal < estimate.total - 0.5 ? cappedTotal : null
   const enoughData = (Number(averages?.days) || 0) >= 3
+  // The estimate covers voice and typing only; what the other AI features cost this month.
+  const otherUsd = OTHER_FEATURES.reduce((sum, id) => sum + featureFigures(summary?.month?.byFeature, id).usd, 0)
   const tag = (basis) => (basis === 'yours' ? 'from your usage' : 'typical')
 
   function applyAverages() {
@@ -213,14 +217,15 @@ function Estimate({ summary, prefs, budget }) {
       </div>
       <Slider label="Typed messages a day" value={chatPerDay} min={0} max={60} step={5} onChange={setChatPerDay} valueText={chatPerDay ? String(chatPerDay) : 'None'} />
       <div className="usage-result" aria-live="polite">
-        <p className="usage-result-main">About <strong>{roughUsd(estimate.total)}</strong> a month</p>
+        <p className="usage-result-main">Voice + chat: about <strong>{roughUsd(estimate.total)}</strong> a month</p>
         {estimate.high - estimate.low >= 0.01 && <p className="usage-sub">Usually {roughUsd(estimate.low)}–{roughUsd(estimate.high)}</p>}
         {limited !== null && <p className="usage-sub usage-limited">With your limits it stops at about <strong>{roughUsd(limited)}</strong></p>}
         <ul className="usage-breakdown">
           <li><span>Voice chats</span><span>{roughUsd(estimate.voice)} · {tag(estimate.basis?.voice)}</span></li>
           <li><span>Typing to the assistant</span><span>{roughUsd(estimate.chat)} · {tag(estimate.basis?.chat)}</span></li>
         </ul>
-        <p className="usage-sub">{prefs.enabled ? `Your limits cap voice at about ${roughUsd(ceiling.capped)} a month.` : 'Voice chats are off, so they cost nothing.'}</p>
+        {otherUsd > 0 && <p className="usage-sub">Not included: food AI, voice notes and the morning note ({formatUsd(otherUsd)} so far this month).</p>}
+        <p className="usage-sub">{prefs.enabled ? `Your limits cap voice at about ${roughUsd(ceiling.capped)} a month${worstCaveat(ceiling, budget)}.` : 'Voice chats are off, so they cost nothing.'}</p>
       </div>
       <Button variant="secondary" size="sm" icon="history" disabled={!enoughData} onClick={applyAverages}>Use my averages</Button>
       {!enoughData && <p className="usage-hint">Available after 3 days of use.</p>}

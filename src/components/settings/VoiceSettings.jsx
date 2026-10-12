@@ -4,7 +4,7 @@ import Disclosure from '../ui/Disclosure.jsx'
 import { Button, Segmented, Switch } from '../ui/primitives.jsx'
 import { readPref, writePref } from '../../lib/api.js'
 import { updateSettings } from '../../lib/store.js'
-import { capCeiling, formatUsd } from '../../lib/aiPricing.js'
+import { capCeiling, formatUsd, worstCaveat } from '../../lib/aiPricing.js'
 import { BUDGET_DEFAULT, BUDGET_OPTIONS, BUDGET_WARN, VOICE_DEFAULTS, VOICE_OPTIONS, VOICE_RECOMMENDED, budgetUsd, voicePrefs } from '../../lib/voice/prefs.js'
 import { useAiUsage } from '../../lib/aiUsageClient.js'
 import { rawVoice } from '../voice/TalkButton.jsx'
@@ -60,7 +60,7 @@ export default function VoiceSettings({ settings, openUsage = false }) {
   const summary = usage.summary
   const ceiling = capCeiling({ dailyMinutes: prefs.dailyMinutes, sessionMinutes: prefs.sessionMinutes, budgetUsd: budget })
   const todayMinutes = summary ? Math.round((Number(summary.voiceSecondsToday) || 0) / 60) : null
-  const limitNote = `${todayMinutes !== null ? `Today: ${todayMinutes} of ${prefs.dailyMinutes} min. ` : ''}At this limit voice costs at most about ${formatUsd(ceiling.capped)} a month${budget > 0 && ceiling.capped >= budget ? ' (your budget)' : ''}.`
+  const limitNote = `${todayMinutes !== null ? `Today: ${todayMinutes} of ${prefs.dailyMinutes} min. ` : ''}At this limit voice costs at most about ${formatUsd(ceiling.capped)} a month${budget > 0 && ceiling.capped >= budget ? ' (your budget)' : worstCaveat(ceiling, budget)}.`
 
   // The assistant can set any budget up to $500; show it rather than a wrong choice.
   const budgetOptions = BUDGET_OPTIONS.map((value) => ({ id: value, label: budgetLabel(value) }))

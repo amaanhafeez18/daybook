@@ -15,7 +15,7 @@ import {
 } from './assistant.js'
 import { TALK_END_REASONS, TALK_ID_RE, TALK_INTENTS, TALK_MODES, normalizeTalk, talkHistoryText } from './_talk.js'
 import { raceTimeout, readLedger, recordTalk, recordTalkSegment } from './_usage.js'
-import { PRICES_CHECKED, tallyCost, transcriptionCost } from '../src/lib/aiPricing.js'
+import { PRICES_CHECKED, tallyCost, transcriptionCost, transcriptionTokensCost } from '../src/lib/aiPricing.js'
 import { summarizeLedger } from '../src/lib/aiLedger.js'
 import { budgetUsd, callLimits, voicePrefs } from '../src/lib/voice/prefs.js'
 
@@ -851,6 +851,8 @@ export async function startOp({ supabase, user, body, ctx, debug }) {
     clientSecret: secret.value,
     expiresAt: secret.expiresAt,
     model: REALTIME_MODEL,
+    // So the live cost prices transcription token usage with the right model.
+    transcribeModel: REALTIME_TRANSCRIBE_MODEL,
     voice: prefs.voice,
     mode,
     intent,
@@ -1340,6 +1342,14 @@ function clampTally(raw) {
   return tally
 }
 
+// The call's transcription token usage so far ({ in, out, audio }, sent when the transcription model
+// is billed by tokens), clamped; null when there is none.
+export function clampTranscribeTokens(raw) {
+  if (!isPlainObject(raw)) return null
+  const [input, output, audio] = ['in', 'out', 'audio'].map((key) => Math.round(clamp(raw[key], 0, 2_000_000)))
+  return input || output ? { in: input, out: output, audio: Math.min(audio, input) } : null
+}
+
 // Turns merged by id (a checkpoint may repeat earlier ones, or only bring the new segment's).
 function mergeTurns(existing, incoming) {
   const out = [...existing]
@@ -1355,7 +1365,7 @@ function mergeTurns(existing, incoming) {
   return out
 }
 
-// body: { talkId, sessionId, seq, startedAt, seconds, turns, tally, transcribeSeconds, final, end, mode, intent }
+// body: { talkId, sessionId, seq, startedAt, seconds, turns, tally, transcribeSeconds, transcribeTokens?, final, end, mode, intent }
 export async function checkpointOp({ supabase, user, body, ctx, debug }) {
   const talkId = body.talkId
   if (!validTalkId(talkId)) return bad('That voice chat id isn’t valid.', debug)
@@ -1378,8 +1388,10 @@ export async function checkpointOp({ supabase, user, body, ctx, debug }) {
   }
   const tally = clampTally(body.tally)
   const transcribeSeconds = clamp(body.transcribeSeconds, 0, 3700)
+  const transcribeTokens = clampTranscribeTokens(body.transcribeTokens)
   const model = seg?.model || REALTIME_MODEL
   const micros = tallyCost(tally, model).micros + transcriptionCost({ seconds: transcribeSeconds }, REALTIME_TRANSCRIBE_MODEL).micros
+    + (transcribeTokens ? transcriptionTokensCost(transcribeTokens, REALTIME_TRANSCRIBE_MODEL).micros : 0)
   const mintedMs = typeof seg?.mintedAt === 'number' ? seg.mintedAt : Date.parse(seg?.mintedAt || '')
   const elapsed = seg && Number.isFinite(mintedMs) ? Math.max(0, (Date.now() - mintedMs) / 1000) : 3700
   const seconds = Math.round(clamp(body.seconds, 0, Math.min((Number(seg?.maxSec) || 3670) + 30, elapsed)))

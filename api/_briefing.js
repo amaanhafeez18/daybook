@@ -173,7 +173,7 @@ export function cleanBriefing(text, digest) {
   return value
 }
 
-// usage: { input, cached, output } tokens → US$ (prices: src/lib/aiPricing.js; an unknown model is
+// usage: { input, cached, writes, output } tokens → US$ (prices: src/lib/aiPricing.js; an unknown model is
 // priced as gpt-5-mini).
 export function briefingCost(usage, model = 'gpt-5-mini') {
   return dollars(textCost(usage, model).micros)
@@ -181,10 +181,12 @@ export function briefingCost(usage, model = 'gpt-5-mini') {
 
 function usageOf(payload) {
   const usage = payload?.usage
-  if (!usage) return { input: 0, cached: 0, output: 0, reasoning: 0 }
+  if (!usage) return { input: 0, cached: 0, writes: 0, output: 0, reasoning: 0 }
   return {
     input: Number(usage.input_tokens) || 0,
     cached: Number(usage.input_tokens_details?.cached_tokens) || 0,
+    // Input newly stored in the prompt cache (GPT-5.6+ bill it at 1.25×).
+    writes: Number(usage.input_tokens_details?.cache_write_tokens) || 0,
     output: Number(usage.output_tokens) || 0,
     reasoning: Number(usage.output_tokens_details?.reasoning_tokens) || 0,
   }
