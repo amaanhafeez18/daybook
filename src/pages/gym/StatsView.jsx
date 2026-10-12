@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../../components/ui/Icon.jsx'
+import WeighIn from '../../components/WeighIn.jsx'
 import { toast } from '../../components/ui/feedback.jsx'
 import { Button, IconButton, Segmented } from '../../components/ui/primitives.jsx'
 import { addDaysISO, formatDateShort, isISODate, relativeDay } from '../../lib/dates.js'
@@ -10,17 +11,13 @@ import { sessionDurationSec, sessionVolume, streakWeeks, topExercises, weekProgr
 import { formatNumber, formatVolume, fromKg } from '../../lib/gym/units.js'
 import { scrollBehavior } from '../../lib/motion.js'
 import { navigate } from '../../lib/router.js'
+import { DEFAULT_WEIGHT_RANGE, WEIGHT_RANGES, changeOverDays, rangeStart } from '../../lib/weighIn.js'
 import { BarChart, LineChart } from './charts.jsx'
 import { GymEmpty, SectionHeader, Stat, WeightInput, goBack } from './common.jsx'
 import './exercises.css'
 
 const TRAINED_MUSCLES = MUSCLES.filter((muscle) => muscle.id !== 'cardio')
 const MUSCLE_WEEKS = 9
-const BW_RANGES = [
-  { id: '3m', label: '3M', days: 92 },
-  { id: '1y', label: '1Y', days: 366 },
-  { id: 'all', label: 'All', days: null },
-]
 
 let intFormat = null
 const formatInt = (value) => {
@@ -286,24 +283,20 @@ function BodyWeight({ unit, today }) {
   const weight = (kg) => `${formatNumber(fromKg(kg, unit), 1)} ${unit}`
   const [date, setDate] = useState(today)
   const [kg, setKg] = useState(null)
-  const [range, setRange] = useState('3m')
+  const [range, setRange] = useState(DEFAULT_WEIGHT_RANGE)
   const [showAll, setShowAll] = useState(false)
 
   const latest = entries[0] || null
-  const days = BW_RANGES.find((item) => item.id === range)?.days
-  const from = days ? addDaysISO(today, -days) : null
+  const from = rangeStart(range, today) // the same 1M/3M/1Y/All as Food → Weight
   const points = useMemo(
     () => entries.filter((entry) => !from || entry.date >= from).slice().reverse().map((entry) => ({ x: entry.date, y: fromKg(entry.kg, unit) })),
     [entries, from, unit],
   )
 
-  // Change over roughly the last 30 days: latest vs the newest entry at least 30 days older.
-  const trend = useMemo(() => {
-    if (!latest) return null
-    const cutoff = addDaysISO(latest.date, -30)
-    const older = entries.find((entry) => entry.date <= cutoff)
-    return older ? { delta: latest.kg - older.kg, since: older.date } : null
-  }, [entries, latest])
+  // The longer view, labelled as its own figure ("30-day change"): the latest weigh-in vs the newest
+  // one at least 30 days older. The headline change above it is the shared weekly trend.
+  const month = useMemo(() => changeOverDays(entries, 30), [entries])
+  const monthShown = month ? Math.round(fromKg(month.deltaKg, unit) * 10) / 10 : null
 
   const add = (event) => {
     event.preventDefault()
@@ -334,30 +327,27 @@ function BodyWeight({ unit, today }) {
 
   return (
     <>
-      <SectionHeader
-        title="Body weight"
-        action={points.length >= 2 ? <Segmented options={BW_RANGES} value={range} onChange={setRange} label="Body weight range" size="sm" className="gym-st-range" /> : null}
-      />
+      <SectionHeader title="Body weight" />
       <section className="card gym-st-card">
-        {latest && (
-          <div className="gym-st-bw-now">
-            <strong>{weight(latest.kg)}</strong>
-            <span>
-              {relativeDay(latest.date, today)}
-              {trend && Math.abs(trend.delta) > 1e-9 && ` · ${trend.delta > 0 ? '+' : '−'}${weight(Math.abs(trend.delta))} since ${formatDateShort(trend.since)}`}
-            </span>
-          </div>
+        {/* The shared weigh-in display (the same number and weekly trend as Gym and Health Today). */}
+        {latest && <WeighIn today={today} bare capsule={false} nudge={false} />}
+        {month && (
+          <p className="wi-aside">
+            30-day change: <strong>{monthShown === 0 ? 'no change' : `${monthShown > 0 ? '+' : '−'}${formatNumber(Math.abs(monthShown), 1)} ${unit}`}</strong> since {formatDateShort(month.since)}
+          </p>
         )}
-        {entries.length === 1 && <p className="gym-st-note gym-st-bw-first">Log another weigh-in to start your trend line.</p>}
         {entries.length > 1 && (
-          <LineChart
-            points={points}
-            formatY={(value) => `${formatNumber(value, 1)} ${unit}`}
-            formatTick={(value) => formatNumber(value, 1)}
-            height={180}
-            ariaLabel={`Body weight in ${unit}`}
-            emptyText="Only one weigh-in in this range. Try a longer range."
-          />
+          <>
+            <Segmented options={WEIGHT_RANGES} value={range} onChange={setRange} label="Body weight range" className="wi-range" />
+            <LineChart
+              points={points}
+              formatY={(value) => `${formatNumber(value, 1)} ${unit}`}
+              formatTick={(value) => formatNumber(value, 1)}
+              height={180}
+              ariaLabel={`Body weight in ${unit}`}
+              emptyText="Only one weigh-in in this range. Try a longer range."
+            />
+          </>
         )}
 
         <form className="gym-st-bw-form" onSubmit={add}>
@@ -376,7 +366,7 @@ function BodyWeight({ unit, today }) {
               className="gym-st-bw-input"
             />
           </label>
-          <Button type="submit" icon="plus" className="gym-st-bw-add">Log</Button>
+          <Button type="submit" icon="plus" className="gym-st-bw-add">Weigh in</Button>
         </form>
         <p className="gym-st-note">Your latest weigh-in on or before a workout is what bodyweight exercises count as weight lifted. Logging a date again replaces that day.</p>
 

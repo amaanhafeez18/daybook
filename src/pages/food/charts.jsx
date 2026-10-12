@@ -422,25 +422,3 @@ export function CalorieBars({ days, goal, unit, onOpen, height = 190 }) {
     </div>
   )
 }
-
-// ---- sparkline -----------------------------------------------------------------------------
-
-export function Sparkline({ values, width = 88, height = 30 }) {
-  const list = (Array.isArray(values) ? values : []).filter(isNum)
-  if (list.length < 2) return null
-  const min = Math.min(...list)
-  const max = Math.max(...list)
-  const span = max - min || 1
-  const pad = 3
-  const x = (i) => pad + (i / (list.length - 1)) * (width - pad * 2)
-  const y = (value) => pad + (1 - (value - min) / span) * (height - pad * 2)
-  const d = list.map((value, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(value).toFixed(1)}`).join('')
-  const last = list.length - 1
-  return (
-    <svg className="food-spark" width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
-      <path d={d} />
-      <circle cx={x(last)} cy={y(list[last])} r={3} />
-    </svg>
-  )
-}
-

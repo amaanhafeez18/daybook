@@ -986,24 +986,9 @@ function Welcome({ displayName, busy, space = 'plan', onAsk, onFill, onTimetable
   const showTimetable = space === 'plan' && !(Array.isArray(classes) && classes.length > 0)
   const asks = settings?.assistantConfirm === 'off' ? '' : settings?.assistantConfirm === 'changes' ? ' I check with you before changing or deleting anything.' : ' I check with you before changing anything.'
   return (
+    // Greeting first (right under the title), then the prompts, then one row to pick the last chat
+    // back up or start a fresh one.
     <div className={`chat-welcome ${returning ? 'is-returning' : ''}`}>
-      {hasChat && (
-        <div className="asst-resume">
-          <button type="button" className="asst-resume-main" onClick={onContinue}>
-            <Icon name="message" size={18} />
-            <span className="asst-resume-text">
-              <strong>Continue chat</strong>
-              <small>{messageCount} {messageCount === 1 ? 'message' : 'messages'}{lastAt ? ` · ${agoText(lastAt)}` : ''}</small>
-            </span>
-            <Icon name="chevronRight" size={16} />
-          </button>
-          <p className="asst-resume-note">New messages continue this chat.</p>
-          <button type="button" className="asst-resume-new" onClick={onNewChat} disabled={busy}>
-            <Icon name="plus" size={16} strokeWidth={2.2} />
-            Start fresh
-          </button>
-        </div>
-      )}
       {!returning && <span className="assistant-avatar assistant-avatar-lg" aria-hidden="true"><Icon name="sparkles" size={30} /></span>}
       <h2>{firstName ? `Hi ${firstName}, how can I help?` : 'How can I help?'}</h2>
       {!returning && <p>Ask in plain words, type or talk: “move the dentist to Friday at 3”, “what’s on today?”, “had coffee with Ali”.{asks}</p>}
@@ -1026,6 +1011,21 @@ function Welcome({ displayName, busy, space = 'plan', onAsk, onFill, onTimetable
           <Icon name="camera" size={18} />
           <span>Snap a photo of your class timetable</span>
         </button>
+      )}
+      {hasChat && (
+        <div className="asst-resume">
+          <button type="button" className="asst-resume-main" onClick={onContinue}>
+            <Icon name="message" size={18} />
+            <span className="asst-resume-text">
+              <strong>Continue chat</strong>
+              <small>
+                <span>{messageCount} {messageCount === 1 ? 'message' : 'messages'}{lastAt ? ` · ${agoText(lastAt)}` : ''}</span>
+                <span> · new messages continue it</span>
+              </small>
+            </span>
+          </button>
+          <button type="button" className="link-btn asst-resume-new" onClick={onNewChat} disabled={busy}>Start fresh</button>
+        </div>
       )}
     </div>
   )

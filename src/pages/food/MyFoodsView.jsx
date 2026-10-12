@@ -4,6 +4,7 @@ import Icon from '../../components/ui/Icon.jsx'
 import Sheet from '../../components/ui/Sheet.jsx'
 import { Button, EmptyState, IconButton, Skeleton } from '../../components/ui/primitives.jsx'
 import { toast } from '../../components/ui/feedback.jsx'
+import { haptic } from '../../lib/haptics.js'
 import { primeKeyboard } from '../../lib/keyboard.js'
 import { energyInUnit, energyToKcal, entryCalories } from '../../lib/food/nutrition.js'
 import { deleteFavorite, rememberFoods, updateFavorite, useFood } from '../../lib/food/state.js'
@@ -16,7 +17,8 @@ import { defaultMeal, energyNumber, energyText, entryName, fmtGrams, isNum, kcal
 // nutrition label, a barcode, the web, a starred entry or typed in, which the estimate reuses when
 // the food is mentioned again. Search, tap to edit (name, portion and calories first; brand,
 // macros, other nutrients, other names, barcode and where the numbers came from under "More
-// details"), swipe or Delete with Undo, and "Log" to add one to today.
+// details"), swipe or Delete with Undo, and the round "+" on a row logs one to today. The screen's
+// add is the round "+" beside the large title, as on Tasks and People (labelled on desktop).
 
 const PAGE = 50
 const UNITS = ['g', 'ml', 'oz', 'fl oz', 'cup', 'tbsp', 'tsp', 'piece', 'slice', 'serving', 'bar', 'scoop', 'bowl', 'glass', 'can', 'bottle', 'pack']
@@ -74,17 +76,19 @@ export default function MyFoodsView({ today, loaded }) {
   }
 
   function log(item) {
+    haptic()
     quickLog(item, { meal: defaultMeal(meals), date: today, favorites, meals, unit, today })
   }
 
   return (
     <div className="food-myfoods">
-      <DetailTop>
-        <Button size="sm" icon="plus" onClick={addNew} disabled={!loaded}>Add</Button>
-      </DetailTop>
-      <header className="food-page-head">
-        <h1>My foods</h1>
-        <p className="page-subtitle">Exact numbers from labels, barcodes and the web — used again when you mention the food.</p>
+      <DetailTop />
+      <header className="page-header page-header-row">
+        <div className="page-header-text">
+          <h1>My foods</h1>
+          <p className="page-subtitle">Exact numbers from labels, barcodes and the web — used again when you mention the food.</p>
+        </div>
+        <Button icon="plus" onClick={addNew} disabled={!loaded}>Add food</Button>
       </header>
       <MigrationNote />
 
@@ -140,27 +144,27 @@ function SavedRow({ item, unit, onEdit, onDelete, onLog }) {
     : null
   return (
     <SwipeRow className="food-row" onDelete={onDelete}>
-      <div className="food-row-inner">
+      {/* Two lines: the name (up to two lines) with its energy, then the portion, brand and macros
+          across the whole row; where the numbers came from last. The round "+" sits beside line 1. */}
+      <div className="food-row-inner food-my-inner">
         <button type="button" className="food-row-main food-my-main" onClick={onEdit} aria-label={`${name}${kcal > 0 ? `, ${energyNumber(kcal, unit)} ${unitLabel(unit)}` : ''}. Edit`}>
-          <span className="food-row-text">
-            <span className="food-row-name">{name}</span>
-            {/* The portion (and brand, macros) first; where the numbers came from on its own line,
-                so a long badge never squeezes "2 slices" out at phone width. */}
-            {(portion || item.brand || macros) && (
-              <span className="food-row-sub">
-                {portion && <span className="food-my-portion">{portion}</span>}
-                {item.brand && <span>{item.brand}</span>}
-                {macros && <span>{macros}</span>}
-              </span>
-            )}
-            <span className="food-row-sub"><span className="food-badge food-my-badge">{badge.icon}{badge.text}{day ? `, ${day}` : ''}</span></span>
+          <span className="food-my-line">
+            <span className="food-my-name">{name}</span>
+            <span className={`food-row-kcal${kcal > 0 ? '' : ' is-empty'}`}>
+              {kcal > 0 ? <>{energyNumber(kcal, unit)} <small>{unitLabel(unit)}</small></> : '—'}
+            </span>
           </span>
-          <span className={`food-row-kcal${kcal > 0 ? '' : ' is-empty'}`}>
-            {kcal > 0 ? <>{energyNumber(kcal, unit)} <small>{unitLabel(unit)}</small></> : '—'}
-          </span>
+          {(portion || item.brand || macros) && (
+            <span className="food-my-meta">
+              {portion && <span className="food-my-portion">{portion}</span>}
+              {item.brand && <span className="food-my-brand">{item.brand}</span>}
+              {macros && <span className="food-my-macros">{macros}</span>}
+            </span>
+          )}
+          <span className="food-row-sub"><span className="food-badge food-my-badge">{badge.icon}{badge.text}{day ? `, ${day}` : ''}</span></span>
         </button>
-        <button type="button" className="food-my-log" onClick={onLog} aria-label={`Log ${name} now`}>
-          <Icon name="plus" size={14} strokeWidth={2.6} />Log
+        <button type="button" className="food-my-log" onClick={onLog} aria-label={`Log ${name}`} title="Log to today">
+          <Icon name="plus" size={18} strokeWidth={2.4} />
         </button>
       </div>
     </SwipeRow>

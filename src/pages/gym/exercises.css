@@ -19,14 +19,6 @@
   background: radial-gradient(circle, var(--text-3) 0 9px, transparent 9.5px);
 }
 .gym-lib-clear::after { content: ''; position: absolute; inset: -6px; } /* 44 px target */
-.gym-lib-new {
-  flex-shrink: 0; width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%;
-  color: var(--accent); background: var(--glass-bg); border: 1px solid var(--glass-border);
-  box-shadow: var(--glass-highlight), var(--glass-shadow);
-  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
-  transition: transform 0.35s var(--spring, ease);
-}
-.gym-lib-new:active { transform: scale(0.92); transition-duration: 0.1s; }
 
 .gym-lib-filter-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .gym-lib-select {
@@ -249,8 +241,8 @@
 .gym-xd-chart-head > div:first-child { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .gym-xd-chart-change { font-size: 14px; color: var(--text-2); font-variant-numeric: tabular-nums; }
 .gym-xd-chart-change strong { color: var(--text); font-size: 17px; font-weight: 700; margin-right: 2px; }
-.gym-xd-range, .gym-st-range { flex: none; padding: 2px; }
-.gym-xd-range button, .gym-st-range button { flex: none; min-height: 30px; min-width: 40px; padding: 0 10px; font-size: 13px; }
+.gym-xd-range { flex: none; padding: 2px; }
+.gym-xd-range button { flex: none; min-height: 30px; min-width: 40px; padding: 0 10px; font-size: 13px; }
 
 .gym-xd-records { display: flex; flex-direction: column; gap: 12px; }
 .gym-xd-onerm { display: flex; flex-direction: column; gap: 2px; padding: 16px 18px; }
@@ -421,9 +413,6 @@ button.gym-xd-source:active { opacity: 0.6; }
 .gym-st-top-text span { font-size: 17px; letter-spacing: -0.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gym-st-top-text small { font-size: 13px; color: var(--text-2); }
 
-.gym-st-bw-now { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; margin: 2px 4px 10px; }
-.gym-st-bw-now strong { font-family: var(--font-display, var(--font)); font-size: 30px; font-weight: 700; letter-spacing: -0.02em; }
-.gym-st-bw-now span { font-size: 14px; color: var(--text-2); }
 .gym-st-bw-form { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin-top: 14px; }
 .gym-st-bw-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .gym-st-bw-label { margin-left: 4px; font-size: 13px; color: var(--text-2); }

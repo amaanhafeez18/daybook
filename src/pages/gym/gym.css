@@ -255,21 +255,18 @@
 .gym-td-flame { flex-shrink: 0; display: grid; place-items: center; width: 48px; height: 48px; border-radius: 50%; background: var(--surface-2); color: var(--text-3); }
 .gym-td-tile.has-streak .gym-td-flame { background: var(--warning-soft); color: var(--warning); }
 
-/* body weight */
-.card.gym-td-bw { display: flex; flex-direction: column; gap: 10px; }
-.gym-td-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 32px; }
-.gym-td-card-head h3 { display: flex; align-items: center; gap: 8px; font-size: 17px; font-weight: 600; letter-spacing: -0.02em; }
-.gym-td-card-head h3 .icon { color: var(--accent); }
-.gym-td-bw-body { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
-.gym-td-bw-latest { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-.gym-td-bw-value strong { font-family: var(--font-display, var(--font)); font-size: 34px; font-weight: 700; line-height: 1; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
-.gym-td-bw-value > span { margin-left: 4px; font-size: 17px; font-weight: 600; color: var(--text-2); }
-.gym-td-bw-latest small { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 14px; color: var(--text-2); }
-.gym-td-bw-delta { display: inline-flex; align-items: center; gap: 2px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.gym-td-bw-empty { max-width: 24ch; font-size: 15px; color: var(--text-2); }
-.gym-td-bw-form { display: flex; align-items: center; gap: 8px; margin-left: auto; }
-.gym-td-bw-form .gym-input { width: 96px; min-height: 44px; }
-.gym-td-bw-form .btn { min-width: 76px; }
+/* body weight: the shared weigh-in card (components/weigh-in.css) and, under it, the one-step entry:
+   a pill field with the unit inside, then the same "Weigh in" capsule as everywhere else. */
+.gym-td-bw-entry { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
+.gym-td-bw-field { position: relative; flex: 1; min-width: 0; display: flex; }
+.gym-td-bw-field .gym-input {
+  min-height: 44px; padding: 6px 40px 6px 16px; border-radius: var(--r-pill, 999px);
+  font-size: 16px; text-align: left;
+}
+.gym-td-bw-unit {
+  position: absolute; top: 50%; right: 16px; transform: translateY(-50%); pointer-events: none;
+  font-size: 15px; font-weight: 600; color: var(--text-3);
+}
 
 /* ---- pick lists in sheets (Train anyway, Change workout) ------------------------------------ */
 

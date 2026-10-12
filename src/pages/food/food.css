@@ -186,26 +186,11 @@
 }
 .food-meal-ghost:active { background: var(--surface-2); }
 
-/* ---- weight card ---------------------------------------------------------------------------- */
+/* ---- card header (Insights) -------------------------------------------------------------------- */
 
-.card.food-weight { padding: 14px 16px 12px; }
 .food-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 36px; margin-bottom: 6px; }
 .food-card-title { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.02em; }
 .food-card-title .icon { color: var(--accent); flex-shrink: 0; }
-.food-weight-body {
-  width: calc(100% + 8px); display: flex; align-items: center; gap: 12px; margin: 0 -4px; padding: 6px 4px;
-  border-radius: 14px; text-align: left; color: var(--text);
-}
-.food-weight-body:active { background: var(--surface-2); }
-.food-weight-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.food-weight-now strong { font-family: var(--font-display, var(--font)); font-size: 30px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
-.food-weight-now small { margin-left: 4px; font-size: 14px; color: var(--text-2); }
-.food-weight-change { display: inline-flex; align-items: center; gap: 4px; font-size: 14px; color: var(--text-2); font-variant-numeric: tabular-nums; }
-.food-weight-chevron { flex-shrink: 0; color: var(--text-3); }
-.food-weight-empty { font-size: 15px; color: var(--text-2); }
-.food-spark { flex-shrink: 0; overflow: visible; }
-.food-spark path { fill: none; stroke: var(--food-chart); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
-.food-spark circle { fill: var(--food-chart); stroke: var(--card-bg, var(--surface)); stroke-width: 2; }
 
 /* ---- quick-add dock (above the tab bar) -------------------------------------------------------- */
 
@@ -584,17 +569,38 @@ button.food-cfg-row:active { background: var(--surface-2); }
 /* ---- My foods ---------------------------------------------------------------------------------- */
 
 .search-field.food-my-search { margin-bottom: 14px; }
-.food-my-main { min-height: 66px; }
-.food-row-sub > .food-my-portion { flex-shrink: 0; max-width: 65%; } /* the portion reads in full; brand and macros give way */
+/* A saved food: line 1 = the name (wraps to two lines) and its energy, line 2 = portion · brand ·
+   macros across the whole row, then the badge. The round "+" (log to today) hangs beside line 1,
+   so line 1 keeps room for it and the lines below run under it. */
+.food-row-inner.food-my-inner { position: relative; padding-right: 0; }
+.food-row-main.food-my-main {
+  min-height: 66px; flex-direction: column; align-items: stretch; justify-content: center; gap: 6px; /* line 2 starts below the "+" circle */
+  padding: 10px 14px 10px 16px;
+}
+.food-my-line { display: flex; align-items: baseline; gap: 10px; min-width: 0; padding-right: 38px; }
+.food-my-name {
+  flex: 1; min-width: 0; font-size: 17px; letter-spacing: -0.02em; line-height: 1.25;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere;
+}
+.food-my-line > .food-row-kcal { margin-left: auto; }
+.food-my-meta {
+  min-width: 0; font-size: 13px; line-height: 1.35; color: var(--text-2);
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere;
+}
+.food-my-meta > * + *::before { content: '·'; margin: 0 6px; color: var(--text-3); }
+.food-my-portion, .food-my-macros { white-space: nowrap; } /* each reads whole; the line breaks between them */
+.food-my-main > .food-row-sub { margin-top: 1px; }
 .food-badge.food-my-badge { gap: 4px; }
 .food-my-badge .icon { color: var(--accent); }
+/* The food tray's round soft "+": 32px to see, 44px to tap, centred on line 1 (10px padding +
+   half its 21px line, less half the circle). */
 .food-my-log {
-  position: relative; flex-shrink: 0; display: inline-flex; align-items: center; gap: 3px; min-height: 32px; margin-right: 4px;
-  padding: 0 12px 0 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 14px; font-weight: 600;
+  position: absolute; top: 5px; right: 10px; z-index: 1; display: grid; place-items: center; width: 32px; height: 32px;
+  border-radius: 50%; background: var(--accent-soft); color: var(--accent);
   transition: transform 0.3s var(--spring, var(--ease));
 }
-.food-my-log::after { content: ''; position: absolute; inset: -6px -4px; }
-.food-my-log:active { transform: scale(0.94); }
+.food-my-log::after { content: ''; position: absolute; inset: -6px; }
+.food-my-log:active { transform: scale(0.9); transition-duration: 0.1s; }
 .food-my-empty { padding: 18px 16px; font-size: 15px; color: var(--text-2); text-align: center; overflow-wrap: anywhere; }
 .food-my-form .food-es-grid.is-2 { margin-top: 0; }
 .food-es-field.food-my-energy { grid-column: 1 / -1; }
@@ -755,7 +761,7 @@ button.food-cfg-row:active { background: var(--surface-2); }
 @media (hover: hover) {
   .icon-btn.food-head-btn:hover { background: var(--glass-bg-strong); color: var(--text); }
   .food-row-main:hover, .food-tray-row:hover, .food-act-row:hover:not(:disabled),
-  .food-weight-body:hover, .food-ins-day:hover, .food-week-day:hover:not(.is-selected), button.food-cfg-row:hover,
+  .food-ins-day:hover, .food-week-day:hover:not(.is-selected), button.food-cfg-row:hover,
   .food-meal-ghost:hover, .food-switch-label:hover:not(.is-static) { background: var(--surface-2); }
   .food-chart-toggle:hover { background: var(--surface-2); color: var(--text); }
   .food-suggest:hover { box-shadow: 0 0 0 1px var(--border-strong) inset; }
