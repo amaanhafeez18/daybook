@@ -176,7 +176,8 @@ export function usageFromDebug(debug, { feature = 'chat' } = {}) {
       responses += 1
     } else if (item.step === 'openai.transcribe' && !item.metered) {
       item.metered = true
-      const cost = transcriptionCost({ seconds: item.seconds }, item.model || NOTE_TRANSCRIBE_MODEL)
+      // OpenAI's own usage when the transcription sent one; else the recording's length.
+      const cost = transcriptionCost({ seconds: item.seconds, usage: isObject(item.usage) ? item.usage : null }, item.model || NOTE_TRANSCRIBE_MODEL)
       entries.push({ feature: 'note', micros: cost.micros, n: 1, s: Math.round(cost.seconds), ...(cost.unpriced && item.model ? { unpricedModel: String(item.model) } : {}) })
     }
   }

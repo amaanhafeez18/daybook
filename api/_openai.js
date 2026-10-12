@@ -19,14 +19,22 @@ export function modelFromEnv(...names) {
   return { model: FALLBACK_MODEL, env: null }
 }
 
-// gpt-4o-mini-transcribe: $0.003 per minute of audio (prices: src/lib/aiPricing.js).
+// gpt-4o-mini-transcribe: $1.25 / $5 per 1M audio / text tokens, about $0.003 a minute (prices:
+// src/lib/aiPricing.js).
+// TODO(2026-10-12): gpt-4o-mini-transcribe shuts down on 26 Feb 2027. OpenAI's speech-to-text guide
+// recommends gpt-transcribe for /v1/audio/transcriptions ($0.0045 a minute, usage type 'duration'),
+// but it hasn't been tried with this request (an iPhone mp4/webm note, response_format json and the
+// vocabulary prompt, whose length limit isn't documented). Try it on a Preview with
+// OPENAI_TRANSCRIBE_MODEL=gpt-transcribe, then change this default well before the shutdown.
 export const TRANSCRIBE_MODEL = String(process.env.OPENAI_TRANSCRIBE_MODEL || '').trim() || 'gpt-4o-mini-transcribe'
 export const DEFAULT_MODEL = modelFromEnv('OPENAI_MODEL').model
 // Food estimates: OPENAI_FOOD_MODEL, else OPENAI_MODEL, else the default.
 export const FOOD_MODEL = modelFromEnv('OPENAI_FOOD_MODEL', 'OPENAI_MODEL')
 
-export const isReasoningModel = (model) => /^(gpt-5|o\d)/.test(String(model || ''))
-export const supportsVerbosity = (model) => /^gpt-5/.test(String(model || ''))
+// GPT-5 and later (gpt-6-luna, …) and the o-series reason: they take reasoning.effort and reject
+// temperature. text.verbosity is a GPT-5+ setting too.
+export const isReasoningModel = (model) => /^(gpt-[5-9]|o\d)/.test(String(model || ''))
+export const supportsVerbosity = (model) => /^gpt-[5-9]/.test(String(model || ''))
 
 // The quickest reasoning effort a model accepts. Only the original GPT-5 models (gpt-5, gpt-5-mini,
 // gpt-5-nano and their dated snapshots) take 'minimal'; later ones (gpt-5.1+) and o-series models
@@ -42,14 +50,32 @@ function aiError(status, message) {
 }
 
 // OpenAI's answer when the requested reasoning effort isn't one this model supports.
-function isEffortError(status, payload) {
+export function isEffortError(status, payload) {
   if (status !== 400) return false
   const detail = String(payload?.error?.message || '')
   return payload?.error?.param === 'reasoning.effort' || /reasoning[._ ]effort|unsupported value: '(minimal|none)'/i.test(detail)
 }
 
-// Model ids OpenAI refused an effort for, so this warm instance goes straight to 'low' next time.
-const unsupportedEffort = new Set()
+// "model:effort" pairs OpenAI refused, so this warm instance goes straight to 'low' next time
+// (e.g. OPENAI_REASONING_EFFORT=minimal on gpt-6-luna, which starts at 'low').
+export const unsupportedEffort = new Set()
+// The effort to send: the wanted one, or 'low' once OpenAI has refused it for this model.
+export function effortFor(model, wanted) {
+  const effort = wanted || 'low'
+  return effort !== 'low' && unsupportedEffort.has(`${model}:${effort}`) ? 'low' : effort
+}
+
+// OpenAI's answer when the model doesn't take text.verbosity. The prompt-caching guide shows
+// gpt-6.1-sol requests with text.verbosity, so GPT-6 should take it; a refusal is still retried
+// once without it and remembered for this warm instance, just in case.
+export function isVerbosityError(status, payload) {
+  if (status !== 400) return false
+  const param = String(payload?.error?.param || '')
+  return param === 'text.verbosity' || (!param && /verbosity/i.test(String(payload?.error?.message || '')))
+}
+export const noVerbosity = new Set()
+// supportsVerbosity, minus the models OpenAI has refused it for since this instance started.
+export const wantsVerbosity = (model) => supportsVerbosity(model) && !noVerbosity.has(String(model || ''))
 
 // ---- Content parts (Responses API user message) ---------------------------------------------------
 
@@ -70,9 +96,17 @@ export function filePart(name, dataUrl, detail = 'low') {
 
 // ---- Structured output ----------------------------------------------------------------------------
 
-function usageOf(payload) {
+// A Responses API reply's usage in Daybook's debug shape (priced by textCost). writes: input tokens
+// newly stored in the prompt cache (GPT-5.6+ bill them at 1.25×).
+export function usageOf(payload) {
   const usage = payload?.usage
-  return usage ? { input: usage.input_tokens, cached: usage.input_tokens_details?.cached_tokens, output: usage.output_tokens, reasoning: usage.output_tokens_details?.reasoning_tokens } : null
+  return usage ? { input: usage.input_tokens, cached: usage.input_tokens_details?.cached_tokens, writes: usage.input_tokens_details?.cache_write_tokens, output: usage.output_tokens, reasoning: usage.output_tokens_details?.reasoning_tokens } : null
+}
+
+// How many billed web searches a reply made. A web_search_call item can also open a page or find
+// in one; only `search` actions carry the per-call fee (an item without an action counts as one).
+export function webSearchCalls(output) {
+  return (Array.isArray(output) ? output : []).filter((item) => item?.type === 'web_search_call' && (item.action?.type ?? 'search') === 'search').length
 }
 
 const MODEL_GONE = /(does not exist|not found|deprecated|retired|shut ?down|no longer (available|supported))/i
@@ -131,7 +165,7 @@ async function postResponses(body, timeoutMs, debug) {
     ms: Date.now() - startedAt,
     model: body.model,
     outputTypes,
-    webCalls: outputTypes.filter((type) => type === 'web_search_call').length,
+    webCalls: webSearchCalls(payload.output),
     usage: usageOf(payload),
   })
   return { response, payload }
@@ -157,11 +191,10 @@ export async function responsesJson({ model = DEFAULT_MODEL, modelEnv, instructi
     prompt_cache_key: userId ? `daybook-${format.name.slice(0, 18)}-${String(userId).slice(0, 36)}` : `daybook-${format.name.slice(0, 55)}`,
     max_output_tokens: maxOutputTokens || (reasoning ? 6000 : 2000),
     // Merge, don't replace: format and verbosity both live in `text`.
-    text: supportsVerbosity(model) ? { verbosity: 'low', format } : { format },
+    text: wantsVerbosity(model) ? { verbosity: 'low', format } : { format },
   }
   if (reasoning) {
-    const wanted = effort || 'low'
-    body.reasoning = { effort: wanted !== 'low' && unsupportedEffort.has(`${model}:${wanted}`) ? 'low' : wanted }
+    body.reasoning = { effort: effortFor(model, effort) }
     // With store:false, reasoning comes back encrypted (kept for parity with the assistant).
     body.include = ['reasoning.encrypted_content']
   } else {
@@ -170,15 +203,31 @@ export async function responsesJson({ model = DEFAULT_MODEL, modelEnv, instructi
   if (Array.isArray(tools) && tools.length) body.tools = tools
   if (Array.isArray(include) && include.length) body.include = [...new Set([...(body.include || []), ...include])]
 
-  const deadline = Date.now() + (Number(timeoutMs) || REQUEST_TIMEOUT_MS)
+  const budget = Number(timeoutMs) || REQUEST_TIMEOUT_MS
+  const deadline = Date.now() + budget
+  // A refusal comes back in well under a second, so a resend needs half the budget (at most 8 s)
+  // left: short callers like the morning note (7 s) still get their retry.
+  const timeToRetry = () => deadline - Date.now() > Math.min(8000, budget / 2)
   debug.push({ step: 'openai.request', model, format: format.name, effort: reasoning ? body.reasoning.effort : null, parts: body.input[0].content.map((part) => part.type) })
   let { response, payload } = await postResponses(body, deadline - Date.now(), debug)
-  // A model that doesn't take this effort (e.g. 'minimal' on a newer model): once more with 'low'.
-  if (reasoning && body.reasoning.effort !== 'low' && isEffortError(response.status, payload) && deadline - Date.now() > 8000) {
+  // A model that doesn't take this effort (e.g. 'minimal' on a newer model): remembered, and once
+  // more with 'low' if there's time.
+  if (reasoning && body.reasoning.effort !== 'low' && isEffortError(response.status, payload)) {
     unsupportedEffort.add(`${model}:${body.reasoning.effort}`)
-    body.reasoning = { effort: 'low' }
-    debug.push({ step: 'openai.retry', reason: 'effort', effort: 'low' })
-    ;({ response, payload } = await postResponses(body, deadline - Date.now(), debug))
+    if (timeToRetry()) {
+      body.reasoning = { effort: 'low' }
+      debug.push({ step: 'openai.retry', reason: 'effort', effort: 'low' })
+      ;({ response, payload } = await postResponses(body, deadline - Date.now(), debug))
+    }
+  }
+  // A model that doesn't take text.verbosity: remembered, and once more without it if there's time.
+  if (body.text.verbosity && isVerbosityError(response.status, payload)) {
+    noVerbosity.add(String(model))
+    if (timeToRetry()) {
+      body.text = { format }
+      debug.push({ step: 'openai.retry', reason: 'verbosity' })
+      ;({ response, payload } = await postResponses(body, deadline - Date.now(), debug))
+    }
   }
   if (!response.ok || payload.error) throw httpError(response.status, payload, { model, env: modelEnv })
   if (payload.status === 'failed') throw aiError(502, 'The AI couldn’t finish that. Please try again.')
@@ -209,8 +258,9 @@ export async function responsesJson({ model = DEFAULT_MODEL, modelEnv, instructi
 const secondsOfAudio = (bytes) => Math.min(130, Math.max(1, Math.round(bytes / 4000)))
 
 // Same behaviour as api/assistant.js; errors also carry an HTTP status. With `debug`, a successful
-// transcription is logged as { step: 'openai.transcribe', model, seconds } so it can be priced
-// (seconds: the recording's length when known, else estimated from its size; 1–130).
+// transcription is logged as { step: 'openai.transcribe', model, seconds, usage? } so it can be
+// priced (seconds: the recording's length when known, else estimated from its size; 1–130; usage:
+// OpenAI's count, which the price uses when it has one).
 export async function transcribeAudio(audioBase64, mimeType, vocabulary, { debug, seconds } = {}) {
   const buffer = Buffer.from(String(audioBase64 || ''), 'base64')
   if (buffer.length < 500) throw aiError(400, 'That recording was too short. Try again.')
@@ -247,7 +297,13 @@ export async function transcribeAudio(audioBase64, mimeType, vocabulary, { debug
   }
   if (Array.isArray(debug)) {
     const given = Number(seconds)
-    debug.push({ step: 'openai.transcribe', model: TRANSCRIBE_MODEL, seconds: Number.isFinite(given) && given > 0 ? Math.min(130, Math.max(1, Math.round(given))) : secondsOfAudio(buffer.length) })
+    // usage: OpenAI's own count ({ type: 'tokens', … } or { type: 'duration', seconds }), when sent.
+    debug.push({
+      step: 'openai.transcribe',
+      model: TRANSCRIBE_MODEL,
+      seconds: Number.isFinite(given) && given > 0 ? Math.min(130, Math.max(1, Math.round(given))) : secondsOfAudio(buffer.length),
+      ...(payload.usage && typeof payload.usage === 'object' ? { usage: payload.usage } : {}),
+    })
   }
   return String(payload.text || '').trim()
 }

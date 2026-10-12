@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  BRIEFING_INSTRUCTIONS, briefingCost, briefingDigest, cleanBriefing, createLimiter, emptyDigest, morningBriefing,
+  BRIEFING_INSTRUCTIONS, briefingCost, briefingDigest, cleanBriefing, createLimiter, emptyDigest, generateBriefing, morningBriefing,
 } from '../api/_briefing.js'
 import { summaryFacts } from '../api/_reminders.js'
 
-// Synthetic data only. No OpenAI call is ever made here: `generate` is always a fake.
+// Synthetic data only. No OpenAI call is ever made here: `generate` is a fake, and the one
+// generateBriefing test stubs fetch.
 
 const DAY = '2026-10-12' // a Monday
 const at = (iso) => Date.parse(iso)
@@ -169,6 +170,33 @@ test('briefingCost splits cached input', () => {
   assert.ok(Math.abs(briefingCost({ input: 1000, cached: 0, output: 0 }) - 0.00025) < 1e-12)
   assert.equal(briefingCost(null), 0)
   assert.equal(briefingCost({ input: 'x' }), 0)
+})
+
+test('briefingCost prices cache writes (GPT-5.6+ at 1.25× input)', () => {
+  // 1,000 in, 900 of them written to the cache: 100 × 0.10 + 900 × 0.125 + 50 × 0.50 = 147.5 µ$.
+  assert.ok(Math.abs(briefingCost({ input: 1000, cached: 0, writes: 900, output: 50 }, 'gpt-6-luna') - 0.000148) < 1e-12)
+  // gpt-5-mini has no write charge.
+  assert.ok(Math.abs(briefingCost({ input: 1000, cached: 0, writes: 900, output: 0 }) - 0.00025) < 1e-12)
+})
+
+test('generateBriefing reads cache writes from the usage', async () => {
+  const realFetch = globalThis.fetch
+  const realKey = process.env.OPENAI_API_KEY
+  process.env.OPENAI_API_KEY = 'test-key'
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    status: 'completed',
+    output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify({ text: 'A light day.' }) }] }],
+    usage: { input_tokens: 1200, input_tokens_details: { cached_tokens: 100, cache_write_tokens: 1000 }, output_tokens: 30, output_tokens_details: { reasoning_tokens: 10 } },
+  }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  try {
+    const result = await generateBriefing('digest', { userId: 'u1' })
+    assert.equal(result.text, 'A light day.')
+    assert.deepEqual(result.usage, { input: 1200, cached: 100, writes: 1000, output: 30, reasoning: 10 })
+  } finally {
+    globalThis.fetch = realFetch
+    if (realKey === undefined) delete process.env.OPENAI_API_KEY
+    else process.env.OPENAI_API_KEY = realKey
+  }
 })
 
 test('the instructions are fixed text', () => {

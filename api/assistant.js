@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'crypto'
 import { getSupabase, readJsonBody, selectAll, underLimit, verifyRequestToken, verifyTokenVersion } from './db.js'
 // Namespace import: reminderPreview is optional, so an older _reminders.js can't break this file.
 import * as reminderModule from './_reminders.js'
-import { DEFAULT_MODEL, filePart, imagePart, isReasoningModel, responsesJson, supportsVerbosity, textPart, transcribeAudio } from './_openai.js'
+import { DEFAULT_MODEL, effortFor, fastestEffort, filePart, imagePart, isEffortError, isReasoningModel, isVerbosityError, noVerbosity, responsesJson, supportsVerbosity, textPart, transcribeAudio, unsupportedEffort, webSearchCalls } from './_openai.js'
 import { mergeSettings, patchSettingsAtomic } from './_settings.js'
 import { resolveFriend, similarFriends } from './_people.js'
 import { FOOD_LOOKUP_TOOLS, FOOD_TOOL_DEFS, describeFoodAction, executeFoodTool, foodSnapshot, loadFoodData } from './_food-tools.js'
@@ -1416,6 +1416,13 @@ function transcriptionVocabulary(data) {
   return terms.length ? `A voice note for a personal planner app called Daybook. Names that may come up: ${terms.join(', ')}.` : ''
 }
 
+// The options for a follow-up round's model call: round 1's, with the same reasoning effort (a
+// different effort would miss OpenAI's prompt cache for the whole prefix), and no more tools on the
+// last round.
+function followupOptions(callOptions, round) {
+  return { ...callOptions, toolChoice: round === MAX_TOOL_ROUNDS - 1 ? 'none' : undefined }
+}
+
 // deadline (epoch ms): the call is aborted then, so the function answers before Vercel's maxDuration.
 async function callOpenAI(options, debug) {
   try {
@@ -1429,7 +1436,8 @@ async function callOpenAI(options, debug) {
   }
 }
 
-async function requestOpenAI({ instructions, input, userId, onDelta, toolChoice, effort, maxOutputTokens, deadline }, debug) {
+async function requestOpenAI(options, debug) {
+  const { instructions, input, userId, onDelta, toolChoice, effort, maxOutputTokens, deadline } = options
   const body = {
     model: OPENAI_MODEL,
     instructions,
@@ -1441,13 +1449,14 @@ async function requestOpenAI({ instructions, input, userId, onDelta, toolChoice,
     max_output_tokens: maxOutputTokens || (IS_REASONING_MODEL ? 4000 : 800),
   }
   if (IS_REASONING_MODEL) {
-    body.reasoning = { effort: effort || REASONING_EFFORT }
+    // effortFor: 'low' once OpenAI has refused this effort for the model (see the retry below).
+    body.reasoning = { effort: effortFor(OPENAI_MODEL, effort || REASONING_EFFORT) }
     // With store:false, reasoning items must be passed back encrypted between tool rounds.
     body.include = ['reasoning.encrypted_content']
   } else {
     body.temperature = 0.3
   }
-  if (SUPPORTS_VERBOSITY) body.text = { verbosity: 'low' }
+  if (SUPPORTS_VERBOSITY && !noVerbosity.has(OPENAI_MODEL)) body.text = { verbosity: 'low' }
   if (onDelta) body.stream = true
 
   debug.push({ step: 'openai.request', model: OPENAI_MODEL, inputItems: input.length, stream: Boolean(onDelta), effort: body.reasoning?.effort })
@@ -1464,8 +1473,8 @@ async function requestOpenAI({ instructions, input, userId, onDelta, toolChoice,
       model: OPENAI_MODEL,
       status: payload.status || 'unknown',
       outputTypes: (payload.output || []).map((item) => item.type),
-      webCalls: (payload.output || []).filter((item) => item.type === 'web_search_call').length,
-      usage: payload.usage ? { input: payload.usage.input_tokens, cached: payload.usage.input_tokens_details?.cached_tokens, output: payload.usage.output_tokens } : null,
+      webCalls: webSearchCalls(payload.output),
+      usage: payload.usage ? { input: payload.usage.input_tokens, cached: payload.usage.input_tokens_details?.cached_tokens, writes: payload.usage.input_tokens_details?.cache_write_tokens, output: payload.usage.output_tokens } : null,
     })
     return payload
   }
@@ -1477,14 +1486,29 @@ async function requestOpenAI({ instructions, input, userId, onDelta, toolChoice,
     debug.push({ step: 'openai.invalid_response', httpStatus: response.status, bodyPreview: rawBody.slice(0, 500) })
     throw httpError(502, `The AI service returned an unexpected response (${response.status}). Please try again.`)
   }
+  // A model that doesn't take this effort (e.g. OPENAI_REASONING_EFFORT=minimal on gpt-6-luna, which
+  // starts at 'low'): once more with 'low', remembered for this warm instance so every later round
+  // of the turn sends 'low' too and the prompt cache still matches (api/_openai.js effortFor).
+  if (body.reasoning && body.reasoning.effort !== 'low' && isEffortError(response.status, payload)) {
+    unsupportedEffort.add(`${OPENAI_MODEL}:${body.reasoning.effort}`)
+    debug.push({ step: 'openai.retry', reason: 'effort', effort: 'low' })
+    return requestOpenAI(options, debug)
+  }
+  // A model that doesn't take text.verbosity: once more without it, remembered for this warm
+  // instance (api/_openai.js).
+  if (body.text && isVerbosityError(response.status, payload)) {
+    noVerbosity.add(OPENAI_MODEL)
+    debug.push({ step: 'openai.retry', reason: 'verbosity' })
+    return requestOpenAI(options, debug)
+  }
   debug.push({
     step: 'openai.response',
     model: OPENAI_MODEL,
     httpStatus: response.status,
     status: payload.status || 'unknown',
     outputTypes: (payload.output || []).map((item) => item.type),
-    webCalls: (payload.output || []).filter((item) => item.type === 'web_search_call').length,
-    usage: payload.usage ? { input: payload.usage.input_tokens, cached: payload.usage.input_tokens_details?.cached_tokens, output: payload.usage.output_tokens } : null,
+    webCalls: webSearchCalls(payload.output),
+    usage: payload.usage ? { input: payload.usage.input_tokens, cached: payload.usage.input_tokens_details?.cached_tokens, writes: payload.usage.input_tokens_details?.cache_write_tokens, output: payload.usage.output_tokens } : null,
   })
   if (!response.ok || payload.error) throw openAIFailure(response.status, payload.error)
   return payload
@@ -5857,7 +5881,8 @@ async function foldHistory(history, { userId, ctx, debug }) {
       content: `Previous summary:\n${summaryOf(history)?.content || '(none)'}\n\nNew messages to fold in:\n${transcript}`,
       schema: SUMMARY_SCHEMA,
       name: 'conversation_summary',
-      effort: 'minimal',
+      // The quickest effort this model takes ('minimal' on gpt-5-mini; GPT-6 refuses it).
+      effort: fastestEffort(OPENAI_MODEL),
       maxOutputTokens: 3000,
       userId,
       debug,
@@ -6980,12 +7005,14 @@ export default async function handler(req, res) {
         break
       }
       try {
-        // The last round can't run more tools, so ask for a reply only. After a round whose calls were
-        // all staged cleanly, the thinking is done (it only writes the sentence, or adds a missed
-        // call), so it runs with minimal reasoning: about half the wait. Likewise after creates and
-        // logs that ran at once with nothing to relay ("Done ✓"), unless the turn has files or web results.
-        const light = (roundStaged || (roundClean && !visibleFiles.length && !webCount)) && !heavy ? 'minimal' : callOptions.effort
-        response = await callOpenAI({ ...callOptions, effort: light, toolChoice: round === MAX_TOOL_ROUNDS - 1 ? 'none' : undefined }, debug)
+        // The last round can't run more tools, so ask for a reply only. Every round keeps round 1's
+        // reasoning effort: changing reasoning.effort mid-turn throws away OpenAI's prompt cache for the
+        // whole prefix (instructions, tools, conversation), which costs more than the faster round saves.
+        // `quick` marks the rounds that used to drop to 'minimal' (all staged cleanly, or creates and
+        // logs that ran at once with nothing to relay), so their `ms` can be compared in the debug log.
+        const quick = (roundStaged || (roundClean && !visibleFiles.length && !webCount)) && !heavy
+        debug.push({ step: 'openai.followup', round, quick })
+        response = await callOpenAI(followupOptions(callOptions, round), debug)
       } catch (error) {
         if (!progress) throw error
         debug.push({ step: 'openai.followup_failed', message: error.message })
@@ -7173,6 +7200,8 @@ export { readConfirm, cardDecision }
 export { staticInstructions, parseDecision, findPendingProposal, isCorrection, correctionTurn, recentItemsNote, readChoice, describeAction, normalizeTouched, touchedBy }
 // tests/assistant-gym-tools.test.mjs: what a spoken exercise name resolves to.
 export { exerciseMatches }
+// tests/assistant-effort.test.mjs: a follow-up round's request keeps round 1's reasoning effort.
+export { callOpenAI, followupOptions, MAX_TOOL_ROUNDS }
 // tests/assistant-clash.test.mjs: the clash check on cards and the "Move to …" chips.
 export { clashCheck, clashMoves }
 // api/_voice.js (voice chats): loading, the conversation, proposals and Undo, shared with the text assistant.

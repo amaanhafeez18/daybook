@@ -15,7 +15,7 @@ import { getSession, sessionWriter } from '../assistantSession.js'
 import { undoRefused, withKeys } from '../assistantChat.js'
 import { nowTimeHHMM, todayISO } from '../dates.js'
 import { toast } from '../../components/ui/feedback.jsx'
-import { addRealtimeUsage, dollars, emptyTally, tallyCost, transcriptionCost } from '../aiPricing.js'
+import { addRealtimeUsage, addTranscriptionTokens, dollars, emptyTally, tallyCost, transcriptionCost, transcriptionTokensCost } from '../aiPricing.js'
 import { voicePrefs } from './prefs.js'
 import {
   applyEvent, createTranscript, dropItem, lastAssistantWords, orderedTurns, seedTurns, startSegment, storedTurns, transcriptFor,
@@ -142,7 +142,9 @@ function scheduleEmit() {
 
 function liveUsd(c = call) {
   if (!c) return 0
-  const micros = (tallyCost(c.tally, c.model)?.micros || 0) + (transcriptionCost({ seconds: c.transcribeSeconds }, TRANSCRIBE_MODEL)?.micros || 0)
+  const model = c.transcribeModel || TRANSCRIBE_MODEL
+  const micros = (tallyCost(c.tally, c.model)?.micros || 0) + (transcriptionCost({ seconds: c.transcribeSeconds }, model)?.micros || 0)
+    + (transcriptionTokensCost(c.transcribeTokens, model)?.micros || 0)
   return dollars(micros)
 }
 
@@ -289,7 +291,7 @@ async function begin(primed, { intent, from, continueTalkId }) {
     stream: null, micTrack: null, micMeter: null, remoteMeter: null, remoteStream: null,
     rtc: null, sessionId: null, model: 'gpt-realtime-2.1-mini', limits: null, budget: null,
     monthBase: 0, liveAtBase: 0, dailyAt: 0,
-    tally: safely(emptyTally, {}), transcribeSeconds: 0, seq: 0, lastCheckpointAt: 0, turnsAtCheckpoint: 0,
+    tally: safely(emptyTally, {}), transcribeSeconds: 0, transcribeTokens: null, transcribeModel: null, seq: 0, lastCheckpointAt: 0, turnsAtCheckpoint: 0,
     checkpointChain: Promise.resolve(),
     activeResponseId: null, pendingCreate: null, greeting: true, speaking: false, hearing: false,
     responseUser: {}, lastUserItemId: null, lastTurnTyped: false, echoSnap: {},
@@ -346,6 +348,7 @@ async function begin(primed, { intent, from, continueTalkId }) {
     c.sessionId = minted.sessionId || c.sessionId
     if (minted.talkId && minted.talkId !== talk.talkId) talk.talkId = minted.talkId
     c.model = minted.model || c.model
+    if (typeof minted.transcribeModel === 'string' && minted.transcribeModel) c.transcribeModel = minted.transcribeModel
     c.mintedAt = Date.now()
     c.limits = {
       sessionSec: numberOr(minted.limits?.sessionSec, 15 * 60),
@@ -535,9 +538,10 @@ function onEvent(c, event) {
       break
     }
     case 'conversation.item.input_audio_transcription.completed': {
+      // Billed by duration (gpt-transcribe) or by tokens (priced from the tokens, not as seconds).
       const usage = event.usage
       if (usage?.type === 'duration') c.transcribeSeconds += Math.max(0, Number(usage.seconds) || 0)
-      else if (usage?.type === 'tokens') c.transcribeSeconds += Math.max(0, Number(usage.input_token_details?.audio_tokens) || 0) / 10
+      else if (usage?.type === 'tokens') c.transcribeTokens = addTranscriptionTokens(c.transcribeTokens, usage)
       // The echo check first: a waiting tool batch must know the turn was Daybook's own voice.
       checkEcho(c, event.item_id, String(event.transcript || ''))
       resolveHeard(c, event.item_id)
@@ -987,6 +991,7 @@ function checkpointBody(c, { final = false, end = null } = {}) {
     turns,
     tally: { ...c.tally }, // a copy: a queued checkpoint must carry the usage as it was when it was made
     transcribeSeconds: Math.round(c.transcribeSeconds * 10) / 10,
+    ...(c.transcribeTokens ? { transcribeTokens: { ...c.transcribeTokens } } : {}),
     final,
     end,
     mode: c.mode,
