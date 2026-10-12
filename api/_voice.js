@@ -74,9 +74,42 @@ const grouped = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+
 // ---- Tools -----------------------------------------------------------------------------------------
 
 const VOICE_LOOKUPS = ['search', 'read_journal', 'person_history', 'food_day', 'get_weather', 'get_prayer_times', 'ai_usage']
-const VOICE_WRITES = ['create_task', 'update_task', 'create_event', 'create_friend', 'update_friend', 'log_contact', 'write_journal', 'save_note', 'remember', 'food_log', 'gym_quick_log', 'gym_log_bodyweight']
-// Copied from the text assistant's TOOL_DEFS by name, so the schemas are the same.
+const VOICE_WRITES = ['create_task', 'update_task', 'create_event', 'create_friend', 'update_friend', 'log_contact', 'write_journal', 'save_note', 'remember', 'food_log', 'gym_quick_log', 'gym_log_workout', 'gym_log_bodyweight']
+// Copied from the text assistant's TOOL_DEFS by name, so the schemas are the same (except the ones
+// in VOICE_TOOL_SCHEMAS, which the server turns back into the shared arguments).
 export const VOICE_SHARED_TOOLS = [...VOICE_LOOKUPS, ...VOICE_WRITES]
+
+// gym_log_workout for voice: one flat entry per group of identical sets. Realtime tools aren't strict,
+// and with the shared nested sets the realtime model put the set count in the wrong place (one set
+// logged where three were said). voiceWorkoutArgs turns this back into the shared arguments.
+const VOICE_GYM_LOG = {
+  description: 'Log a workout they did (today or earlier) with the exercises, sets, reps and weights they said. One entry per exercise; when the weight or reps change between sets, one entry per group of identical sets, in order.',
+  parameters: {
+    type: 'object',
+    properties: {
+      date: { type: 'string', description: 'YYYY-MM-DD in their calendar.' },
+      routine: { type: 'string', description: 'Their routine or the kind of day they named, e.g. "Legs and shoulders".' },
+      unit: { type: 'string', enum: ['kg', 'lb'], description: 'Only when they said a unit different from their gym unit.' },
+      weight_unknown: { type: 'boolean', description: 'Only after you asked for a missing weight: true when they don’t know it or want it left out.' },
+      exercises: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: 'As they said it, with the equipment they named ("dumbbell shoulder press").' },
+            sets: { type: 'integer', description: 'How many sets like this (3 sets of 10 = 3).' },
+            reps: { type: 'integer' },
+            weight: { type: 'number', description: 'Per set in their unit; dumbbells: one dumbbell ("40s" = 40). Leave out for bodyweight.' },
+            minutes: { type: 'number', description: 'Timed or cardio work.' },
+          },
+          required: ['name', 'sets'],
+        },
+      },
+    },
+    required: ['date', 'exercises'],
+  },
+}
+const VOICE_TOOL_SCHEMAS = { gym_log_workout: VOICE_GYM_LOG }
 
 export const VOICE_ONLY_TOOLS = [
   { type: 'function', name: 'confirm_pending', description: "Answer the change that is waiting for the user's OK. Call it only right after they answered your read-back. Daybook checks their actual words.", parameters: { type: 'object', properties: { decision: { type: 'string', enum: ['yes', 'no'] } }, required: ['decision'], additionalProperties: false } },
@@ -111,7 +144,7 @@ export function voiceTools(settings) {
   const off = areasOffOf(settings)
   const defs = new Map(TOOL_DEFS.map((def) => [def.name, def]))
   const shared = VOICE_SHARED_TOOLS.filter((name) => defs.has(name) && !toolOff(name, off)).map((name) => {
-    const { description, parameters } = defs.get(name)
+    const { description, parameters } = VOICE_TOOL_SCHEMAS[name] || defs.get(name)
     return { type: 'function', name, description, parameters }
   })
   return [...shared, ...VOICE_ONLY_TOOLS]
@@ -124,6 +157,7 @@ export const VOICE_RULES = `You are Daybook, the voice of the user's personal pl
 How you talk
 - Talk like a thoughtful friend on the phone: short, natural sentences, usually one or two at a time. No lists, markdown or emoji. Never read out refs, ids, symbols, JSON or URLs.
 - Say dates and times the way people do ("Thursday the 15th at 5:30", "tomorrow morning"), 12-hour clock.
+- Write every number as digits in what you say (2,311 calories, 5:30 PM, 3 sets of 10, 100 grams); they're read aloud naturally. Never spell numbers out as words. Say calories, not kilocalories.
 - Ask one question at a time, and only when the answer changes what gets saved. Otherwise pick a sensible default and say it in a few words.
 - When they're telling you about their day or thinking out loud, let them finish, then reflect back briefly. Don't fill every pause.
 - If you didn't catch something, say so and ask for just that part again. Never guess a name, number, time or amount you didn't hear.
@@ -143,13 +177,14 @@ Tools
 - Before a tool that may take a moment (ask_daybook, search, weather, prayer times), say a quick "One sec" or "Let me check".
 - Point at existing things with the ref from the context (like t:3f9a2c1b or f:7c1e0d22). People can also be named; if Daybook picks a close match, say that name.
 - search, read_journal, person_history, food_day, get_weather, get_prayer_times and ai_usage look things up. Don't call them for what the context already shows.
-- ask_daybook hands one request to Daybook's full assistant. Use it for anything your other tools don't cover: several related changes at once, planning a week, deleting anything, editing or moving events, settings, classes, editing notes, workouts with sets and weights, gym schedule or routines, branded, packaged or restaurant food and their saved foods, web lookups, or when a tool keeps failing. Write the request as one clear sentence with every detail they gave, in their words; never start it with yes or no. Then tell them its answer in your own words. If changes are waiting for a yes, read them back and ask.
+- ask_daybook hands one request to Daybook's full assistant. Use it for anything your other tools don't cover: several related changes at once, planning a week, deleting anything, editing or moving events, settings, classes, editing notes, editing a workout already logged, gym schedule or routines, branded, packaged or restaurant food and their saved foods, web lookups, or when a tool keeps failing. Write the request as one clear sentence with every detail they gave, in their words; never start it with yes or no. Then tell them its answer in your own words. If changes are waiting for a yes, read them back and ask.
 
 Changes
 {CONFIRM_RULES}
 - Read names back exactly as you'll save them. If a name is unusual, check the spelling ("Omar, O-M-A-R?").
 - A result marked staged is not saved yet. Read it back in one natural sentence and ask whether to go ahead. When they answer, call confirm_pending with yes or no. Daybook checks their yes against what they actually said: if the result says it wasn't a clear yes, ask again or adjust.
-- If they change a waiting change ("make it 4 instead"), call the tool again with the corrected details; the new one replaces the old.
+- If they change a waiting change ("make it 4 instead", "add 100 calories for snacks"), call the tool again at once with everything that should be on it (every item, not only the new one); the new one replaces the old. That's only while it's still waiting: once it's saved, stage just what's new. Don't read it back before the call: read it back once, from the result.
+- The card also has buttons. If an update says they tapped Save or No on it, it's settled: don't call confirm_pending for it; say so in one short sentence ("Done, saved your breakfast.") and stop.
 - "Undo that" or "take that back": if a change is still waiting, confirm_pending no; otherwise undo_last, then say what was undone. Undo works for about an hour.
 - Before asking ask_daybook to delete anything, say plainly what would be removed and get a yes in words.
 - If a result carries a warning, a clash or a similar existing person, say it plainly and ask what they want.
@@ -159,8 +194,8 @@ Flows
 - Someone new ("I met Omar at the gym, he's a nurse"): check the people in the context. If someone similar exists, ask "Is that the Omar Khan you already have?" If they're new, confirm the name and add them with create_friend (relationship friend unless they say otherwise; a job or how you met goes in facts, a workplace or school in organization), then log_contact for today with what you talked about. Say back what you saved.
 - Talking to someone ("caught up with Sara about her new job"): log_contact with a short note. News about them goes in update_friend currentStatus; lasting facts in update_friend addFact.
 - Tasks: "remind me" means create_task with a date, a time and reminderMinutes 0. Only set reminderMinutes when they ask to be reminded. A deadline with no time is date only. Finished means update_task done true.
-- Food: generic food is food_log with your own sensible estimate; say the assumption briefly ("about 450 calories"). Branded, packaged or restaurant food and their saved foods go to ask_daybook.
-- Gym: "did legs today" is gym_quick_log for today; anything with sets and weights goes to ask_daybook. Their weight is gym_log_bodyweight in their unit.
+- Food: generic food is food_log with your own sensible estimate; say the assumption briefly ("about 450 calories"). When they give the calories themselves ("100 calories for snacks"), pass user_calories: true on that item. Branded, packaged or restaurant food and their saved foods go to ask_daybook.
+- Gym: a workout they did is logged in the Gym, never as a task. When they give exercises, sets, reps or weights, call gym_log_workout once with every exercise they said, in order: the name as they said it with the equipment they named ("dumbbell shoulder press"), sets = how many, reps, weight ("3 sets of 10 at 135" = sets 3, reps 10, weight 135; "3 by 12" is the same; dumbbells "with 40s" = weight 40). Weights are in their gym unit from the context; pass unit only if they name another. routine is the kind of day they named ("Legs and shoulders"). If only the weight or reps of an exercise is missing, ask once for just that. If the result asks which exercise they meant, ask it in a few words and call again. "Did legs today" with no exercises is gym_quick_log; in the same reply ask "Want to add your sets?". Sets given after a quick log go to gym_log_workout: it fills that quick log. Read back the result's readBack ("Squats 3 by 10 at 135, leg press 3 by 12 at 270"). Their weight is gym_log_bodyweight in their unit.
 - Lasting facts about the user (preferences, routines, family, goals): remember, with a short mention.
 - "How much have I spent on AI": ai_usage.
 
@@ -474,7 +509,14 @@ const NOT_A_PLAIN_YES = new Set(['but', 'except', 'wait', 'actually', 'instead',
 // The only words a longer spoken yes may use after its first word (besides the card's own words):
 // "go with Friday" or "okay remind me tonight" is a new instruction, not a yes to the card.
 const YES_REST = new Set([...YES_FIRST, 'yea', 'ya', 'fine', 'cool', 'lovely', 'nice', 'good', 'works', 'ahead', 'for', 'it', 'its', 'that', 'thats', 'this',
-  'is', 'the', 'one', 'them', 'both', 'all', 'everything', 'add', 'log', 'to', 'me', 'thanks', 'thank', 'you', 'pls', 'now', 'then', 'just', 'so', 'sounds', 'looks', 'confirm', 'yes'])
+  'is', 'the', 'one', 'them', 'both', 'all', 'everything', 'add', 'log', 'to', 'me', 'thanks', 'thank', 'you', 'pls', 'now', 'then', 'just', 'so', 'sounds', 'looks', 'confirm', 'yes',
+  'and', 'those', 'these', 'in', 'my', 'tracker', 'food', 'diary', 'right', 'ok', 'store', 'put', 'keep', 'looks', 'great', 'like', 'up'])
+// A spoken yes may start with a doing word ("log it", "add that", "put it in"), but then only yes
+// words may follow: "add eggs" or "log more" is a change, not a yes.
+const YES_VERBS = new Set(['log', 'add', 'store', 'put', 'keep'])
+const YES_LEAD = new Set(['confirm', 'that', 'thats', 'looks', 'yea', 'ya'])
+// Sounds people make before they answer ("um, yes", "oh yeah, save it").
+const FILLERS = new Set(['um', 'umm', 'uh', 'uhh', 'oh', 'hmm', 'hm', 'mm', 'ah', 'er', 'erm', 'well', 'so'])
 const words = (text) => String(text ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/['’]/g, '').replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean)
 
 // The words on a card (its action labels and summary), which a spoken yes may repeat ("yes add Omar").
@@ -489,9 +531,20 @@ export function cardWords(proposal) {
 export function voiceDecision(text, { cardWords: known = null } = {}) {
   const parsed = parseDecision(text)
   if (parsed) return parsed
-  const list = words(text)
-  if (!list.length || list.length > 12 || !YES_FIRST.has(list[0])) return null
+  const all = words(text)
+  let start = 0
+  while (start < all.length - 1 && FILLERS.has(all[start])) start += 1
+  const list = all.slice(start)
+  if (start > 0) {
+    const plain = parseDecision(list.join(' '))
+    if (plain) return plain
+  }
+  if (!list.length || list.length > 12) return null
+  const verb = YES_VERBS.has(list[0])
+  if (!verb && !YES_FIRST.has(list[0]) && !YES_LEAD.has(list[0])) return null
   if (list.some((word) => NOT_A_PLAIN_YES.has(word)) || /\d/.test(String(text))) return null
+  // "log it" needs an "it" (or that, them…): a bare "log" or "add" is not an answer.
+  if (verb && (list.length < 2 || !list.slice(1).every((word) => YES_REST.has(word)))) return null
   if (!list.slice(1).every((word) => YES_REST.has(word) || known?.has(word))) return null
   return 'yes'
 }
@@ -550,23 +603,71 @@ const stampUndo = (undo) => undo.map((entry) => ({ ...entry, at: nowIso() }))
 // ---- Answering a waiting card (spoken, or tapped on the phone) ---------------------------------------
 
 const NOTHING_WAITING = 'Nothing is waiting for a yes.'
+const SETTLED_WINDOW_MS = 15 * 60 * 1000
+const SAVED_STATES = new Set(['executing', 'done', 'partial'])
+
+// This call's newest card when it was answered or replaced in the last 15 minutes (the talk keeps its
+// newest card; a hand-off's card sits on its own message), or null.
+function recentlySettled(messages, talkId) {
+  if (!talkId) return null
+  const when = (proposal) => Date.parse(proposal.answeredAt || proposal.executingAt || proposal.createdAt || '') || 0
+  const cards = messages.filter((message) => message.proposal && (message.talk?.id === talkId || message.via?.talk === talkId)).map((message) => message.proposal)
+  if (!cards.length || cards.some((proposal) => proposal.status === 'pending')) return null
+  const newest = cards.reduce((best, proposal) => (when(proposal) >= when(best) ? proposal : best))
+  return Date.now() - when(newest) < SETTLED_WINDOW_MS ? newest : null
+}
+
+// What the model hears when the card it means was already answered (often by a tap on it while it
+// was still talking): never "nothing was added" for something that was saved.
+function alreadyOutput(proposal, decision) {
+  const what = cutText(proposal.summary || (proposal.actions || []).map((action) => action.label).join('; '), 160)
+  const tap = proposal.answeredBy === 'tap'
+  if (SAVED_STATES.has(proposal.status)) {
+    if (decision === 'no') return { ok: false, already: true, message: `It was already saved${tap ? ' (they tapped Save on the card)' : ''}: ${what}. If they want it gone, use undo_last.` }
+    return { ok: true, done: true, already: true, message: `Already saved${tap ? ': they tapped Save on the card' : ''} (${what}). Just say it's saved in a few words; don't save it again.` }
+  }
+  if (proposal.status === 'cancelled') return { ok: true, cancelled: true, already: true, message: `Already cancelled${tap ? ': they tapped No on the card' : ''}; nothing was saved.` }
+  if (proposal.status === 'superseded') return { ok: false, message: `Nothing is waiting: that card (${what}) was replaced before it was saved. Stage it again if they still want it.` }
+  if (proposal.status === 'expired') return { ok: false, message: `Nothing is waiting: that card (${what}) waited too long and wasn't saved. Stage it again if they still want it.` }
+  if (proposal.status === 'failed') return { ok: false, message: `That didn't save (${what}). Offer to try again.` }
+  return { ok: false, message: NOTHING_WAITING }
+}
+
+const settledUpdate = (proposal) => compact({ id: proposal.id, status: proposal.status, answeredBy: proposal.answeredBy, results: proposal.results })
 
 // → { output (for the model), proposalUpdate?, actions?, dataChanged? }. A yes from the model counts
 // only when it came after the read-back and their own words were a clear yes; a tap always counts.
-export async function decideVoice({ supabase, userId, talkId, proposalId = null, decision, heard = '', heardItemId = '', tapped = false, getData, ctx, debug = [], startedAt, mode, intent }) {
+// A card that was already answered (a tap while Daybook was still talking, then a spoken "yes") gets
+// "Already saved" / "Already cancelled", not "Nothing is waiting".
+export async function decideVoice({ supabase, userId, talkId, proposalId = null, revision = null, decision, heard = '', heardItemId = '', tapped = false, getData, ctx, debug = [], startedAt, mode, intent }) {
   const fresh = await readConversation(supabase, userId)
   const target = proposalId ? findProposal(fresh.messages, proposalId) : pendingFor(fresh.messages, talkId)
   if (!target || target.proposal.status !== 'pending') {
-    return { output: { ok: false, message: NOTHING_WAITING }, proposalUpdate: target ? { id: target.proposal.id, status: target.proposal.status } : null }
+    const settled = target?.proposal || (proposalId ? null : recentlySettled(fresh.messages, talkId))
+    if (settled) debug.push({ step: 'voice.already', status: settled.status, by: settled.answeredBy || null })
+    return {
+      output: settled ? alreadyOutput(settled, decision) : { ok: false, message: NOTHING_WAITING },
+      proposalUpdate: settled ? settledUpdate(settled) : null,
+    }
   }
   const { proposal } = target
+  const answeredBy = tapped ? 'tap' : 'voice'
+  // A tap confirms only the card the phone showed: a card changed in place since (same id, a newer
+  // revision) waits for a fresh look and a fresh tap.
+  const stale = (found) => tapped && Number.isInteger(revision) && (found.revision || 1) !== revision
+  if (stale(proposal)) {
+    debug.push({ step: 'voice.tap_stale', shown: revision, now: proposal.revision || 1 })
+    return { output: { ok: false, changed: true, message: 'The card just changed: check it and tap again.' }, proposal: publicProposal(proposal) }
+  }
+  // An expired card wasn't answered; a cancelled one was (by this tap or these words).
   const settle = async (status) => {
+    const by = status === 'expired' ? {} : { answeredBy, answeredAt: nowIso() }
     await saveMessages(supabase, userId, (messages) => {
       const found = findProposal(messages, proposal.id)
       if (!found || found.proposal.status !== 'pending') return { abort: 'settled' }
-      return withProposal(messages, found.index, { status })
+      return withProposal(messages, found.index, { status, ...by })
     })
-    return { id: proposal.id, status }
+    return compact({ id: proposal.id, status, answeredBy: by.answeredBy })
   }
   if (proposalExpired(proposal, ctx)) {
     return { output: { ok: false, expired: true, message: 'It waited too long, so nothing was saved. Stage it again if they still want it.' }, proposalUpdate: await settle('expired') }
@@ -595,14 +696,29 @@ export async function decideVoice({ supabase, userId, talkId, proposalId = null,
   }
 
   // Claim it first, so a second tap or device can't run it twice.
+  let raced = null
+  let changedTo = null
   const claim = await saveMessages(supabase, userId, (messages) => {
     const found = findProposal(messages, proposal.id)
     if (!found) return { abort: 'gone' }
-    if (found.proposal.status !== 'pending') return { abort: found.proposal.status }
-    return withProposal(messages, found.index, { status: 'executing', executingAt: nowIso() })
+    if (found.proposal.status !== 'pending') {
+      raced = found.proposal
+      return { abort: found.proposal.status }
+    }
+    if (stale(found.proposal)) {
+      changedTo = found.proposal
+      return { abort: 'changed' }
+    }
+    return withProposal(messages, found.index, { status: 'executing', executingAt: nowIso(), answeredBy, answeredAt: nowIso() })
   })
   if (!claim.ok) {
-    return { output: { ok: false, message: claim.aborted === 'gone' || claim.conflict ? NOTHING_WAITING : `That was already ${claim.aborted === 'executing' ? 'being done' : 'answered'}.` } }
+    // A tap and a spoken yes at the same moment: the other one is saving it (or already did).
+    if (raced) {
+      debug.push({ step: 'voice.already', status: raced.status, raced: true })
+      return { output: alreadyOutput(raced, decision), proposalUpdate: settledUpdate(raced) }
+    }
+    if (changedTo) return { output: { ok: false, changed: true, message: 'The card just changed: check it and tap again.' }, proposal: publicProposal(changedTo) }
+    return { output: { ok: false, message: NOTHING_WAITING } }
   }
   const claimed = findProposal(claim.messages, proposal.id)?.proposal || proposal
   const data = await getData({ food: (claimed.staged || []).some((item) => String(item.tool).startsWith('food_')) })
@@ -621,7 +737,7 @@ export async function decideVoice({ supabase, userId, talkId, proposalId = null,
   if (!saved.ok) debug.push({ step: 'voice.confirm_save_failed' })
   return {
     output: { ok: true, done: true, said: confirmReply(results), results: results.map((result) => cutText(result.message, 200)).filter(Boolean) },
-    proposalUpdate: { id: proposal.id, status, results: perAction },
+    proposalUpdate: { id: proposal.id, status, results: perAction, answeredBy },
     actions,
     dataChanged: results.some((result) => result.ok && !['remember', 'forget'].includes(result.tool)),
     tasksChanged: results.some((result) => result.ok && TASK_TOOLS.has(result.tool)),
@@ -781,6 +897,135 @@ function createdRef(name, result, data) {
   return undefined
 }
 
+// ---- gym_log_workout from a voice chat ---------------------------------------------------------------
+
+const positive = (value) => {
+  const n = Number(value)
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
+// The voice tool's flat entries ({ name, sets: 3, reps: 10, weight: 135, minutes }) → the shared
+// gym_log_workout arguments (one exercise with a set group per entry; the same name twice in a row is
+// one exercise). The shared nested shape is accepted too, with a set count sent as "sets" fixed.
+export function voiceWorkoutArgs(raw) {
+  // fill_session_id and ask_missing_weight are internal (toolsOp sets them); tools aren't strict, so
+  // drop any the model sent.
+  const { fill_session_id: _fill, ask_missing_weight: _ask, weight_unknown: _unknown, ...args } = isPlainObject(raw) ? raw : {}
+  const groups = []
+  for (const entry of Array.isArray(args.exercises) ? args.exercises : []) {
+    if (!isPlainObject(entry) || typeof entry.name !== 'string' || !entry.name.trim()) continue
+    const name = cutText(entry.name, 80)
+    if (Array.isArray(entry.sets)) {
+      const sets = entry.sets.filter(isPlainObject).map(({ sets, set_count: setCount, ...rest }) => {
+        const count = rest.count ?? positive(sets) ?? positive(setCount)
+        return count ? { ...rest, count: Math.min(20, Math.round(count)) } : rest
+      })
+      groups.push(compact({ name, unit: entry.unit, note: entry.note, sets }))
+      continue
+    }
+    const set = { count: Math.min(20, Math.max(1, Math.round(positive(entry.sets) || 1))) }
+    if (positive(entry.reps)) set.reps = Math.round(Number(entry.reps))
+    if (entry.weight !== undefined && entry.weight !== null && Number.isFinite(Number(entry.weight)) && Number(entry.weight) >= 0) set.weight = Number(entry.weight)
+    if (positive(entry.minutes)) set.duration_sec = Math.round(Number(entry.minutes) * 60)
+    if (positive(entry.duration_sec)) set.duration_sec = Math.round(Number(entry.duration_sec))
+    const last = groups[groups.length - 1]
+    if (last && last.name.toLowerCase() === name.toLowerCase()) last.sets.push(set)
+    else groups.push({ name, sets: [set] })
+  }
+  return { ...args, exercises: groups }
+}
+
+// What to read back, in the words they used: "Squats 3 by 10 at 135 lb, leg press 3 by 12 at 270".
+export function workoutReadBack(args, unit = 'kg') {
+  let unitSaid = false
+  const parts = (Array.isArray(args?.exercises) ? args.exercises : []).map((exercise) => {
+    const sets = (Array.isArray(exercise.sets) ? exercise.sets : []).map((set) => {
+      const count = Math.max(1, Number(set.count) || 1)
+      const amount = set.reps ? (count > 1 ? `${count} by ${set.reps}` : `1 set of ${set.reps}`)
+        : set.duration_sec ? `${count > 1 ? `${count} by ` : ''}${Math.round(set.duration_sec / 6) / 10} min` : `${count} ${count === 1 ? 'set' : 'sets'}`
+      if (!(set.weight > 0)) return amount
+      const label = unitSaid ? '' : ` ${args.unit || exercise.unit || unit}`
+      unitSaid = true
+      return `${amount} at ${set.weight}${label}`
+    })
+    return `${exercise.name} ${sets.join(', then ')}`.trim()
+  })
+  const text = parts.join(', ')
+  return text ? `${text.charAt(0).toUpperCase()}${text.slice(1)}` : ''
+}
+
+// The empty quick log ("did legs today", saved earlier) that these sets belong to: on the same day, with
+// a name that shares a word with the kind of day said, or (when no kind of day was said) the only one
+// that day. A morning "Cardio" is never filled by an evening "Push". → its id or ''.
+const GENERIC_DAY_WORDS = new Set(['day', 'workout', 'session', 'training', 'gym', 'today', 'and', 'the', 'my', 'a', 'of', 'yesterday', 'morning', 'evening'])
+function quickLogToFill(data, args, ctx) {
+  const date = isIsoDate(args.date) ? args.date : String(args.date || '').toLowerCase() === 'yesterday' ? addDays(ctx.localDate, -1) : ctx.localDate
+  const empty = (Array.isArray(data.gym_sessions) ? data.gym_sessions : []).filter((session) => session?.date === date && !(session.exercises || []).length)
+  if (!empty.length) return ''
+  const key = (word) => word.replace(/s$/, '')
+  const said = new Set(words(args.routine || '').filter((word) => !GENERIC_DAY_WORDS.has(word)).map(key))
+  const named = empty.filter((session) => words(session.name).some((word) => !GENERIC_DAY_WORDS.has(word) && said.has(key(word))))
+  const pick = named.length ? named : !said.size && empty.length === 1 ? empty : []
+  return pick.length ? String([...pick].sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))[0].id) : ''
+}
+
+// food_log items whose calories they said themselves this turn ("add 100 calories for snacks") keep
+// that number even when the macros the model guessed disagree (user_calories).
+export function lockSaidCalories(args, heard) {
+  const items = Array.isArray(args?.items) ? args.items : null
+  if (!items || !heard) return args
+  const said = String(heard).toLowerCase().replace(/(\d),(?=\d{3})/g, '$1')
+  let changed = false
+  const next = items.map((item) => {
+    const calories = Number(item?.calories)
+    if (!isPlainObject(item) || !(calories > 0) || item.user_calories === true) return item
+    if (!new RegExp(`(^|[^\\d.])${calories}\\s*(k?cals?|kcals?|calories|kilocalories)\\b`).test(said)) return item
+    changed = true
+    return { ...item, user_calories: true }
+  })
+  return changed ? { ...args, items: next } : args
+}
+
+// The names a staged food_log or gym_log_workout repeats from this call's card that was just saved
+// (often by a tap): a follow-up "and add a chocolate bar" sent with the whole list again would log the
+// eggs and toast twice. → the repeated names, as first written.
+const itemNames = (tool, args) => (tool === 'food_log' ? args?.items : tool === 'gym_log_workout' ? args?.exercises : null)
+export function repeatsSaved(settled, tool, args) {
+  if (!settled || !['done', 'partial'].includes(settled.status)) return []
+  const list = itemNames(tool, args)
+  if (!Array.isArray(list)) return []
+  const key = (name) => words(name).map((word) => word.replace(/s$/, '')).join(' ')
+  const now = new Set(list.map((item) => key(item?.name)).filter(Boolean))
+  const same = (field, a, b) => !a?.[field] || !b?.[field] || String(a[field]).toLowerCase() === String(b[field]).toLowerCase()
+  const before = (settled.staged || [])
+    .filter((item) => item.tool === tool && same('date', item.args, args) && same('meal', item.args, args))
+    .flatMap((item) => itemNames(tool, item.args) || [])
+    .map((item) => String(item?.name || '').trim())
+    .filter((name) => name && now.has(key(name)))
+  return [...new Set(before)]
+}
+
+// A gym_log_workout that couldn't tell which exercise was meant: a short question the voice can ask
+// ("seated shoulder press or Arnold press?") instead of the error read aloud.
+function workoutProblem(message) {
+  const text = String(message || '')
+  const unclear = /"([^"]+)" could be (.+?)\. Use the exact name/.exec(text)
+  if (unclear) {
+    // "Seated Shoulder Press (Dumbbell)" → "seated shoulder press" (the equipment was usually said).
+    const choices = [...new Set(unclear[2].split(/, (?=[A-Z])/).map((name) => name.replace(/\s*\([^)]*\)\s*$/, '').trim().toLowerCase()).filter(Boolean))].slice(0, 4)
+    const options = choices.length > 1 ? `${choices.slice(0, -1).join(', ')} or ${choices[choices.length - 1]}` : choices.join('')
+    return { ok: false, unclear: unclear[1], choices, message: `Not logged yet: "${unclear[1]}" could be ${options}. Ask which in a few words ("Seated or Arnold?"), then call again with that name.` }
+  }
+  const noWeight = /^Not logged yet: no weight for (.+)\.$/.exec(text)
+  if (noWeight) {
+    const names = noWeight[1]
+    return { ok: false, needsWeight: names, message: `Not logged yet: no weight for ${names}. Ask in a few words ("What weight on the bench?"), then call again with every exercise. If they don't know it, call again with weight_unknown: true.` }
+  }
+  const unknown = /No exercise called "([^"]+)" in the library\.(?: Similar: ([^.]+)\.)?/.exec(text)
+  if (unknown) return { ok: false, message: `Not logged yet: no exercise called "${unknown[1]}".${unknown[2] ? ` Close ones: ${unknown[2]}.` : ''} Ask what they meant, then call again.` }
+  return null
+}
+
 function lookupOutput(result) {
   const text = JSON.stringify(result ?? { ok: false, message: 'No result.' })
   return text.length <= LOOKUP_OUTPUT_CHARS ? result : { ok: result?.ok !== false, truncated: true, text: `${text.slice(0, LOOKUP_OUTPUT_CHARS - 1)}…` }
@@ -925,17 +1170,33 @@ export async function toolsOp({ supabase, user, body, ctx, debug }) {
           output = lookupOutput(result)
         } else {
           if (call.name.startsWith('food_')) await ensureFood()
-          const write = await runWrite({ supabase, userId: user.id, name: call.name, args, data, ctx, stage, directRefs, level: call.name === 'write_journal' ? 'all' : level })
+          // A workout with sets: the voice tool's flat entries become the shared arguments, and the
+          // quick log saved earlier that day ("did legs today") is filled instead of a second workout.
+          let writeArgs = call.name === 'food_log' ? lockSaidCalories(args, heard) : args
+          let readBack
+          if (call.name === 'gym_log_workout') {
+            writeArgs = voiceWorkoutArgs(args)
+            // A barbell or machine lift said without a weight: ask once, unless they already said
+            // they don't know it.
+            if (args.weight_unknown !== true) writeArgs = { ...writeArgs, ask_missing_weight: true }
+            const fill = quickLogToFill(data, writeArgs, ctx)
+            if (fill) writeArgs = { ...writeArgs, fill_session_id: fill }
+            readBack = workoutReadBack(writeArgs, data.gym?.prefs?.unit === 'lb' ? 'lb' : 'kg') || undefined
+          }
+          const write = await runWrite({ supabase, userId: user.id, name: call.name, args: writeArgs, data, ctx, stage, directRefs, level: call.name === 'write_journal' ? 'all' : level })
           const result = write.result
+          const problem = !result.ok && call.name === 'gym_log_workout' ? workoutProblem(result.message) : null
           if (write.staged) {
-            if (!result.ok) output = { ok: false, message: result.message }
+            if (!result.ok) output = problem || { ok: false, message: result.message }
             else {
               if (!result.duplicate) stagedNow += 1
-              output = compact({ ok: true, staged: true, waiting: result.label, ref: result.ref, warning: result.warning || result.reminderWarning || result.hint, clash: result.clash?.text, assumed: result.assumed, note: STAGED_NOTE })
+              const repeated = repeatsSaved(recentlySettled(history, talkId), call.name, call.name === 'gym_log_workout' ? writeArgs : args)
+              const twice = repeated.length ? `Already saved a moment ago: ${cutText(repeated.join(', '), 200)}. Unless they really had them twice, call again with only the new ones.` : ''
+              output = compact({ ok: true, staged: true, waiting: result.label, readBack, ref: result.ref, warning: twice || result.warning || result.reminderWarning || result.hint, clash: result.clash?.text, assumed: result.assumed, note: STAGED_NOTE })
             }
           } else {
             directResults.push({ tool: call.name, ...result, ...(write.undo.length ? { undoCalls: write.undo } : {}) })
-            if (!result.ok) output = { ok: false, message: result.message || 'That didn’t work.' }
+            if (!result.ok) output = problem || { ok: false, message: result.message || 'That didn’t work.' }
             else {
               if (!['remember', 'forget'].includes(call.name)) dataChanged = true
               if (TASK_TOOLS.has(call.name)) {
@@ -946,6 +1207,7 @@ export async function toolsOp({ supabase, user, body, ctx, debug }) {
                 ok: true,
                 done: true,
                 said: result.message,
+                readBack,
                 ref: createdRef(call.name, result, data),
                 warning: result.warning || result.reminderWarning || result.hint,
                 clash: result.clash ? cutText(`${result.clash.text}${result.clash.nextFree ? ` Next free: ${result.clash.nextFree}.` : ''}`, 200) : undefined,
@@ -963,16 +1225,24 @@ export async function toolsOp({ supabase, user, body, ctx, debug }) {
   }
 
   // The card: everything staged in this user turn (a new card replaces an older one still waiting).
+  // A change to this call's waiting card from a later turn ("and add 100 calories for snacks": the
+  // same kind of change again, with everything on it) updates that card in place: same id, the next
+  // revision, a fresh turn (so only an answer after the new read-back confirms it).
   let proposal = null
   if (stage.list.length && (stagedNow > 0 || stage.list.length !== resumedCount)) {
     const actions = stage.list.map(({ label, detail, tool }) => compact({ label, detail, tool }))
     const alternatives = clashMoves(stage.list)
+    const waiting = !resumedId && talkMessage?.proposal?.status === 'pending' && !proposalExpired(talkMessage.proposal, ctx) ? talkMessage.proposal : null
+    const tools = new Set(stage.list.map((item) => item.tool))
+    const amends = waiting && (waiting.staged || []).some((item) => tools.has(item.tool)) ? waiting : null
+    const revision = amends ? (amends.revision || 1) + 1 : resumedId ? resumed?.revision : undefined
     proposal = {
-      id: resumedId || newId(),
+      id: resumedId || amends?.id || newId(),
       status: 'pending',
       createdAt: (resumedId && resumed?.createdAt) || nowIso(),
       localDate: ctx.localDate,
       ...(heardItemId ? { turnId: heardItemId } : {}),
+      ...(revision > 1 ? { revision } : {}),
       summary: proposalSummary(actions),
       actions,
       staged: stage.list.map(({ tool, args, ref }) => ({ tool, args, ref })),
@@ -992,6 +1262,11 @@ export async function toolsOp({ supabase, user, body, ctx, debug }) {
         return { ...message, proposal: { ...message.proposal, status } }
       })
       const talk = next[index]
+      // The card being updated was answered meanwhile (a tap): this one is a new card after all.
+      if (proposal && !resumedId && talk.proposal?.id === proposal.id && talk.proposal.status !== 'pending') {
+        const { revision: _old, ...fresh } = proposal
+        proposal = { ...fresh, id: newId() }
+      }
       if (proposal && talk.proposal?.status === 'pending' && talk.proposal.id !== proposal.id) proposalUpdates.push({ id: talk.proposal.id, status: 'superseded' })
       next[index] = { ...appendChips(talk, actions, stampUndo(undo)), ...(proposal ? { proposal } : {}), talkState }
       return next
@@ -1038,10 +1313,21 @@ export async function confirmOp({ supabase, user, body, ctx, debug }) {
     if (!data.foodLoaded && !data.foodEntries) Object.assign(data, { foodEntries: [], foodMissing: false })
     return data
   }
-  const decided = await decideVoice({ supabase, userId: user.id, talkId, proposalId: body.proposalId, decision: body.decision, tapped: true, getData, ctx, debug, startedAt: body.startedAt, mode: body.mode, intent: body.intent })
+  const revision = Number.isInteger(body.revision) && body.revision > 0 ? body.revision : null
+  const decided = await decideVoice({ supabase, userId: user.id, talkId, proposalId: body.proposalId, revision, decision: body.decision, tapped: true, getData, ctx, debug, startedAt: body.startedAt, mode: body.mode, intent: body.intent })
   const out = decided.output
-  const say = out.cancelled ? 'Cancelled, so nothing changed.' : out.said || out.message || ''
-  return withDebug(200, { ok: out.ok !== false, say, actions: decided.actions || [], proposalUpdate: decided.proposalUpdate || null, dataChanged: Boolean(decided.dataChanged) }, debug)
+  // A second tap (or a tap racing a spoken yes) on a card that's already saved: say so plainly.
+  const say = out.already ? (out.done ? 'Already saved.' : out.cancelled ? 'Already cancelled, so nothing changed.' : out.message)
+    : out.cancelled ? 'Cancelled, so nothing changed.' : out.said || out.message || ''
+  return withDebug(200, {
+    ok: out.ok !== false,
+    say,
+    ...(out.already ? { already: true } : {}),
+    ...(out.changed ? { changed: true, proposal: decided.proposal || null } : {}),
+    actions: decided.actions || [],
+    proposalUpdate: decided.proposalUpdate || null,
+    dataChanged: Boolean(decided.dataChanged),
+  }, debug)
 }
 
 // ---- POST ?op=checkpoint: the transcript and the running usage (idempotent) ------------------------

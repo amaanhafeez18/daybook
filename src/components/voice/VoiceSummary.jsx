@@ -3,6 +3,7 @@ import ActionChips from '../ActionChips.jsx'
 import { ProposalCard } from '../../pages/AssistantPage.jsx'
 import { formatUsd } from '../../lib/aiPricing.js'
 import { closeVoice, continueVoice, decideCard, endVoice, undoCard } from '../../lib/voice/session.js'
+import { cardWords } from './cardWords.js'
 
 // After a voice chat: saved to the chat, how long, about what it cost, what changed (with Undo),
 // links to where the changes are, and Continue when a limit or leaving the app ended it. A paused
@@ -47,7 +48,7 @@ export default function VoiceSummary({ voice }) {
   const saved = summary?.saved
   const reason = summary?.end
   const note = paused ? null : END_TEXT[reason] || null
-  const facts = [minutesText(summary?.seconds ?? voice.seconds), `≈ ${formatUsd(summary?.usd ?? voice.usd)}`, changes ? `${changes} change${changes === 1 ? '' : 's'}` : null].filter(Boolean)
+  const facts = [minutesText(summary?.seconds ?? voice.seconds), `≈ ${formatUsd(summary?.usd ?? voice.usd, { cents: true })}`, changes ? `${changes} change${changes === 1 ? '' : 's'}` : null].filter(Boolean)
 
   return (
     <div className="voice-summary">
@@ -63,9 +64,17 @@ export default function VoiceSummary({ voice }) {
         {note && <p className="voice-summary-note">{note}</p>}
       </div>
 
-      {proposal && (
+      {/* A card that went through says the same as its chips: only one still to answer (or that went wrong) shows. */}
+      {proposal && !(proposal.status === 'done' && changes > 0) && (
         <div className="voice-cards">
-          <ProposalCard proposal={proposal} createdAt={proposal.createdAt} isLast busy={deciding} onDecide={(decision) => decideCard(proposal.id, decision)} />
+          <ProposalCard
+            proposal={proposal}
+            createdAt={proposal.createdAt}
+            isLast={!['cancelled', 'superseded', 'expired'].includes(proposal.status)}
+            busy={deciding || proposal.status === 'executing'}
+            yesLabel={cardWords(proposal).yes}
+            onDecide={(decision) => decideCard(proposal.id, decision)}
+          />
         </div>
       )}
       {actions?.length > 0 && (

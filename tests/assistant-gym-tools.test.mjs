@@ -684,3 +684,29 @@ describe('spoken exercise names', () => {
     assert.equal(said('pushdowns', ropeUser), 'rope-pushdown')
   })
 })
+
+describe('spoken exercise names (voice)', () => {
+  const gym = { exercises: [], routines: [] }
+  const said = (query) => {
+    const result = exerciseMatches(gym, { gym_sessions: [] }, query)
+    return result.match?.id ?? (result.ambiguous ? 'ambiguous' : 'none')
+  }
+
+  test('the one name that has every word said wins a tie', () => {
+    const seated = said('seated shoulder press (dumbbell)')
+    assert.notEqual(seated, 'ambiguous')
+    assert.equal(said('dumbbell shoulder press'), seated)
+    assert.equal(said('DB shoulder press'), seated)
+    assert.equal(said('shoulder press with dumbbells'), seated, 'filler words and equipment said last')
+  })
+
+  test('a truly vague name is still asked about', () => {
+    assert.equal(said('dumbbell press'), 'ambiguous')
+    assert.equal(said('leg curl'), 'ambiguous')
+  })
+
+  test('everyday names', () => {
+    assert.equal(said('curls'), said('bicep curl'))
+    assert.equal(said('pull downs'), said('lat pulldown'))
+  })
+})

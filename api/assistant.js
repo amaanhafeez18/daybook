@@ -184,6 +184,11 @@ function normalizeProposal(raw) {
     localDate: isIsoDate(raw.localDate) ? raw.localDate : undefined,
     // A voice chat's card: the user turn (realtime item id) it was staged in (see api/_voice.js).
     turnId: typeof raw.turnId === 'string' && raw.turnId ? raw.turnId.slice(0, 80) : undefined,
+    // Voice chats: how the card was answered (a tap on it, or a spoken yes/no) and when, and how many
+    // times it was changed while it waited (the same card, updated in place).
+    answeredBy: raw.answeredBy === 'tap' || raw.answeredBy === 'voice' ? raw.answeredBy : undefined,
+    answeredAt: typeof raw.answeredAt === 'string' ? raw.answeredAt : undefined,
+    revision: Number.isInteger(raw.revision) && raw.revision > 1 && raw.revision < 100 ? raw.revision : undefined,
     summary: cleanText(raw.summary, 400),
     actions: normalizePlanActions(raw.actions),
     staged: normalizeStaged(raw.staged),
@@ -351,7 +356,12 @@ function publicMessage(message) {
 }
 
 function publicProposal(proposal) {
-  return { id: proposal.id, status: proposal.status, summary: proposal.summary || '', actions: proposal.actions || [], createdAt: proposal.createdAt, ...(proposal.alternatives?.length ? { alternatives: proposal.alternatives } : {}) }
+  return {
+    id: proposal.id, status: proposal.status, summary: proposal.summary || '', actions: proposal.actions || [], createdAt: proposal.createdAt,
+    ...(proposal.alternatives?.length ? { alternatives: proposal.alternatives } : {}),
+    ...(proposal.answeredBy ? { answeredBy: proposal.answeredBy } : {}),
+    ...(proposal.revision > 1 ? { revision: proposal.revision } : {}),
+  }
 }
 
 // The browser sends its local date/time so "today" and "tomorrow" match the user's clock, not the server's (UTC).
@@ -1044,7 +1054,8 @@ async function loadUndoData(supabase, userId, calls, ctx) {
   const noteIds = idsOf(['delete_note'], 'noteId')
   const none = { data: [], error: null }
   const byIds = (table, ids) => (ids.length ? supabase.from(table).select('*').eq('user_id', userId).in('id', ids) : none)
-  const [tasks, reminders, friends, photos, contactLogs, notes, classes, settings, attachments, food] = await Promise.all([
+  const sessionIds = idsOf(['gym_delete_session'], 'session_id')
+  const [tasks, reminders, friends, photos, contactLogs, notes, classes, settings, attachments, food, sessions] = await Promise.all([
     byIds('tasks', [...new Set([...deletedTasks, ...idsOf(['update_task'], 'taskId')])]),
     // Removing a person archives their open "Talk to …" reminders.
     Promise.all(removedFriends.map((id) => supabase.from('tasks').select('*').eq('user_id', userId).eq('done', false).eq('archived', false).like('details', `friend-reminder:${id}:%`))),
@@ -1058,6 +1069,8 @@ async function loadUndoData(supabase, userId, calls, ctx) {
     uses('update_task', 'gym_delete_session', 'weight_delete', 'food_delete_entry') ? supabase.from('settings').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(1) : none,
     deletedTasks.length || removedFriends.length || noteIds.length ? supabase.from('attachments').select('*').eq('user_id', userId).in('target_id', [...deletedTasks, ...removedFriends, ...noteIds]) : none,
     uses('food_delete_entry') ? loadFood(supabase, userId, ctx) : null,
+    // The workout as it is now: sets added to a quick log since its Undo was made stop that Undo.
+    byIds('gym_sessions', sessionIds),
   ])
   for (const result of [tasks, ...reminders, friends, notes, classes, settings]) if (result.error) throw result.error
   if (attachments.error && !isMissingAttachmentsTable(attachments.error)) console.error('Attachments failed to load:', attachments.error.message || attachments.error)
@@ -1074,7 +1087,9 @@ async function loadUndoData(supabase, userId, calls, ctx) {
   data.contact_logs = contactLogs.map((log) => ({ id: log.id, friend_id: log.friend_id, date: log.date, note: typeof log.note === 'string' ? log.note : '', created_at: log.created_at }))
   data.settings = settings.data?.[0]?.value || {}
   data.gym = normalizeGymApi(data.settings.gym)
-  Object.assign(data, { gymTablesMissing: false, gym_sessions: [], gymSessionsTruncated: false, body_weights: [] })
+  // (A failed load, e.g. no gym tables yet, leaves them unchecked; deleting then says what's wrong.)
+  const loadedSessions = sessions.error ? [] : (sessions.data || []).map(sessionFromRow).filter(Boolean)
+  Object.assign(data, { gymTablesMissing: false, gym_sessions: loadedSessions, gymSessionsTruncated: false, body_weights: [] })
   data.attachments = attachments.error ? [] : (attachments.data || []).map(rowToClient)
   return Object.assign(data, food || { foodEntries: [], foodMissing: false })
 }
@@ -1554,6 +1569,7 @@ const EXERCISE_PHRASES = {
   // The everyday name when the library also has variants (rope / single-arm, lying, decline).
   pushdown: 'triceps pushdown', 'tricep pushdown': 'triceps pushdown', 'cable pushdown': 'triceps pushdown', 'cable tricep pushdown': 'triceps pushdown',
   'leg raise': 'hanging leg raise', situp: 'sit up',
+  curl: 'bicep curl', 'biceps curl': 'bicep curl', 'pull down': 'lat pulldown', pulldown: 'lat pulldown',
   'low to high fly': 'low to high cable fly', 'high to low fly': 'high to low cable fly',
 }
 const REST_WORDS = new Set(['rest', 'rest day', 'off', 'day off', 'none', 'recovery'])
@@ -2171,7 +2187,10 @@ function routineOrName(gym, ref) {
     if (/matches several routines/.test(error.message)) throw error
     const type = gymLib.matchDayType(text)
     const plain = text.replace(/\b(day|workout|session|routine)\b/gi, ' ').replace(/\s+/g, ' ').trim() || text
-    return { routine: null, name: (type && !type.rest ? type.name : capitalize(plain)).slice(0, 60) }
+    // "Legs and shoulders" is a Legs & Shoulders workout, not just Legs.
+    const days = type && !type.rest ? gymLib.parseSplit(plain).filter((day) => day !== 'Rest') : []
+    const combined = days.length >= 2 && days.length <= 3 && new Set(days).size === days.length ? days.join(' & ') : days.length === 1 ? days[0] : ''
+    return { routine: null, name: (combined || (type && !type.rest ? type.name : capitalize(plain))).slice(0, 60) }
   }
 }
 
@@ -2241,12 +2260,35 @@ function exerciseSearch(gym, query) {
   return variants.sort((a, b) => a.best - b.best)
 }
 
+// Words that don't name an exercise ("shoulder press with dumbbells"), and equipment said last moved
+// to the front ("shoulder press dumbbell" → "dumbbell shoulder press").
+const EXERCISE_FILLERS = new Set(['with', 'the', 'some', 'a', 'an', 'on', 'using', 'my'])
+const EQUIPMENT_WORDS = new Set(['dumbbell', 'barbell', 'cable', 'machine', 'kettlebell', 'band', 'smith', 'ez'])
+function tidyExerciseQuery(raw) {
+  const tokens = normText(raw).split(' ').filter((token) => token && !EXERCISE_FILLERS.has(token))
+  if (tokens.length < 2) return tokens.length ? tokens.join(' ') : raw
+  const lastWord = aliasOf(singularWord(tokens[tokens.length - 1]))
+  return EQUIPMENT_WORDS.has(lastWord) ? [lastWord, ...tokens.slice(0, -1)].join(' ') : tokens.join(' ')
+}
+
+// The one candidate whose name has every word that was said ("dumbbell shoulder press" → Seated
+// Shoulder Press (Dumbbell), not Arnold Press or Bench Press), or null.
+function coveringExercise(candidates, query) {
+  const said = normText(query).split(' ').filter(Boolean).flatMap((token) => aliasOf(singularWord(token)).split(' '))
+  const covered = candidates.filter((entry) => {
+    const own = new Set(normText(entry.name).split(' ').filter(Boolean).map(singularWord))
+    return said.every((word) => own.has(word) || own.has(singularWord(word)))
+  })
+  return covered.length === 1 ? covered[0] : null
+}
+
 function exerciseMatches(gym, data, query) {
   const custom = gym.exercises
-  const raw = String(query ?? '').trim()
-  if (!raw) return { none: true, similar: [] }
-  const direct = gymLib.exerciseById(raw, custom)
+  const given = String(query ?? '').trim()
+  if (!given) return { none: true, similar: [] }
+  const direct = gymLib.exerciseById(given, custom)
   if (direct) return { match: direct }
+  const raw = tidyExerciseQuery(given)
   const chosen = exerciseSearch(gym, raw)[0]
   if (!chosen) {
     const tokens = [...new Set(normText(raw).split(' ').filter(Boolean).map(singularWord))]
@@ -2265,6 +2307,8 @@ function exerciseMatches(gym, data, query) {
   if (best <= 1 || new Set(top.map((entry) => baseName(entry.name))).size === 1) return { match: preferred() }
   if (usedTop.length === 1) return { match: usedTop[0] }
   if (top.length === 1) return { match: top[0] }
+  const covering = coveringExercise(usedTop.length ? usedTop : top, raw) || coveringExercise(results, raw)
+  if (covering) return { match: covering }
   return { ambiguous: (usedTop.length ? usedTop : top).slice(0, 6) }
 }
 
@@ -2429,7 +2473,12 @@ function loggedExercise(spec, gym, data, { unit: givenUnit, routine = null } = {
   const sets = []
   let droppedWeight = false
   let filledReps = null
-  for (const raw of Array.isArray(spec.sets) ? spec.sets : []) {
+  // A flat entry ({ name, sets: 3, reps: 10, weight: 135 }) is one group of identical sets.
+  const flatCount = toFiniteNumber(spec.sets)
+  const given = Array.isArray(spec.sets) ? spec.sets
+    : flatCount !== null && flatCount >= 1 ? [{ reps: spec.reps, weight: spec.weight, duration_sec: spec.duration_sec, distance_m: spec.distance_m, rpe: spec.rpe, count: flatCount }]
+      : []
+  for (const raw of given) {
     if (!isPlainObject(raw)) continue
     const weight = toFiniteNumber(raw.weight)
     let reps = toFiniteNumber(raw.reps)
@@ -2459,7 +2508,8 @@ function loggedExercise(spec, gym, data, { unit: givenUnit, routine = null } = {
       : tracking === 'weight_distance' ? set.distanceM !== null || set.weightKg > 0
       : set.durationSec !== null
     if (!complete) throw new Error(`${entry.name}: every set needs ${needsText(tracking)}.`)
-    const count = clampInt(raw.count ?? 1, 1, 20, 1)
+    // The count, also when it came as "sets" or "set_count" (realtime tools aren't strict).
+    const count = clampInt(raw.count ?? (toFiniteNumber(raw.sets) !== null ? raw.sets : raw.set_count) ?? 1, 1, 20, 1)
     for (let index = 0; index < count; index += 1) sets.push({ id: newId(), ...set })
   }
   if (!sets.length) throw new Error(`${entry.name}: no sets given.`)
@@ -2829,6 +2879,12 @@ async function executeGymTool(supabase, userId, name, args, data, ctx) {
       }
     }
     if (problems.length) return fail(`Nothing was logged. ${problems.join(' ')}`)
+    // ask_missing_weight (voice chats only; not in the tool schema): a loaded lift said without a
+    // weight is asked about first instead of being logged weightless.
+    if (args.ask_missing_weight === true) {
+      const missing = rows.filter((row) => row.tracking === 'weight_reps' && !row.sets.some((set) => set.weightKg !== null))
+      if (missing.length) return fail(`Not logged yet: no weight for ${missing.map((row) => row.name).join(', ')}.`)
+    }
     let filled = 0
     if (args.fill_from_routine === true) {
       if (!routine) return fail('fill_from_routine needs the routine the workout belongs to.')
@@ -2859,11 +2915,15 @@ async function executeGymTool(supabase, userId, name, args, data, ctx) {
     const planned = routine
       ? { versionId: day.versionId, routineId: routine.id, cycleIndex: day.shown.kind === 'routine' && day.shown.routineId === routine.id ? day.cycleIndex : null }
       : null
+    // fill_session_id (voice chats only; not in the tool schema): a quick log from earlier that day
+    // with no sets gets these sets instead of a second workout being added.
+    const fillId = typeof args.fill_session_id === 'string' ? args.fill_session_id : ''
+    const filling = fillId ? data.gym_sessions.find((item) => item.id === fillId && item.date === date && !(item.exercises || []).length) || null : null
     const session = {
-      id: newId(),
+      id: filling?.id || newId(),
       date,
-      name: String(args.name || '').trim().slice(0, 80) || routine?.name.trim() || named || (rows.length === 1 ? rows[0].name : 'Workout'),
-      routineId: routine?.id ?? null,
+      name: String(args.name || '').trim().slice(0, 80) || routine?.name.trim() || named || filling?.name || (rows.length === 1 ? rows[0].name : 'Workout'),
+      routineId: routine?.id ?? filling?.routineId ?? null,
       startedAt,
       endedAt,
       durationSec,
@@ -2872,12 +2932,13 @@ async function executeGymTool(supabase, userId, name, args, data, ctx) {
       planned,
       bodyweightKg,
       isDeload: day.deload === true,
-      createdAt: nowIso(),
+      createdAt: filling?.createdAt || nowIso(),
     }
     // PRs against everything logged before it (loaded before this session is added).
-    const history = await loadAllSessions(supabase, userId, data)
+    const history = (await loadAllSessions(supabase, userId, data)).filter((item) => item.id !== session.id)
     const prs = safeSessionPRs(history, session, gym.prefs.e1rmFormula)
-    await insertGymRow(supabase, 'gym_sessions', sessionToRow(session, userId))
+    if (filling) await updateGymSession(supabase, userId, session)
+    else await insertGymRow(supabase, 'gym_sessions', sessionToRow(session, userId))
     rememberSession(data, session)
     const summary = rows.map((row) => exerciseLine(row, gym)).join('; ')
     const prNote = prs.length ? ` New PRs — ${prTexts(prs, gym.prefs).join('; ')}.` : ''
@@ -2907,8 +2968,9 @@ async function executeGymTool(supabase, userId, name, args, data, ctx) {
     const weightWarning = heavy.length ? `Please confirm: ${heavy.join('; ')} looks unusually heavy.` : ''
     return {
       ok: true,
-      message: `Logged ${logged}${said}.${prNote}${warnings.length ? ` ${warnings.join(' ')}` : ''}`,
+      message: `Logged ${logged}${said}.${prNote}${warnings.length ? ` ${warnings.join(' ')}` : ''}${filling ? ' (Added to the quick log from earlier.)' : ''}`,
       id: session.id,
+      ...(filling ? { filled: true } : {}),
       ...(realignHint ? { hint: realignHint.trim() } : {}),
       ...(weightWarning ? { warning: weightWarning } : {}),
     }
@@ -3827,7 +3889,7 @@ function settingsChanges(args) {
   }
   if (given('voice_name')) {
     const name = String(args.voice_name).trim().toLowerCase()
-    if (!VOICE_OPTIONS.voice.includes(name)) return { changes, problem: `The voice is ${VOICE_OPTIONS.voice.join(' or ')}.` }
+    if (!VOICE_OPTIONS.voice.includes(name)) return { changes, problem: `The voice is one of ${VOICE_OPTIONS.voice.join(', ')}.` }
     voice.voice = name
   }
   if (Object.keys(voice).length) changes.voice = voice
@@ -3839,7 +3901,7 @@ function settingsChanges(args) {
   return { changes }
 }
 
-const VOICE_NAMES = { marin: 'Marin', cedar: 'Cedar' }
+const VOICE_NAMES = Object.fromEntries(VOICE_OPTIONS.voice.map((id) => [id, id[0].toUpperCase() + id.slice(1)]))
 const minutesText = (seconds) => (seconds % 60 === 0 ? plural(seconds / 60, 'minute') : `${seconds} seconds`)
 const dollarsText = (usd) => `$${Number.isInteger(usd) ? usd : usd.toFixed(2)}`
 
@@ -5554,8 +5616,10 @@ function undoCalls(name, result, added = []) {
     case 'food_log':
     case 'food_copy_entries':
       return (Array.isArray(result.ids) ? result.ids : id ? [id] : []).slice(0, 30).map((entryId) => ({ tool: 'food_delete_entry', args: { id: String(entryId) } }))
+    // Sets that filled an earlier quick log share its workout: deleting it would take the quick log
+    // too, so that one has no Undo (the Gym tab edits it).
+    case 'gym_log_workout': return result.filled ? [] : one('gym_delete_session', { session_id: id })
     case 'gym_quick_log':
-    case 'gym_log_workout':
     case 'gym_duplicate_session': return one('gym_delete_session', { session_id: id })
     // The catch-up, then the "Talk to …" reminders it completed (reopened, back on the calendar).
     case 'log_contact': return added.slice(0, 1).flatMap((log) => [
@@ -5570,7 +5634,8 @@ function undoCalls(name, result, added = []) {
 // What an Undo chip's calls would delete, as fingerprints ("friend:<id>:<hash of its fields>",
 // "log:…", "file:<id>"), taken once the turn's changes are all done. Undo refuses when something it
 // would delete now isn't in that list: a catch-up, photo or edit added since would be lost with it.
-// (Food, workouts and weigh-ins are one entry each, deleted whole, so they aren't checked.)
+// (Food and weigh-ins are one entry each, deleted whole, so they aren't checked. A workout is checked
+// by its exercises and set counts, so a quick log's Undo doesn't take sets added to it since.)
 const UNDO_STATE_MAX = 200
 const stableJson = (value) => (Array.isArray(value) ? `[${value.map(stableJson).join(',')}]`
   : isPlainObject(value) ? `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(',')}}`
@@ -5601,6 +5666,10 @@ function undoTargets({ tool: name, args }, data) {
       ...logs((data.contact_logs || []).filter((log) => same(log.friend_id, friend.id))),
       ...files('friend', friend.id),
     ]
+  }
+  if (name === 'gym_delete_session') {
+    const session = (data.gym_sessions || []).find((item) => same(item.id, args.session_id))
+    return session ? [fingerprint('gym', session.id, (session.exercises || []).map((row) => `${row.exerciseId || row.name}:${(row.sets || []).length}`))] : []
   }
   if (name === 'delete_contact_log') return logs((data.contact_logs || []).filter((log) => same(log.friend_id, args.friendId) && log.date === args.date))
   if (name === 'delete_note') {
@@ -5671,7 +5740,7 @@ function dependentUndos(history, undoId, friendIds) {
 
 // A delete that found nothing (the thing was already removed in the app) vs. one that couldn't run.
 const GONE_RE = /isn’t in People|isn't in People|^No (task|note|class|event|food entry|logged workout|catch-up|weigh-in)\b|already be gone|not found/i
-const CHANGED_WORDS = { log: 'a catch-up was added or changed', file: 'a photo or file was added', photo: 'a photo was added' }
+const CHANGED_WORDS = { log: 'a catch-up was added or changed', file: 'a photo or file was added', photo: 'a photo was added', gym: 'sets were added to the workout' }
 
 // POST { action: 'undo', undoId }: runs the calls behind an Undo chip once, then saves the chip as used.
 // It refuses when what it would delete has changed since, and its messages are for the user.
@@ -5684,7 +5753,10 @@ async function runUndo({ supabase, userId, history, exists, seen, undoId, data, 
   if (!undoLive(entry, message.createdAt)) return { status: 410, body: { error: 'It’s too late to undo that from the chat. Change it in the app instead.' } }
   if (Array.isArray(entry.state)) {
     const kept = new Set(entry.state)
-    const changed = (undoState(entry.calls, data) || []).filter((item) => !kept.has(item))
+    // A workout is checked only when the chip kept its state (chips from before this check, or made
+    // when the workout wasn't loaded, aren't).
+    const keptWorkout = (item) => [...kept].some((other) => other.startsWith(item.slice(0, item.lastIndexOf(':') + 1)))
+    const changed = (undoState(entry.calls, data) || []).filter((item) => !kept.has(item) && (!item.startsWith('gym:') || keptWorkout(item)))
     if (changed.length) {
       debug.push({ step: 'undo.changed', count: changed.length })
       const what = [...new Set(changed.map((item) => CHANGED_WORDS[item.split(':')[0]] || 'it was edited'))].join(', and ')

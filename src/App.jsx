@@ -29,6 +29,11 @@ import './components/today.css'
 import './components/shell.css'
 import './components/transitions.css'
 
+// Dev only: #/voice-preview draws the voice chat screen in every state with made-up data (no login,
+// no microphone). In a production build this is null and the preview's code isn't included.
+const VoicePreview = import.meta.env.DEV ? React.lazy(() => import('./components/voice/VoicePreview.jsx')) : null
+const voicePreviewOpen = () => !!VoicePreview && /^#\/?voice-preview(?:[/?]|$)/.test(window.location.hash)
+
 // Only Today ships in the first bundle; other pages load on first visit (then stay cached). Once a
 // page's code has loaded it opens without the loading skeleton (lib/lazyPage.js).
 const LAZY_PAGES = {
@@ -185,6 +190,7 @@ export default function App() {
     return () => window.removeEventListener('storage', onStorage)
   }, [user])
 
+  if (voicePreviewOpen()) return <Suspense fallback={null}><VoicePreview /><Toaster /></Suspense>
   if (checking) return <><Splash /><Toaster /></>
 
   return (

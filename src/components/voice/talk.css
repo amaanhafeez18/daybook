@@ -4,7 +4,9 @@
 
 /* ---- action chips anywhere (the chat scopes its own under .msg-body) ---------------------------- */
 .asst-chips { padding-left: 0; margin: 0; list-style: none; flex-direction: column; align-items: flex-start; gap: 6px; }
+/* 19px corners: a one-line chip is still a pill, a long one that wraps is a rounded box (not an oval). */
 .asst-chips li { line-height: 1.35; padding-top: 6px; padding-bottom: 6px; }
+.action-chips.asst-chips li { border-radius: 19px; }
 .asst-chips li .icon { flex-shrink: 0; }
 .asst-chips li.has-undo { padding-top: 4px; padding-bottom: 4px; padding-right: 4px; }
 
@@ -113,7 +115,7 @@
 }
 .talk-card-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
   width: 100%;
   min-height: 44px;
@@ -123,10 +125,10 @@
   text-align: left;
   -webkit-tap-highlight-color: transparent;
 }
-.talk-card-title { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 6px; flex: 1; min-width: 0; }
-.talk-card-title strong { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+.talk-card-title { display: flex; align-items: baseline; flex: 1; min-width: 0; }
+.talk-card-title strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
 .talk-card-cost { font-size: 14px; color: var(--text-2); font-variant-numeric: tabular-nums; }
-.talk-card-chevron { flex: none; margin-top: 2px; color: var(--text-3); transition: transform 0.2s var(--ease, ease); }
+.talk-card-chevron { flex: none; color: var(--text-3); transition: transform 0.2s var(--ease, ease); }
 .talk-card-chevron.is-open { transform: rotate(180deg); }
 .talk-card-gist {
   margin: 0;
@@ -138,13 +140,15 @@
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.talk-card-meta { margin: 0; font-size: 13px; color: var(--text-2); }
+.talk-card-meta { margin: 0; font-size: 13px; color: var(--text-2); font-variant-numeric: tabular-nums; }
 .talk-card-live { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; font-weight: 600; color: var(--accent); }
 .talk-live-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; animation: talk-pulse 1.6s ease-in-out infinite; }
 @keyframes talk-pulse { 50% { opacity: 0.35; } }
 
-.talk-transcript { display: flex; flex-direction: column; gap: 6px; max-height: min(60vh, 520px); overflow-y: auto; overscroll-behavior: contain; }
+/* The open transcript grows the card in the page's own scroll (no box that scrolls inside it). */
+.talk-transcript { display: flex; flex-direction: column; gap: 6px; }
 .talk-transcript ol { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.talk-transcript ol:focus:not(:focus-visible) { outline: none; }
 .talk-transcript li {
   display: flex;
   align-items: baseline;
@@ -160,6 +164,33 @@
 .talk-transcript li.is-daybook { align-self: flex-start; background: var(--surface-2); color: var(--text); border-bottom-left-radius: 6px; }
 .talk-typed { flex: none; color: var(--text-2); transform: translateY(1px); }
 .talk-transcript-note { margin: 0; font-size: 13px; color: var(--text-2); }
+.talk-transcript-foot { margin: 2px 0 0; font-size: 13px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.talk-show-all {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 44px;
+  margin: -6px 0 -4px;
+  padding: 0 14px;
+  border-radius: 22px;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+  -webkit-tap-highlight-color: transparent;
+}
+.talk-show-all:active { opacity: 0.6; }
+@media (hover: hover) { .talk-show-all:hover { background: var(--accent-soft); } }
+/* Where "keep the card's end in view" aims: clear of the composer dock and the tab bar. */
+.talk-card-end {
+  display: block;
+  height: 0;
+  margin-top: -8px;
+  scroll-margin-bottom: calc(var(--dock-h, 124px) + var(--nav-h) + var(--safe-bottom) + 22px + var(--gymw-pill-space, 0px));
+}
+@media (min-width: 900px) {
+  .talk-card-end { scroll-margin-bottom: calc(var(--dock-h, 96px) + 16px); }
+}
 .talk-card .asst-proposal { margin: 0; }
 .talk-card .action-chips { margin: 0; }
 

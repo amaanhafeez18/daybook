@@ -1,8 +1,8 @@
 /* ---- the voice chat (components/voice/VoiceView.jsx) --------------------------------------------
    A full-screen layer over the app (z 55: above the bars and the workout pill, under sheets (60) and
    toasts (70), so its own mode menu and the intro sheet show on top). Phones: edge to edge with the
-   safe areas; desktop (≥ 640 px): a centred 480 px panel over a dimmed backdrop. Colours come from
-   the theme tokens, so light/dark and every accent work. */
+   safe areas; desktop (≥ 640 × 600 px): a centred 480 px panel over a dimmed backdrop; a phone on
+   its side: two columns. Colours come from the theme tokens, so light/dark and every accent work. */
 
 html.voice-open { overflow: hidden; }
 html.voice-open body { overflow: hidden; }
@@ -29,10 +29,17 @@ html.kb-open .voice-layer { bottom: var(--kb, 0px); }
   display: flex; flex-direction: column;
   width: 100%; height: 100%;
   min-height: 0;
-  padding: calc(var(--safe-top) + 8px) 16px 0;
+  padding: calc(var(--safe-top) + 8px) max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left));
 }
+/* Every row keeps its height: the middle scrolls instead of squashing captions under a card. */
+.voice-panel > * { flex-shrink: 0; }
+.voice-panel > .voice-scroll { flex-shrink: 1; }
 
-@media (min-width: 640px) {
+/* The dev preview (#/voice-preview) draws the screen inside a phone-sized frame. */
+.voice-layer.is-inline { position: absolute; z-index: auto; animation: none; }
+
+/* Desktop: a centred panel (a phone on its side is short, so it keeps the full screen). */
+@media (min-width: 640px) and (min-height: 600px) {
   .voice-layer { align-items: center; background: var(--overlay); padding: 24px; }
   .voice-panel {
     width: 480px; height: min(780px, calc(100dvh - 48px));
@@ -62,7 +69,10 @@ html.kb-open .voice-layer { bottom: var(--kb, 0px); }
   font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.voice-top .voice-timer { margin: 0 auto; }
+.voice-top .voice-timer { margin: 0 auto; min-width: 0; flex-shrink: 1; overflow: hidden; text-overflow: ellipsis; }
+/* The pills, the notice buttons and ✕ look 36px but take a 44px tap. */
+.voice-pill, .voice-notice-btn, .voice-notice-close { position: relative; }
+.voice-pill::after, .voice-notice-btn::after, .voice-notice-close::after { content: ''; position: absolute; inset: -4px; }
 .voice-timer.is-warn { background: var(--warning-soft); border-color: transparent; color: var(--warning); }
 .voice-timer-left { font-weight: 700; }
 .voice-mode { flex: none; }
@@ -85,15 +95,27 @@ html.kb-open .voice-layer { bottom: var(--kb, 0px); }
 }
 .voice-notice-close { flex: none; width: 36px; height: 36px; border-radius: 50%; border: 0; background: none; color: var(--text-3); display: grid; place-items: center; }
 
-/* ---- the middle: orb, status, captions, cards ---- */
+/* ---- the middle: orb, status, captions, cards ----
+   One scrolling column (VoiceView keeps it at the newest line). Nothing in it shrinks, so a card
+   that arrives pushes the captions up instead of covering them. While a card waits (or work runs,
+   or the transcript is open) it goes compact: a smaller orb and caption, so the read-back and the
+   card fit on one phone screen. */
 .voice-scroll {
-  flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
   display: flex; flex-direction: column; align-items: stretch;
-  padding: 8px 0 16px;
+  padding: 8px 0 20px;
 }
-.voice-stage { display: flex; flex-direction: column; align-items: center; padding-top: clamp(4px, 3vh, 28px); }
-.voice-orb-wrap { position: relative; width: min(56vw, 240px, 32vh); aspect-ratio: 1; }
-@media (min-width: 640px) { .voice-orb-wrap { width: min(220px, 30vh); } }
+.voice-scroll > *, .voice-talk > *, .voice-captions > *, .voice-cards > * { flex-shrink: 0; }
+.voice-talk { display: flex; flex-direction: column; align-items: stretch; min-width: 0; }
+.voice-stage { display: flex; flex-direction: column; align-items: center; padding-top: clamp(4px, 3vh, 28px); transition: padding 0.25s var(--ease); }
+.voice-orb-wrap { position: relative; width: min(56vw, 240px, 32vh); aspect-ratio: 1; transition: width 0.3s var(--ease); }
+@media (min-width: 640px) and (min-height: 600px) { .voice-orb-wrap { width: min(220px, 30vh); } }
+.voice-scroll.is-compact .voice-stage { padding-top: 2px; }
+.voice-scroll.is-compact .voice-orb-wrap { width: min(112px, 18vh); }
+.voice-scroll.is-compact .voice-status { margin-top: 2px; font-size: 14px; }
+.voice-scroll.is-compact .voice-captions { margin-top: 8px; gap: 6px; }
+.voice-scroll.is-compact .voice-cap-daybook { font-size: 19px; line-height: 1.36; }
+.voice-scroll.is-compact .voice-cap-user { font-size: 15px; -webkit-line-clamp: 2; }
 .voice-orb-btn { all: unset; display: block; width: 100%; height: 100%; border-radius: 50%; cursor: pointer; }
 .voice-orb-btn:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
 .voice-orb { position: relative; width: 100%; height: 100%; }
@@ -111,16 +133,18 @@ html.kb-open .voice-layer { bottom: var(--kb, 0px); }
 }
 .voice-status { min-height: 22px; margin: 4px 0 0; font-size: 15px; font-weight: 600; color: var(--text-2); text-align: center; }
 
-.voice-captions { display: flex; flex-direction: column; gap: 10px; margin: 14px 0 0; min-height: 3.2em; text-align: center; }
+.voice-captions { display: flex; flex-direction: column; gap: 10px; margin: 14px 0 0; min-height: 3.2em; text-align: center; transition: margin 0.25s var(--ease); }
 .voice-cap-user {
-  margin: 0; color: var(--text-2); font-size: 16px; line-height: 1.4;
+  margin: 0 auto; max-width: 34ch; color: var(--text-2); font-size: 16px; line-height: 1.4;
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+  text-wrap: pretty;
 }
 .voice-cap-user .icon { vertical-align: -2px; margin-right: 6px; color: var(--text-3); }
 .voice-cap-daybook {
-  margin: 0; font-size: clamp(20px, 5.4vw, 26px); line-height: 1.32; font-weight: 600; letter-spacing: -0.01em;
-  color: var(--text);
+  margin: 0 auto; max-width: 30ch; font-size: clamp(20px, 5.4vw, 26px); line-height: 1.32; font-weight: 600; letter-spacing: -0.01em;
+  color: var(--text); font-variant-numeric: tabular-nums;
   padding: 4px 6px; border-radius: var(--r-md);
+  text-wrap: pretty; overflow-wrap: anywhere;
 }
 .voice-cap-daybook.is-preamble { font-style: italic; font-weight: 500; color: var(--text-2); }
 .voice-cap-daybook.is-cut { opacity: 0.55; }
@@ -135,27 +159,33 @@ html.kb-open .voice-layer { bottom: var(--kb, 0px); }
   min-height: 44px; padding: 0 14px; margin-top: 6px; border: 0; background: none;
   color: var(--text-2); font-size: 14px; font-weight: 600;
 }
-.voice-transcript { display: flex; flex-direction: column; margin-top: 8px; min-height: 0; }
+.voice-transcript { display: flex; flex-direction: column; margin-top: 8px; }
+.voice-transcript > * { flex-shrink: 0; }
+/* No scroller of its own: the call's column scrolls (and follows the newest line). */
 .voice-transcript-list {
-  list-style: none; margin: 0; padding: 4px 0; max-height: 46vh; overflow-y: auto;
+  list-style: none; margin: 0; padding: 4px 0;
   display: flex; flex-direction: column; gap: 8px;
 }
 .voice-turn {
-  max-width: 85%; padding: 8px 12px; border-radius: 16px; font-size: 15px; line-height: 1.4;
-  background: var(--surface); border: 1px solid var(--border);
+  max-width: 85%; padding: 8px 12px; border-radius: 18px; font-size: 15px; line-height: 1.4;
+  background: var(--surface); border: 1px solid var(--border); overflow-wrap: anywhere;
 }
-.voice-turn.is-u, .voice-turn.is-t { align-self: flex-end; background: var(--accent-soft); border-color: transparent; }
-.voice-turn.is-a { align-self: flex-start; }
+.voice-turn.is-u, .voice-turn.is-t { align-self: flex-end; background: var(--accent-soft); border-color: transparent; border-bottom-right-radius: 6px; }
+.voice-turn.is-a { align-self: flex-start; border-bottom-left-radius: 6px; }
 .voice-turn.is-preamble { font-style: italic; color: var(--text-2); }
 .voice-turn.is-cut { opacity: 0.6; }
 .voice-turn .icon { vertical-align: -2px; margin-right: 5px; color: var(--text-3); }
 
-.voice-cards { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+/* Chips, then "Working on it…", then the card waiting for a yes (last: nearest the thumb). */
+.voice-cards { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
 .voice-cards:empty { display: none; }
 .voice-cards .action-chips { margin: 0; }
-.voice-proposal .asst-proposal { margin: 0; }
-.voice-proposal-hint { margin: 6px 0 0; text-align: center; font-size: 13px; color: var(--text-3); }
-.voice-working { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 0; color: var(--text-2); font-size: 14px; }
+.voice-proposal { scroll-margin-bottom: 20px; }
+.voice-proposal .asst-proposal { margin: 0; box-shadow: var(--shadow-md); border: 1px solid var(--border); }
+.voice-proposal .asst-proposal.is-open { border-color: color-mix(in oklab, var(--accent) 35%, var(--border)); }
+.voice-proposal .asst-proposal-line { width: 100%; }
+.voice-proposal-hint { margin: 8px 0 0; text-align: center; font-size: 13px; color: var(--text-2); }
+.voice-working { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 32px; margin: 0; color: var(--text-2); font-size: 14px; }
 
 .voice-start-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 18px; }
 .voice-start-chips .chip { min-height: 44px; }
@@ -187,6 +217,12 @@ html.kb-open .voice-layer { bottom: var(--kb, 0px); }
 }
 .voice-hold.is-holding { transform: scale(1.06); box-shadow: 0 0 0 8px var(--accent-soft), var(--shadow-md); }
 .voice-ctrl-label { white-space: nowrap; }
+/* iPhone SE with Display Zoom (320px): Hold to talk and Mute give way so End stays on screen. */
+@media (max-width: 340px) {
+  .voice-controls { gap: 8px; padding-inline: 4px; }
+  .voice-ctrl-main { min-width: 0; padding: 0 16px; }
+  .voice-hold { min-width: 0; }
+}
 
 /* Typing in the call: rides above the keyboard (html.kb-open moves the whole layer up). */
 .voice-keyboard { padding: 8px 0 calc(var(--safe-bottom) + 10px); }
@@ -204,7 +240,9 @@ html.kb-open .voice-keyboard { padding-bottom: 8px; }
 .voice-quiet { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 4px 4px 0; font-size: 14px; color: var(--text-2); cursor: pointer; }
 .voice-quiet small { color: var(--text-3); }
 
-/* ---- summary, paused, errors ---- */
+/* ---- summary, paused, errors ----
+   They fill the column, so Done / Continue sit at the bottom, in reach, above the home indicator. */
+.voice-scroll > .voice-summary, .voice-scroll > .voice-error { flex: 1 0 auto; }
 .voice-summary, .voice-error { display: flex; flex-direction: column; gap: 16px; padding: 12px 0 calc(var(--safe-bottom) + 16px); }
 .voice-summary-head, .voice-error { text-align: center; align-items: center; }
 .voice-summary-icon, .voice-error-icon {
@@ -228,9 +266,31 @@ html.kb-open .voice-keyboard { padding-bottom: 8px; }
 .voice-intro-icon { flex: none; width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); }
 .voice-intro-start { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
 
+/* ---- a phone on its side: the orb and status on the left, the conversation scrolls on the right ---- */
+@media (orientation: landscape) and (max-height: 500px) {
+  .voice-panel { padding-top: max(6px, var(--safe-top)); }
+  .voice-top { min-height: 44px; }
+  .voice-scroll { flex-direction: row; align-items: flex-start; gap: 20px; padding: 4px 0 12px; }
+  .voice-stage { position: sticky; top: 0; flex: 0 0 auto; width: 30%; max-width: 220px; padding-top: 4px; }
+  .voice-orb-wrap, .voice-scroll.is-compact .voice-orb-wrap { width: min(96px, 26vh); }
+  .voice-talk { flex: 1 1 auto; max-width: 560px; }
+  .voice-captions { margin-top: 4px; text-align: left; }
+  .voice-cap-user, .voice-cap-daybook { margin: 0; max-width: none; }
+  .voice-cap-daybook { font-size: 19px; padding: 0; }
+  .voice-transcript-toggle { align-self: flex-start; padding-left: 0; }
+  .voice-start-chips { justify-content: flex-start; }
+  .voice-controls { padding: 6px 8px calc(var(--safe-bottom) + 6px); }
+  .voice-ctrl { width: 48px; height: 48px; }
+  .voice-ctrl-main { height: 50px; min-width: 120px; }
+  .voice-hold { height: 54px; min-width: 150px; }
+  .voice-scroll > .voice-summary, .voice-scroll > .voice-error { flex: 1 1 auto; }
+  .voice-summary-icon, .voice-error-icon { width: 44px; height: 44px; margin-top: 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .voice-layer, .voice-notice { animation: none; }
   .voice-dots i { animation: none; opacity: 0.6; }
   .voice-hold.is-holding { transform: none; }
-  .voice-ctrl { transition: none; }
+  .voice-ctrl, .voice-stage, .voice-orb-wrap, .voice-captions { transition: none; }
+  .voice-proposal .asst-proposal.is-arriving { animation: none; }
 }

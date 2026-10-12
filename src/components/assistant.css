@@ -237,7 +237,6 @@
   color: var(--text-2);
   font-size: 14px;
   text-align: left;
-  opacity: 0.85;
 }
 .asst-proposal-line .icon { flex-shrink: 0; color: var(--text-3); }
 .asst-proposal-line-status { flex-shrink: 0; font-weight: 600; }
@@ -416,21 +415,36 @@
   pointer-events: none;
 }
 
-/* The attachment tray (or the tip above the bar) makes the dock taller: keep the newest message clear of it. */
-.assistant:has(.composer.has-attachments) .chat-end {
-  scroll-margin-bottom: calc(var(--nav-h) + var(--safe-bottom) + 170px + var(--gymw-pill-space, 0px));
-}
-.assistant:has(.asst-tip) .chat-end, .assistant:has(.asst-dock-row) .chat-end {
-  scroll-margin-bottom: calc(var(--nav-h) + var(--safe-bottom) + 150px + var(--gymw-pill-space, 0px));
-}
-/* The offline line adds one more row. */
-.assistant:has(.asst-offline) .chat-end {
-  scroll-margin-bottom: calc(var(--nav-h) + var(--safe-bottom) + 190px + var(--gymw-pill-space, 0px));
+/* The newest message scrolls clear of the dock, whatever is in it (offline line, tip, Prompts row,
+   attachment tray, a taller field): AssistantPage measures the dock into --dock-h. The dock sticks
+   10px above the tab bar (and the workout pill); 12px more keeps a gap above it. */
+.page-assistant .assistant .chat-end {
+  scroll-margin-bottom: calc(var(--dock-h, 124px) + var(--nav-h) + var(--safe-bottom) + 22px + var(--gymw-pill-space, 0px));
 }
 @media (min-width: 900px) {
-  .assistant:has(.composer.has-attachments) .chat-end { scroll-margin-bottom: 176px; }
-  .assistant:has(.asst-tip) .chat-end, .assistant:has(.asst-dock-row) .chat-end { scroll-margin-bottom: 150px; }
-  .assistant:has(.asst-offline) .chat-end { scroll-margin-bottom: 190px; }
+  .page-assistant .assistant .chat-end { scroll-margin-bottom: calc(var(--dock-h, 96px) + 16px); }
+}
+
+/* Behind the dock, a soft fade to the page colour (like the top bar's), so messages scrolling under
+   the glass pills and the gap above the tab bar don't show through as clutter. It reaches down
+   behind the tab bar on phones; taps pass through it. */
+.page-assistant .composer-dock { isolation: isolate; }
+.page-assistant .composer-dock::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  left: calc(-1 * var(--page-pad, 16px));
+  right: calc(-1 * var(--page-pad, 16px));
+  top: -24px;
+  bottom: calc(-1 * (var(--nav-h) + var(--safe-bottom) + 10px + var(--gymw-pill-space, 0px)));
+  background: linear-gradient(to top, var(--bg) 58%, transparent);
+  pointer-events: none;
+}
+@media (min-width: 900px) {
+  .page-assistant .composer-dock::before { bottom: 0; }
+}
+@media (pointer: coarse) {
+  .shell:has(input:focus, textarea:focus) .page-assistant .composer-dock::before { bottom: 0; }
 }
 
 .asst-composer-wrap { position: relative; }

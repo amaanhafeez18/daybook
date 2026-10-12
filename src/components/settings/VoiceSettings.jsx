@@ -5,16 +5,18 @@ import { Button, Segmented, Switch } from '../ui/primitives.jsx'
 import { readPref, writePref } from '../../lib/api.js'
 import { updateSettings } from '../../lib/store.js'
 import { capCeiling, formatUsd } from '../../lib/aiPricing.js'
-import { BUDGET_DEFAULT, BUDGET_OPTIONS, BUDGET_WARN, VOICE_DEFAULTS, VOICE_OPTIONS, budgetUsd, voicePrefs } from '../../lib/voice/prefs.js'
+import { BUDGET_DEFAULT, BUDGET_OPTIONS, BUDGET_WARN, VOICE_DEFAULTS, VOICE_OPTIONS, VOICE_RECOMMENDED, budgetUsd, voicePrefs } from '../../lib/voice/prefs.js'
 import { useAiUsage } from '../../lib/aiUsageClient.js'
 import { rawVoice } from '../voice/TalkButton.jsx'
+import VoicePicker, { voiceLabel } from '../voice/VoicePicker.jsx'
 import { BudgetMeter } from './UsageBars.jsx'
 import UsageSheet from './UsageSheet.jsx'
 import './usage.css'
 
 // Settings → "Voice & AI cost" (#/settings/voice; #/settings/usage also opens the calculator).
-// Basics: voice chat on or off, how you talk (per device), the daily limit with what it can cost at
-// most, and this month's AI spend against the budget. Everything else sits under one "Advanced".
+// Basics: voice chat on or off, how you talk (per device), Daybook's voice (a sheet with a sample of
+// each), the daily limit with what it can cost at most, and this month's AI spend against the
+// budget. Everything else sits under one "Advanced".
 // settings.voice (synced) holds the voice prefs and settings.aiBudgetUsd the monthly budget (both
 // normalized by lib/voice/prefs.js; missing means the default). How you talk and the iPhone call
 // audio switch are per device (readPref 'voice.mode', 'voice.audioSession').
@@ -25,10 +27,8 @@ const MODE_HINTS = {
   hold: 'Best on the phone speaker: hold the button while you talk.',
 }
 const QUIET_LABELS = { 30: '30 s', 60: '1 min', 120: '2 min' }
-const VOICE_LABELS = { marin: 'Marin', cedar: 'Cedar' }
 const USAGE_HASH = /^#\/?settings\/usage\b/
 const quietLabel = (seconds) => QUIET_LABELS[seconds] || `${seconds} s`
-const voiceLabel = (id) => VOICE_LABELS[id] || id.charAt(0).toUpperCase() + id.slice(1)
 const budgetLabel = (usd) => (usd > 0 ? `$${Number(usd.toFixed(2))}` : 'Off')
 
 export default function VoiceSettings({ settings, openUsage = false }) {
@@ -38,6 +38,7 @@ export default function VoiceSettings({ settings, openUsage = false }) {
   const [mode, setMode] = useState(() => (readPref('voice.mode', 'open') === 'hold' ? 'hold' : 'open'))
   const [callAudio, setCallAudio] = useState(() => readPref('voice.audioSession', 'play-and-record') !== 'auto')
   const [sheetOpen, setSheetOpen] = useState(openUsage)
+  const [voiceOpen, setVoiceOpen] = useState(false)
 
   // #/settings/usage while Settings is already open (the assistant's link, the call summary).
   useEffect(() => {
@@ -65,10 +66,10 @@ export default function VoiceSettings({ settings, openUsage = false }) {
   const budgetOptions = BUDGET_OPTIONS.map((value) => ({ id: value, label: budgetLabel(value) }))
   if (!BUDGET_OPTIONS.includes(budget)) budgetOptions.push({ id: budget, label: budgetLabel(budget) })
 
-  const advanced = [`${prefs.sessionMinutes}-min calls`, `hang up after ${quietLabel(prefs.silenceSeconds)} quiet`, voiceLabel(prefs.voice), budget > 0 ? `${budgetLabel(budget)} budget` : 'no budget']
+  const advanced = [`${prefs.sessionMinutes}-min calls`, `hang up after ${quietLabel(prefs.silenceSeconds)} quiet`, budget > 0 ? `${budgetLabel(budget)} budget` : 'no budget']
   if (!callAudio) advanced.push('call audio off')
   const advancedCustom = prefs.sessionMinutes !== VOICE_DEFAULTS.sessionMinutes || prefs.silenceSeconds !== VOICE_DEFAULTS.silenceSeconds
-    || prefs.voice !== VOICE_DEFAULTS.voice || budget !== BUDGET_DEFAULT || !callAudio
+    || budget !== BUDGET_DEFAULT || !callAudio
 
   return (
     <section className="settings-group" id="voice">
@@ -84,6 +85,12 @@ export default function VoiceSettings({ settings, openUsage = false }) {
               <Segmented options={MODE_OPTIONS} value={mode} onChange={chooseMode} label="How you talk" />
               <p className="set-note">{MODE_HINTS[mode]}</p>
             </div>
+            <button type="button" className="set-row set-link-row usage-open-row voice-pick-row" onClick={() => setVoiceOpen(true)} aria-haspopup="dialog">
+              <span className="usage-open-icon" aria-hidden="true"><Icon name="waveform" size={18} /></span>
+              <span className="set-label">Voice</span>
+              <span className="set-link-value">{voiceLabel(prefs.voice)}{VOICE_RECOMMENDED.includes(prefs.voice) ? ' · Recommended' : ''}</span>
+              <Icon name="chevronRight" size={18} />
+            </button>
             <div className="set-row is-stacked">
               <span className="set-label">Daily limit</span>
               <Segmented options={VOICE_OPTIONS.dailyMinutes.map((value) => ({ id: value, label: `${value} min` }))} value={prefs.dailyMinutes} onChange={(dailyMinutes) => setVoice({ dailyMinutes })} label="Daily voice limit" />
@@ -114,11 +121,6 @@ export default function VoiceSettings({ settings, openUsage = false }) {
             <Segmented options={VOICE_OPTIONS.silenceSeconds.map((value) => ({ id: value, label: quietLabel(value) }))} value={prefs.silenceSeconds} onChange={(silenceSeconds) => setVoice({ silenceSeconds })} label="Hang up after quiet" />
           </div>
           <div className="set-row is-stacked">
-            <span className="set-label">Voice</span>
-            <Segmented options={VOICE_OPTIONS.voice.map((id) => ({ id, label: voiceLabel(id) }))} value={prefs.voice} onChange={(voice) => setVoice({ voice })} label="Voice" />
-            <p className="set-note">From your next call.</p>
-          </div>
-          <div className="set-row is-stacked">
             <span className="set-label">Monthly AI budget</span>
             <Segmented options={budgetOptions} value={budget} onChange={(aiBudgetUsd) => updateSettings({ aiBudgetUsd })} label="Monthly AI budget" className="usage-budget-seg" />
             <p className="set-note">{budget > 0 ? 'Voice chats pause when this month’s AI spend reaches it. Typing keeps working.' : 'No budget: voice chats stop only at the daily limit.'}</p>
@@ -130,6 +132,7 @@ export default function VoiceSettings({ settings, openUsage = false }) {
         <p className="set-footnote">Your voice and today’s plan go to OpenAI, like typed chat. If iPhone keeps asking for the mic: Settings → Apps → Safari → Microphone → Allow.</p>
       </Disclosure>
 
+      <VoicePicker open={voiceOpen} onClose={() => setVoiceOpen(false)} value={prefs.voice} onChange={(voice) => setVoice({ voice })} />
       <UsageSheet open={sheetOpen} onClose={() => setSheetOpen(false)} usage={usage} prefs={prefs} budget={budget} />
     </section>
   )

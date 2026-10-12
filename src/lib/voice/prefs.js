@@ -7,8 +7,13 @@
 //   'voice.audioSession', 'voice.introSeen', 'voice.echoTipShown'.
 // Pure module with zero imports.
 
+// The realtime voices (gpt-realtime 2.x). Marin and Cedar first: OpenAI's recommended pair. Every voice
+// costs the same (pricing is per token, not per voice). public/voices/<id>.mp3 holds a short sample
+// of each (scripts/make_voice_samples.mjs).
+export const VOICE_NAMES = ['marin', 'cedar', 'alloy', 'ash', 'ballad', 'coral', 'echo', 'sage', 'shimmer', 'verse']
+export const VOICE_RECOMMENDED = ['marin', 'cedar']
 export const VOICE_DEFAULTS = { enabled: true, dailyMinutes: 30, sessionMinutes: 15, silenceSeconds: 60, voice: 'marin' }
-export const VOICE_OPTIONS = { dailyMinutes: [10, 20, 30, 60], sessionMinutes: [5, 10, 15], silenceSeconds: [30, 60, 120], voice: ['marin', 'cedar'] }
+export const VOICE_OPTIONS = { dailyMinutes: [10, 20, 30, 60], sessionMinutes: [5, 10, 15], silenceSeconds: [30, 60, 120], voice: VOICE_NAMES }
 export const BUDGET_DEFAULT = 20
 export const BUDGET_OPTIONS = [0, 5, 10, 20, 50]
 export const BUDGET_WARN = 0.8 // share of the budget that brings the "80% used" heads-up

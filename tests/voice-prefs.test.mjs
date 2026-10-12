@@ -1,12 +1,14 @@
 // Voice chat and AI budget settings (src/lib/voice/prefs.js).
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { BUDGET_DEFAULT, BUDGET_OPTIONS, BUDGET_WARN, VOICE_DEFAULTS, VOICE_OPTIONS, budgetUsd, callLimits, voicePrefs } from '../src/lib/voice/prefs.js'
+import { BUDGET_DEFAULT, BUDGET_OPTIONS, BUDGET_WARN, VOICE_DEFAULTS, VOICE_NAMES, VOICE_OPTIONS, VOICE_RECOMMENDED, budgetUsd, callLimits, voicePrefs } from '../src/lib/voice/prefs.js'
 
 describe('voicePrefs', () => {
   test('defaults', () => {
     assert.deepEqual(VOICE_DEFAULTS, { enabled: true, dailyMinutes: 30, sessionMinutes: 15, silenceSeconds: 60, voice: 'marin' })
-    assert.deepEqual(VOICE_OPTIONS, { dailyMinutes: [10, 20, 30, 60], sessionMinutes: [5, 10, 15], silenceSeconds: [30, 60, 120], voice: ['marin', 'cedar'] })
+    assert.deepEqual(VOICE_OPTIONS, { dailyMinutes: [10, 20, 30, 60], sessionMinutes: [5, 10, 15], silenceSeconds: [30, 60, 120], voice: ['marin', 'cedar', 'alloy', 'ash', 'ballad', 'coral', 'echo', 'sage', 'shimmer', 'verse'] })
+    assert.deepEqual(VOICE_RECOMMENDED, ['marin', 'cedar'])
+    assert.equal(VOICE_OPTIONS.voice, VOICE_NAMES)
     assert.deepEqual(voicePrefs({}), VOICE_DEFAULTS)
     assert.deepEqual(voicePrefs(null), VOICE_DEFAULTS)
     assert.deepEqual(voicePrefs({ voice: 'marin' }), VOICE_DEFAULTS) // not an object
@@ -18,11 +20,14 @@ describe('voicePrefs', () => {
   })
 
   test('numbers clamp to the nearest option; anything else is the default', () => {
-    const prefs = voicePrefs({ voice: { enabled: 'yes', dailyMinutes: 999, sessionMinutes: 1, silenceSeconds: '100', voice: 'Alloy' } })
+    const prefs = voicePrefs({ voice: { enabled: 'yes', dailyMinutes: 999, sessionMinutes: 1, silenceSeconds: '100', voice: 'Nova' } })
     assert.deepEqual(prefs, { enabled: true, dailyMinutes: 60, sessionMinutes: 5, silenceSeconds: 120, voice: 'marin' })
     const bad = voicePrefs({ voice: { dailyMinutes: 'lots', sessionMinutes: NaN, silenceSeconds: null, voice: 7 } })
     assert.deepEqual(bad, VOICE_DEFAULTS)
     assert.equal(voicePrefs({ voice: { voice: ' Cedar ' } }).voice, 'cedar')
+    assert.equal(voicePrefs({ voice: { voice: 'Alloy' } }).voice, 'alloy')
+    assert.equal(voicePrefs({ voice: { voice: 'shimmer' } }).voice, 'shimmer')
+    assert.equal(voicePrefs({ voice: { voice: 'fable' } }).voice, 'marin') // a TTS-only voice the realtime model doesn't have
   })
 })
 

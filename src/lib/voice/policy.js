@@ -108,6 +108,66 @@ export function canContinue(end, { dailyLeftSec = Infinity, budgetPct = 0 } = {}
   return CONTINUE_ENDS.has(end) && !(Number(dailyLeftSec) < 60) && !(Number(budgetPct) >= 1)
 }
 
+// ---- after a tool batch -----------------------------------------------------------------------------
+
+const QUIET_TOOLS = new Set(['ask_daybook', 'end_call', 'confirm_pending', 'undo_last'])
+// Daybook asked whether to go ahead: it ended on a question ("…Save it?"), or its last sentence is
+// the ask ("Save it.", "Should I log that", "Want me to add it"). "Let me add that." is a preamble.
+const QUESTION_END = /\?\s*["”’)]*\s*$/
+const ASK_SENTENCE = /^(?:(?:so|okay|ok|alright),?\s+)?(?:(?:save|log|add|keep) (?:it|that|this|them)\b|(?:should|shall) i\b|(?:want|would you like) me to\b|go ahead\b)/i
+function asked(text) {
+  const said = String(text || '').trim()
+  if (!said) return false
+  if (QUESTION_END.test(said)) return true
+  const last = said.replace(/[\s"”’).!]+$/, '').split(/(?<=[.!?])\s+/).pop() || ''
+  return ASK_SENTENCE.test(last.trim())
+}
+
+function parsed(output) {
+  if (output && typeof output === 'object') return output
+  try {
+    return JSON.parse(String(output ?? ''))
+  } catch {
+    return null
+  }
+}
+
+// Whether Daybook can stay quiet after a batch's results: every call was a change that was staged
+// cleanly (nothing to warn about) and the same response already asked whether to go ahead. The text
+// assistant skips that follow-up too; asking again was a second "Save it?" right after the first.
+//   calls: [{ name, output (JSON text or object) }];  said: what Daybook said in that response
+export function skipFollowUp({ calls = [], said = '' } = {}) {
+  if (!Array.isArray(calls) || !calls.length) return false
+  if (!asked(said)) return false
+  return calls.every((call) => {
+    if (!call || QUIET_TOOLS.has(call.name)) return false
+    const output = parsed(call.output)
+    return !!output && output.ok === true && output.staged === true && !output.warning && !output.clash && !output.assumed
+  })
+}
+
+// The note Daybook gets after a Save / No tap on the card (a system item), so it answers in one short
+// spoken line and never calls confirm_pending for a card that's already settled.
+//   decision 'yes'|'no';  status: the card's status after the tap;  what: what was saved;  said: the
+//   server's own words (errors)
+export function tapNote({ decision = 'yes', status = '', what = '', said = '' } = {}) {
+  const clip = (text, max = 300) => {
+    // The template adds its own full stop ("…(1,220 left)." would end up "…left).. Nothing").
+    const value = String(text ?? '').replace(/\s+/g, ' ').trim().replace(/[.\s]+$/, '')
+    return value.length > max ? `${value.slice(0, max - 1)}…` : value
+  }
+  const saved = ['done', 'executing', 'partial'].includes(status)
+  const settled = 'It\'s settled: don\'t call confirm_pending for it.'
+  if (decision === 'no') {
+    if (saved) return `The user tapped No on the card, but it was already saved: ${clip(what) || 'the change'}. ${settled} Say so in one short sentence and offer to undo it.`
+    return `The user tapped No on the card, so nothing was saved. ${settled} Say one short line like "Okay, I won't save it." Then stop.`
+  }
+  if (status === 'partial') return `The user tapped Save on the card. Only some of it saved: ${clip(said || what)}. ${settled} Say in one short sentence what saved and what didn't.`
+  if (saved) return `The user tapped Save on the card, so it's saved now: ${clip(what) || 'the change'}. Nothing is waiting any more. ${settled} Reply in one short sentence that it's saved, like "Done, saved your breakfast." Then stop.`
+  if (status === 'cancelled') return `The user tapped Save, but that card had already been cancelled, so nothing was saved. ${settled} Say that in one short line.`
+  return `The user tapped Save on the card, but it didn't save: ${clip(said) || 'something went wrong'}. ${settled} Say that in one short sentence and offer to try again.`
+}
+
 // "4:12" from seconds.
 export function clock(seconds) {
   const total = Math.max(0, Math.floor(Number(seconds) || 0))

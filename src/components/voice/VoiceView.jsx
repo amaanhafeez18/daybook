@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import Icon from '../ui/Icon.jsx'
 import { ActionSheet } from '../ui/ActionSheet.jsx'
@@ -8,6 +8,7 @@ import { ProposalCard } from '../../pages/AssistantPage.jsx'
 import { haptic } from '../../lib/haptics.js'
 import { isTyping, watchKeyboard } from '../../lib/keyboard.js'
 import { formatUsd } from '../../lib/aiPricing.js'
+import { scrollBehavior } from '../../lib/motion.js'
 import { HOLD_SLIDE_PX, clock } from '../../lib/voice/policy.js'
 import { latestPair } from '../../lib/voice/transcript.js'
 import {
@@ -16,13 +17,20 @@ import {
 } from '../../lib/voice/session.js'
 import Orb from './Orb.jsx'
 import VoiceSummary from './VoiceSummary.jsx'
+import { cardWords } from './cardWords.js'
 import './voice.css'
 
 // The voice chat screen: a full-screen layer over the app (not a route: the page's hash never
 // changes during a call). Top: close, the timer with the running cost, the mic mode. Middle: the
-// orb, what it's doing, the latest exchange as captions, and the cards (Undo chips, a change waiting
-// for a yes, "Working on it…"). Bottom: keyboard, Mute or Hold to talk, End. Desktop: a centred
-// panel; Space holds, M mutes, K types, Esc ends.
+// orb, what it's doing, the latest exchange as captions, and the cards (Undo chips, "Working on it…",
+// then a change waiting for a yes, nearest the thumb). Everything in the middle is one scrolling
+// column that follows the newest line and card (unless they scrolled up to read), so a card never
+// covers the captions; while a card waits, the orb shrinks so the read-back and the card fit on one
+// screen. Bottom: keyboard, Mute or Hold to talk, End. Desktop: a centred panel; Space holds, M mutes,
+// K types, Esc ends. A phone on its side: the orb on the left, the conversation on the right.
+//
+// `voice`, `inline` and `level` are for the dev preview (#/voice-preview): a fixed state drawn in
+// place instead of the live call's, with no focus trap and no keys, and a made-up orb level.
 
 const STATUS_TEXT = {
   connecting: 'Connecting…',
@@ -59,8 +67,9 @@ function useThrottled(value, ms) {
   return shown
 }
 
-export default function VoiceView() {
-  const voice = useVoice()
+export default function VoiceView({ voice: given = null, inline = false, level = voiceLevel }) {
+  const current = useVoice()
+  const voice = given || current
   const layerRef = useRef(null)
   const returnFocus = useRef(null)
   const statusRef = useRef(voice.status)
@@ -68,6 +77,7 @@ export default function VoiceView() {
 
   // Focus moves in on open and back out on close; Tab stays inside.
   useEffect(() => {
+    if (inline) return undefined
     returnFocus.current = document.activeElement
     const layer = layerRef.current
     layer?.focus({ preventScroll: true })
@@ -98,22 +108,22 @@ export default function VoiceView() {
       const target = returnFocus.current
       if (target?.isConnected) target.focus?.({ preventScroll: true })
     }
-  }, [])
+  }, [inline])
 
   const showSummary = voice.status === 'paused' || voice.status === 'ended' || voice.status === 'ending'
 
-  return createPortal(
-    <div className={`voice-layer is-${voice.status}`} role="dialog" aria-modal="true" aria-label="Voice chat" ref={layerRef} tabIndex={-1}>
+  const layer = (
+    <div className={`voice-layer is-${voice.status} ${inline ? 'is-inline' : ''}`} role="dialog" aria-modal={inline ? undefined : 'true'} aria-label="Voice chat" ref={layerRef} tabIndex={-1}>
       <div className="voice-panel">
         {voice.status === 'error'
           ? <VoiceError voice={voice} />
           : showSummary
             ? <SummaryScreen voice={voice} />
-            : <LiveCall voice={voice} />}
+            : <LiveCall voice={voice} inline={inline} level={level} />}
       </div>
-    </div>,
-    document.body,
+    </div>
   )
+  return inline ? layer : createPortal(layer, document.body)
 }
 
 function SummaryScreen({ voice }) {
@@ -135,17 +145,50 @@ function SummaryScreen({ voice }) {
 
 // ---- the live call ---------------------------------------------------------------------------------
 
-function LiveCall({ voice }) {
+// A settled card (Done) stays in view for a moment, then only its chips remain (they say the same).
+const DONE_SHOWN_MS = 2600
+const OPEN_CARD = new Set(['pending', 'executing'])
+
+function LiveCall({ voice, inline = false, level = voiceLevel }) {
   const [modeOpen, setModeOpen] = useState(false)
   const [transcriptOpen, setTranscriptOpen] = useState(false)
   const [detail, setDetail] = useState(false)
   const live = voice.status === 'live'
   const label = statusText(voice)
   const announced = useThrottled(label, 1500)
+  const scrollRef = useRef(null)
+  const cardRef = useRef(null)
+  const pinned = useRef(true) // following the newest line; off once they scroll up to read
+  const proposal = voice.proposal
+  const cardOpen = OPEN_CARD.has(proposal?.status)
+  const showCard = useCardShown(proposal, voice.actions)
+  // The keyboard (Quiet replies) takes half the screen, and iOS vh ignores it: compact then too.
+  const compact = cardOpen || voice.working > 0 || transcriptOpen || Boolean(voice.keyboard)
+  const lastTurn = voice.turns[voice.turns.length - 1]
+
+  const onScroll = () => {
+    const element = scrollRef.current
+    if (element) pinned.current = element.scrollHeight - element.scrollTop - element.clientHeight < 48
+  }
+  // Before paint, so a growing caption or a new card never flashes below the fold.
+  useLayoutEffect(() => {
+    const element = scrollRef.current
+    if (element && pinned.current) element.scrollTop = element.scrollHeight
+  }, [voice.turns.length, lastTurn?.text?.length, proposal?.id, proposal?.status, showCard, voice.actions.length, voice.working, transcriptOpen, compact, voice.keyboard, voice.notice?.id])
+  // A new card waiting for a yes (or the waiting card changed in place: same id, next revision): back
+  // to following, and the card's buttons come into view.
+  useEffect(() => {
+    if (!proposal?.id || proposal.status !== 'pending') return undefined
+    pinned.current = true
+    const frame = requestAnimationFrame(() => cardRef.current?.scrollIntoView({ block: 'end', behavior: scrollBehavior() }))
+    return () => cancelAnimationFrame(frame)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proposal?.id, proposal?.revision])
 
   // Desktop keys: Space holds (hold mode), M mutes, K types, Esc ends. Never while typing or while
   // a sheet (the mode menu) is open.
   useEffect(() => {
+    if (inline) return undefined
     let spaceDown = false
     const blocked = () => document.documentElement.classList.contains('has-sheet') || isTyping(document.activeElement)
     const onDown = (event) => {
@@ -191,7 +234,7 @@ function LiveCall({ voice }) {
       window.removeEventListener('keyup', onUp)
       if (spaceDown) holdEnd()
     }
-  }, [voice.mode, live])
+  }, [voice.mode, live, inline])
 
   useEffect(() => {
     if (!detail) return undefined
@@ -207,12 +250,13 @@ function LiveCall({ voice }) {
   const finished = [...(voice.turns || [])].reverse().find((turn) => !turn.partial && turn.phase !== 'commentary'
     && String(turn.text || '').trim() && (turn.r === 'u' || (turn.r === 'a' && voice.quiet)))
   const finishedText = finished ? `${finished.r === 'a' ? 'Daybook' : 'You'}: ${finished.text}` : ''
+  const words = cardWords(proposal)
 
   return (
     <>
       <div className="voice-top">
-        <button type="button" className="voice-round-btn" onClick={() => endVoice('user')} aria-label="End voice chat">
-          <Icon name="chevronDown" size={22} />
+        <button type="button" className="voice-round-btn" onClick={() => endVoice('user')} aria-label="End and save the voice chat" title="End and save">
+          <Icon name="close" size={20} />
         </button>
         <button
           type="button"
@@ -222,8 +266,9 @@ function LiveCall({ voice }) {
         >
           {voice.warnTime && <span className="voice-timer-left">{Math.max(1, Math.ceil((voice.leftSec || 0) / 60))} min left ·</span>}
           <span>{clock(voice.seconds)}</span>
-          <span aria-hidden="true">·</span>
-          <span>≈{formatUsd(voice.usd, { cents: true })}</span>
+          {/* In the last minute the cost gives way (tap for it), so the pill keeps Open mic on screen. */}
+          {!voice.warnTime && <span aria-hidden="true">·</span>}
+          {!voice.warnTime && <span>≈{formatUsd(voice.usd, { cents: true })}</span>}
         </button>
         <button type="button" className="voice-pill voice-mode" onClick={() => setModeOpen(true)} aria-haspopup="dialog">
           <Icon name={voice.mode === 'hold' ? 'speaker' : 'headphones'} size={15} />
@@ -238,56 +283,70 @@ function LiveCall({ voice }) {
       )}
       <Notice notice={voice.notice} />
 
-      <div className="voice-scroll">
+      <div ref={scrollRef} onScroll={onScroll} className={`voice-scroll ${compact ? 'is-compact' : ''}`}>
         <div className="voice-stage">
-          <OrbButton voice={voice} speaking={speaking} />
+          <OrbButton voice={voice} speaking={speaking} level={level} />
           <p className="voice-status" aria-hidden="true">{label || ' '}</p>
           <p className="sr-only" aria-live="polite">{announced}</p>
           <p className="sr-only" aria-live="polite">{finishedText}</p>
+          <p className="sr-only" aria-live="polite">{ackText(voice.ack)}</p>
         </div>
 
-        {transcriptOpen
-          ? <Transcript turns={voice.turns} onClose={() => setTranscriptOpen(false)} />
-          : <Captions user={user} assistant={assistant} />}
-        {!transcriptOpen && voice.turns.length > 2 && (
-          <button type="button" className="voice-transcript-toggle" onClick={() => setTranscriptOpen(true)} aria-expanded="false">
-            Transcript
-            <Icon name="chevronUp" size={14} />
-          </button>
-        )}
-
-        <div className="voice-cards">
-          {voice.working > 0 && (
-            <p className="voice-working" role="status">
-              <span className="spinner" aria-hidden="true" />
-              Working on it…
-            </p>
+        <div className="voice-talk">
+          {transcriptOpen
+            ? <Transcript turns={voice.turns} onClose={() => setTranscriptOpen(false)} />
+            : <Captions user={user} assistant={assistant} />}
+          {!transcriptOpen && voice.turns.length > 2 && (
+            <button type="button" className="voice-transcript-toggle" onClick={() => setTranscriptOpen(true)} aria-expanded="false">
+              Transcript
+              <Icon name="chevronUp" size={14} />
+            </button>
           )}
-          {voice.proposal && (
-            <div className="voice-proposal">
-              <ProposalCard proposal={voice.proposal} createdAt={voice.proposal.createdAt} isLast busy={voice.deciding} onDecide={(decision) => {
-                haptic(decision === 'yes' ? 'success' : 'light')
-                decideCard(voice.proposal.id, decision)
-              }} />
-              {voice.proposal.status === 'pending' && <p className="voice-proposal-hint">or just say yes</p>}
+
+          <div className="voice-cards">
+            {voice.actions.length > 0 && <ActionChips actions={voice.actions.slice(-6)} createdAt={voice.startedAt} onUndo={(undoId) => {
+              haptic()
+              return undoCard(undoId)
+            }} />}
+            {voice.working > 0 && (
+              <p className="voice-working" role="status">
+                <span className="spinner" aria-hidden="true" />
+                Working on it…
+              </p>
+            )}
+            {proposal && showCard && (
+              <div key={proposal.id} className="voice-proposal" ref={cardRef}>
+                <ProposalCard
+                  proposal={proposal}
+                  createdAt={proposal.createdAt}
+                  // A card that was replaced or cancelled folds to one line.
+                  isLast={cardOpen || ['done', 'partial', 'failed'].includes(proposal.status)}
+                  busy={voice.deciding || proposal.status === 'executing'}
+                  arriving={proposal.status === 'pending'}
+                  yesLabel={words.yes}
+                  onDecide={(decision) => {
+                    haptic(decision === 'yes' ? 'success' : 'light')
+                    decideCard(proposal.id, decision)
+                  }}
+                />
+                {proposal.status === 'pending' && (
+                  <p className="voice-proposal-hint">{proposal.revision > 1 ? 'Updated · ' : ''}or say “{words.say}”</p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {live && !voice.hasUserTurn && voice.startChips.length > 0 && (
+            <div className="voice-start-chips" role="group" aria-label="Ideas to start">
+              {voice.startChips.map((chip) => (
+                <button key={chip.id} type="button" className="chip" onClick={() => {
+                  haptic()
+                  sendTyped(chip.text)
+                }}>{chip.label}</button>
+              ))}
             </div>
           )}
-          {voice.actions.length > 0 && <ActionChips actions={voice.actions.slice(-6)} createdAt={voice.startedAt} onUndo={(undoId) => {
-            haptic()
-            return undoCard(undoId)
-          }} />}
         </div>
-
-        {live && !voice.hasUserTurn && voice.startChips.length > 0 && (
-          <div className="voice-start-chips" role="group" aria-label="Ideas to start">
-            {voice.startChips.map((chip) => (
-              <button key={chip.id} type="button" className="chip" onClick={() => {
-                haptic()
-                sendTyped(chip.text)
-              }}>{chip.label}</button>
-            ))}
-          </div>
-        )}
       </div>
 
       {voice.keyboard ? <KeyboardBar voice={voice} /> : <Controls voice={voice} live={live} />}
@@ -305,9 +364,36 @@ function LiveCall({ voice }) {
   )
 }
 
-function OrbButton({ voice, speaking }) {
+// The last Save / No tapped on the card, for screen readers (Daybook also says it out loud).
+function ackText(ack) {
+  if (!ack) return ''
+  // No tapped on a card a spoken yes had already saved comes back not-ok, but it is saved.
+  if (ack.already && ['done', 'executing', 'partial'].includes(ack.status)) return 'Already saved.'
+  if (ack.already && ack.status === 'cancelled') return 'Not saved.'
+  if (!ack.ok) return 'That didn’t work.'
+  if (ack.decision === 'no') return 'Not saved.'
+  if (ack.status === 'partial') return 'Saved some of it.'
+  return ack.already ? 'Already saved.' : 'Saved.'
+}
+
+// Whether the card is still drawn: a Done card gives way to its chips after a moment (the chips
+// carry the same news, with Undo); anything else stays.
+function useCardShown(proposal, actions) {
+  const [hiddenId, setHiddenId] = useState(null)
+  const id = proposal?.id || null
+  const done = proposal?.status === 'done'
+  const hasChips = (Array.isArray(actions) ? actions : []).some((action) => action?.ok)
+  useEffect(() => {
+    if (!id || !done || !hasChips) return undefined
+    const timer = setTimeout(() => setHiddenId(id), DONE_SHOWN_MS)
+    return () => clearTimeout(timer)
+  }, [id, done, hasChips])
+  return !(id && done && hasChips && hiddenId === id)
+}
+
+function OrbButton({ voice, speaking, level }) {
   const muted = voice.muted && voice.mode === 'open'
-  const orb = <Orb activity={voice.activity} status={voice.status} muted={muted} level={voiceLevel} />
+  const orb = <Orb activity={voice.activity} status={voice.status} muted={muted} level={level} />
   return (
     <div className="voice-orb-wrap">
       {speaking ? (
@@ -342,19 +428,16 @@ function Captions({ user, assistant }) {
   )
 }
 
+// The whole conversation, in the call's one scrolling column (no scroller of its own: the column
+// follows the newest line).
 function Transcript({ turns, onClose }) {
-  const ref = useRef(null)
-  useEffect(() => {
-    const element = ref.current
-    if (element) element.scrollTop = element.scrollHeight
-  }, [turns.length])
   return (
     <section className="voice-transcript" aria-label="Transcript">
       <button type="button" className="voice-transcript-toggle" onClick={onClose} aria-expanded="true">
         Hide transcript
         <Icon name="chevronDown" size={14} />
       </button>
-      <ol ref={ref} className="voice-transcript-list" aria-live="off">
+      <ol className="voice-transcript-list" aria-live="off">
         {turns.filter((turn) => String(turn.text || '').trim()).map((turn) => (
           <li key={turn.id} className={`voice-turn is-${turn.r} ${turn.phase === 'commentary' ? 'is-preamble' : ''} ${turn.interrupted ? 'is-cut' : ''}`}>
             {turn.r === 't' && <Icon name="keyboard" size={13} />}
