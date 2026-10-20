@@ -13,6 +13,7 @@ Production: https://daybook-smoky-seven.vercel.app · Repo: github.com/amaanhafe
 
 ## Run locally
 - `npm run dev:full` → `vercel dev` (Vite + `/api` functions) on http://localhost:3000. `npm run dev` is frontend only.
+- **Cloud sessions** (Linux, keys in the environment, no `gh`: use the GitHub MCP tools): the SessionStart hook puts Node 20 on PATH (tests need it). `npm run dev:cloud` (`scripts/dev-cloud.mjs`) = Vite + `/api` handlers on :3000 without `vercel dev`; it re-runs itself on `/opt/node22` with `NODE_USE_ENV_PROXY=1` because Node's fetch ignores the egress proxy (any other script that calls Supabase/OpenAI needs the same). Restart it after editing `api/`. Test only as `zz-claude` (password unknown on purpose): `NODE_USE_ENV_PROXY=1 /opt/node22/bin/node scripts/test-login.mjs zz-claude` prints a token (zz- accounts only; signed with the cloud `JWT_SECRET`, so useless on production) → Playwright `addInitScript` sets `localStorage['daybook.session.token']`, then load the page (a hash change alone doesn't re-read it). Playwright: `require('/opt/node-tools/node_modules/playwright')`.
 - `npm test` → `node --test tests/` (gym scheduling, stats, store cache). Run it with the build before every PR.
 - Local secrets live in `.env` (git-ignored; `vercel dev` reads `.env`, not `.env.local`). Browser-pane launcher: `.claude/launch.json` (name `daybook`).
 - Editing `vite.config.js` or `.env` requires restarting the dev server (vercel dev's proxy breaks after Vite restarts).

@@ -132,6 +132,8 @@ Updates install themselves quietly when you come back to the app after 10+ minut
 Cloud sessions run a setup script (`.claude/hooks/session-start.sh`) that switches to Node 20 and installs the packages, so building and testing work straight away.
 The cloud machine can only reach GitHub and package downloads by default. To let Claude open the live site, Supabase or OpenAI, add those domains (and any keys, as environment variables) in the cloud environment's settings. Never paste keys into the chat.
 
+With the keys in place, `npm run dev:cloud` runs the app and the `/api` functions on http://localhost:3000 without a Vercel login. Testing uses the `zz-claude` account only; `node scripts/test-login.mjs zz-claude` prints a session token for it (only `zz-` accounts, and only valid on that local server).
+
 ## Security note
 
 Login tokens are kept in the browser's storage rather than secure cookies. That's fine for a personal app, but a public product would use HTTP-only cookies and stronger sign-in (for example passkeys).

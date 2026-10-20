@@ -10,7 +10,7 @@ fi
 # globalThis.navigator, which Node 22 makes read-only). The cloud image ships Node 20 in /opt.
 if [ -x /opt/node20/bin/node ]; then
   export PATH="/opt/node20/bin:$PATH"
-  if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
+  if [ -n "${CLAUDE_ENV_FILE:-}" ] && ! grep -qs node20 "$CLAUDE_ENV_FILE"; then
     echo 'export PATH="/opt/node20/bin:$PATH"' >> "$CLAUDE_ENV_FILE"
   fi
 fi
