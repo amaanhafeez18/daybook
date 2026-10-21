@@ -14,14 +14,14 @@ import { weighInSummary } from '../lib/weighIn.js'
 import { fmtNum, fmtWeightChange, kgToUnit, weightUnitLabel } from '../pages/food/format.js'
 import './weigh-in.css'
 
-// The one weigh-in display (Health Today, Food Today, Gym Today, Gym Stats): the scale icon and
+// The one weigh-in display (Health Today, Food Today, Gym Today, Gym Progress): the scale icon and
 // "Weight", the latest weigh-in as a big number in the user's unit, its date, ONE change figure
 // (weightTrend's smoothed weekly change, "−0.3 kg/wk" — lib/weighIn.js) with a 30-day trend
 // sparkline, and one "Weigh in" capsule that opens the shared WeightSheet.
 // When the last weigh-in was 4–30 days ago (and the reminder is on in Food settings → Nudges) a
 // soft strip says so, with × to hide it for the day on this device ("Turn off" in the toast).
-//   to        route the number opens (e.g. 'food/weight', 'gym/stats'); none = not a link
-//   link      { label, to }: a text link in the header instead of the capsule (Gym's "Stats")
+//   to        route the number opens (e.g. 'food/weight', 'gym/history'); none = not a link
+//   link      { label, to }: a text link in the header instead of the capsule (Gym's "Progress")
 //   capsule   false hides the header capsule (Gym Today has its own inline entry, Stats its form)
 //   nudge     false leaves the weigh-in reminder out
 //   bare      no card and no header: just the number, for a card that already has a title

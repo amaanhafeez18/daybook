@@ -14,7 +14,8 @@ import { useSlidingThumb } from '../components/ui/useSlidingThumb.js'
 import TodayTab from './gym/TodayTab.jsx'
 import CalendarTab from './gym/CalendarTab.jsx'
 import RoutinesTab from './gym/RoutinesTab.jsx'
-import HistoryTab from './gym/HistoryTab.jsx'
+import AllWorkouts from './gym/HistoryTab.jsx'
+import ProgressTab from './gym/ProgressTab.jsx'
 import ExercisesTab from './gym/ExercisesTab.jsx'
 import WorkoutScreen from './gym/WorkoutScreen.jsx'
 import Onboarding from './gym/Onboarding.jsx'
@@ -29,11 +30,10 @@ import './gym/browse.css'
 const SessionDetail = lazyPage(() => import('./gym/SessionDetail.jsx'))
 const RoutineEditor = lazyPage(() => import('./gym/RoutineEditor.jsx'))
 const ExerciseDetail = lazyPage(() => import('./gym/ExerciseDetail.jsx'))
-const StatsView = lazyPage(() => import('./gym/StatsView.jsx'))
 const GymSettingsSheet = lazyPage(() => import('./gym/GymSettingsSheet.jsx'))
 // #/gym/visuals: review grid of every exercise visual (not linked anywhere).
 const VisualsGallery = lazyPage(() => import('./gym/visuals/VisualsGallery.jsx'))
-const WARM_VIEWS = [SessionDetail, ExerciseDetail, StatsView, RoutineEditor, GymSettingsSheet]
+const WARM_VIEWS = [SessionDetail, ExerciseDetail, RoutineEditor, GymSettingsSheet]
 
 // #/gym/<view>/<param>: four tabs under one header, the exercise library (opened from Routines)
 // as a page of its own, and detail views that take the whole page.
@@ -42,11 +42,11 @@ const TABS = [
   { id: 'today', label: 'Today', hash: '#/gym' },
   { id: 'calendar', label: 'Calendar', hash: '#/gym/calendar' },
   { id: 'routines', label: 'Routines', hash: '#/gym/routines' },
-  { id: 'history', label: 'History', hash: '#/gym/history' },
+  { id: 'history', label: 'Progress', hash: '#/gym/history' },
 ]
-const TAB_VIEWS = { today: TodayTab, calendar: CalendarTab, routines: RoutinesTab, history: HistoryTab }
-const PAGE_VIEWS = { exercises: ExercisesPage }
-const DETAIL_VIEWS = { workout: WorkoutScreen, session: SessionDetail, routine: RoutineEditor, exercise: ExerciseDetail, stats: StatsView, visuals: VisualsGallery }
+const TAB_VIEWS = { today: TodayTab, calendar: CalendarTab, routines: RoutinesTab, history: ProgressTab }
+const PAGE_VIEWS = { exercises: ExercisesPage, workouts: AllWorkouts }
+const DETAIL_VIEWS = { workout: WorkoutScreen, session: SessionDetail, routine: RoutineEditor, exercise: ExerciseDetail, visuals: VisualsGallery }
 // #/gym/settings: the Today tab with the Gym settings sheet open (linked from Settings).
 const SHEET_VIEWS = { settings: true }
 const knownView = (view) => !!(TAB_VIEWS[view] || PAGE_VIEWS[view] || DETAIL_VIEWS[view] || SHEET_VIEWS[view])
@@ -57,7 +57,8 @@ const viewLevel = (view) => (TAB_VIEWS[view] || SHEET_VIEWS[view] ? 0 : PAGE_VIE
 
 function parseHash() {
   const parts = window.location.hash.replace(/^#\/?/, '').split('?')[0].split('/').filter(Boolean)
-  const view = parts[1] || 'today'
+  // #/gym/stats was its own page; Stats is now the Progress tab (#/gym/history).
+  const view = parts[1] === 'stats' ? 'history' : parts[1] || 'today'
   if (!knownView(view)) return { view: 'today', param: null }
   let param = parts.slice(2).join('/')
   try {

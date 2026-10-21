@@ -2,7 +2,7 @@ import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { addDaysISO } from '../src/lib/dates.js'
 import { weightTrend } from '../src/lib/food/nutrition.js'
-import { DEFAULT_WEIGHT_RANGE, WEIGHT_RANGES, changeOverDays, rangeStart, weighInSummary } from '../src/lib/weighIn.js'
+import { DEFAULT_WEIGHT_RANGE, WEIGHT_RANGES, rangeStart, weeklyWeights, weighInSummary } from '../src/lib/weighIn.js'
 
 const TODAY = '2026-10-11'
 const row = (daysAgo, kg, id = `w${daysAgo}`) => ({ id, date: addDaysISO(TODAY, -daysAgo), kg })
@@ -87,19 +87,6 @@ describe('weighInSummary', () => {
   })
 })
 
-describe('changeOverDays', () => {
-  test('latest vs the newest weigh-in at least 30 days older', () => {
-    const list = [row(0, 78), row(10, 79), row(31, 80), row(45, 81)]
-    assert.deepEqual(changeOverDays(list, 30), { deltaKg: -2, since: addDaysISO(TODAY, -31) })
-  })
-
-  test('order of the list does not matter; nothing old enough → null', () => {
-    assert.deepEqual(changeOverDays([row(45, 81), row(0, 78), row(31, 80)]), { deltaKg: -2, since: addDaysISO(TODAY, -31) })
-    assert.equal(changeOverDays([row(0, 78), row(20, 79)]), null)
-    assert.equal(changeOverDays([]), null)
-    assert.equal(changeOverDays(undefined), null)
-  })
-})
 
 describe('ranges', () => {
   test('one range set for both charts', () => {
@@ -112,5 +99,34 @@ describe('ranges', () => {
     assert.equal(rangeStart('3m', TODAY), addDaysISO(TODAY, -91))
     assert.equal(rangeStart('all', TODAY), null)
     assert.equal(rangeStart('nope', TODAY), null)
+  })
+})
+
+describe('weeklyWeights', () => {
+  // TODAY is Sun 2026-10-11; weeks start on Monday (10-05, 09-28, …).
+  test('the average of each week, newest first, with the change from the last week that had one', () => {
+    const rows = [row(0, 80), row(2, 80.4), row(8, 81), row(10, 81.4), row(22, 82)]
+    const weeks = weeklyWeights(rows, TODAY, 1, 4)
+    assert.deepEqual(weeks.map((w) => w.weekStart), ['2026-10-05', '2026-09-28', '2026-09-21', '2026-09-14'])
+    assert.ok(Math.abs(weeks[0].avgKg - 80.2) < 1e-9)
+    assert.equal(weeks[0].count, 2)
+    assert.ok(Math.abs(weeks[0].changeKg - -1) < 1e-9) // 80.2 vs 81.2
+    assert.equal(weeks[2].avgKg, null) // no weigh-in that week
+    assert.ok(Math.abs(weeks[1].changeKg - -0.8) < 1e-9) // 81.2 vs 82 (two weeks earlier)
+    assert.equal(weeks[3].changeKg, null) // nothing earlier
+  })
+
+  test('a weigh-in before the window is the baseline for its oldest week; future and bad rows are ignored', () => {
+    const rows = [row(0, 80), row(40, 84), { id: 'f', date: addDaysISO(TODAY, 3), kg: 70 }, { id: 'x', date: 'nope', kg: 80 }, row(1, 0)]
+    const [week] = weeklyWeights(rows, TODAY, 1, 1)
+    assert.equal(week.avgKg, 80)
+    assert.equal(week.changeKg, -4)
+    assert.deepEqual(weeklyWeights(rows, 'nope'), [])
+  })
+
+  test('the first weekday decides the weeks', () => {
+    const sunday = weeklyWeights([row(0, 80), row(1, 81)], TODAY, 0, 1)
+    assert.equal(sunday[0].weekStart, TODAY)
+    assert.equal(sunday[0].count, 1)
   })
 })

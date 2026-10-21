@@ -37,8 +37,6 @@
 .gym-rt-hero-actions { display: flex; flex-direction: column; gap: 10px; width: min(100%, 300px); margin-top: 8px; }
 .gym-rt-hero-actions .btn { margin-top: 0; width: 100%; }
 
-.gym-rt-new { display: flex; margin-bottom: 14px; }
-.gym-rt-new .btn { min-width: 0; }
 .gym-rt-hint { margin: 0 4px 12px; font-size: 15px; color: var(--text-2); }
 
 /* One-time card: past workouts of a deleted routine that match a routine by name. */
@@ -79,14 +77,6 @@
 }
 .gym-rt-card-preview.is-empty { color: var(--text-3); font-style: italic; }
 .gym-rt-more { position: absolute; top: 8px; right: 8px; width: 44px; height: 44px; }
-.gym-rt-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; }
-.gym-rt-card-last { display: inline-flex; align-items: center; gap: 6px; min-width: 0; font-size: 13px; color: var(--text-2); }
-.gym-rt-card-last .icon { color: var(--text-3); }
-.gym-rt-card-actions { display: flex; gap: 8px; margin-left: auto; }
-/* Plain (the tab's one accent button is New routine); the play icon carries the meaning. */
-.gym-rt-card-actions .btn { min-width: 84px; }
-.gym-rt-card-actions .btn .icon { color: var(--accent); }
-.gym-rt-edit { width: 36px; padding: 0; }
 
 .gym-rt-folder { display: flex; align-items: center; gap: 2px; margin: 18px 0 8px; }
 .gym-rt-folder-toggle {
@@ -388,3 +378,16 @@
 @media (prefers-reduced-motion: reduce) {
   .gym-rt-folder-chevron, .gym-re-swatch-dot, .gym-re-swatch-dot .icon { transition: none; }
 }
+
+/* Compact routine card: name, "~25 min · done 2 days ago", one line of exercises; ⋯ and
+   Start on the right. */
+.gym-rt-card.is-compact { flex-direction: row; align-items: center; gap: 8px; padding: 12px 10px 12px 26px; }
+.gym-rt-card.is-compact::before { top: 14px; bottom: 14px; }
+.gym-rt-card.is-compact .gym-rt-card-main { flex: 1; width: auto; margin: -4px 0 -4px -8px; padding: 4px 8px; gap: 2px; }
+.gym-rt-card.is-compact .gym-rt-card-name { font-size: 18px; }
+.gym-rt-card.is-compact .gym-rt-card-meta { font-size: 14px; }
+.gym-rt-card.is-compact .gym-rt-card-preview { margin-top: 1px; font-size: 13px; color: var(--text-3); -webkit-line-clamp: 1; }
+.gym-rt-card-side { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; align-self: stretch; justify-content: space-between; }
+.gym-rt-card.is-compact .gym-rt-more { position: static; width: 36px; height: 32px; margin-top: -6px; }
+.gym-rt-start .icon { color: var(--accent); }
+.gym-routines .gym-rt-list { display: flex; flex-direction: column; gap: 10px; }

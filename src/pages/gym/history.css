@@ -34,7 +34,7 @@
 .gym-hl-row.is-danger { color: var(--danger); }
 .gym-hl-row.is-danger .gym-hl-icon { background: var(--danger); color: #fff; }
 @media (hover: hover) {
-  .gym-hl-row:hover:not(:disabled) { background: var(--surface-2); }
+.gym-hl-row:hover:not(:disabled) { background: var(--surface-2); }
   .sheet .gym-hl-row:hover:not(:disabled) { background: var(--surface-3); }
 }
 
@@ -142,7 +142,7 @@ button.gym-cal-cell:active { transform: scale(0.9); transition-duration: 0.1s; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 @supports (background: color-mix(in srgb, red 50%, blue)) {
-  .gym-cal-rkey { background: color-mix(in srgb, var(--gym-dot) 13%, transparent); }
+.gym-cal-rkey { background: color-mix(in srgb, var(--gym-dot) 13%, transparent); }
 }
 .gym-cal-rkey b {
   flex-shrink: 0; display: grid; place-items: center; min-width: 20px; height: 20px; padding: 0 4px;
@@ -150,12 +150,12 @@ button.gym-cal-cell:active { transform: scale(0.9); transition-duration: 0.1s; }
 }
 
 @media (min-width: 640px) {
-  .gym-cal-title { font-size: 26px; }
-  .gym-cal-card { padding: 14px 12px 14px; }
-  .gym-cal-cell { min-height: 62px; }
-  .gym-cal-num { width: 38px; height: 38px; font-size: 17px; }
-  .gym-cal-mark { height: 12px; font-size: 11px; }
-  .gym-cal-edit { right: calc(50% - 25px); }
+.gym-cal-title { font-size: 26px; }
+.gym-cal-card { padding: 14px 12px 14px; }
+.gym-cal-cell { min-height: 62px; }
+.gym-cal-num { width: 38px; height: 38px; font-size: 17px; }
+.gym-cal-mark { height: 12px; font-size: 11px; }
+.gym-cal-edit { right: calc(50% - 25px); }
 }
 
 /* ---- day sheet ------------------------------------------------------------------------------ */
@@ -216,7 +216,7 @@ button.gym-cal-cell:active { transform: scale(0.9); transition-duration: 0.1s; }
 .gym-day-pick:active { transform: scale(0.95); transition-duration: 0.1s; }
 .gym-day-pick[aria-pressed='true'] { box-shadow: inset 0 0 0 2px var(--gym-dot, var(--accent)); font-weight: 600; }
 @supports (background: color-mix(in srgb, red 50%, blue)) {
-  .gym-day-pick[aria-pressed='true'] { background: color-mix(in srgb, var(--gym-dot, var(--accent)) 14%, transparent); }
+.gym-day-pick[aria-pressed='true'] { background: color-mix(in srgb, var(--gym-dot, var(--accent)) 14%, transparent); }
 }
 .gym-day-log-actions { display: grid; grid-template-columns: 1fr; gap: 10px; }
 @media (min-width: 480px) { .gym-day-log-actions { grid-template-columns: 1fr 1fr; } }
@@ -232,10 +232,6 @@ button.gym-cal-cell:active { transform: scale(0.9); transition-duration: 0.1s; }
 /* ---- history ------------------------------------------------------------------------------ */
 
 .gym-hist { display: flex; flex-direction: column; gap: 12px; }
-.gym-hist-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 40px; }
-.gym-hist-count { font-size: 15px; color: var(--text-2); font-variant-numeric: tabular-nums; }
-.gym-hist-actions { display: flex; gap: 8px; flex-shrink: 0; }
-.gym-hist-actions .btn { padding: 0 14px; }
 
 .gym-hist-search { min-height: 44px; flex: none; }
 .gym-hist-search input { min-width: 0; font-size: 16px; }
@@ -245,14 +241,6 @@ button.gym-cal-cell:active { transform: scale(0.9); transition-duration: 0.1s; }
   background: var(--text-3); color: var(--card-bg, var(--surface));
 }
 .gym-hist-clear::after { content: ''; position: absolute; inset: -11px; } /* 44 px target */
-
-.gym-hist-filters {
-  display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch;
-  margin: 0 calc(-1 * var(--page-pad)); padding: 2px var(--page-pad) 4px;
-}
-.gym-hist-filters::-webkit-scrollbar { display: none; }
-.gym-hist-filters .chip { flex-shrink: 0; display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
-.gym-hist-filters .chip.is-active .gym-dot { box-shadow: 0 0 0 1.5px var(--on-accent); }
 
 .gym-hist-group { display: flex; flex-direction: column; }
 /* Sticks just under GymPage's sticky section tabs (title bar + 48px control + 2px),
@@ -264,35 +252,19 @@ button.gym-cal-cell:active { transform: scale(0.9); transition-duration: 0.1s; }
   background: var(--bg); font-family: var(--font-display, var(--font)); font-size: 20px; font-weight: 700; letter-spacing: -0.02em;
 }
 @supports (background: color-mix(in srgb, red 50%, blue)) {
-  .gym-hist-month {
+.gym-hist-month {
     background: color-mix(in srgb, var(--bg) 78%, transparent);
     -webkit-backdrop-filter: blur(18px) saturate(180%); backdrop-filter: blur(18px) saturate(180%);
   }
 }
 @media (min-width: 900px) { .gym-hist-month { top: 62px; } }
-.gym-hist-month-count { font-family: var(--font); font-size: 13px; font-weight: 500; letter-spacing: 0; color: var(--text-2); font-variant-numeric: tabular-nums; }
 
-.gym-hist-list { display: flex; flex-direction: column; gap: 10px; }
-.gym-hist-card {
-  width: 100%; display: flex; flex-direction: column; gap: 8px; padding: 14px 16px;
-  border-radius: 22px; background: var(--card-bg); color: var(--text); text-align: left;
-  transition: transform 0.35s var(--spring, ease), background 0.2s;
-}
-.gym-hist-card:active { transform: scale(0.98); transition-duration: 0.1s; }
-@media (hover: hover) { .gym-hist-card:hover { box-shadow: 0 0 0 1px var(--border-strong); } }
 .gym-hist-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.gym-hist-name { flex: 1; min-width: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gym-hist-when { flex-shrink: 0; font-size: 14px; color: var(--text-2); font-variant-numeric: tabular-nums; }
-.gym-hist-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; font-size: 14px; color: var(--text-2); font-variant-numeric: tabular-nums; }
-.gym-hist-meta > span { display: inline-flex; align-items: center; gap: 5px; }
-.gym-hist-meta > span > .icon { color: var(--text-3); }
-.gym-hist-meta .gym-pr-badge { gap: 4px; }
-.gym-hist-sets { display: flex; flex-direction: column; gap: 4px; padding-top: 9px; border-top: 0.5px solid var(--separator, var(--border)); }
-.gym-hist-set { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 12px; font-size: 15px; }
+
 .gym-hist-ex { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gym-hist-val { color: var(--text-2); font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
 .gym-hist-more { font-size: 14px; color: var(--text-3); }
-.gym-hist-quick { font-size: 14px; color: var(--text-3); }
+
 .gym-hist-more-wrap { display: flex; justify-content: center; padding: 6px 0 4px; }
 
 /* ---- session detail ------------------------------------------------------------------------- */
@@ -387,5 +359,23 @@ button.gym-sd-ex-name:active { opacity: 0.6; }
 .gym-sd-edit-foot { display: flex; gap: 10px; padding-top: 4px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .gym-cal-grid.from-next, .gym-cal-grid.from-prev { animation: none; }
+.gym-cal-grid.from-next, .gym-cal-grid.from-prev { animation: none; }
 }
+
+/* One workout in a list (WorkoutRow: Progress and All workouts) */
+.gym-wr-list { margin: 0; }
+.gym-wr { width: 100%; display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: none; color: var(--text); text-align: left; }
+.gym-wr .gym-dot { flex: none; align-self: flex-start; margin-top: 7px; }
+.gym-wr-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.gym-wr-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.gym-wr-name { min-width: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gym-wr-meta { font-size: 14px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.gym-wr-ex { font-size: 14px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gym-wr-chevron { flex: none; color: var(--text-3); }
+.gym-wr:active { background: var(--surface-2); }
+@media (hover: hover) { .gym-wr:hover { background: var(--surface-2); } }
+
+/* All workouts page */
+.gym-hist-headline { margin: 4px 4px 14px; }
+.gym-hist-headline h1 { margin: 0; }
+.gym-hist-export { display: inline-flex; align-items: center; gap: 6px; align-self: center; margin: 22px auto 6px; }

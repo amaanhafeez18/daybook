@@ -896,6 +896,36 @@ export function weekProgress(sessions, today, firstWeekday) {
   return sessionList(sessions).filter((session) => isIsoDate(session.date) && weekStart(session.date, first) === current).length
 }
 
+// One week at a glance (Gym → Progress), for the 7 days from `from`: its workouts (newest first),
+// how many there were, the days trained, total minutes (sessions with a known length), working
+// sets, personal records set that week and sets per muscle (as weeklySetsByMuscle).
+export function weekSummary(sessions, from, { lookup = defaultLookup, formula = 'brzycki' } = {}) {
+  const empty = { weekStart: from, weekEnd: null, sessions: [], count: 0, days: [], minutes: 0, sets: 0, prs: 0, muscles: {} }
+  if (!isIsoDate(from)) return empty
+  const to = addDays(from, 6)
+  const all = sessionList(sessions)
+  const list = all.filter((session) => isIsoDate(session.date) && session.date >= from && session.date <= to).sort((a, b) => compareSessions(b, a))
+  let seconds = 0
+  let sets = 0
+  let prs = 0
+  for (const session of list) {
+    seconds += sessionDurationSec(session) || 0
+    sets += sessionWorkingSets(session)
+    if (exercisesOf(session).length) prs += sessionPRs(sessions, session, formula).length // the full list: its index is cached
+  }
+  return {
+    weekStart: from,
+    weekEnd: to,
+    sessions: list,
+    count: list.length,
+    days: [...new Set(list.map((session) => session.date))].sort(),
+    minutes: Math.round(seconds / 60),
+    sets,
+    prs,
+    muscles: weeklySetsByMuscle(list, from, to, lookup),
+  }
+}
+
 // The weekly goal helpers live in schedule.js (state.js needs them without this module and the
 // exercise library); re-exported here for the app and the API.
 export { planWeeklyGoal, weeklyGoalFor } from './schedule.js'

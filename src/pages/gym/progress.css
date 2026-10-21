@@ -1,0 +1,72 @@
+/* Gym → Progress (ProgressTab.jsx): the week card, its bars, body weight week by week. */
+.gym-pg { display: flex; flex-direction: column; }
+.gym-pg > .gym-section-header { margin-top: 26px; }
+.gym-pg-empty { margin-bottom: 16px; }
+.gym-pg-none { margin: 0 4px; font-size: 15px; color: var(--text-2); }
+
+/* The week card */
+.card.gym-pg-week { display: flex; flex-direction: column; gap: 16px; margin: 0; padding: 12px 14px 14px; touch-action: pan-y; }
+.gym-pg-week-head { display: flex; align-items: center; gap: 4px; margin: 0 -6px; }
+.gym-pg-week-head .icon-btn:disabled { opacity: 0.25; }
+.gym-pg-week-title { flex: 1; min-width: 0; text-align: center; display: flex; flex-direction: column; }
+.gym-pg-week-title h2 { margin: 0; font-family: var(--font-display, var(--font)); font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
+.gym-pg-week-title small { font-size: 13px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+
+.gym-pg-goal { display: flex; align-items: center; gap: 14px; }
+.gym-pg-ring { flex: none; }
+.gym-pg-ring .gym-td-ring-track, .gym-pg-ring .gym-td-ring-value { stroke-width: 8; }
+.gym-pg-ring-num { fill: var(--text); font-size: 20px; font-weight: 700; font-family: var(--font-display, var(--font)); }
+.gym-pg-goal-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.gym-pg-goal-text strong { font-size: 19px; font-weight: 700; letter-spacing: -0.02em; }
+.gym-pg-goal-text small { font-size: 14px; color: var(--text-2); }
+.gym-pg-streak { display: inline-flex; align-items: center; gap: 4px; color: var(--accent) !important; font-weight: 600; }
+
+.gym-pg-days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin: 0; padding: 0; list-style: none; }
+.gym-pg-days li { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.gym-pg-day-wd { font-size: 11px; font-weight: 600; color: var(--text-2); }
+.gym-pg-days li.is-today .gym-pg-day-wd { color: var(--accent); }
+.gym-pg-day-dot { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--surface-2); color: #fff; }
+.gym-pg-days li.is-done .gym-pg-day-dot { background: var(--dot, var(--accent)); }
+.gym-pg-days li.is-today:not(.is-done) .gym-pg-day-dot { box-shadow: inset 0 0 0 2px var(--accent); background: none; }
+.gym-pg-days li.is-future .gym-pg-day-dot { opacity: 0.45; }
+
+.gym-pg-nums { display: grid; grid-template-columns: repeat(3, 1fr); margin: 0; padding: 12px 0 0; border-top: 0.5px solid var(--border); }
+.gym-pg-nums > div { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.gym-pg-nums > div + div { border-left: 0.5px solid var(--border); }
+.gym-pg-nums dt { font-size: 12px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: var(--text-2); }
+.gym-pg-nums dd { margin: 0; display: inline-flex; align-items: center; gap: 4px; font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.gym-pg-nums dd .icon { color: var(--warning, #c58b00); }
+
+.gym-pg-muscles { display: flex; flex-direction: column; gap: 6px; }
+.gym-pg-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.gym-pg-chips .chip { cursor: default; gap: 5px; }
+.gym-pg-chips .chip strong { font-variant-numeric: tabular-nums; }
+.gym-pg-disclosure .disclosure-toggle { padding-left: 0; padding-right: 0; }
+
+/* The last 12 weeks */
+.gym-pg-bars-wrap { display: flex; flex-direction: column; gap: 4px; }
+.gym-pg-bars { position: relative; display: grid; grid-template-columns: repeat(12, 1fr); gap: 5px; height: 64px; margin: 0; padding: 0; list-style: none; }
+.gym-pg-bars li { display: flex; }
+.gym-pg-goal-line { position: absolute; left: 0; right: 0; border-top: 1.5px dashed var(--text-3); opacity: 0.6; pointer-events: none; }
+.gym-pg-bar { flex: 1; display: flex; align-items: flex-end; padding: 0; border-radius: 5px; background: none; }
+.gym-pg-bar > span { display: block; width: 100%; border-radius: 5px; background: var(--surface-3); transition: background 0.2s; }
+.gym-pg-bar.is-met > span { background: color-mix(in srgb, var(--accent) 40%, var(--surface-3)); }
+.gym-pg-bar.is-selected > span { background: var(--accent); }
+.gym-pg-bars-axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-3); }
+
+/* Body weight */
+.gym-pg-bw { margin-top: 26px; }
+.gym-pg-bw-weeks { display: flex; flex-direction: column; gap: 4px; margin-top: 12px; }
+.gym-pg-bw-weeks .ui-label { margin: 0; }
+.gym-pg-bw-weeks ul { margin: 0; padding: 0; list-style: none; }
+.gym-pg-bw-weeks li { display: grid; grid-template-columns: 1fr auto 52px; align-items: baseline; gap: 10px; padding: 8px 0; border-bottom: 0.5px solid var(--border); font-variant-numeric: tabular-nums; }
+.gym-pg-bw-weeks li:last-child { border-bottom: 0; }
+.gym-pg-bw-week { font-size: 15px; color: var(--text); }
+.gym-pg-bw-avg { font-size: 16px; font-weight: 600; }
+.gym-pg-bw-avg small { font-size: 12px; font-weight: 400; color: var(--text-2); }
+.gym-pg-bw-change { text-align: right; font-size: 14px; color: var(--text-2); }
+.gym-pg-bw-change.is-down, .gym-pg-bw-change.is-up { color: var(--text); font-weight: 600; }
+
+.gym-pg-links { margin-top: 26px; }
+.gym-pg .gym-st-table th[scope="row"] { padding: 8px 4px; text-align: left; font-size: 15px; font-weight: 500; }
+.gym-pg .gym-st-table th[scope="col"]:first-child { text-align: left; }

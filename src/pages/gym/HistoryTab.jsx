@@ -5,12 +5,13 @@ import { toast } from '../../components/ui/feedback.jsx'
 import { diffDays, formatDuration as formatMinutesText, formatMonthYear, formatTime, isISODate, nowTimeHHMM, parseISO } from '../../lib/dates.js'
 import { exerciseById } from '../../lib/gym/library.js'
 import { resolveDay } from '../../lib/gym/schedule.js'
-import { bestSet, sessionDurationSec, sessionPRs, sessionVolume, sessionsToCsv } from '../../lib/gym/stats.js'
+import { sessionDurationSec, sessionPRs, sessionVolume, sessionsToCsv } from '../../lib/gym/stats.js'
 import { routineById, useGym, useGymSessions, useToday } from '../../lib/gym/state.js'
 import { formatDistance, formatDuration, formatNumber, formatPace, formatVolume, formatWeight } from '../../lib/gym/units.js'
 import { navigate } from '../../lib/router.js'
-import { GymEmpty, RoutineDot } from './common.jsx'
+import { GymEmpty, RoutineDot, goBack } from './common.jsx'
 import { beginWorkout } from './startWorkout.js'
+import './exercises.css'
 import './history.css'
 
 // ---- shared helpers (also used by CalendarTab, DaySheet and SessionDetail) -----------------
@@ -203,32 +204,55 @@ export async function shareOrDownload(text, filename, type = 'text/csv') {
   return 'downloaded'
 }
 
-// ---- history tab -------------------------------------------------------------------------------
+// ---- one workout in a list -----------------------------------------------------------------------
+
+// A compact row (Gym → Progress and All workouts): routine dot, name, when, how long, records and
+// the exercises in one line; the whole row opens the workout.
+export function WorkoutRow({ session, gym, today, prCount = 0, showDate = true }) {
+  const quick = !session.exercises.length
+  const minutes = formatMinutes(sessionDurationSec(session))
+  const names = session.exercises.filter((exercise) => Array.isArray(exercise.sets) && exercise.sets.length).map((exercise) => exercise.name || 'Exercise')
+  const when = showDate ? sessionDay(session, today) : clockLabel(session.startedAt)
+  const meta = [when, minutes].filter(Boolean).join(' · ')
+  return (
+    <button type="button" className="gym-wr" onClick={() => navigate(`gym/session/${encodeURIComponent(session.id)}`)}>
+      <SessionDot session={session} gym={gym} size={10} />
+      <span className="gym-wr-text">
+        <span className="gym-wr-top">
+          <strong className="gym-wr-name">{session.name?.trim() || 'Workout'}</strong>
+          {prCount > 0 && (
+            <span className="gym-pr-badge">
+              <Icon name="trophy" size={12} strokeWidth={2.2} />
+              {prCount}
+              <span className="sr-only"> personal record{prCount === 1 ? '' : 's'}</span>
+            </span>
+          )}
+        </span>
+        <small className="gym-wr-meta">{meta}</small>
+        <small className="gym-wr-ex">{quick ? 'Logged without details' : names.join(', ')}</small>
+      </span>
+      <Icon name="chevronRight" size={18} className="gym-wr-chevron" />
+    </button>
+  )
+}
+
+// ---- all workouts (#/gym/workouts) -----------------------------------------------------------------
 
 const PAGE = 30
-const TOP_SETS = 3
 
 const fold = (text) => String(text ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
 
-export default function HistoryTab({ today: todayProp }) {
+// Every workout, newest first, by month, with one search box (name, routine, exercise or note).
+export default function AllWorkouts({ today: todayProp }) {
   const clock = useToday()
   const today = todayProp || clock
   const gym = useGym()
   const sessions = useGymSessions()
-  const { unit, distanceUnit, e1rmFormula: formula } = gym.prefs
-  const lookup = useExerciseLookup(gym)
-  const volumeOf = useVolumeOf(lookup)
+  const { unit, e1rmFormula: formula } = gym.prefs
   const prsOf = usePrsOf(sessions, formula)
   const [query, setQuery] = useState('')
-  const [routineFilter, setRoutineFilter] = useState('all')
   const [limit, setLimit] = useState(PAGE)
   const sentinel = useRef(null)
-
-  const routinesUsed = useMemo(() => {
-    const ids = new Set(sessions.map((session) => session.routineId).filter((id) => id != null))
-    return gym.routines.filter((routine) => ids.has(routine.id))
-  }, [sessions, gym.routines])
-  const filter = routineFilter !== 'all' && routinesUsed.some((routine) => routine.id === routineFilter) ? routineFilter : 'all'
 
   // Folded text per session: name, routine, exercises and note.
   const haystack = useMemo(() => {
@@ -244,24 +268,14 @@ export default function HistoryTab({ today: todayProp }) {
 
   const filtered = useMemo(() => {
     const tokens = fold(query).split(/\s+/).filter(Boolean)
+    if (!tokens.length) return sessions
     return sessions.filter((session) => {
-      if (filter !== 'all' && session.routineId !== filter) return false
-      if (!tokens.length) return true
       const text = haystack(session)
       return tokens.every((token) => text.includes(token))
     })
-  }, [sessions, filter, query, haystack])
+  }, [sessions, query, haystack])
 
-  useEffect(() => setLimit(PAGE), [query, filter])
-
-  const monthCounts = useMemo(() => {
-    const counts = new Map()
-    for (const session of filtered) {
-      const key = session.date.slice(0, 7)
-      counts.set(key, (counts.get(key) || 0) + 1)
-    }
-    return counts
-  }, [filtered])
+  useEffect(() => setLimit(PAGE), [query])
 
   const shown = filtered.slice(0, limit)
   const hasMore = filtered.length > shown.length
@@ -287,8 +301,7 @@ export default function HistoryTab({ today: todayProp }) {
   async function exportCsv() {
     if (!sessions.length) return
     const csv = sessionsToCsv(sessions, unit, gym.routines)
-    const filename = `daybook-workouts-${today}.csv`
-    const result = await shareOrDownload(csv, filename)
+    const result = await shareOrDownload(csv, `daybook-workouts-${today}.csv`)
     if (result === 'downloaded') toast(`Exported ${sessions.length} workout${sessions.length === 1 ? '' : 's'}`, { tone: 'success' })
   }
 
@@ -297,168 +310,81 @@ export default function HistoryTab({ today: todayProp }) {
     beginWorkout({ routine: day.shown.kind === 'routine' ? day.routine : null, date: today, today })
   }
 
-  if (!sessions.length) {
-    return (
-      <div className="gym-hist">
-        <GymEmpty
-          icon="history"
-          title="No workouts yet"
-          action={<Button icon="play" onClick={startFirst}>Start a workout</Button>}
-        >
-          Finished workouts land here with their top sets, weight lifted and personal records.
-        </GymEmpty>
-      </div>
-    )
-  }
-
-  const searching = query.trim() !== '' || filter !== 'all'
   const total = sessions.length
 
   return (
     <div className="gym-hist">
-      <div className="gym-hist-top">
-        <p className="gym-hist-count">
-          {searching ? `${filtered.length} of ${total} workouts` : `${total} workout${total === 1 ? '' : 's'}`}
-        </p>
-        <div className="gym-hist-actions">
-          <Button variant="secondary" size="sm" icon="chart" onClick={() => navigate('gym/stats')}>Stats</Button>
-          <Button variant="secondary" size="sm" icon="download" onClick={exportCsv} aria-label="Export CSV">Export</Button>
-        </div>
+      <div className="gym-xd-top">
+        <button type="button" className="gym-xd-back" onClick={() => goBack('gym/history')}>
+          <Icon name="chevronLeft" size={22} />
+          Progress
+        </button>
       </div>
+      <header className="gym-hist-headline">
+        <h1>All workouts</h1>
+        {total > 0 && <p className="page-subtitle">{query.trim() ? `${filtered.length} of ${total}` : `${total} workout${total === 1 ? '' : 's'}`}</p>}
+      </header>
 
-      <label className="search-field gym-hist-search">
-        <Icon name="search" size={18} />
-        <input
-          type="search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search workouts or exercises"
-          aria-label="Search workouts or exercises"
-          enterKeyHint="search"
-          autoComplete="off"
-          autoCorrect="off"
-          spellCheck={false}
-        />
-        {query && (
-          <button type="button" className="gym-hist-clear" onClick={() => setQuery('')} aria-label="Clear search">
-            <Icon name="close" size={14} strokeWidth={2.4} />
-          </button>
-        )}
-      </label>
-
-      {routinesUsed.length > 0 && (
-        <div className="gym-hist-filters" role="group" aria-label="Filter by routine">
-          <button type="button" className={`chip${filter === 'all' ? ' is-active' : ''}`} aria-pressed={filter === 'all'} onClick={() => setRoutineFilter('all')}>
-            All
-          </button>
-          {routinesUsed.map((routine) => (
-            <button
-              key={routine.id}
-              type="button"
-              className={`chip gym-hist-chip${filter === routine.id ? ' is-active' : ''}`}
-              aria-pressed={filter === routine.id}
-              onClick={() => setRoutineFilter(filter === routine.id ? 'all' : routine.id)}
-            >
-              <RoutineDot routine={routine} size={8} />
-              {routine.name.trim() || 'Untitled routine'}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {!filtered.length ? (
-        <GymEmpty
-          icon="search"
-          title="No matching workouts"
-          action={<Button variant="secondary" onClick={() => { setQuery(''); setRoutineFilter('all') }}>Clear search</Button>}
-        >
-          Try another name or exercise.
+      {!total ? (
+        <GymEmpty icon="history" title="No workouts yet" action={<Button icon="play" onClick={startFirst}>Start a workout</Button>}>
+          Finished workouts land here with their time, exercises and personal records.
         </GymEmpty>
       ) : (
-        groups.map((group) => {
-          const count = monthCounts.get(group.key) || group.items.length
-          return (
-            <section key={group.key} className="gym-hist-group" aria-label={formatMonthYear(Number(group.key.slice(0, 4)), Number(group.key.slice(5, 7)) - 1)}>
-              <h3 className="gym-hist-month">
-                <span>{formatMonthYear(Number(group.key.slice(0, 4)), Number(group.key.slice(5, 7)) - 1)}</span>
-                <span className="gym-hist-month-count">{count} workout{count === 1 ? '' : 's'}</span>
-              </h3>
-              <ul className="gym-hist-list">
-                {group.items.map((session) => (
-                  <li key={session.id}>
-                    <HistoryCard
-                      session={session}
-                      gym={gym}
-                      today={today}
-                      unit={unit}
-                      distanceUnit={distanceUnit}
-                      formula={formula}
-                      volume={volumeOf(session)}
-                      prCount={session.exercises.length ? prsOf(session).length : 0}
-                    />
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )
-        })
-      )}
-
-      {hasMore && (
-        <div ref={sentinel} className="gym-hist-more-wrap">
-          <Button variant="secondary" onClick={() => setLimit((current) => current + PAGE)}>Show more</Button>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function HistoryCard({ session, gym, today, unit, distanceUnit, formula, volume, prCount }) {
-  const quick = !session.exercises.length
-  const time = clockLabel(session.startedAt)
-  const minutes = formatMinutes(sessionDurationSec(session))
-  const exercises = session.exercises.filter((exercise) => Array.isArray(exercise.sets) && exercise.sets.length)
-  const top = exercises.slice(0, TOP_SETS)
-
-  return (
-    <button type="button" className="gym-hist-card" onClick={() => navigate(`gym/session/${encodeURIComponent(session.id)}`)}>
-      <span className="gym-hist-head">
-        <SessionDot session={session} gym={gym} />
-        <strong className="gym-hist-name">{session.name?.trim() || 'Workout'}</strong>
-        <span className="gym-hist-when">
-          {sessionDay(session, today)}
-          {time && ` · ${time}`}
-        </span>
-      </span>
-
-      {quick ? (
-        <span className="gym-hist-quick">Logged without details</span>
-      ) : (
         <>
-          <span className="gym-hist-meta">
-            {minutes && <span><Icon name="clock" size={14} />{minutes}</span>}
-            {volume > 0 && <span title="Weight lifted"><Icon name="dumbbell" size={14} /><span className="sr-only">Weight lifted </span>{formatVolume(volume, unit)}</span>}
-            {session.isDeload && <span><Icon name="arrowDown" size={14} />Deload</span>}
-            {prCount > 0 && (
-              <span className="gym-pr-badge">
-                <Icon name="trophy" size={12} strokeWidth={2.2} />
-                {prCount} PR{prCount === 1 ? '' : 's'}
-              </span>
+          <label className="search-field gym-hist-search">
+            <Icon name="search" size={18} />
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search workouts or exercises"
+              aria-label="Search workouts or exercises"
+              enterKeyHint="search"
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck={false}
+            />
+            {query && (
+              <button type="button" className="gym-hist-clear" onClick={() => setQuery('')} aria-label="Clear search">
+                <Icon name="close" size={14} strokeWidth={2.4} />
+              </button>
             )}
-          </span>
-          {top.length > 0 && (
-            <span className="gym-hist-sets">
-              {top.map((exercise, index) => (
-                <span key={exercise.id ?? index} className="gym-hist-set">
-                  <span className="gym-hist-ex">{exercise.name || 'Exercise'}</span>
-                  <span className="gym-hist-val">{formatSetValue(bestSet(exercise, formula), exercise.tracking, unit, distanceUnit)}</span>
-                </span>
-              ))}
-              {exercises.length > TOP_SETS && <span className="gym-hist-more">+{exercises.length - TOP_SETS} more</span>}
-            </span>
+          </label>
+
+          {!filtered.length ? (
+            <GymEmpty icon="search" title="No matching workouts" action={<Button variant="secondary" onClick={() => setQuery('')}>Clear search</Button>}>
+              Try another name or exercise.
+            </GymEmpty>
+          ) : (
+            groups.map((group) => {
+              const title = formatMonthYear(Number(group.key.slice(0, 4)), Number(group.key.slice(5, 7)) - 1)
+              return (
+                <section key={group.key} className="gym-hist-group" aria-label={title}>
+                  <h3 className="gym-hist-month">{title}</h3>
+                  <ul className="card-list gym-wr-list">
+                    {group.items.map((session) => (
+                      <li key={session.id}>
+                        <WorkoutRow session={session} gym={gym} today={today} prCount={session.exercises.length ? prsOf(session).length : 0} />
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )
+            })
           )}
+
+          {hasMore && (
+            <div ref={sentinel} className="gym-hist-more-wrap">
+              <Button variant="secondary" onClick={() => setLimit((current) => current + PAGE)}>Show more</Button>
+            </div>
+          )}
+
+          <button type="button" className="link-btn gym-hist-export" onClick={exportCsv}>
+            <Icon name="download" size={16} />
+            Export all workouts (CSV)
+          </button>
         </>
       )}
-    </button>
+    </div>
   )
 }

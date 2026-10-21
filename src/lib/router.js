@@ -58,8 +58,9 @@ export function goBack(fallback = 'gym') {
 // The live workout and the routine editor are 'focus mode' (App.jsx hides the bars there).
 export const FOCUS_HASH = /^#\/?gym\/(?:workout|routine)(?:[/?]|$)/
 
-const GYM_TABS = new Set(['', 'today', 'calendar', 'routines', 'history', 'settings'])
-const GYM_DETAILS = new Set(['workout', 'session', 'routine', 'exercise', 'stats', 'visuals'])
+const GYM_TABS = new Set(['', 'today', 'calendar', 'routines', 'history', 'stats', 'settings']) // stats = the Progress tab
+const GYM_PAGES = new Set(['exercises', 'workouts'])
+const GYM_DETAILS = new Set(['workout', 'session', 'routine', 'exercise', 'visuals'])
 const FOOD_DETAILS = new Set(['insights', 'weight', 'goals', 'foods'])
 
 // '#/gym/exercise/12?x' → { page: 'gym', view: 'exercise', param: '12' }
@@ -69,10 +70,10 @@ export function parseNavHash(hash) {
 }
 
 // How deep a view sits inside its page, matching GymPage's viewLevel and FoodPage's scroll memory:
-// gym tabs 0, the exercise library 1, details 2; food today 0, its other screens 1, a day opened
+// gym tabs 0, the exercise library and all workouts 1, details 2; food today 0, its other screens 1, a day opened
 // from Insights 2. Unknown gym views show the Today tab, so they're 0 too.
 export function navLevel({ page, view, param }) {
-  if (page === 'gym') return GYM_TABS.has(view) ? 0 : view === 'exercises' ? 1 : GYM_DETAILS.has(view) ? 2 : 0
+  if (page === 'gym') return GYM_TABS.has(view) ? 0 : GYM_PAGES.has(view) ? 1 : GYM_DETAILS.has(view) ? 2 : 0
   if (page === 'food') {
     if (FOOD_DETAILS.has(view)) return 1
     return view === 'day' && param ? 2 : 0

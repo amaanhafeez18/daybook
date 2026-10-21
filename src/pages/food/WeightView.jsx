@@ -14,7 +14,7 @@ import { dayLabel, fmtNum, fmtWeight, fmtWeightChange, isNum, kgToUnit, shortDay
 
 // #/food/weight: the shared body-weight log (Gym and Food) — trend chart with range chips, the
 // trend, weekly change, pace and ETA to the goal weight, and every weigh-in (swipe to delete).
-// The ranges (1M/3M/1Y/All) are the same as Gym → Stats' body-weight chart (lib/weighIn.js).
+// The ranges (1M/3M/1Y/All) are the same as Gym → Progress' body-weight chart (lib/weighIn.js).
 
 const PAGE = 30
 

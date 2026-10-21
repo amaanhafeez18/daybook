@@ -13,7 +13,7 @@ import {
   barFor, bestSet, compareSessions, computeRecords, deloadTargets, deloadWeight, e1rm, estimateMinutes, exerciseHistory, increment,
   isBackfillWorkout, isWorking, livePRs, loadStep, plannedWeight, plateBreakdown, previousSets, projectedWeight, roundDown,
   sessionDurationSec, sessionPRs, sessionReps, sessionVolume, sessionWorkingSets, sessionsToCsv, setVolume, streakWeeks, suggestNext,
-  topExercises, warmupSets, weekProgress, weeklyCounts, weeklySetsByMuscle,
+  topExercises, warmupSets, weekProgress, weekSummary, weeklyCounts, weeklySetsByMuscle,
 } from '../src/lib/gym/stats.js'
 import { emptySchedule, normalizeSchedule } from '../src/lib/gym/schedule.js'
 
@@ -1218,5 +1218,34 @@ describe('malformed stored data never throws', () => {
     assert.equal(suggestNext(sessions, { exerciseId: 'bench-press', sets: [{ repsMin: 8, repsMax: 12 }] }, null, {}).weightKg, 100)
     assert.equal(plateBreakdown('x', null).exact, false)
     assert.ok(sessionsToCsv(sessions, 'kg').split('\r\n').length > 2)
+  })
+})
+
+describe('weekSummary', () => {
+  // Week of Mon 2026-10-12: two workouts (the second sets a bench record), one the week before.
+  const before = session('a', '2026-10-05', [ex('bench-press', [set(80, 5), set(80, 5)])])
+  const mon = session('b', '2026-10-12', [ex('bench-press', [warm(40, 10), set(80, 5), set(80, 5)])], { durationSec: 3000 })
+  const thu = session('c', '2026-10-15', [ex('bench-press', [set(85, 5)]), ex('back-squat', [set(100, 5), set(100, 5)])], { durationSec: 2400 })
+  const next = session('d', '2026-10-19', [ex('back-squat', [set(100, 5)])])
+  const all = [before, mon, thu, next]
+
+  test('counts the 7 days from the week start: workouts, days, minutes, working sets, records', () => {
+    const week = weekSummary(all, '2026-10-12')
+    assert.equal(week.weekEnd, '2026-10-18')
+    assert.deepEqual(week.sessions.map((s) => s.id), ['c', 'b']) // newest first
+    assert.equal(week.count, 2)
+    assert.deepEqual(week.days, ['2026-10-12', '2026-10-15'])
+    assert.equal(week.minutes, 90)
+    assert.equal(week.sets, 5) // warm-ups don't count
+    assert.ok(week.prs >= 1, 'the 85 kg bench is a record')
+    assert.equal(week.muscles.chest, 3)
+    assert.equal(week.muscles.quads, 2)
+  })
+
+  test('an empty or invalid week', () => {
+    const empty = weekSummary(all, '2026-09-28')
+    assert.deepEqual([empty.count, empty.minutes, empty.sets, empty.prs, empty.days.length], [0, 0, 0, 0, 0])
+    assert.equal(weekSummary(all, 'nope').count, 0)
+    assert.equal(weekSummary(null, '2026-10-12').count, 0)
   })
 })

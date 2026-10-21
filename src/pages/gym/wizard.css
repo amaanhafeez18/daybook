@@ -333,12 +333,6 @@
 .wiz-onb-heading { margin: 10px 16px -4px; }
 .wiz-onb-scratch { display: inline-flex; align-self: center; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px; }
 
-/* Routines tab: split card link. */
-.wiz-split-link {
-  display: inline-flex; align-self: flex-start; align-items: center; gap: 8px; min-height: 44px; margin: -8px 0 -10px; padding: 0 4px;
-  color: var(--accent); font-size: 16px; font-weight: 600; letter-spacing: -0.015em;
-}
-.wiz-split-link:active { opacity: 0.6; }
 .wiz-split-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .empty-state .wiz-split-actions { justify-content: center; }
 .empty-state .wiz-split-actions .btn { margin-top: 8px; }

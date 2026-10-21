@@ -1,5 +1,5 @@
 /* =========================================================================================
-   The one weigh-in display (WeighIn.jsx): Health Today, Food Today, Gym Today and Gym Stats.
+   The one weigh-in display (WeighIn.jsx): Health Today, Food Today, Gym Today and Gym Progress.
    Header like the other Health cards (40px soft tile, 12px gap, title 17/600), then the latest
    weigh-in as a 30px tabular number, its date and the weekly trend, and the trend sparkline.
    Rules that meet a shared class (.card, .btn) use a heavier selector, so they hold whichever
@@ -67,13 +67,13 @@
 }
 .wi-nudge-x:active { opacity: 0.6; }
 
-/* Bare (inside a card that has its own title: Gym → Stats). Inset 4px like the chart above it. */
+/* Bare (inside a card that has its own title: Gym → Progress). Inset 4px like the chart above it. */
 .wi-bare { padding: 0 4px; }
 /* A second, longer-horizon figure next to it, labelled as its own thing ("30-day change: …"). */
 .wi-aside { margin: 2px 4px 0; font-size: var(--fs-subhead, 15px); line-height: 1.35; color: var(--text-2); font-variant-numeric: tabular-nums; }
 .wi-aside strong { font-weight: 600; color: var(--text); }
 /* The one range control both weight charts use (1M/3M/1Y/All): full width, above the chart.
-   Food → Weight's spacing comes from food.css (.food-wv-range); this is Gym → Stats'. */
+   Food → Weight's spacing comes from food.css (.food-wv-range); this is Gym → Progress'. */
 .wi-bare ~ .segmented.wi-range, .wi-aside ~ .segmented.wi-range { margin: 12px 0; }
 
 /* A 320pt phone: the number and the trend need the room more than the sparkline. */

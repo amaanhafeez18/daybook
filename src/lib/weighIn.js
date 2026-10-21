@@ -1,13 +1,14 @@
 import { addDaysISO, isISODate } from './dates.js'
 import { weightTrend } from './food/nutrition.js'
+import { addDays, weekStart } from './gym/schedule.js'
 import { fromKg } from './gym/units.js'
 
-// One weigh-in, the same everywhere (Health Today, Food Today, Gym Today, Gym Stats, Food → Weight):
+// One weigh-in, the same everywhere (Health Today, Food Today, Gym Today, Gym Progress, Food → Weight):
 // the latest weigh-in, its date, and ONE change figure — the smoothed weekly trend from weightTrend
 // (7-day average now vs a week earlier), so every screen shows the same number for the same morning.
 // Pure: no React, no browser APIs. Weights in kg; the screens convert to the user's unit.
 
-// The ranges both weight charts offer (Food → Weight and Gym → Stats).
+// The ranges both weight charts offer (Food → Weight and Gym → Progress).
 export const WEIGHT_RANGES = [
   { id: '1m', label: '1M', days: 31 },
   { id: '3m', label: '3M', days: 92 },
@@ -61,15 +62,36 @@ export function weighInSummary(bodyWeights, today, unit = 'kg') {
   }
 }
 
-// A longer view for Gym → Stats ("30-day change"): the newest weigh-in vs the newest one at least
-// `days` older than it, as logged. { deltaKg, since } or null when nothing is that old.
-export function changeOverDays(bodyWeights, days = 30) {
-  const rows = (Array.isArray(bodyWeights) ? bodyWeights : [])
-    .filter((row) => row && isISODate(row.date) && isNum(Number(row.kg)) && Number(row.kg) > 0)
-    .sort((a, b) => b.date.localeCompare(a.date))
-  const latest = rows[0]
-  if (!latest || !(days > 0)) return null
-  const cutoff = addDaysISO(latest.date, -days)
-  const older = rows.find((row) => row.date <= cutoff)
-  return older ? { deltaKg: Number(latest.kg) - Number(older.kg), since: older.date } : null
+// Body weight week by week (Gym → Progress): the average of each week's weigh-ins for the last
+// `weeks` weeks, newest first, as [{ weekStart, avgKg, count, changeKg }]. A week without a
+// weigh-in has avgKg null; changeKg compares with the nearest earlier week that has one (null for
+// the first). Averages smooth out day-to-day water swings, so the weekly change is the honest one.
+export function weeklyWeights(bodyWeights, today, firstWeekday = 1, weeks = 8) {
+  if (!isISODate(today)) return []
+  const total = Number.isInteger(weeks) && weeks > 0 ? Math.min(weeks, 104) : 8
+  const current = weekStart(today, firstWeekday)
+  const oldest = addDays(current, -7 * (total - 1))
+  const sums = new Map()
+  for (const row of Array.isArray(bodyWeights) ? bodyWeights : []) {
+    const kg = Number(row?.kg)
+    if (!row || !isISODate(row.date) || !(kg > 0) || row.date > today) continue
+    const week = weekStart(row.date, firstWeekday)
+    const bucket = sums.get(week) || { sum: 0, count: 0 }
+    bucket.sum += kg
+    bucket.count += 1
+    sums.set(week, bucket)
+  }
+  // The week before the window counts as a baseline for the oldest week's change.
+  let previous = null
+  const before = [...sums.keys()].filter((week) => week < oldest).sort().pop()
+  if (before) previous = sums.get(before).sum / sums.get(before).count
+  const out = []
+  for (let i = total - 1; i >= 0; i--) {
+    const week = addDays(current, -7 * i)
+    const bucket = sums.get(week)
+    const avgKg = bucket ? bucket.sum / bucket.count : null
+    out.push({ weekStart: week, avgKg, count: bucket ? bucket.count : 0, changeKg: avgKg !== null && previous !== null ? avgKg - previous : null })
+    if (avgKg !== null) previous = avgKg
+  }
+  return out.reverse()
 }

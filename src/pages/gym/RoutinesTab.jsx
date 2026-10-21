@@ -128,6 +128,7 @@ export default function RoutinesTab({ today }) {
   const [templatesOpen, setTemplatesOpen] = useState(false)
   const [wizardOpen, setWizardOpen] = useState(false)
   const [reordering, setReordering] = useState(false)
+  const [addOpen, setAddOpen] = useState(false)
   const [menu, showMenu, hideMenu] = useSheetTarget() // routine
   const [move, showMove, hideMove] = useSheetTarget() // routine
   const [folderMenu, showFolderMenu, hideFolderMenu] = useSheetTarget() // folder
@@ -242,6 +243,22 @@ export default function RoutinesTab({ today }) {
         ] : []}
       />
       <ActionSheet
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        title="Routines"
+        actions={[
+          [
+            { id: 'routine', label: 'New routine', icon: 'plus', hint: 'One training day, like Push or Legs', onClick: () => navigate('gym/routine/new') },
+            { id: 'template', label: 'From a template', icon: 'layers', hint: 'Ready-made routines and a schedule', onClick: () => setTemplatesOpen(true) },
+          ],
+          [
+            { id: 'wizard', label: 'New split with the wizard', icon: 'wand', hint: 'Type it, like “push pull legs rest”', onClick: () => setWizardOpen(true) },
+            { id: 'folder', label: 'New folder', icon: 'layers', hint: 'Keep related routines together, like a program', onClick: () => showFolderEdit({ folder: null }) },
+          ],
+          routines.length > 1 && [{ id: 'reorder', label: 'Reorder routines', icon: 'arrowDown', onClick: () => setReordering(true) }],
+        ].filter(Boolean)}
+      />
+      <ActionSheet
         open={move.open}
         onClose={hideMove}
         title={move.target ? `Move ${routineName(move.target)}` : ''}
@@ -305,19 +322,13 @@ export default function RoutinesTab({ today }) {
       <RelinkCard sessions={sessions} routines={routines} />
 
       <SectionHeader
-        title={routines.length ? `Routines · ${routines.length}` : 'Routines'}
-        action={routines.length > 1 ? (
-          <button type="button" className={`gym-rt-toggle${reordering ? ' is-on' : ''}`} onClick={() => setReordering((on) => !on)}>
-            {reordering ? 'Done' : 'Reorder'}
-          </button>
-        ) : null}
+        title="Routines"
+        action={reordering ? (
+          <button type="button" className="gym-rt-toggle is-on" onClick={() => setReordering(false)}>Done</button>
+        ) : (
+          <Button size="sm" icon="plus" onClick={() => setAddOpen(true)}>New</Button>
+        )}
       />
-
-      {!reordering && (
-        <div className="gym-rt-new">
-          <Button icon="plus" className="btn-block" onClick={() => navigate('gym/routine/new')}>New routine</Button>
-        </div>
-      )}
 
       {reordering && <p className="gym-rt-hint">Drag the handles or use the arrows to change the order. Folders keep their own order.</p>}
 
@@ -380,7 +391,7 @@ export default function RoutinesTab({ today }) {
         )
       })}
 
-      {!reordering && <MoreLinks onTemplates={() => setTemplatesOpen(true)} onFolder={() => showFolderEdit({ folder: null })} />}
+      {!reordering && <MoreLinks />}
 
       {sheets}
     </div>
@@ -412,9 +423,9 @@ function ReorderGroup({ routines, onStep, onCommit }) {
   )
 }
 
-// The foot of the tab: the exercise library (no longer a tab of its own) and, once there are
-// routines, templates to add more and folders to group them.
-function MoreLinks({ onTemplates, onFolder }) {
+// The foot of the tab: the exercise library (no longer a tab of its own). Templates, the wizard
+// and folders are in the New menu.
+function MoreLinks() {
   return (
     <ul className="card-list gym-br-links">
       <li>
@@ -427,30 +438,6 @@ function MoreLinks({ onTemplates, onFolder }) {
           <Icon name="chevronRight" size={18} className="gym-br-chevron" />
         </button>
       </li>
-      {onTemplates && (
-        <li>
-          <button type="button" className="gym-as-row" onClick={onTemplates}>
-            <Icon name="layers" size={20} />
-            <span className="gym-as-label">
-              Add routines from a template
-              <small>Ready-made routines and a schedule</small>
-            </span>
-            <Icon name="chevronRight" size={18} className="gym-br-chevron" />
-          </button>
-        </li>
-      )}
-      {onFolder && (
-        <li>
-          <button type="button" className="gym-as-row" onClick={onFolder}>
-            <Icon name="plus" size={20} />
-            <span className="gym-as-label">
-              New folder
-              <small>Keep related routines together, like a program</small>
-            </span>
-            <Icon name="chevronRight" size={18} className="gym-br-chevron" />
-          </button>
-        </li>
-      )}
     </ul>
   )
 }
@@ -458,10 +445,14 @@ function MoreLinks({ onTemplates, onFolder }) {
 function RoutineCard({ routine, today, lastDate, upNext, onStart, onMenu }) {
   const name = routineName(routine)
   const names = routine.exercises.map((row) => (typeof row.name === 'string' ? row.name.trim() : '')).filter(Boolean)
-  const preview = names.slice(0, 4).join(', ') + (names.length > 4 ? ` +${names.length - 4} more` : '')
   const edit = () => navigate(`gym/routine/${encodeURIComponent(routine.id)}`)
+  // The exercises are listed below, so the line is just how long and when it was last done.
+  const minutes = estimateMinutes(routine)
+  const meta = routine.exercises.length
+    ? [minutes ? `~${minutes} min` : null, lastDate ? `done ${timeAgo(lastDate, today)}` : 'not done yet'].filter(Boolean).join(' · ')
+    : ''
   return (
-    <article className="card gym-rt-card" style={{ '--gym-rc': routineColor(routine) }}>
+    <article className="card gym-rt-card is-compact" style={{ '--gym-rc': routineColor(routine) }}>
       <button type="button" className="gym-rt-card-main" onClick={edit}>
         <span className="gym-rt-card-title">
           <span className="gym-rt-card-name">{name}</span>
@@ -472,22 +463,16 @@ function RoutineCard({ routine, today, lastDate, upNext, onStart, onMenu }) {
             </span>
           )}
         </span>
-        <span className="gym-rt-card-meta">{routineSummary(routine)}</span>
-        <span className={`gym-rt-card-preview${preview ? '' : ' is-empty'}`}>{preview || 'No exercises yet. Tap to add some.'}</span>
+        {meta && <span className="gym-rt-card-meta">{meta}</span>}
+        <span className={`gym-rt-card-preview${names.length ? '' : ' is-empty'}`}>{names.length ? names.join(', ') : 'No exercises yet. Tap to add some.'}</span>
       </button>
-      <IconButton icon="more" label={`More for ${name}`} className="gym-rt-more" onClick={onMenu} />
-      <div className="gym-rt-card-foot">
-        <span className="gym-rt-card-last">
-          <Icon name="history" size={15} />
-          {lastDate ? `Last done ${timeAgo(lastDate, today)}` : 'Not done yet'}
-        </span>
-        <div className="gym-rt-card-actions">
-          <button type="button" className="btn btn-secondary btn-sm" onClick={onStart}>
-            <Icon name="play" size={15} strokeWidth={2.2} />
-            Start
-            <span className="sr-only"> {name}</span>
-          </button>
-        </div>
+      <div className="gym-rt-card-side">
+        <IconButton icon="more" label={`More for ${name}`} className="gym-rt-more" onClick={onMenu} />
+        <button type="button" className="btn btn-secondary btn-sm gym-rt-start" onClick={onStart}>
+          <Icon name="play" size={15} strokeWidth={2.2} />
+          Start
+          <span className="sr-only"> {name}</span>
+        </button>
       </div>
     </article>
   )
@@ -513,7 +498,7 @@ function SlotChip({ slot, gym }) {
   return <RoutineChip routine={routineById(gym, slot.routineId)} />
 }
 
-function SplitCard({ gym, sessions, today, onEdit, onWizard }) {
+function SplitCard({ gym, sessions, today, onEdit, onWizard }) { // onWizard: only offered while there's no schedule
   const { schedule, prefs } = gym
   const version = schedule.versions.length ? schedule.versions[schedule.versions.length - 1] : null
   const marker = useMemo(() => (version ? splitMarker(version, gym, sessions, today) : null), [version, gym, sessions, today])
@@ -546,7 +531,7 @@ function SplitCard({ gym, sessions, today, onEdit, onWizard }) {
   const workouts = slots.filter((slot) => slot.kind === 'routine').length
   const title = rotation ? (slots.length ? `${slots.length}-day rotation` : 'Rotation') : 'Weekly plan'
   const sub = rotation
-    ? slots.length ? `${workouts} workout${workouts === 1 ? '' : 's'} per cycle · repeats in order, whatever the weekday` : 'No days in the rotation yet.'
+    ? slots.length ? `${workouts} workout${workouts === 1 ? '' : 's'}, then it repeats` : 'No days in the rotation yet.'
     : `${workouts} workout${workouts === 1 ? '' : 's'} a week`
   const deloadEvery = schedule.deload.everyWeeks
   const deloadNow = isDeload(schedule, today, firstWeekday)
@@ -609,11 +594,6 @@ function SplitCard({ gym, sessions, today, onEdit, onWizard }) {
           )}
         </div>
       )}
-
-      <button type="button" className="wiz-split-link" onClick={onWizard}>
-        <Icon name="wand" size={18} />
-        New split with the wizard
-      </button>
     </section>
   )
 }
