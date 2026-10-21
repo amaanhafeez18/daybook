@@ -374,3 +374,4 @@
 
 /* The parsed chip's urgent flag. */
 .tk-parsed .tk-parsed-flag { flex-shrink: 0; }
+.task-row.tr-row { -webkit-touch-callout: none; }

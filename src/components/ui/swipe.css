@@ -1,0 +1,11 @@
+/* ui/SwipeRow.jsx: swipe left to reveal Delete (a long swipe deletes). */
+.swipe-row { position: relative; overflow: hidden; touch-action: pan-y; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.swipe-row-slide { position: relative; z-index: 1; background: var(--card-bg, var(--surface)); transition: transform 0.32s var(--ios-sheet, var(--ease)); will-change: transform; }
+.swipe-row-action {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: flex-end; gap: 6px;
+  padding-right: 20px; background: var(--danger); color: #fff; font-size: 15px; font-weight: 600; visibility: hidden;
+}
+.swipe-row.is-swiping .swipe-row-action, .swipe-row.is-open .swipe-row-action { visibility: visible; }
+/* Folding away after a delete (lib/collapse.js animates the height): no taps on its way out. */
+.swipe-row.is-leaving { pointer-events: none; }
+

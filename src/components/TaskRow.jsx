@@ -3,6 +3,8 @@ import Icon from './ui/Icon.jsx'
 import { Checkbox } from './ui/primitives.jsx'
 import { toast } from './ui/feedback.jsx'
 import SnoozeSheet from './SnoozeSheet.jsx'
+import { ActionSheet } from './ui/ActionSheet.jsx'
+import { swallowNextClick } from './ui/useLongPress.js'
 import { archiveTask, isReminderMarker, restoreTask, setTaskDone, updateTask } from '../lib/planner.js'
 import { offerCatchUp } from './catchUpOffer.js'
 import { useAttachmentCount } from '../lib/attachments.js'
@@ -55,6 +57,10 @@ export default function TaskRow({ task, onOpen, showDate = true, trailing = null
   const settleTimer = useRef(0)
   const [open, setOpen] = useState(false)
   const [snoozing, setSnoozing] = useState(null) // null until "Later…" is first used, then open or not
+  // Press and hold (or right-click): a peek at the task with its actions, like iOS context menus.
+  const [peek, setPeek] = useState(null) // null until first used, then open or not
+  const pressTimer = useRef(0)
+  const pressed = useRef(false) // the hold fired: the click its release sends is swallowed
 
   function toggle(done) {
     setTaskDone(task.id, done)
@@ -112,6 +118,7 @@ export default function TaskRow({ task, onOpen, showDate = true, trailing = null
 
   useEffect(() => () => {
     clearTimeout(settleTimer.current)
+    clearTimeout(pressTimer.current)
     if (openRow?.ref === rowRef) openRow = null
   }, [])
 
@@ -151,6 +158,17 @@ export default function TaskRow({ task, onOpen, showDate = true, trailing = null
     if (!swipe || (event.pointerType === 'mouse' && event.button !== 0)) return
     if (event.target.closest?.('.tr-trail, .tr-hover')) return
     drag.current = { id: event.pointerId, x: event.clientX, y: event.clientY, base: open ? -openX : 0, offset: open ? -openX : 0, active: false, width: rowRef.current?.offsetWidth || 340 }
+    pressed.current = false
+    clearTimeout(pressTimer.current)
+    if (!open && event.pointerType !== 'mouse' && !event.target.closest?.('.check, input')) {
+      pressTimer.current = setTimeout(() => {
+        if (!drag.current || drag.current.active) return
+        drag.current = null
+        pressed.current = true
+        swallowNextClick()
+        setPeek(true)
+      }, LONG_PRESS_MS)
+    }
   }
 
   const onPointerMove = (event) => {
@@ -165,6 +183,7 @@ export default function TaskRow({ task, onOpen, showDate = true, trailing = null
     const dx = event.clientX - d.x
     const dy = event.clientY - d.y
     const row = rowRef.current
+    if (Math.abs(dx) > 8 || Math.abs(dy) > 8) clearTimeout(pressTimer.current)
     if (!d.active) {
       // A mostly vertical move is a scroll: let it be.
       if (Math.abs(dy) > DRAG_START && Math.abs(dy) > Math.abs(dx)) {
@@ -196,6 +215,7 @@ export default function TaskRow({ task, onOpen, showDate = true, trailing = null
   }
 
   const finishDrag = (cancelled) => {
+    clearTimeout(pressTimer.current)
     const d = drag.current
     drag.current = null
     if (!d?.active) return
@@ -238,6 +258,12 @@ export default function TaskRow({ task, onOpen, showDate = true, trailing = null
   }
 
   const onClickCapture = (event) => {
+    if (pressed.current) {
+      pressed.current = false
+      event.preventDefault()
+      event.stopPropagation()
+      return
+    }
     if (performance.now() < suppressClickUntil.current) {
       suppressClickUntil.current = 0
       event.preventDefault()
@@ -268,6 +294,12 @@ export default function TaskRow({ task, onOpen, showDate = true, trailing = null
         onPointerUp={swipe ? () => finishDrag(false) : undefined}
         onPointerCancel={swipe ? () => finishDrag(true) : undefined}
         onClickCapture={swipe ? onClickCapture : undefined}
+        onContextMenu={swipe ? (event) => {
+          event.preventDefault()
+          clearTimeout(pressTimer.current)
+          drag.current = null
+          setPeek(true)
+        } : undefined}
       >
         {swipe && (
           <span className={`tr-lead ${task.done ? 'is-reopen' : ''}`} aria-hidden="true">
@@ -358,10 +390,37 @@ export default function TaskRow({ task, onOpen, showDate = true, trailing = null
       </li>
       {/* Outside the row, so the sheet's touches don't reach the row's swipe handlers; only
           rendered once used, so long lists don't carry a sheet per row. */}
+      {peek !== null && (
+        <ActionSheet
+          open={peek}
+          onClose={() => setPeek(false)}
+          title={task.done ? 'Done' : overdue ? 'Overdue' : task.date ? relativeDay(task.date, today) : 'No date'}
+          preview={(
+            <>
+              <strong>{task.text}</strong>
+              {(task.date || task.time || task.priority === 'urgent') && (
+                <span className="peek-meta">{[task.date && relativeDay(task.date, today), task.time && formatTime(task.time), task.priority === 'urgent' && 'Urgent', clash && `Overlaps ${clash}`].filter(Boolean).join(' · ')}</span>
+              )}
+              {details && <p>{details.length > 240 ? `${details.slice(0, 239)}…` : details}</p>}
+            </>
+          )}
+          actions={[
+            [
+              { id: 'done', label: task.done ? 'Mark as not done' : 'Complete', icon: task.done ? 'undo' : 'check', onClick: () => toggle(!task.done) },
+              canTomorrow && { id: 'tomorrow', label: 'Tomorrow', icon: 'sunrise', onClick: moveToTomorrow },
+              canLater && { id: 'later', label: 'Later…', icon: 'clock', onClick: () => setSnoozing(true) },
+            ],
+            onOpen && [{ id: 'edit', label: 'Edit', icon: 'pencil', onClick: () => onOpen(task) }],
+            [{ id: 'archive', label: 'Archive', icon: 'archive', danger: true, onClick: archive }],
+          ].filter(Boolean)}
+        />
+      )}
       {snoozing !== null && <SnoozeSheet task={task} open={snoozing} onClose={() => setSnoozing(false)} onPick={onOpen ? () => onOpen(task, { pickDate: true }) : undefined} />}
     </>
   )
 }
+
+const LONG_PRESS_MS = 480
 
 // How far right a swipe must go to complete the task.
 const leadCommit = (width) => Math.min(96, width * 0.33)

@@ -6,6 +6,7 @@ import { AutoTextarea, Avatar, Button, EmptyState, Field, IconButton, Segmented,
 import { confirmAction, toast } from '../components/ui/feedback.jsx'
 import { ActionSheet } from '../components/ui/ActionSheet.jsx'
 import AttachmentStrip from '../components/AttachmentStrip.jsx'
+import { useLongPress } from '../components/ui/useLongPress.js'
 import { attachmentSummary, useAttachmentsFor } from '../lib/attachments.js'
 import { useData, useStore } from '../lib/store.js'
 import {
@@ -156,31 +157,55 @@ function PersonRow({ friend, status, topic, onOpen, onTalked }) {
   // Short enough for one line ("2 weeks ago · Close friend"); the dot already says how it's going.
   const lastLabel = status.last ? capitalize(timeAgo(status.last)) : 'No catch-ups yet'
   const talkedToday = status.daysSince === 0
+  // Press and hold: a peek at the person with the two things you do most.
+  const [peek, setPeek] = useState(null)
+  const press = useLongPress(() => setPeek(true))
   return (
-    <li className="person-row">
-      <button type="button" className="person-main" onClick={onOpen}>
-        <Avatar key={friend.photoUrl || 'none'} name={friend.name} src={friend.photoUrl} size={44} />
-        <span className="person-text">
-          <strong>{friend.name}</strong>
-          <small>
-            <i className={`status-dot is-${tone}`} aria-hidden="true" />
-            <span className="ppl-meta-text">{lastLabel} · {relationshipLabel(friend.relationship)}</span>
-          </small>
-          {/* What you talked about last time comes first; what they're up to otherwise. */}
-          {topic ? <small className="person-status ppl-topic"><Icon name="message" size={13} strokeWidth={2} /><span className="sr-only">Last time: </span>{topic}</small>
-            : friend.currentStatus ? <small className="person-status">{friend.currentStatus}</small> : null}
-        </span>
-      </button>
-      <button
-        type="button"
-        className={`icon-btn icon-btn-soft ppl-talk${talkedToday ? ' is-logged' : ''}`}
-        onClick={onTalked}
-        aria-label={talkedToday ? `Add to today’s catch-up with ${friend.name}` : `Log a catch-up with ${friend.name} today`}
-        title={talkedToday ? 'Talked today' : 'Talked today?'}
-      >
-        <Icon name="check" size={20} strokeWidth={talkedToday ? 2.6 : 2.2} />
-      </button>
-    </li>
+    <>
+      {peek !== null && (
+        <ActionSheet
+          open={peek}
+          onClose={() => setPeek(false)}
+          title={friend.name}
+          preview={(
+            <>
+              <span className="peek-meta">{lastLabel} · {relationshipLabel(friend.relationship)}{status.daysToBirthday !== null && status.daysToBirthday <= 30 ? ` · Birthday ${status.daysToBirthday === 0 ? 'today' : `in ${status.daysToBirthday} day${status.daysToBirthday === 1 ? '' : 's'}`}` : ''}</span>
+              {(topic || friend.currentStatus) && <p>{topic ? `Last time: ${topic}` : friend.currentStatus}</p>}
+            </>
+          )}
+          actions={[
+            [
+              { id: 'talked', label: talkedToday ? 'Add to today’s catch-up' : 'Talked today', icon: 'check', onClick: onTalked },
+              { id: 'open', label: 'Open', icon: 'userCircle', onClick: onOpen },
+            ],
+          ]}
+        />
+      )}
+      <li className="person-row" {...press}>
+        <button type="button" className="person-main" onClick={onOpen}>
+          <Avatar key={friend.photoUrl || 'none'} name={friend.name} src={friend.photoUrl} size={44} />
+          <span className="person-text">
+            <strong>{friend.name}</strong>
+            <small>
+              <i className={`status-dot is-${tone}`} aria-hidden="true" />
+              <span className="ppl-meta-text">{lastLabel} · {relationshipLabel(friend.relationship)}</span>
+            </small>
+            {/* What you talked about last time comes first; what they're up to otherwise. */}
+            {topic ? <small className="person-status ppl-topic"><Icon name="message" size={13} strokeWidth={2} /><span className="sr-only">Last time: </span>{topic}</small>
+              : friend.currentStatus ? <small className="person-status">{friend.currentStatus}</small> : null}
+          </span>
+        </button>
+        <button
+          type="button"
+          className={`icon-btn icon-btn-soft ppl-talk${talkedToday ? ' is-logged' : ''}`}
+          onClick={onTalked}
+          aria-label={talkedToday ? `Add to today’s catch-up with ${friend.name}` : `Log a catch-up with ${friend.name} today`}
+          title={talkedToday ? 'Talked today' : 'Talked today?'}
+        >
+          <Icon name="check" size={20} strokeWidth={talkedToday ? 2.6 : 2.2} />
+        </button>
+      </li>
+    </>
   )
 }
 
