@@ -14,6 +14,10 @@ const BACKLOG_DAYS = 6 // a weekly backlog expires after this many days without 
 const NEXT_WORKOUT_DAYS = 60
 const MAX_RANGE_DAYS = 3660
 const SIM_CACHE_SIZE = 24
+// Missed workouts move to the next day (prefs.carryMissed, on unless false) for days from
+// prefs.carryFrom on; data saved before the feature has no carryFrom and starts here, so older
+// misses keep resolving as they always did.
+export const CARRY_SINCE = '2026-10-20'
 
 const PAST_DAY = 'You can only change today or future days.'
 const LOGGED_DAY = 'That day already has a workout logged.'
@@ -223,6 +227,34 @@ function scheduleContext(schedule) {
     shiftDays: schedule.shifts.map(toDay),
     shiftSet: new Set(schedule.shifts),
     moves: new Map(), // version index → weekly simulation, for this call
+    carried: new Map(), // ISO date of a missed workout moved on → what it showed (see applyCarry)
+  }
+}
+
+// Where missed workouts start moving on (a day number), or null when that's switched off.
+function carryStart(prefs) {
+  const p = isObject(prefs) ? prefs : {}
+  if (p.carryMissed === false) return null
+  return toDay(isIsoDate(p.carryFrom) ? p.carryFrom : CARRY_SINCE)
+}
+
+// A past day that shows one of the user's routines (not a one-off change, not skipped or shifted)
+// with nothing logged doesn't use up its slot: it counts as a shift, so that workout shows the
+// next day and the rest of the plan slides along. Walks the days in order because each carried
+// day changes what the following days show. Only days before today: today can still be done.
+function applyCarry(ctx, from, today, sessions, routines) {
+  if (from === null || !Number.isFinite(today) || !ctx.versions.length) return
+  const first = Math.max(from, ctx.effDays[0])
+  for (let day = first; day < today; day++) {
+    const iso = fromDay(day)
+    if (iso === null) return
+    if (sessions.has(iso) || ctx.schedule.skips[iso] || ctx.schedule.overrides[iso] || ctx.shiftSet.has(iso)) continue
+    const planned = plannedAt(ctx, day, iso)
+    if (planned.slot.kind !== 'routine' || !routines.has(planned.slot.routineId)) continue
+    ctx.shiftDays.splice(lowerBound(ctx.shiftDays, day), 0, day)
+    ctx.shiftSet.add(iso)
+    ctx.carried.set(iso, planned) // the day still shows (as skipped) the workout that moved on
+    ctx.moves.clear()
   }
 }
 
@@ -245,7 +277,7 @@ function plannedAt(ctx, day, iso) {
   if (index < 0) return { version: null, slot: NONE, cycleIndex: null }
   const version = ctx.versions[index]
   if (version.mode === 'rotation' && !version.cycle.length) return { version, slot: NONE, cycleIndex: null }
-  if (ctx.shiftSet.has(iso)) return { version, slot: SHIFTED, cycleIndex: null }
+  if (ctx.shiftSet.has(iso)) return ctx.carried.get(iso) || { version, slot: SHIFTED, cycleIndex: null }
   if (version.mode === 'rotation') {
     const cycleIndex = mod(rotationK(ctx, index, day), version.cycle.length)
     return { version, slot: version.cycle[cycleIndex], cycleIndex }
@@ -327,10 +359,17 @@ export function versionFor(schedule, date) {
   return index < 0 ? null : ctx.versions[index]
 }
 
-export function plannedFor(schedule, date) {
+// days: { gym, sessions, today } so missed workouts that moved on are counted (see applyCarry);
+// without it the plan is read as if every past workout was done.
+export function plannedFor(schedule, date, days = null) {
   const day = toDay(date)
   if (day === null) return { version: null, slot: NONE, cycleIndex: null }
-  return plannedAt(scheduleContext(normalizeSchedule(schedule)), day, date)
+  return plannedAt(contextFor(schedule, days), day, date)
+}
+
+function contextFor(schedule, days) {
+  if (!isObject(days)) return scheduleContext(normalizeSchedule(schedule))
+  return dayContext(days.gym, days.sessions, days.today, schedule)
 }
 
 // ---- deload -----------------------------------------------------------------------------------
@@ -399,19 +438,34 @@ function indexSessions(sessions) {
   return map
 }
 
-function dayContext(gym, sessions) {
-  const source = isObject(gym) ? gym : {}
-  const ctx = scheduleContext(normalizeSchedule(source.schedule))
-  const firstWeekday = normWeekday(isObject(source.prefs) ? source.prefs.firstWeekday : undefined, 1)
-  ctx.deload = deloadRules(ctx.schedule.deload, ctx.versions.length ? ctx.versions[0].effectiveFrom : null, firstWeekday)
-  ctx.routines = indexRoutines(source.routines)
-  ctx.sessions = indexSessions(sessions)
-  return ctx
-}
-
 const todayDay = (today) => {
   const day = toDay(today)
   return day === null ? -Infinity : day // unknown today: treat every planned day as upcoming
+}
+
+// today: a day number (todayDay) or ISO date; missed workouts before it move on (applyCarry).
+function dayContext(gym, sessions, today, schedule) {
+  const source = isObject(gym) ? gym : {}
+  const ctx = scheduleContext(normalizeSchedule(schedule === undefined ? source.schedule : schedule))
+  const prefs = isObject(source.prefs) ? source.prefs : {}
+  const firstWeekday = normWeekday(prefs.firstWeekday, 1)
+  ctx.deload = deloadRules(ctx.schedule.deload, ctx.versions.length ? ctx.versions[0].effectiveFrom : null, firstWeekday)
+  ctx.routines = indexRoutines(source.routines)
+  ctx.sessions = indexSessions(sessions)
+  applyCarry(ctx, carryStart(prefs), typeof today === 'number' ? today : todayDay(today), ctx.sessions, ctx.routines)
+  return ctx
+}
+
+// The first of the missed days in a row just before `day` whose workout moved on to it, or null.
+function carriedFrom(ctx, day, shown) {
+  if (shown.kind !== 'routine') return null
+  let from = null
+  for (let back = day - 1; ; back--) {
+    const iso = fromDay(back)
+    const carried = iso && ctx.carried.get(iso)
+    if (!carried || !isRoutineSlot(carried.slot, shown.routineId)) return from
+    from = iso
+  }
 }
 
 // Status priority: done (sessions are facts) → none → skipped → shifted → rest → missed/today/upcoming.
@@ -422,10 +476,11 @@ function resolveAt(ctx, day, iso, today) {
   const sessions = ctx.sessions.get(iso) || []
   const skipped = !!ctx.schedule.skips[iso]
   const routine = shown.kind === 'routine' ? ctx.routines.get(shown.routineId) || null : null
+  const carried = ctx.carried.has(iso)
   let status
   if (sessions.length) status = 'done'
   else if (shown.kind === 'none') status = 'none'
-  else if (skipped) status = 'skipped'
+  else if (skipped || carried) status = 'skipped'
   else if (shown.kind === 'shifted') status = 'shifted'
   else if (shown.kind === 'rest') status = 'rest'
   else status = day < today ? 'missed' : day === today ? 'today' : 'upcoming'
@@ -441,7 +496,11 @@ function resolveAt(ctx, day, iso, today) {
     sessions,
     override,
     skipped,
-    shifted: ctx.shiftSet.has(iso),
+    shifted: ctx.shiftSet.has(iso) && !carried,
+    // Nothing logged, so its workout moved on to the next day (shown, with status 'skipped').
+    carried,
+    // On the day a missed workout moved to: the first day it was missed.
+    carriedFrom: override || carried || skipped ? null : carriedFrom(ctx, day, shown),
     deload: deloadAt(ctx.deload, day),
   }
 }
@@ -460,6 +519,8 @@ function blankDay(date) {
     override: null,
     skipped: false,
     shifted: false,
+    carried: false,
+    carriedFrom: null,
     deload: false,
   }
 }
@@ -468,7 +529,8 @@ function blankDay(date) {
 export function resolveDay(gym, sessions, date, today) {
   const day = toDay(date)
   if (day === null) return blankDay(date)
-  return resolveAt(dayContext(gym, sessions), day, date, todayDay(today))
+  const now = todayDay(today)
+  return resolveAt(dayContext(gym, sessions, now), day, date, now)
 }
 
 // Every date from..to inclusive (at most MAX_RANGE_DAYS); [] when the range is invalid.
@@ -476,8 +538,8 @@ export function resolveRange(gym, sessions, from, to, today) {
   const start = toDay(from)
   const end = toDay(to)
   if (start === null || end === null || end < start) return []
-  const ctx = dayContext(gym, sessions)
   const now = todayDay(today)
+  const ctx = dayContext(gym, sessions, now)
   const last = Math.min(end, start + MAX_RANGE_DAYS - 1)
   const days = []
   for (let day = start; day <= last; day++) days.push(resolveAt(ctx, day, fromDay(day), now))
@@ -488,7 +550,7 @@ export function resolveRange(gym, sessions, from, to, today) {
 export function nextWorkout(gym, sessions, today) {
   const now = toDay(today)
   if (now === null) return null
-  const ctx = dayContext(gym, sessions)
+  const ctx = dayContext(gym, sessions, now)
   for (let day = now + 1; day <= now + NEXT_WORKOUT_DAYS; day++) {
     const iso = fromDay(day)
     if (iso === null) return null
@@ -607,12 +669,13 @@ export function editSchedule(schedule, plan, today, hasSessionToday, makeId = de
 
 // After doing `routineId` on a different day of the rotation: continue the cycle after it from
 // tomorrow. Returns null when not applicable (no plan, weekly, empty cycle, routine not in it).
-export function realign(schedule, routineId, today, makeId = defaultMakeId) {
+// days: { gym, sessions } (see plannedFor) so today's place in the cycle counts missed workouts.
+export function realign(schedule, routineId, today, makeId = defaultMakeId, days = null) {
   const now = toDay(today)
   const id = cleanId(routineId)
   if (now === null || !id) return null
   const s = normalizeSchedule(schedule)
-  const ctx = scheduleContext(s)
+  const ctx = contextFor(s, isObject(days) ? { ...days, today } : null)
   const index = versionIndexAt(ctx, now)
   if (index < 0) return null
   const version = s.versions[index]
@@ -636,14 +699,14 @@ const usesRoutine = (version, routineId) => slotsOf(version).some((slot) => isRo
 // For deleting a routine: from today (tomorrow if today has a session) its slots become rest.
 // The version in effect gets a copy-on-write successor that continues the rotation exactly;
 // later versions and overrides from today on are mapped in place.
-export function replaceRoutineWithRest(schedule, routineId, today, hasSessionToday, makeId = defaultMakeId) {
+export function replaceRoutineWithRest(schedule, routineId, today, hasSessionToday, makeId = defaultMakeId, days = null) {
   const eff = isIsoDate(today) ? (hasSessionToday ? addDays(today, 1) : today) : null
   if (!eff) throw new Error(BAD_DATE)
   const s = normalizeSchedule(schedule)
   const id = cleanId(routineId)
   if (!id) return s
   const effDay = toDay(eff)
-  const ctx = scheduleContext(s)
+  const ctx = contextFor(s, isObject(days) ? { ...days, today } : null)
   const current = versionIndexAt(ctx, effDay)
   const swap = (slots) => slots.map((slot) => (isRoutineSlot(slot, id) ? restSlot() : slot))
   const versions = []

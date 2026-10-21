@@ -211,11 +211,11 @@ export default function WorkoutSummary({ session, onDone }) {
       if (shown?.kind !== 'routine' && shown?.kind !== 'rest') return null
       // Today's planned workout was done as well: this one was an extra, not a swap.
       if (shown.kind === 'routine' && day.sessions.some((item) => item?.id !== current.id && item?.routineId === shown.routineId)) return null
-      const preview = realign(gym.schedule, current.routineId, today)
+      const preview = realign(gym.schedule, current.routineId, today, undefined, { gym, sessions })
       const next = preview?.versions?.[preview.versions.length - 1]
       const tomorrowSlot = next?.cycle?.[next.anchorIndex]
       if (!tomorrowSlot) return null
-      const planned = plannedFor(gym.schedule, addDays(today, 1)).slot
+      const planned = plannedFor(gym.schedule, addDays(today, 1), { gym, sessions, today }).slot
       const same = planned?.kind === tomorrowSlot.kind && (planned.kind !== 'routine' || planned.routineId === tomorrowSlot.routineId)
       if (same) return null
       const plannedName = shown.kind === 'rest' ? '' : slotLabel(shown, gym)

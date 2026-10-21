@@ -635,6 +635,8 @@ html.gym-has-float:where(:not(.has-sheet)) .toaster { bottom: calc(var(--nav-h) 
 .gym-finish-icon.is-danger { background: var(--danger-soft); color: var(--danger); }
 .gym-finish-sub { font-size: 14px; color: var(--text-2); }
 .gym-finish-step > .gym-finish-sub { font-weight: 400; }
+.gym-finish-ended { display: flex; gap: 6px; align-items: flex-start; }
+.gym-finish-ended svg { flex: none; margin-top: 3px; }
 .gym-finish-choices { display: flex; flex-direction: column; gap: 8px; width: 100%; margin-top: 8px; }
 .gym-finish-form .field-row { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); }
 .gym-finish-summary {

@@ -4,7 +4,7 @@ import Sheet from '../../components/ui/Sheet.jsx'
 import Disclosure from '../../components/ui/Disclosure.jsx'
 import { toast } from '../../components/ui/feedback.jsx'
 import { AutoTextarea, Field } from '../../components/ui/primitives.jsx'
-import { formatDateShort, formatTime, isISODate, nowTimeHHMM } from '../../lib/dates.js'
+import { formatDateShort, formatDuration, formatTime, isISODate, nowTimeHHMM } from '../../lib/dates.js'
 import { isBackfillWorkout, sessionVolume, sessionWorkingSets } from '../../lib/gym/stats.js'
 import { discardActive, finishActive, latestBodyWeight, newGymId, routineById, updateActive, useBodyWeights, useGym, useGymSessions, useToday } from '../../lib/gym/state.js'
 import { formatVolume } from '../../lib/gym/units.js'
@@ -18,11 +18,17 @@ import './workout.css'
 const VALUE_KEYS = ['weightKg', 'reps', 'durationSec', 'distanceM']
 // A running clock longer than this is a forgotten workout, not a real duration (as WorkoutPill).
 const LIVE_LIMIT_SEC = 6 * 60 * 60
+// Finishing this long after the last ticked set means the workout was left running: it ends a
+// minute after that set instead (time to rack the weights), not when Finish was tapped.
+const IDLE_SEC = 15 * 60
+const AFTER_LAST_SET_SEC = 60
 const isNum = (value) => typeof value === 'number' && Number.isFinite(value)
 const numOrNull = (value) => (isNum(value) ? value : null)
 const exercisesOf = (workout) => (Array.isArray(workout?.exercises) ? workout.exercises.filter((row) => row && typeof row === 'object') : [])
 const setsOf = (exercise) => (Array.isArray(exercise?.sets) ? exercise.sets.filter((set) => set && typeof set === 'object') : [])
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
+const clockOf = (ms) => formatTime(nowTimeHHMM(new Date(ms)))
+const idleText = (sec) => formatDuration(Math.max(1, Math.round(sec / 60)))
 
 // An unticked set the user typed something into, with its other fields taken from the grid's
 // placeholders exactly as ✓ would; null when nothing was typed (an untouched set is just dropped).
@@ -107,6 +113,18 @@ function patchActiveSet({ exRef, setRef }, patch) {
   })
 }
 
+// When the last set of a live workout was ticked (ms), or null when no set carries the time.
+function lastTickMs(workout) {
+  let last = null
+  for (const exercise of exercisesOf(workout)) {
+    for (const set of setsOf(exercise)) {
+      const ms = set.done && typeof set.doneAt === 'string' ? Date.parse(set.doneAt) : NaN
+      if (Number.isFinite(ms) && (last === null || ms > last)) last = ms
+    }
+  }
+  return last
+}
+
 function defaultForm(workout, gym, today) {
   const routine = routineById(gym, workout?.routineId)
   const name = (typeof workout?.name === 'string' && workout.name.trim()) || routine?.name?.trim() || 'Workout'
@@ -116,7 +134,15 @@ function defaultForm(workout, gym, today) {
   // A backfilled past workout (its start is a stand-in noon) or one left running for hours has no
   // meaningful elapsed time: the duration defaults to 60 min instead. One past midnight is fine.
   const live = !isBackfillWorkout(workout)
-  const exactSec = live && elapsed !== null && elapsed > 0 && elapsed < LIVE_LIMIT_SEC ? elapsed : null
+  let exactSec = live && elapsed !== null && elapsed > 0 && elapsed < LIVE_LIMIT_SEC ? elapsed : null
+  // Left running after the last set: end it there.
+  let endedEarly = null
+  const lastTick = live && validStart ? lastTickMs(workout) : null
+  if (lastTick !== null && lastTick > startMs && Date.now() - lastTick > IDLE_SEC * 1000) {
+    const endMs = Math.min(Date.now(), lastTick + AFTER_LAST_SET_SEC * 1000)
+    exactSec = Math.round((endMs - startMs) / 1000)
+    endedEarly = { endMs, idleSec: Math.round((Date.now() - endMs) / 1000) }
+  }
   return {
     name,
     date: isISODate(workout?.date) ? workout.date : today,
@@ -124,6 +150,7 @@ function defaultForm(workout, gym, today) {
     minutes: String(exactSec !== null ? Math.max(1, Math.round(exactSec / 60)) : 60),
     note: typeof workout?.note === 'string' ? workout.note : '',
     exactSec,
+    endedEarly,
   }
 }
 
@@ -318,6 +345,12 @@ export default function FinishSheet({ open, onClose, workout, onFinished }) {
           </div>
           {dropped > 0 && (
             <p className="gym-finish-sub">{plural(dropped, 'unticked set')} won’t be saved.</p>
+          )}
+          {form.endedEarly && String(form.minutes).trim() === initial.current.minutes && (
+            <p className="gym-finish-sub gym-finish-ended">
+              <Icon name="clock" size={14} />
+              Ends at {clockOf(form.endedEarly.endMs)}, after your last set ({String(form.minutes).trim()} min). The clock ran {idleText(form.endedEarly.idleSec)} longer.
+            </p>
           )}
           {flags.length > 0 && (
             <div className="gym-finish-checks">

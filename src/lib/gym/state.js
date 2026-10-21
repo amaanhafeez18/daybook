@@ -46,6 +46,7 @@ export const DEFAULT_PREFS = deepFreeze({
   progression: true,
   weeklyGoal: 3,
   bodyweightInVolume: true,
+  carryMissed: true, // a missed workout moves to the next day (schedule.js applyCarry; carryFrom = since when)
   warmupScheme: [
     { pct: 0, reps: 10, bar: true },
     { pct: 0.5, reps: 5 },
@@ -225,6 +226,7 @@ const normalizePrefs = memoByRef((raw) => {
     progression: bool(p.progression, d.progression),
     weeklyGoal: inRange(p.weeklyGoal, 1, 14, d.weeklyGoal, true),
     bodyweightInVolume: bool(p.bodyweightInVolume, d.bodyweightInVolume),
+    carryMissed: bool(p.carryMissed, d.carryMissed),
     warmupScheme: warmupScheme(p.warmupScheme),
     plates: { ...plates, kg: plateList(plates.kg, d.plates.kg), lb: plateList(plates.lb, d.plates.lb), pairs: platePairs(plates.pairs) },
     bars,
@@ -525,7 +527,7 @@ export function saveSchedule({ mode, cycle, weekly, anchorIndex } = {}) {
 }
 
 export function realignTo(routineId) {
-  return applySchedule((schedule, today) => sched.realign(schedule, routineId, today))
+  return applySchedule((schedule, today) => sched.realign(schedule, routineId, today, undefined, { gym: getGym(), sessions: sortSessions(getState().data.gymSessions) }))
 }
 
 // { routines, schedule } from buildTemplate: appends the routines and uses the template's plan.
@@ -595,7 +597,7 @@ export function deleteRoutine(id, { replaceWithRest = false } = {}) {
   const index = gym.routines.findIndex((routine) => routine.id === id)
   const routine = gym.routines[index]
   const today = todayISO()
-  const schedule = replaceWithRest ? sched.replaceRoutineWithRest(gym.schedule, id, today, hasSessionOn(today)) || gym.schedule : gym.schedule
+  const schedule = replaceWithRest ? sched.replaceRoutineWithRest(gym.schedule, id, today, hasSessionOn(today), undefined, { gym, sessions: sortSessions(getState().data.gymSessions) }) || gym.schedule : gym.schedule
   const revert = scheduleRevert(gym.schedule, schedule)
   if (!routine && !revert) return () => {}
   updateGym({

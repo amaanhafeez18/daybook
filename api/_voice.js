@@ -1014,7 +1014,12 @@ function workoutProblem(message) {
   const unclear = /"([^"]+)" could be (.+?)\. Use the exact name/.exec(text)
   if (unclear) {
     // "Seated Shoulder Press (Dumbbell)" → "seated shoulder press" (the equipment was usually said).
-    const choices = [...new Set(unclear[2].split(/, (?=[A-Z])/).map((name) => name.replace(/\s*\([^)]*\)\s*$/, '').trim().toLowerCase()).filter(Boolean))].slice(0, 4)
+    let choices = [...new Set(unclear[2].split(/, (?=[A-Z])/).map((name) => name.replace(/\s*\([^)]*\)\s*$/, '').trim().toLowerCase()).filter(Boolean))]
+    // "Incline bench press" and "decline bench press" ask as "bench press" (they'd say incline if
+    // they meant it), so the question stays short and the other kinds still fit.
+    const bases = [...new Set(choices.map((name) => name.replace(/^(incline|decline) /, '')))]
+    if (bases.length >= 2) choices = bases
+    choices = choices.slice(0, 4)
     const options = choices.length > 1 ? `${choices.slice(0, -1).join(', ')} or ${choices[choices.length - 1]}` : choices.join('')
     return { ok: false, unclear: unclear[1], choices, message: `Not logged yet: "${unclear[1]}" could be ${options}. Ask which in a few words ("Seated or Arnold?"), then call again with that name.` }
   }

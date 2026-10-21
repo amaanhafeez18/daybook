@@ -93,8 +93,19 @@
 .gym-td-badge.is-down { background: var(--warning-soft); color: var(--warning); }
 .gym-td-badge.is-up { background: var(--success-soft); color: var(--success); }
 
-/* 7-day strip */
-.card.gym-td-strip { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); margin: 0; padding: 10px 6px; list-style: none; }
+/* 7-day strip (steps back 7 days at a time) */
+.card.gym-td-week { margin: 0; padding: 6px 6px 10px; overflow: hidden; touch-action: pan-y; }
+.gym-td-week-head { display: flex; align-items: center; gap: 2px; padding: 0 2px 0 10px; min-height: 40px; }
+.gym-td-week-title { flex: 1; min-width: 0; margin: 0; font-size: var(--fs-subhead, 15px); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gym-td-week-title small { font-size: inherit; font-weight: 400; color: var(--text-2); }
+.gym-td-week-today { margin-right: 4px; font-size: 15px; }
+.gym-td-week-head .icon-btn:disabled { opacity: 0.3; }
+.gym-td-strip { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); margin: 0; padding: 0; list-style: none; }
+.gym-td-strip.from-next { animation: gym-strip-next 0.3s var(--ios-sheet, ease) both; }
+.gym-td-strip.from-prev { animation: gym-strip-prev 0.3s var(--ios-sheet, ease) both; }
+@keyframes gym-strip-next { from { opacity: 0; transform: translateX(24px); } }
+@keyframes gym-strip-prev { from { opacity: 0; transform: translateX(-24px); } }
+@media (prefers-reduced-motion: reduce) { .gym-td-strip.from-next, .gym-td-strip.from-prev { animation: none; } }
 .gym-td-strip-day {
   width: 100%; display: flex; flex-direction: column; align-items: center; gap: 5px;
   padding: 4px 1px 2px; border-radius: 16px; color: var(--text);
@@ -125,6 +136,8 @@
 }
 .gym-td-strip-day.is-planned .gym-td-strip-name, .gym-td-strip-day.is-done .gym-td-strip-name { color: var(--text); }
 .gym-td-strip-day.is-skipped .gym-td-strip-name { text-decoration: line-through; color: var(--text-3); }
+.gym-td-strip-day.is-missed .gym-td-strip-circle { background: none; box-shadow: inset 0 0 0 1.5px var(--danger, #d0433b); color: var(--text-3); }
+.gym-td-strip-day.is-missed .gym-td-strip-name { color: var(--text-3); }
 @supports (background: color-mix(in srgb, red 50%, blue)) {
   .gym-td-strip-day.is-planned .gym-td-strip-circle { background: color-mix(in srgb, var(--gym-rc, var(--text-3)) 14%, transparent); }
 }

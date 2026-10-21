@@ -45,8 +45,9 @@ const routineEx = (exerciseId, repsMin, repsMax, count = 3, weightKg = null) => 
 
 // ---- library -------------------------------------------------------------------------------
 
-// 124 built-ins, plus 38 added in October 2026 (Bayesian curl and friends).
-const LIBRARY_SIZE = 162
+// 124 built-ins, plus 38 added in October 2026 (Bayesian curl and friends) and 54 more later that
+// month (floor press, Zottman curl, outdoor running…).
+const LIBRARY_SIZE = 216
 
 describe('library', () => {
   test(`${LIBRARY_SIZE} entries with unique ids and valid fields`, () => {
@@ -118,7 +119,7 @@ describe('library', () => {
     assert.ok(chest.some((e) => e.id === 'close-grip-bench-press')) // secondary chest counts
     assert.ok(chest.every((e) => e.primary === 'chest' || e.secondary.includes('chest')))
     const kettlebell = searchExercises('', { equipment: 'kettlebell' })
-    assert.deepEqual(kettlebell.map((e) => e.id), ['kettlebell-swing'])
+    assert.deepEqual(kettlebell.map((e) => e.id), ['kettlebell-farmers-walk', 'kettlebell-goblet-squat', 'kettlebell-swing'])
     assert.deepEqual(searchExercises('squat', { muscle: 'quads', equipment: 'machine' }).map((e) => e.id), ['belt-squat', 'hack-squat', 'pendulum-squat'])
     assert.equal(searchExercises('').length, LIBRARY_SIZE)
     assert.equal(searchExercises(null, null).length, LIBRARY_SIZE)
