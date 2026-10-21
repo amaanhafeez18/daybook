@@ -88,13 +88,14 @@ export class ApiError extends Error {
 
 // JSON request with the session token. A 401 on anything but the session check means the
 // saved session is no longer valid, so the app is told to sign out.
-export async function apiRequest(url, { method = 'GET', body, headers, signal } = {}) {
+export async function apiRequest(url, { method = 'GET', body, headers, signal, keepalive = false } = {}) {
   const token = getToken()
   let response
   try {
     response = await fetch(url, {
       method,
       signal: signal ?? defaultSignal(),
+      keepalive, // still sent while the page is being put away (restAlarm.js)
       headers: {
         ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),

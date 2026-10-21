@@ -42,6 +42,7 @@ export const DEFAULT_PREFS = deepFreeze({
   previousSource: 'any',
   showRpe: false,
   timerSound: true,
+  restNotify: true, // rest time + "Rest over" as notifications when the app is left mid-rest (restAlarm.js)
   keepAwake: true,
   progression: true,
   weeklyGoal: 3,
@@ -222,6 +223,7 @@ const normalizePrefs = memoByRef((raw) => {
     previousSource: oneOf(p.previousSource, ['any', 'routine'], d.previousSource),
     showRpe: bool(p.showRpe, d.showRpe),
     timerSound: bool(p.timerSound, d.timerSound),
+    restNotify: bool(p.restNotify, d.restNotify),
     keepAwake: bool(p.keepAwake, d.keepAwake),
     progression: bool(p.progression, d.progression),
     weeklyGoal: inRange(p.weeklyGoal, 1, 14, d.weeklyGoal, true),

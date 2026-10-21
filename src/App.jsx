@@ -19,7 +19,7 @@ import { useNow } from './lib/environment.js'
 import { areasFrom, healthOn, useAreas } from './lib/areas.js'
 import { FOCUS_HASH, navigate, subscribeRoute } from './lib/router.js'
 import { scrollBehavior } from './lib/motion.js'
-import { lazyPage } from './lib/lazyPage.js'
+import { lazyPage, whenIdle } from './lib/lazyPage.js'
 import { clearSessionState } from './lib/sessionState.js'
 import { clearAssistantSession, useAssistantStreaming } from './lib/assistantSession.js'
 import { isTyping } from './lib/keyboard.js'
@@ -239,6 +239,14 @@ function Shell({ user, onUserChange, onSignOut }) {
   const darkMode = useStore((state) => state.data.settings?.darkMode)
   const accent = useStore((state) => state.data.settings?.theme)
   const loaded = useStore((state) => state.loaded)
+  // The rest timer on the lock screen (lib/gym/restAlarm.js), loaded after launch: it's only needed
+  // once the app is left mid-rest.
+  useEffect(() => {
+    let stop = null
+    let live = true
+    const cancel = whenIdle(() => import('./lib/gym/restAlarm.js').then(({ startRestAlarm }) => { if (live) stop = startRestAlarm() }).catch(() => {}))
+    return () => { live = false; cancel(); stop?.() }
+  }, [])
 
   // Data: cache first (above), then the server; refresh again whenever the app returns to the foreground.
   useEffect(() => {

@@ -66,15 +66,18 @@ function configure() {
   configured = true
 }
 
-// Sends to every device the user enabled; removes subscriptions the push service says are gone.
-// Returns { sent, failed }: failed counts devices that may be reachable later (not 404/410).
-export async function sendToUser(supabase, userId, payload) {
+// Sends to every device the user enabled (or just the one with `endpoint`); removes subscriptions
+// the push service says are gone. Returns { sent, failed }: failed counts devices that may be
+// reachable later (not 404/410).
+export async function sendToUser(supabase, userId, payload, { endpoint = null } = {}) {
   configure()
-  const { data: subscriptions, error } = await supabase
+  let query = supabase
     .from('push_subscriptions')
     .select('*')
     .eq('user_id', userId)
     .eq('vapid_public', process.env.VAPID_PUBLIC_KEY)
+  if (endpoint) query = query.eq('endpoint', endpoint)
+  const { data: subscriptions, error } = await query
   if (error) throw error
   let sent = 0
   let failed = 0

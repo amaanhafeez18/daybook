@@ -15,6 +15,9 @@
     },
     "api/voice.js": {
       "maxDuration": 60
+    },
+    "api/push.js": {
+      "maxDuration": 300
     }
   }
 }
