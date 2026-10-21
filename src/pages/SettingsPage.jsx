@@ -28,6 +28,7 @@ import { hasGymPlan as gymPlanExists } from '../lib/setup.js'
 import { calorieGoalText, gymPlanSummary, savedFoodsText } from '../lib/hub.js'
 import { openWelcome } from '../components/welcome/rules.js'
 import { scrollBehavior } from '../lib/motion.js'
+import { prepareExport, saveExport } from '../lib/exportData.js'
 import { haptic } from '../lib/haptics.js'
 import { learnedSuggestions, withAnswered } from '../lib/learnPrefs.js'
 import '../components/settings.css'
@@ -323,6 +324,7 @@ export default function SettingsPage({ user, onUserChange, onSignOut }) {
             </span>
             <Button variant="secondary" size="sm" loading={syncing} onClick={syncNow}>Sync now</Button>
           </div>
+          <ExportRow username={user.username} />
           <button type="button" className="settings-row" id="security" onClick={() => setSecuritySheet('password')}>
             <span className="settings-row-icon"><Icon name="lock" size={18} /></span>
             <span className="settings-row-text"><strong>Change password</strong><small>Signs out your other devices</small></span>
@@ -344,7 +346,7 @@ export default function SettingsPage({ user, onUserChange, onSignOut }) {
         </div>
       </section>
 
-      <DangerZone username={user.username} />
+      <DangerZone username={user.username} onSignOut={onSignOut} />
 
       <p className="settings-footnote">Daybook · Your data syncs across your devices.</p>
 
@@ -410,9 +412,43 @@ function ThemePicker({ value, onChange, labelledBy }) {
   )
 }
 
-// ---- danger zone: clear all data -------------------------------------------------------------
-// Two confirmations, then the password. The server deletes everything except the account; this
-// device then drops its copies and reloads the (now empty) data without signing out.
+// ---- export -----------------------------------------------------------------------------------
+// Two steps: prepare (fetch everything), then Save in the toast, because iPhone only opens the share
+// sheet from a tap and the fetch outlasts the first one.
+
+function ExportRow({ username }) {
+  const [busy, setBusy] = useState(false)
+  async function run() {
+    if (busy) return
+    setBusy(true)
+    try {
+      const prepared = await prepareExport(username)
+      toast(`Your data is ready · ${prepared.items} item${prepared.items === 1 ? '' : 's'}`, {
+        tone: 'success',
+        action: { label: 'Save', onClick: () => { saveExport(prepared).catch(() => toast('Couldn’t save the file.', { tone: 'error' })) } },
+      })
+    } catch (error) {
+      toast(error?.message || 'Couldn’t export your data.', { tone: 'error' })
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <button type="button" className="settings-row" onClick={run} disabled={busy} aria-busy={busy}>
+      <span className="settings-row-icon"><Icon name="download" size={18} /></span>
+      <span className="settings-row-text">
+        <strong>Export my data</strong>
+        <small>{busy ? 'Preparing…' : 'Everything, as one file'}</small>
+      </span>
+      <Icon name="chevronRight" size={18} />
+    </button>
+  )
+}
+
+// ---- danger zone: clear all data, delete account ------------------------------------------------
+// Two confirmations, then the password. "Clear all data": the server deletes everything except the
+// account; this device then drops its copies and reloads the (now empty) data without signing out.
+// "Delete account": the same plus the account itself; this device then signs out.
 
 const STEP_GAP_MS = 240 // lets one dialog slide away before the next appears (Sheet exit is 180 ms)
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -424,32 +460,64 @@ const WIPE_MESSAGE = (
   </>
 )
 
-function DangerZone({ username }) {
-  const [sheetOpen, setSheetOpen] = useState(false)
+const DELETE_MESSAGE = (
+  <>
+    Your account and everything in it are deleted for good, on all your devices, and you’re logged out.
+    <span className="set-confirm-keep">Want a copy first? Use Export my data above.</span>
+  </>
+)
 
-  async function start() {
-    const first = await confirmAction({ title: 'Clear all your data?', message: WIPE_MESSAGE, confirmLabel: 'Continue' })
+const DANGER = {
+  wipe: {
+    first: { title: 'Clear all your data?', message: WIPE_MESSAGE, confirmLabel: 'Continue' },
+    second: 'Yes, clear everything',
+    note: 'Everything you’ve added to Daybook is deleted for good. Your account stays and you stay logged in.',
+    button: 'Delete all data',
+  },
+  delete: {
+    first: { title: 'Delete your account?', message: DELETE_MESSAGE, confirmLabel: 'Continue' },
+    second: 'Yes, delete my account',
+    note: 'Your account and all its data are deleted for good. This can’t be undone.',
+    button: 'Delete account',
+  },
+}
+
+function DangerZone({ username, onSignOut }) {
+  const [sheet, setSheet] = useState(null) // 'wipe' | 'delete'
+  const [mode, setMode] = useState('wipe') // kept while the sheet closes
+
+  async function start(kind) {
+    const steps = DANGER[kind]
+    const first = await confirmAction(steps.first)
     if (first !== true) return
     await pause(STEP_GAP_MS)
-    const second = await confirmAction({ title: 'Are you absolutely sure?', message: 'This can’t be undone.', confirmLabel: 'Yes, clear everything' })
+    const second = await confirmAction({ title: 'Are you absolutely sure?', message: 'This can’t be undone.', confirmLabel: steps.second })
     if (second !== true) return
     await pause(STEP_GAP_MS)
-    setSheetOpen(true)
+    setMode(kind)
+    setSheet(kind)
   }
 
   return (
     <section className="settings-group set-danger" id="danger" aria-label="Danger zone">
       <div className="card settings-card settings-list">
-        <button type="button" className="settings-row is-danger" onClick={start}>
+        <button type="button" className="settings-row is-danger" onClick={() => start('wipe')}>
           <span className="settings-row-icon"><Icon name="trash" size={18} /></span>
           <span className="settings-row-text">
             <strong>Clear all data</strong>
             <small>Everything except your account</small>
           </span>
         </button>
+        <button type="button" className="settings-row is-danger" onClick={() => start('delete')}>
+          <span className="settings-row-icon"><Icon name="userCircle" size={18} /></span>
+          <span className="settings-row-text">
+            <strong>Delete account</strong>
+            <small>Your account and everything in it</small>
+          </span>
+        </button>
       </div>
-      <p className="set-footnote">Deletes what you’ve added to Daybook on all your devices. You stay logged in.</p>
-      <WipeSheet open={sheetOpen} onClose={() => setSheetOpen(false)} username={username} />
+      <p className="set-footnote">Both ask for your password and can’t be undone.</p>
+      <DangerSheet open={!!sheet} mode={mode} onClose={() => setSheet(null)} username={username} onSignOut={onSignOut} />
     </section>
   )
 }
@@ -479,13 +547,20 @@ async function clearAllData(password) {
     .catch(() => {}) // offline: the next refresh loads the empty account
 }
 
-function WipeSheet({ open, onClose, username }) {
+async function deleteAccount(password, onSignOut) {
+  await authRequest('delete_account', { password })
+  if (getActiveWorkout()) discardActive()
+  onSignOut('Your account was deleted.')
+}
+
+function DangerSheet({ open, mode, onClose, username, onSignOut }) {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('') // wrong password: shown on the field
   const [problem, setProblem] = useState('') // anything else (rate limit, offline, server)
   const [busy, setBusy] = useState(false)
   const [shaking, setShaking] = useState(false)
   const fieldRef = useRef(null)
+  const copy = DANGER[mode] || DANGER.wipe
 
   useEffect(() => {
     if (!open) return
@@ -502,6 +577,10 @@ function WipeSheet({ open, onClose, username }) {
     setError('')
     setProblem('')
     try {
+      if (mode === 'delete') {
+        await deleteAccount(password, onSignOut)
+        return
+      }
       await clearAllData(password)
       setPassword('')
       onClose()
@@ -530,14 +609,14 @@ function WipeSheet({ open, onClose, username }) {
       footer={(
         <>
           <Button variant="secondary" onClick={onClose} disabled={busy}>Cancel</Button>
-          <Button variant="danger" type="submit" form="wipe-form" className="btn-grow" loading={busy} disabled={!password || busy}>Delete all data</Button>
+          <Button variant="danger" type="submit" form="wipe-form" className="btn-grow" loading={busy} disabled={!password || busy}>{copy.button}</Button>
         </>
       )}
     >
       <form id="wipe-form" className="form-stack" onSubmit={submit} noValidate>
         <div className="set-wipe-note">
           <span className="set-wipe-icon" aria-hidden="true"><Icon name="trash" size={18} /></span>
-          <p>Everything you’ve added to Daybook is deleted for good. Your account stays and you stay logged in.</p>
+          <p>{copy.note}</p>
         </div>
         <div ref={fieldRef} className={`set-wipe-field ${shaking ? 'is-shaking' : ''}`} onAnimationEnd={() => setShaking(false)}>
           <Field label="Password" error={error}>
