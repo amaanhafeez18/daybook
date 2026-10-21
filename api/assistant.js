@@ -906,6 +906,7 @@ const tools = [
         show_rpe: { type: 'boolean', description: 'Show the RPE/RIR field on sets.' },
         previous_source: { type: 'string', enum: ['any', 'routine'], description: '"Previous" numbers from any workout or only the same routine.' },
         timer_sound: { type: 'boolean', description: 'Sound when the rest timer ends.' },
+        rest_notify: { type: 'boolean', description: 'Show the rest timer on the lock screen and notify "Rest over" when the app is left mid-rest (on by default; needs notifications).' },
         keep_awake: { type: 'boolean', description: 'Keep the screen on during a workout.' },
         bodyweight_in_volume: { type: 'boolean', description: 'Count body weight in volume for bodyweight exercises.' },
         carry_missed: { type: 'boolean', description: 'A planned workout that isn\'t logged moves on to the next day (on by default).' },
@@ -3540,6 +3541,7 @@ async function executeGymTool(supabase, userId, name, args, data, ctx) {
       ['use_rir', 'useRir', 'effort as reps in reserve (RIR)', 'effort as RPE'],
       ['show_rpe', 'showRpe', 'effort field shown', 'effort field hidden'],
       ['timer_sound', 'timerSound', 'rest timer sound on', 'rest timer sound off'],
+      ['rest_notify', 'restNotify', 'rest timer on the lock screen', 'rest timer no longer on the lock screen'],
       ['keep_awake', 'keepAwake', 'screen stays on during workouts', 'screen may sleep during workouts'],
       ['bodyweight_in_volume', 'bodyweightInVolume', 'body weight counts in volume', 'body weight left out of volume'],
       ['carry_missed', 'carryMissed', 'missed workouts move on to the next day', 'missed workouts stay missed (the plan keeps its days)'],
@@ -3550,7 +3552,7 @@ async function executeGymTool(supabase, userId, name, args, data, ctx) {
       said.push(prefs[field] ? onText : offText)
     }
     // Counted from today, so days already past keep what they showed (schedule.js applyCarry).
-    if (prefs.carryMissed === true) prefs.carryFrom = today
+    if (changes.carry_missed === true) prefs.carryFrom = today
     if (changes.collar_weight !== undefined) {
       const weight = toFiniteNumber(changes.collar_weight)
       if (weight === null || weight < 0 || weight > 20) return fail('The collar weight doesn’t look right.')

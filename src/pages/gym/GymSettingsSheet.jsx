@@ -295,6 +295,8 @@ export default function GymSettingsSheet({ open, onClose }) {
             <DurationInput id="gym-cfg-rest" valueSec={prefs.defaultRest} placeholder="2:00" ariaLabel="Rest between sets (m:ss)" onChange={(sec) => sec !== null && setPrefs({ defaultRest: clamp(sec, 0, 600) })} />
           </Row>
           <SwitchRow label="Sound" description="Beep when the rest is over" checked={prefs.timerSound} onChange={(timerSound) => setPrefs({ timerSound })} />
+          <SwitchRow label="On the lock screen" description="Shows the rest, then “Rest over” if you leave the app" checked={prefs.restNotify} onChange={(restNotify) => setPrefs({ restNotify })} />
+          {prefs.restNotify && <NotifyOffHint className="gym-cfg-row" />}
           <SwitchRow label="Keep screen awake" description="While a workout is running" checked={prefs.keepAwake} onChange={(keepAwake) => setPrefs({ keepAwake })} />
         </Group>
 
