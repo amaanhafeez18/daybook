@@ -80,6 +80,10 @@ export default function SessionDetail({ param: sessionId, today: todayProp }) {
           setEditing(false)
           window.scrollTo({ top: 0 })
         }}
+        onReopen={() => {
+          setEditing(true)
+          window.scrollTo({ top: 0 })
+        }}
       />
     )
   }
@@ -763,7 +767,10 @@ function cleanExercises(list) {
   return { exercises, dropped }
 }
 
-function SessionEditor({ session, gym, sessions, bodyWeights, today, onDone }) {
+// Set by "Draft kept · Reopen": the editor opens with the kept edits without a second toast.
+let quietRestore = null
+
+function SessionEditor({ session, gym, sessions, bodyWeights, today, onDone, onReopen }) {
   const [start] = useState(() => ({ draft: toDraft(session), form: initialForm(session) }))
   // Edits stored earlier for this workout, if they still differ from it.
   const [restored] = useState(() => {
@@ -802,6 +809,10 @@ function SessionEditor({ session, gym, sessions, bodyWeights, today, onDone }) {
   useEffect(() => {
     if (!restored || restoreToastShown.current) return
     restoreToastShown.current = true
+    if (quietRestore === sessionId) {
+      quietRestore = null
+      return
+    }
     toast('Restored your unsaved changes', {
       duration: 7000,
       action: {
@@ -828,16 +839,25 @@ function SessionEditor({ session, gym, sessions, bodyWeights, today, onDone }) {
     if (key === 'date' && isISODate(value)) setDraft((current) => ({ ...current, date: value }))
   }
 
-  async function cancel() {
+  // Leaving with edits never asks: they're kept for a moment ("Draft kept · Reopen").
+  function cancel() {
     if (busy) return
-    if (dirty) {
-      setBusy(true)
-      const discard = await confirmAction({ title: 'Discard changes?', message: 'Your edits to this workout won’t be saved.', confirmLabel: 'Discard' })
-      setBusy(false)
-      if (!discard) return
-    }
+    const kept = dirty ? { draft, form } : null
     clearStoredEdit(sessionId)
     onDone()
+    if (kept) {
+      toast('Draft kept', {
+        key: 'draft-kept',
+        action: {
+          label: 'Reopen',
+          onClick: () => {
+            writeStoredEdit(sessionId, kept.draft, kept.form)
+            quietRestore = sessionId
+            onReopen?.()
+          },
+        },
+      })
+    }
   }
 
   async function save() {

@@ -168,9 +168,11 @@
 }
 .gym-stat-sub { font-size: 13px; color: var(--text-2); }
 
-.gym-section-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 32px; margin: 24px 4px 8px; }
+/* A heading over a list or group: the app's one small-caps label (apple.css .group-title), with its
+   action (a link, Reorder or New) on the right. */
+.gym-section-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 32px; margin: 24px 4px 6px 16px; }
 .gym-section-header:first-child { margin-top: 0; }
-.gym-section-header h2 { min-width: 0; font-family: var(--font-display, var(--font)); font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
+.gym-section-header h2 { min-width: 0; margin: 0; font-size: var(--fs-footnote, 13px); font-weight: 400; text-transform: uppercase; letter-spacing: 0.01em; color: var(--text-2); }
 .gym-section-header > :not(h2) { flex-shrink: 0; }
 
 .gym-empty .empty-state { padding: 32px 16px; }

@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import Icon from '../../components/ui/Icon.jsx'
 import Disclosure from '../../components/ui/Disclosure.jsx'
-import { confirmAction, toast } from '../../components/ui/feedback.jsx'
+import { toast } from '../../components/ui/feedback.jsx'
 import { AutoTextarea, Button, Field, IconButton, Skeleton } from '../../components/ui/primitives.jsx'
 import { MUSCLES, TRACKING, exerciseById, newRoutineExercise } from '../../lib/gym/library.js'
 import { ROUTINE_COLORS, deleteRoutine, duplicateRoutine, getGym, newGymId, routineById, saveRoutine, useGym } from '../../lib/gym/state.js'
@@ -93,6 +93,9 @@ function clearStoredDraft(key) {
 }
 
 // The editor's starting state: a stored draft that still differs from the routine wins.
+// Set by "Draft kept · Reopen": that editor opens with the kept edits without a second toast.
+let quietRestore = null
+
 function startState(key, fresh) {
   if (!fresh) return { draft: null, base: '', restored: false }
   const base = snap(fresh)
@@ -251,6 +254,10 @@ function Editor({ param, today }) {
   useEffect(() => {
     if (!state.restored || restoreToastShown.current) return
     restoreToastShown.current = true
+    if (quietRestore === param) {
+      quietRestore = null
+      return
+    }
     toast('Restored your unsaved changes', {
       duration: 7000,
       action: {
@@ -418,15 +425,24 @@ function Editor({ param, today }) {
     goBack('gym/routines')
   }
 
-  const cancel = async () => {
+  // Leaving with edits never asks: they're kept for a moment ("Draft kept · Reopen").
+  const cancel = () => {
     if (dirty) {
-      const ok = await confirmAction({
-        title: isNew ? 'Discard this routine?' : 'Discard changes?',
-        message: isNew ? 'It hasn’t been saved yet.' : 'Your changes to this routine will be lost.',
-        confirmLabel: 'Discard',
-      })
-      if (!ok) return
+      const kept = draftSnap
       markClean()
+      goBack('gym/routines')
+      toast('Draft kept', {
+        key: 'draft-kept',
+        action: {
+          label: 'Reopen',
+          onClick: () => {
+            writeStoredDraft(param, kept)
+            quietRestore = param
+            navigate(`gym/routine/${encodeURIComponent(param)}`)
+          },
+        },
+      })
+      return
     }
     goBack('gym/routines')
   }

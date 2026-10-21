@@ -2,7 +2,8 @@ import { useId, useMemo, useState } from 'react'
 import Icon from '../../components/ui/Icon.jsx'
 import Sheet from '../../components/ui/Sheet.jsx'
 import Disclosure from '../../components/ui/Disclosure.jsx'
-import { confirmAction, toast } from '../../components/ui/feedback.jsx'
+import { toast } from '../../components/ui/feedback.jsx'
+import { useDraftKeeper } from '../../components/useDraftKeeper.js'
 import { Button, IconButton, Segmented } from '../../components/ui/primitives.jsx'
 import { moveItem, useDragSort } from '../../components/ui/useDragSort.js'
 import { WEEKDAY_SHORT } from '../../lib/dates.js'
@@ -120,19 +121,22 @@ function planUnchanged(schedule, plan, today, hasSessionToday, days) {
   return at === wanted
 }
 
-export default function ScheduleEditor({ open, onClose, today }) {
+export default function ScheduleEditor({ open: openProp, onClose, today }) {
   const gym = useGym()
   const sessions = useGymSessions()
+  // Closing with edits keeps them ("Draft kept · Reopen"); open = shown, incl. after Reopen.
+  const keeper = useDraftKeeper(openProp)
+  const open = keeper.shown
   const [state, setState] = useState(() => (open ? start(gym, sessions, today) : null))
   const [wasOpen, setWasOpen] = useState(open)
   const [wizardOpen, setWizardOpen] = useState(false)
   const anchorId = useId()
   const deloadId = useId()
 
-  // Fresh draft from the saved plan each time the sheet opens.
+  // Fresh draft from the saved plan each time the sheet opens (the kept one after Reopen).
   if (open !== wasOpen) {
     setWasOpen(open)
-    if (open) setState(start(gym, sessions, today))
+    if (open) setState(keeper.take() || start(gym, sessions, today))
   }
 
   const draft = state?.draft || null
@@ -204,9 +208,9 @@ export default function ScheduleEditor({ open, onClose, today }) {
   const rotationSort = useDragSort({ keys: draft ? draft.rotation.slots.map((item) => item.key) : [], onMove: moveSlotTo })
   const weekSort = useDragSort({ keys: draft ? weekOrder.map((day) => draft.weekly.keys[day]) : [], onMove: moveWeekday })
 
-  const requestClose = async () => {
-    if (dirty && !(await confirmAction({ title: 'Discard changes?', message: 'Your schedule edits will be lost.', confirmLabel: 'Discard' }))) return
-    onClose()
+  const requestClose = () => {
+    if (dirty) keeper.keep(state, onClose)
+    else keeper.done(onClose)
   }
 
   const save = () => {
@@ -219,7 +223,7 @@ export default function ScheduleEditor({ open, onClose, today }) {
     const planChanged = !planUnchanged(current, plan, today, hasSessionToday, { gym: getGym(), sessions, today })
     const deloadChanged = draft.deloadEvery !== current.deload.everyWeeks
     if (!planChanged && !deloadChanged) {
-      onClose()
+      keeper.done(onClose)
       return
     }
     const undos = []
@@ -236,15 +240,14 @@ export default function ScheduleEditor({ open, onClose, today }) {
       toast(error?.message || 'Couldn’t save the schedule.', { tone: 'error' })
       return
     }
-    onClose()
+    keeper.done(onClose)
     const message = planChanged ? (hasSessionToday ? 'Schedule updated from tomorrow' : 'Schedule updated') : draft.deloadEvery ? `Deload every ${draft.deloadEvery} weeks` : 'Automatic deloads off'
     toast(message, { action: { label: 'Undo', onClick: undoAll } })
   }
 
-  // Swaps this sheet for the split wizard (after confirming unsaved edits).
-  const openWizard = async () => {
-    if (dirty && !(await confirmAction({ title: 'Discard changes?', message: 'Your schedule edits will be lost.', confirmLabel: 'Discard' }))) return
-    onClose()
+  // Swaps this sheet for the split wizard (unsaved edits are kept: "Draft kept · Reopen").
+  const openWizard = () => {
+    requestClose()
     setWizardOpen(true)
   }
 
@@ -273,7 +276,7 @@ export default function ScheduleEditor({ open, onClose, today }) {
             action={(
               <div className="wiz-split-actions">
                 <Button icon="wand" onClick={openWizard}>Build my split</Button>
-                <Button variant="secondary" icon="plus" onClick={() => { onClose(); navigate('gym/routine/new') }}>New routine</Button>
+                <Button variant="secondary" icon="plus" onClick={() => { keeper.done(onClose); navigate('gym/routine/new') }}>New routine</Button>
               </div>
             )}
           >

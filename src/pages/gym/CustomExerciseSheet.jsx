@@ -1,7 +1,8 @@
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import Sheet from '../../components/ui/Sheet.jsx'
 import Disclosure from '../../components/ui/Disclosure.jsx'
 import { toast } from '../../components/ui/feedback.jsx'
+import { useDraftKeeper } from '../../components/useDraftKeeper.js'
 import { Button, Field, Segmented } from '../../components/ui/primitives.jsx'
 import { EQUIPMENT, MUSCLES, allExercises } from '../../lib/gym/library.js'
 import { newGymId, saveCustomExercise, useGym } from '../../lib/gym/state.js'
@@ -68,17 +69,28 @@ const blank = (name = '', defaultRest) => ({
 })
 
 // Create (no `exercise`) or edit a custom exercise. onSaved gets the saved entry.
-export default function CustomExerciseSheet({ open, onClose, exercise = null, onSaved, initialName = '' }) {
+export default function CustomExerciseSheet({ open: openProp, onClose, exercise = null, onSaved, initialName = '' }) {
   const gym = useGym()
   const formId = useId()
+  // Closing with changes keeps them ("Draft kept · Reopen"); open = shown, incl. after Reopen.
+  const keeper = useDraftKeeper(openProp)
+  const open = keeper.shown
   const [draft, setDraft] = useState(() => blank())
   const [error, setError] = useState('')
+  const startSnap = useRef('')
 
   useEffect(() => {
     if (!open) return
     setError('')
+    const kept = keeper.take()
+    if (kept) {
+      setDraft(kept.draft)
+      startSnap.current = kept.start
+      return
+    }
+    let start
     if (exercise) {
-      setDraft({
+      start = {
         name: exercise.name || '',
         primary: exercise.primary || 'chest',
         secondary: Array.isArray(exercise.secondary) ? exercise.secondary : [],
@@ -87,11 +99,18 @@ export default function CustomExerciseSheet({ open, onClose, exercise = null, on
         category: CATEGORY_REST[exercise.category] !== undefined ? exercise.category : 'compound',
         rest: Number.isFinite(exercise.rest) ? exercise.rest : CATEGORY_REST[exercise.category] ?? 120,
         restTouched: true,
-      })
+      }
     } else {
-      setDraft(blank(initialName.trim(), gym.prefs.defaultRest))
+      start = blank(initialName.trim(), gym.prefs.defaultRest)
     }
+    setDraft(start)
+    startSnap.current = JSON.stringify(start)
   }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const dismiss = () => {
+    if (JSON.stringify(draft) !== startSnap.current) keeper.keep({ draft, start: startSnap.current }, onClose)
+    else keeper.done(onClose)
+  }
 
   const set = (patch) => setDraft((current) => ({ ...current, ...patch }))
 
@@ -134,7 +153,7 @@ export default function CustomExerciseSheet({ open, onClose, exercise = null, on
       })
       toast(exercise ? 'Exercise updated' : `Added ${name} to your exercises`, { tone: 'success' })
       onSaved?.(saved)
-      onClose?.()
+      keeper.done(onClose)
     } catch (err) {
       setError(err?.message || 'Couldn’t save the exercise.')
     }
@@ -149,12 +168,12 @@ export default function CustomExerciseSheet({ open, onClose, exercise = null, on
   return (
     <Sheet
       open={open}
-      onClose={onClose}
+      onClose={dismiss}
       title={exercise ? 'Edit exercise' : 'New exercise'}
       size="md"
       footer={(
         <>
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button variant="secondary" onClick={dismiss}>Cancel</Button>
           <Button type="submit" form={formId} className="btn-grow">{exercise ? 'Save' : 'Create'}</Button>
         </>
       )}

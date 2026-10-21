@@ -122,7 +122,7 @@ export default function ClassSheet({ item, onClose, onReopen }) {
     const dirty = !editing && (name.trim() || (!added && (slots.length || endDate !== defaultEnd.current)))
     if (dirty) {
       saveDraft(DRAFT_KEY, { name, endDate, slots: slots.map(({ key, ...slot }) => slot) })
-      toast('Draft kept', onReopen ? { action: { label: 'Reopen', onClick: onReopen } } : undefined)
+      toast('Draft kept', onReopen ? { key: 'draft-kept', action: { label: 'Reopen', onClick: onReopen } } : { key: 'draft-kept' })
     }
     onClose()
   }

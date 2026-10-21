@@ -146,7 +146,7 @@ export default function PeoplePage({ loaded }) {
         </>
       )}
 
-      <PersonSheet friendId={openId} onClose={() => setOpenId(null)} onCatchUp={openCatchUp} />
+      <PersonSheet friendId={openId} onClose={() => setOpenId(null)} onCatchUp={openCatchUp} onReopen={setOpenId} />
       <AddPersonSheet open={adding} onClose={() => setAdding(false)} onAdded={(friend) => { setAdding(false); setOpenId(friend.id) }} />
       <CatchUpSheet key={catchUpKey} request={catchUp} onClose={() => setCatchUp(null)} />
     </div>
@@ -454,7 +454,7 @@ function AddPersonSheet({ open, onClose, onAdded }) {
   function dismiss() {
     if (personDirty(form)) {
       saveDraft(PERSON_DRAFT, form)
-      toast('Draft kept', { action: { label: 'Reopen', onClick: () => setReopened(true) } })
+      toast('Draft kept', { key: 'draft-kept', action: { label: 'Reopen', onClick: () => setReopened(true) } })
     }
     setReopened(false)
     onClose()
@@ -492,7 +492,10 @@ function AddPersonSheet({ open, onClose, onAdded }) {
   )
 }
 
-function PersonSheet({ friendId, onClose, onCatchUp }) {
+// Edits closed unsaved, waiting for their "Draft kept · Reopen": { id, form, start }.
+let pendingEdit = null
+
+function PersonSheet({ friendId, onClose, onCatchUp, onReopen }) {
   const friends = useData('friends')
   const contactLogs = useData('contactLogs')
   // Keeps showing the last person while the sheet animates closed.
@@ -503,13 +506,49 @@ function PersonSheet({ friendId, onClose, onCatchUp }) {
   const [photoBusy, setPhotoBusy] = useState(false)
   const contentRef = useRef(null)
   const switched = useRef(false)
+  const editStart = useRef('') // the edit form as it opened, to tell whether anything changed
+  const openIdRef = useRef(friendId)
+  openIdRef.current = friendId
   const today = todayISO()
 
   useEffect(() => {
     if (friendId) setShownId(friendId)
-    setEditing(false)
     setMenuOpen(false)
-  }, [friendId])
+    if (friendId && pendingEdit?.id === friendId) {
+      resumeEdit(pendingEdit)
+      pendingEdit = null
+    } else {
+      setEditing(false)
+    }
+  }, [friendId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function resumeEdit(kept) {
+    setForm(kept.form)
+    editStart.current = kept.start
+    setEditing(true)
+  }
+
+  // Leaving the edit form (Cancel, or closing the sheet) with changes never asks: they're kept
+  // ("Draft kept · Reopen"), and Reopen brings this person's edit form back with them.
+  function leaveEdit() {
+    if (editing && friend && JSON.stringify(form) !== editStart.current) {
+      const kept = { id: friend.id, form, start: editStart.current }
+      toast('Draft kept', {
+        key: 'draft-kept',
+        action: {
+          label: 'Reopen',
+          onClick: () => {
+            if (openIdRef.current === kept.id) resumeEdit(kept)
+            else {
+              pendingEdit = kept
+              onReopen?.(kept.id)
+            }
+          },
+        },
+      })
+    }
+    setEditing(false)
+  }
 
   // Switching between the person and the edit form removes the focused button (Edit, Save,
   // Cancel): keep focus in the sheet rather than letting it fall back to the page.
@@ -542,12 +581,14 @@ function PersonSheet({ friendId, onClose, onCatchUp }) {
 
   function startEdit() {
     // Older people store their notes in `note`; show them here so they can be edited.
-    setForm({
+    const start = {
       ...EMPTY_PERSON,
       ...Object.fromEntries(Object.keys(EMPTY_PERSON).map((key) => [key, friend[key] || EMPTY_PERSON[key]])),
       facts: friend.facts || friend.note || '',
       reminderDays: reminderFormValue(friend),
-    })
+    }
+    setForm(start)
+    editStart.current = JSON.stringify(start)
     setEditing(true)
   }
 
@@ -588,14 +629,17 @@ function PersonSheet({ friendId, onClose, onCatchUp }) {
   return (
     <Sheet
       open={!!friendId && !!friend}
-      onClose={onClose}
+      onClose={() => {
+        leaveEdit()
+        onClose()
+      }}
       title={editing ? 'Edit person' : friend?.name}
       description={editing ? undefined : friend ? `${relationshipLabel(friend.relationship)}${friend.organization ? ` · ${friend.organization}` : ''}` : undefined}
       // Keyed, so React doesn't turn the tapped Edit button into the Save (submit) button while
       // the tap is still being handled: the browser would then submit the form and leave editing.
       footer={editing ? (
         <Fragment key="editing">
-          <Button variant="secondary" onClick={() => setEditing(false)}>Cancel</Button>
+          <Button variant="secondary" onClick={leaveEdit}>Cancel</Button>
           {!form.name.trim() && <span className="ppl-footer-hint" aria-live="polite">Give them a name.</span>}
           <Button type="submit" form="edit-person" className="btn-grow" disabled={photoBusy || !form.name.trim()}>Save</Button>
         </Fragment>
@@ -949,7 +993,7 @@ export function CatchUpSheet({ request, onClose }) {
     if (friend && note.trim() && !saved.current) {
       const key = catchUpDraftKey(friend.id, date)
       saveDraft(key, { note })
-      toast('Draft kept', { action: { label: 'Reopen', onClick: () => setReopened(true) } })
+      toast('Draft kept', { key: 'draft-kept', action: { label: 'Reopen', onClick: () => setReopened(true) } })
     }
     close()
   }
