@@ -351,7 +351,7 @@ function PinnedNote({ exerciseId, note }) {
           className="gym-note-input"
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
-          placeholder="Form cues, seat height, grip…"
+          placeholder="e.g. Elbows at 45°, seat height, grip…"
           minRows={2}
           maxRows={8}
           maxLength={500}
@@ -758,7 +758,7 @@ function DeleteCustom({ exercise, used }) {
   const remove = () => {
     const undo = deleteCustomExercise(exercise.id)
     const kept = getGym().exercises.some((item) => item.id === exercise.id)
-    toast(kept ? `${exercise.name} removed from your list. Its history is kept.` : `${exercise.name} deleted`, {
+    toast(kept ? `Removed ${exercise.name} from your exercises. Its history is kept.` : `Deleted ${exercise.name}`, {
       action: { label: 'Undo', onClick: undo },
     })
     goBack('gym/exercises')
@@ -766,7 +766,7 @@ function DeleteCustom({ exercise, used }) {
   return (
     <div className="gym-xd-danger">
       <Button variant="ghost" icon="trash" className="gym-xd-delete" onClick={remove}>
-        {used ? 'Remove from my exercises' : 'Delete exercise'}
+        {used ? 'Remove from your exercises' : 'Delete exercise'}
       </Button>
       {used && <p className="gym-xd-footnote">It stays in the workouts you logged, but won’t show up in the list or picker.</p>}
     </div>

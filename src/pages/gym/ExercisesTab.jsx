@@ -82,7 +82,7 @@ export default function ExercisesTab() {
       {results.length === 0 ? (
         <GymEmpty
           icon="search"
-          title="No exercises found"
+          title="No matching exercises"
           action={(
             <div className="gym-lib-empty-actions">
               <Button icon="plus" onClick={startNew}>

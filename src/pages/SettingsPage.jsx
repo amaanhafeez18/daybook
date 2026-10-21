@@ -327,7 +327,7 @@ export default function SettingsPage({ user, onUserChange, onSignOut }) {
           <ExportRow username={user.username} />
           <button type="button" className="settings-row" id="security" onClick={() => setSecuritySheet('password')}>
             <span className="settings-row-icon"><Icon name="lock" size={18} /></span>
-            <span className="settings-row-text"><strong>Change password</strong><small>Signs out your other devices</small></span>
+            <span className="settings-row-text"><strong>Change password</strong><small>Logs out your other devices</small></span>
             <Icon name="chevronRight" size={18} />
           </button>
           <button type="button" className="settings-row" onClick={() => setSecuritySheet('recovery')}>
@@ -472,7 +472,7 @@ const DANGER = {
     first: { title: 'Clear all your data?', message: WIPE_MESSAGE, confirmLabel: 'Continue' },
     second: 'Yes, clear everything',
     note: 'Everything you’ve added to Daybook is deleted for good. Your account stays and you stay logged in.',
-    button: 'Delete all data',
+    button: 'Clear all data',
   },
   delete: {
     first: { title: 'Delete your account?', message: DELETE_MESSAGE, confirmLabel: 'Continue' },
@@ -1055,7 +1055,7 @@ function PasswordSheet({ open, onClose, onUserChange }) {
       // Other devices' push registrations were removed; make sure this one is still registered.
       writePref('pushSync', null)
       if (response.user) syncSubscription(response.user.id)
-      toast('Password updated. Your other devices were signed out.', { tone: 'success' })
+      toast('Password updated. Your other devices were logged out.', { tone: 'success' })
       onClose()
     } catch (err) {
       setError(err.message)

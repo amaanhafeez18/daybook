@@ -240,7 +240,7 @@ export default function WorkoutSummary({ session, onDone }) {
       return
     }
     setRoutineChoice('updated')
-    toast(`${previous.name || 'Routine'} updated`, { tone: 'success', action: { label: 'Undo', onClick: () => saveRoutine(previous) } })
+    toast(`Updated ${previous.name || 'the routine'}`, { tone: 'success', action: { label: 'Undo', onClick: () => saveRoutine(previous) } })
   }
 
   function doRealign() {
@@ -280,7 +280,7 @@ export default function WorkoutSummary({ session, onDone }) {
         <CountStat label="Duration" value={minutes} live={live} format={(n) => formatMinutes(Math.max(minutes ? 1 : 0, Math.round(n)))} />
         <CountStat label="Weight lifted" value={volume} live={live} format={(n) => formatVolume(n, unit)} />
         <CountStat label="Working sets" value={workingSets} live={live} format={(n) => String(Math.round(n))} />
-        <CountStat label="PRs" value={prs.length} live={live} format={(n) => String(Math.round(n))} />
+        <CountStat label="Records" value={prs.length} live={live} format={(n) => String(Math.round(n))} />
       </div>
 
       {showRoutinePrompt && (

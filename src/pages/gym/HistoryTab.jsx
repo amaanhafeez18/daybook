@@ -21,7 +21,7 @@ import './history.css'
 
 const isNum = (value) => typeof value === 'number' && Number.isFinite(value)
 
-export const errorMessage = (error) => error?.message || 'Something went wrong.'
+export const errorMessage = (error) => error?.message || 'Something went wrong. Please try again.'
 
 export function showError(error) {
   toast(errorMessage(error), { tone: 'error' })
@@ -222,7 +222,7 @@ export function WorkoutItem({ session, gym, today, prCount = 0 }) {
   const quick = !session.exercises.length
   const remove = () => {
     const undo = deleteSession(session.id)
-    toast(`Deleted “${name}”`, { action: { label: 'Undo', onClick: undo } })
+    toast(`Deleted ${name}`, { action: { label: 'Undo', onClick: undo } })
   }
   const again = () => {
     beginWorkout({ fromSession: quick ? null : session, routine: routineById(gym, session.routineId) || null, date: today, today })

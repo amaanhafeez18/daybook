@@ -111,7 +111,7 @@ export default function ProgressTab({ today: todayProp }) {
           ))}
         </ul>
       ) : (
-        <p className="gym-pg-none">{shown === 0 ? 'Nothing logged yet this week.' : 'No workouts that week.'}</p>
+        <p className="gym-pg-none">{shown === 0 ? 'Nothing logged yet this week' : 'No workouts that week'}</p>
       )}
 
       <BodyWeightCard today={today} unit={unit} firstWeekday={firstWeekday} />

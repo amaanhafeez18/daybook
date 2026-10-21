@@ -411,7 +411,7 @@ function EventSheet({ event, onClose }) {
   function submit(submitEvent) {
     submitEvent.preventDefault()
     if (!form.title.trim()) return setError('Give it a name.')
-    if (!isISODate(form.date)) return setError('Pick a date.')
+    if (!isISODate(form.date)) return setError('Choose a date.')
     updateEvent(editing.id, { title: form.title.trim(), date: form.date, time: form.time })
     onClose()
   }
@@ -419,7 +419,7 @@ function EventSheet({ event, onClose }) {
   function remove() {
     const undo = deleteEvent(editing.id)
     onClose()
-    toast('Event removed', { action: { label: 'Undo', onClick: undo } })
+    toast('Event deleted', { action: { label: 'Undo', onClick: undo } })
   }
 
   return (
@@ -430,7 +430,7 @@ function EventSheet({ event, onClose }) {
       initialFocus={false}
       footer={(
         <>
-          <Button variant="ghost" icon="trash" onClick={remove}>Remove</Button>
+          <Button variant="ghost" icon="trash" onClick={remove}>Delete</Button>
           <Button type="submit" form="event-form" className="btn-grow">Save</Button>
         </>
       )}
@@ -443,7 +443,7 @@ function EventSheet({ event, onClose }) {
           <Field label="Date">
             {(id) => <input id={id} className="input" type="date" value={form.date} onChange={(changeEvent) => setForm({ ...form, date: changeEvent.target.value })} />}
           </Field>
-          <Field label="Time" hint="Leave empty for all day">
+          <Field label="Time" hint="Leave empty for all day.">
             {(id) => <input id={id} className="input" type="time" value={form.time} onChange={(changeEvent) => setForm({ ...form, time: changeEvent.target.value })} />}
           </Field>
         </div>

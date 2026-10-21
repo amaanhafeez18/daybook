@@ -318,7 +318,7 @@ export default function ExercisePicker({ open, onClose, onPick, multi = true, ti
 
           {!results.length ? (
             <div className="gym-lib-none">
-              <p><strong>No exercises found</strong></p>
+              <p><strong>No matching exercises</strong></p>
               <p className="muted">Try another name, clear the filters or create your own.</p>
               {(muscle || equipment) && (
                 <button type="button" className="link-btn" onClick={() => { setMuscle(''); setEquipment('') }}>Clear filters</button>

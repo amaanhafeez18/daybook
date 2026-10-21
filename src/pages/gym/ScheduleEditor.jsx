@@ -392,8 +392,8 @@ export default function ScheduleEditor({ open, onClose, today }) {
                 </div>
                 <p className="gym-sched-hint gym-sched-field-hint">
                   {draft.deloadEvery
-                    ? `Every ${ordinal(draft.deloadEvery)} week is lighter: half the sets and 10% less weight, to recover.`
-                    : 'A regular lighter week (half the sets, 10% less weight) helps you recover and keep progressing.'}
+                    ? `Every ${ordinal(draft.deloadEvery)} week is lighter: half the sets and about 10% less weight, to recover.`
+                    : 'A regular lighter week (half the sets and about 10% less weight) helps you recover and keep progressing.'}
                 </p>
               </section>
             </Disclosure>

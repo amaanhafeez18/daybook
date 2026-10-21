@@ -478,12 +478,12 @@ export default function AssistantPage({ displayName }) {
       if (!writer.live()) return // signed out meanwhile: nothing here belongs to the new session
       if (error.name === 'AbortError') {
         // Stopped by the user: keep whatever arrived so far.
-        patchMessage(replyId, (message) => ({ streaming: false, status: '', staged: undefined, content: message.content || 'Stopped.' }))
+        patchMessage(replyId, (message) => ({ streaming: false, status: '', staged: undefined, content: message.content || 'Stopped' }))
         patchMessage(userId, { pending: false })
         // The server doesn't stop with us: a Yes / No may still have gone through.
         if (confirm) checkProposal(confirm.proposalId)
         else if (acted) refresh().catch(() => {})
-        if (viewed()) setAnnouncement('Stopped.')
+        if (viewed()) setAnnouncement('Stopped')
         return
       }
       if (acted) {
@@ -786,7 +786,7 @@ export default function AssistantPage({ displayName }) {
       patchAction(undoId, { undoing: false, undone: true })
       // Chips that went with it (a catch-up with a person just removed).
       for (const id of Array.isArray(result?.alsoUndone) ? result.alsoUndone : []) patchAction(id, { undone: true })
-      if (!quiet) toast(result?.message || 'Undone.')
+      if (!quiet) toast(result?.message || 'Undone')
       refresh().catch(() => {})
     } catch (error) {
       // Refused for good (too old, or already gone): the chip stops offering Undo. "Changed since"
@@ -986,7 +986,7 @@ export default function AssistantPage({ displayName }) {
         {!online && (
           <p className="asst-offline" role="status">
             <Icon name="cloudOff" size={15} />
-            <span>You’re offline. The assistant needs a connection.</span>
+            <span>You’re offline — the assistant needs a connection.</span>
           </p>
         )}
         {!empty && !startOpen && !showAskHint && (
@@ -1777,7 +1777,7 @@ function TrayItem({ item, onRemove, onRetry }) {
   const percent = Math.round((Number(item.progress) || 0) * 100)
   const status = item.status === 'preparing' ? 'Preparing…'
     : item.status === 'uploading' ? `Uploading… ${percent}%`
-      : failed ? 'Didn’t upload · Tap to retry'
+      : failed ? 'Didn’t upload · tap to try again'
         : `${kindName(item.kind)} · ${formatBytes(item.bytes)}`
   const preview = item.previewUrl || item.dataUrl
   const ring = <ProgressRing value={item.status === 'uploading' ? item.progress : undefined} />

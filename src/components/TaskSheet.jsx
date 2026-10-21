@@ -20,6 +20,8 @@ import { learnRhythms, readRhythms, showTimeChip, titleMatches, usualToday, visi
 import { scrollBehavior } from '../lib/motion.js'
 import './tasks.css'
 
+const truncate = (text, length) => (text.length > length ? `${text.slice(0, length - 1)}…` : text)
+
 const PRIORITIES = [
   { id: 'low', label: 'Low' },
   { id: 'medium', label: 'Normal' },
@@ -260,7 +262,7 @@ export default function TaskSheet({ open, onClose, task: taskProp = null, defaul
   function archive() {
     archiveTask(task.id)
     finish()
-    toast('Archived', { action: { label: 'Undo', onClick: () => restoreTask(task.id) } })
+    toast(`Archived “${truncate(task.text, 30)}”`, { action: { label: 'Undo', onClick: () => restoreTask(task.id) } })
   }
 
   function breakIntoSteps() {
@@ -272,7 +274,7 @@ export default function TaskSheet({ open, onClose, task: taskProp = null, defaul
   function toggleDone() {
     setTaskDone(task.id, !task.done)
     finish()
-    toast(task.done ? 'Marked as not done' : 'Completed', { action: { label: 'Undo', onClick: () => setTaskDone(task.id, task.done) } })
+    toast(task.done ? `Marked “${truncate(task.text, 28)}” as not done` : `Completed “${truncate(task.text, 32)}”`, { action: { label: 'Undo', onClick: () => setTaskDone(task.id, task.done) } })
     if (!task.done) offerCatchUp(task)
   }
 

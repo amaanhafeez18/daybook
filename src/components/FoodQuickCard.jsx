@@ -428,7 +428,7 @@ export default function FoodQuickCard({ today, loaded }) {
           <div className="fq-actions is-wrap">
             {namedRequest && <Button variant="secondary" size="sm" icon="note" onClick={saveNameOnly}>Save without calories</Button>}
             {request && <Button variant="secondary" size="sm" icon="refresh" onClick={() => run(request)}>Try again</Button>}
-            <Button variant="ghost" size="sm" onClick={finish}>Dismiss</Button>
+            <Button variant="ghost" size="sm" onClick={finish}>Close</Button>
           </div>
         </div>
       )}

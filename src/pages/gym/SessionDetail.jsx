@@ -59,7 +59,7 @@ export default function SessionDetail({ param: sessionId, today: todayProp }) {
         <GymEmpty
           icon="history"
           title="Workout not found"
-          action={<Button variant="secondary" onClick={() => goBack('gym/history')}>Back to history</Button>}
+          action={<Button variant="secondary" onClick={() => goBack('gym/history')}>Back to Progress</Button>}
         >
           It may have been deleted, or it hasn’t synced to this device yet.
         </GymEmpty>
@@ -142,7 +142,7 @@ function SessionView({ session, gym, sessions, bodyWeights, today, onEdit, onDel
   function remove() {
     const undo = deleteSession(session.id)
     onDeleted()
-    toast(`Deleted “${name}”`, { action: { label: 'Undo', onClick: undo } })
+    toast(`Deleted ${name}`, { action: { label: 'Undo', onClick: undo } })
     goBack('gym/history')
   }
 
@@ -528,7 +528,7 @@ function SaveRoutineSheet({ open, onClose, session, gym, lookup }) {
     try {
       const saved = saveRoutine(routineFromSession(session, trimmed, gym, lookup))
       onClose()
-      toast(`Saved routine “${saved.name}”`, {
+      toast(`Saved routine ${saved.name}`, {
         tone: 'success',
         action: { label: 'Open', onClick: () => navigate(`gym/routine/${encodeURIComponent(saved.id)}`) },
       })
@@ -850,7 +850,7 @@ function SessionEditor({ session, gym, sessions, bodyWeights, today, onDone }) {
       const minutesText = form.minutes.trim().replace(',', '.')
       if (minutesText) {
         const minutes = Number(minutesText)
-        if (!Number.isFinite(minutes) || minutes < 0 || minutes > 1440) throw new Error('Enter the duration in minutes (0–1440).')
+        if (!Number.isFinite(minutes) || minutes < 0 || minutes > 1440) throw new Error('Enter 0 to 1440 minutes.')
         durationSec = Math.round(minutes * 60)
       }
       let startedAt = null

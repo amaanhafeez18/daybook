@@ -218,7 +218,7 @@ function upsertFavorite(list, entryLike, options) {
   const template = entryTemplate(food)
   delete template.favoriteId
   const key = foodKey(template.name, template.brand)
-  if (!key) throw new Error('Add a name to save this as a favorite.')
+  if (!key) throw new Error('Add a name to save this to My foods.')
   const index = byId >= 0 ? byId : list.findIndex((fav) => foodKey(fav.name, fav.brand) === key)
   const previous = index >= 0 ? list[index] : null
   const meta = savedMeta(opts)
@@ -311,7 +311,7 @@ export function updateFavorite(id, patch) {
   const template = entryTemplate(merged)
   delete template.favoriteId
   const key = foodKey(template.name, template.brand)
-  if (!key) throw new Error('Add a name.')
+  if (!key) throw new Error('Give it a name.')
   const clash = favorites.find((fav, i) => i !== index && foodKey(fav.name, fav.brand) === key)
   if (clash) throw new Error(`“${clash.name}${clash.brand ? ` (${clash.brand})` : ''}” is already in My foods.`)
   const next = {

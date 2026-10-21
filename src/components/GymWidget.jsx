@@ -166,7 +166,7 @@ function describe({ day, next, active, gym, sessions, stats, pending, now, today
     }
     default:
       if (missed) return missedView(missed, 'Nothing planned today')
-      if (!planned) return { tone: 'setup', title: 'Set up your gym plan', parts: [{ text: 'Pick a split to get started' }], target: 'gym' }
+      if (!planned) return { tone: 'setup', title: 'Set up your gym plan', parts: [{ text: 'Pick a plan to get started' }], target: 'gym' }
       return {
         tone: 'neutral',
         title: 'Nothing planned today',

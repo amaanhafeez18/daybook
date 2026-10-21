@@ -157,7 +157,7 @@ export default function TasksPage({ loaded }) {
   }
 
   async function removeForever(task) {
-    const ok = await confirmAction({ title: 'Delete permanently?', message: `“${task.text}” will be gone for good.`, confirmLabel: 'Delete' })
+    const ok = await confirmAction({ title: 'Delete this task?', message: `“${task.text}” will be deleted for good.`, confirmLabel: 'Delete' })
     if (ok) deleteTaskForever(task.id)
   }
 

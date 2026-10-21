@@ -281,7 +281,7 @@ function JournalEditor() {
         {history.length === 0 ? (
           <EmptyState icon="journal" title="Your journal is empty">Write a few lines about today — it only takes a minute.</EmptyState>
         ) : shown.length === 0 ? (
-          <EmptyState icon="search" title="No matches">Try a different word or a date.</EmptyState>
+          <EmptyState icon="search" title="No matching entries">Try a different word or a date.</EmptyState>
         ) : (
           <ul className="entry-list">
             {shown.map((item) => {
@@ -349,7 +349,7 @@ function NotesList({ notes }) {
       {sorted.length === 0 ? (
         <EmptyState icon="note" title="No notes yet">Ideas, lists, things to remember: jot them down above. The assistant can save notes here too.</EmptyState>
       ) : shown.length === 0 ? (
-        <EmptyState icon="search" title="No matches">Try a different word.</EmptyState>
+        <EmptyState icon="search" title="No matching notes">Try a different word.</EmptyState>
       ) : (
         <ul className="note-list">
           {shown.map((note) => <NoteCard key={note.id} note={note} />)}

@@ -97,7 +97,7 @@ export default function MyFoodsView({ today, loaded }) {
         <section className="card"><Skeleton lines={5} /></section>
       ) : !favorites.length ? (
         <section className="card">
-          <EmptyState icon="bookmark" title="No saved foods yet" action={<Button icon="plus" onClick={addNew}>Add a food</Button>}>
+          <EmptyState icon="bookmark" title="No saved foods yet" action={<Button icon="plus" onClick={addNew}>Add food</Button>}>
             Foods you save keep their exact numbers, so next time you mention one, those numbers are used. Star a food when you log it, keep a label, barcode or web lookup, or add one here.
           </EmptyState>
         </section>
@@ -106,7 +106,7 @@ export default function MyFoodsView({ today, loaded }) {
           {(favorites.length > 5 || query) && (
             <label className="search-field search-field-wide food-my-search">
               <Icon name="search" size={18} />
-              <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search my foods" aria-label="Search my foods" autoComplete="off" enterKeyHint="search" />
+              <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search My foods" aria-label="Search My foods" autoComplete="off" enterKeyHint="search" />
             </label>
           )}
           <div className="food-section-head">
@@ -325,7 +325,7 @@ function SavedFoodSheet({ open, food, unit, onClose }) {
       initialFocus={!editing}
       footer={(
         <>
-          {editing && <IconButton icon="trash" label="Delete from My foods" className="food-es-delete" onClick={remove} />}
+          {editing && <IconButton icon="trash" label="Remove from My foods" className="food-es-delete" onClick={remove} />}
           <Button className="btn-grow" onClick={save} disabled={!name || invalid || badBarcode}>{editing ? 'Save' : 'Add to My foods'}</Button>
         </>
       )}

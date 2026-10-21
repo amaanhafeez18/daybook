@@ -75,7 +75,7 @@ function AllWeighIns({ entries, today, unit }) {
   const weight = (value) => `${formatNumber(fromKg(value, unit), 1)} ${unit}`
   const remove = (entry) => {
     const undo = deleteBodyWeight(entry.id)
-    toast(`Removed ${weight(entry.kg)} from ${formatDateShort(entry.date)}`, { action: { label: 'Undo', onClick: undo } })
+    toast(`Deleted ${weight(entry.kg)} · ${formatDateShort(entry.date)}`, { action: { label: 'Undo', onClick: undo } })
   }
   const list = showAll ? entries : entries.slice(0, 10)
 

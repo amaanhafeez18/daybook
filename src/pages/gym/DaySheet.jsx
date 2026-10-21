@@ -194,7 +194,7 @@ function DayBody({ date, today, onClose }) {
           <span className="ui-label gym-day-label">{past ? 'Planned' : 'Plan'}</span>
           <PlanChip day={day} />
           {day.deload && (
-            <DeloadBadge size="md" title="Lighter weights and fewer sets this week" />
+            <DeloadBadge size="md" />
           )}
           {pill && (
             <span className={`gym-day-status is-${pill.tone}`}>
@@ -353,7 +353,7 @@ function SessionItem({ session, gym, unit, volume, onOpen }) {
 
   function remove() {
     const undo = deleteSession(session.id)
-    toast(`Deleted “${name}”`, { action: { label: 'Undo', onClick: undo } })
+    toast(`Deleted ${name}`, { action: { label: 'Undo', onClick: undo } })
   }
 
   return (

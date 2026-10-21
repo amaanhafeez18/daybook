@@ -80,11 +80,11 @@ export async function attachFile(file, targetType, targetId, { onPrepared, onPro
     } catch (error) {
       if (error?.name === 'AbortError') throw error
       const code = error?.payload?.code || ''
-      const message = code === 'attachments_missing' ? error.message || NOT_SET_UP : error?.status === 0 ? error.message : 'Couldn’t save that file. Try again.'
+      const message = code === 'attachments_missing' ? error.message || NOT_SET_UP : error?.status === 0 ? error.message : 'Couldn’t save that file. Please try again.'
       throw Object.assign(new Error(message), { code, status: error?.status })
     }
     const attachment = reply?.attachment
-    if (!attachment?.id) throw new Error('Couldn’t save that file. Try again.')
+    if (!attachment?.id) throw new Error('Couldn’t save that file. Please try again.')
     // The server has the row already; the store's save of it is a harmless re-upsert.
     updateData('attachments', (list) => [attachment, ...list.filter((item) => item.id !== attachment.id)])
     return attachment

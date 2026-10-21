@@ -128,7 +128,7 @@ export function useRecorder({ onAudio, maxSeconds = 120 } = {}) {
           // The length goes along (the server books the transcription's cost by it).
           await onAudioRef.current?.(await blobToBase64(blob), blob.type, Math.max(0, (Date.now() - startedAt) / 1000))
         } catch (err) {
-          setError(err?.message || 'Could not send the recording.')
+          setError(err?.message || 'Couldn’t send the recording.')
         }
       }
       sessionRef.current = session
@@ -194,7 +194,7 @@ export function blobToBase64(blob) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve(String(reader.result).split(',')[1] || '')
-    reader.onerror = () => reject(new Error('Could not read the recording.'))
+    reader.onerror = () => reject(new Error('Couldn’t read the recording.'))
     reader.readAsDataURL(blob)
   })
 }
