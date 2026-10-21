@@ -12,6 +12,7 @@ import { navigate } from '../../lib/router.js'
 import { useSessionState } from '../../lib/sessionState.js'
 import { useAnimatedNumber } from '../../lib/useAnimatedNumber.js'
 import BodyWeightCard, { weekLabel } from './BodyWeightCard.jsx'
+import ProgressPhotos from './ProgressPhotos.jsx'
 import { GymEmpty, SectionHeader } from './common.jsx'
 import { WorkoutItem, useExerciseLookup, usePrsOf } from './HistoryTab.jsx'
 import { beginWorkout } from './startWorkout.js'
@@ -73,6 +74,7 @@ export default function ProgressTab({ today: todayProp }) {
           </GymEmpty>
         </div>
         <BodyWeightCard today={today} unit={unit} firstWeekday={firstWeekday} />
+        <ProgressPhotos today={today} unit={unit} />
       </div>
     )
   }
@@ -113,6 +115,7 @@ export default function ProgressTab({ today: todayProp }) {
       )}
 
       <BodyWeightCard today={today} unit={unit} firstWeekday={firstWeekday} />
+      <ProgressPhotos today={today} unit={unit} />
 
       <TopExercises sessions={sessions} gym={gym} today={today} />
 

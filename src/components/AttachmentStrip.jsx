@@ -180,7 +180,8 @@ function Ring({ fraction }) {
 // so the link is the short-lived signed one). × or Escape closes; ← → move between the files;
 // Remove asks first, since a removed file is gone from the server.
 
-function Viewer({ items, currentId, previews, onChange, onClose }) {
+// titleOf/metaOf(item) replace the file name and size line (progress photos show their day).
+export function Viewer({ items, currentId, previews = new Map(), onChange, onClose, titleOf, metaOf }) {
   const index = items.findIndex((item) => item.id === currentId)
   const item = index >= 0 ? items[index] : null
   const panelRef = useRef(null)
@@ -239,7 +240,7 @@ function Viewer({ items, currentId, previews, onChange, onClose }) {
     if (!item) return
     const isPdf = item.kind === 'pdf'
     setConfirming(true)
-    const ok = await confirmAction({ title: isPdf ? 'Remove this file?' : 'Remove this photo?', message: `“${item.name}” will be deleted for good.`, confirmLabel: 'Remove' })
+    const ok = await confirmAction({ title: isPdf ? 'Remove this file?' : 'Remove this photo?', message: `“${title}” will be deleted for good.`, confirmLabel: 'Remove' })
     setConfirming(false)
     if (!ok) return
     const next = items.length > 1 ? items[(index + 1) % items.length] : null
@@ -251,16 +252,17 @@ function Viewer({ items, currentId, previews, onChange, onClose }) {
 
   if (!item) return null
   const when = item.createdAt ? formatDateShort(String(item.createdAt).slice(0, 10)) : ''
-  const meta = [item.bytes ? formatBytes(item.bytes) : '', when].filter(Boolean).join(' · ')
+  const title = titleOf ? titleOf(item) : item.name
+  const meta = metaOf ? metaOf(item) : [item.bytes ? formatBytes(item.bytes) : '', when].filter(Boolean).join(' · ')
 
   return createPortal(
-    <div ref={panelRef} className="att-viewer" role="dialog" aria-modal="true" aria-label={item.name}>
+    <div ref={panelRef} className="att-viewer" role="dialog" aria-modal="true" aria-label={title}>
       <header className="att-viewer-bar">
         <button ref={closeRef} type="button" className="att-viewer-btn" onClick={onClose} aria-label="Close">
           <Icon name="close" size={22} />
         </button>
         <span className="att-viewer-title">
-          <strong>{item.name}</strong>
+          <strong>{title}</strong>
           {meta && <small>{meta}</small>}
         </span>
         <button type="button" className="att-viewer-btn is-danger" onClick={remove} aria-label={item.kind === 'pdf' ? 'Remove this file' : 'Remove this photo'}>
@@ -269,7 +271,7 @@ function Viewer({ items, currentId, previews, onChange, onClose }) {
       </header>
       {/* A tap on the dark area (not the picture) closes, like Photos. */}
       <div className="att-viewer-stage" onClick={(event) => { if (event.target === event.currentTarget) onClose() }}>
-        <Stage key={item.id} item={item} preview={previews.get(item.id)} />
+        <Stage key={item.id} item={item} preview={previews.get(item.id)} alt={title} />
       </div>
       {items.length > 1 && (
         <footer className="att-viewer-nav">
@@ -283,7 +285,7 @@ function Viewer({ items, currentId, previews, onChange, onClose }) {
   )
 }
 
-function Stage({ item, preview }) {
+function Stage({ item, preview, alt }) {
   const link = useSignedUrl(item.id)
   const [failed, setFailed] = useState(false)
   const isPdf = item.kind === 'pdf'
@@ -308,7 +310,7 @@ function Stage({ item, preview }) {
   const src = link.url || preview
   if (link.status === 'loading' && !src) return <span className="att-viewer-note"><span className="spinner" /> Loading…</span>
   if (!src || failed) return <Unavailable status={failed ? 'error' : link.status} onRetry={retry} />
-  return <img src={src} alt={item.name} decoding="async" onError={() => setFailed(true)} />
+  return <img src={src} alt={alt || item.name} decoding="async" onError={() => setFailed(true)} />
 }
 
 function Unavailable({ status, onRetry }) {

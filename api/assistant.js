@@ -754,9 +754,9 @@ const tools = [
   tool('delete_journal_entry', 'Delete the journal entry for a date. Only when the user clearly asks.', { date: DATE }, ['date']),
   tool('update_note', 'Rewrite a note by id (ids come from the snapshot or search); the whole new text.', { noteId: { type: 'string' }, text: { type: 'string' } }, ['noteId', 'text']),
   tool('delete_note', 'Delete a note by id (ids come from the snapshot or search).', { noteId: { type: 'string' } }, ['noteId']),
-  tool('attach_file', 'Save a photo or file from this conversation onto a task, a note or a person, so it stays with it ("save this receipt to the expenses task", "attach it to Ali", "keep this with my note"). Works with something created earlier in this turn through its $n ref. file = the attachment\'s name as shown (omit when only one was sent).', {
-    target: { type: 'string', enum: ['task', 'note', 'person'] },
-    id: { type: 'string', description: 'The task or note id, a person\'s id or name, or a $n ref from this turn.' },
+  tool('attach_file', 'Save a photo or file from this conversation onto a task, a note or a person, so it stays with it ("save this receipt to the expenses task", "attach it to Ali", "keep this with my note"), or a body photo as a private progress photo (target progress; shown side by side in Gym → Progress). Works with something created earlier in this turn through its $n ref. file = the attachment\'s name as shown (omit when only one was sent).', {
+    target: { type: 'string', enum: ['task', 'note', 'person', 'progress'] },
+    id: { type: 'string', description: 'The task or note id, a person\'s id or name, or a $n ref from this turn. For progress: the day it was taken (YYYY-MM-DD, default today).' },
     file: { type: 'string', description: 'Which attachment (its name), when several were sent.' },
     caption: { type: 'string', description: 'Optional short caption.' },
   }, ['target', 'id']),
@@ -4831,13 +4831,17 @@ async function executeTool(supabase, userId, name, rawArgs, data, ctx, { refs = 
   }
 
   if (name === 'attach_file') {
-    const targetType = { task: 'task', note: 'note', person: 'friend' }[args.target]
-    if (!targetType) return { ok: false, message: 'target must be task, note or person.' }
+    const targetType = { task: 'task', note: 'note', person: 'friend', progress: 'progress' }[args.target]
+    if (!targetType) return { ok: false, message: 'target must be task, note, person or progress.' }
     const file = pickTurnFile(args, ctx, userId)
     if (file.problem) return { ok: false, message: file.problem }
     let targetId
     let label
-    if (targetType === 'task') {
+    if (targetType === 'progress') {
+      if (file.kind !== 'image') return { ok: false, message: 'Progress photos are photos only.' }
+      targetId = isIsoDate(args.id) ? args.id : ctx.localDate
+      label = 'your progress photos (Gym → Progress)'
+    } else if (targetType === 'task') {
       const task = findOwned(data.tasks, args.id, 'task')
       targetId = task.id
       label = `the task “${task.text}”`
@@ -5246,9 +5250,10 @@ function describeAction(name, args, data, ctx, refs) {
     case 'attach_file': {
       const file = pickTurnFile(args, ctx, args.userId || data.userId || '')
       if (file.problem) return null
-      const targetType = { task: 'task', note: 'note', person: 'friend' }[args.target]
+      const targetType = { task: 'task', note: 'note', person: 'friend', progress: 'progress' }[args.target]
       let what = args.target || 'it'
-      if (targetType === 'task') what = task(args.id) ? `the task ${quoted(task(args.id).text, 60)}` : 'a task'
+      if (targetType === 'progress') what = 'your progress photos'
+      else if (targetType === 'task') what = task(args.id) ? `the task ${quoted(task(args.id).text, 60)}` : 'a task'
       else if (targetType === 'note') { const note = data.voice_notes.find((item) => item.id === args.id); what = note ? `the note ${quoted(note.text, 40)}` : 'a note' }
       else if (targetType === 'friend') { const found = person(args.id); what = found.friend.name }
       return { label: `Save “${file.name}” to ${what}`, pin: { path: file.path, name: file.name, kind: file.kind, bytes: file.bytes } }

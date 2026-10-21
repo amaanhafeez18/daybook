@@ -12,7 +12,7 @@ import { apiRequest } from './api.js'
 import { getState, updateData, useData, useStore } from './store.js'
 import { prepareAttachment, revokePreview, uploadAttachment } from './media.js'
 
-export const ATTACHMENT_TARGETS = ['task', 'note', 'friend']
+export const ATTACHMENT_TARGETS = ['task', 'note', 'friend', 'progress'] // progress = progress photos (lib/progressPhotos.js)
 // Photos and PDFs only (no `capture`: iOS then offers the photo library, the camera and Files).
 // Never image/heic: Safari would convert every JPEG and PNG to HEIC.
 export const attachmentAccept = 'image/*,application/pdf,.pdf'

@@ -73,7 +73,7 @@ describe('_attachments', () => {
     assert.equal(supabase.db.attachments.length, 1)
     assert.ok(supabase.store.objects.has(row.path))
     // Wrong target / unowned path are refused before anything is written.
-    await assert.rejects(keepFile(supabase, USER, { fromPath: `${USER}/2026-09-24/abc-receipt.jpg`, name: 'x', kind: 'image', targetType: 'event', targetId: 'e1' }), /task, note or friend/)
+    await assert.rejects(keepFile(supabase, USER, { fromPath: `${USER}/2026-09-24/abc-receipt.jpg`, name: 'x', kind: 'image', targetType: 'event', targetId: 'e1' }), /task, note, friend or progress/)
     await assert.rejects(keepFile(supabase, USER, { fromPath: 'someone-else/keep/x.jpg', name: 'x', kind: 'image', targetType: 'task', targetId: 't1' }), /Attach it again/)
     assert.equal(supabase.db.attachments.length, 1)
     // Remove by target: row and file gone.
@@ -136,6 +136,20 @@ describe('attach_file tool', () => {
     const result = await executeTool(supabase, USER, 'attach_file', pinned, data(supabase), ctx)
     assert.equal(result.ok, true, result.message)
     assert.equal(supabase.db.attachments.length, 1)
+  })
+
+  test('saves a photo as a progress photo for a day (today by default); not a PDF', async () => {
+    const supabase = fake()
+    const d = data(supabase)
+    const turn = { ...ctx, turnFiles: [file] }
+    const today = await executeTool(supabase, USER, 'attach_file', { target: 'progress', id: 'today' }, d, turn)
+    assert.equal(today.ok, true, today.message)
+    assert.match(today.message, /progress photos/)
+    const dated = await executeTool(supabase, USER, 'attach_file', { target: 'progress', id: '2026-09-01' }, d, turn)
+    assert.equal(dated.ok, true, dated.message)
+    assert.deepEqual(supabase.db.attachments.map((row) => [row.target_type, row.target_id]), [['progress', '2026-09-24'], ['progress', '2026-09-01']])
+    const pdf = await executeTool(supabase, USER, 'attach_file', { target: 'progress', id: 'today' }, d, { ...ctx, turnFiles: [{ ...file, kind: 'pdf', name: 'plan.pdf' }] })
+    assert.equal(pdf.ok, false)
   })
 
   test('the table missing on the database is explained, not thrown', async () => {

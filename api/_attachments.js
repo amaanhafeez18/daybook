@@ -1,12 +1,14 @@
 // Photos and files pinned to a task, a note or a person (table attachments, migration
-// 2026-09-29-attachments.sql). The file is a copy in the private assistant-uploads bucket under
+// 2026-09-29-attachments.sql), and progress photos (target 'progress', targetId = the day,
+// migration 2026-10-21-progress-photos.sql). The file is a copy in the private assistant-uploads bucket under
 // <userId>/keep/…, which the nightly upload cleanup skips (it only removes day folders). Shared by
 // api/files.js (the app), api/assistant.js (the attach_file tool) and api/data.js (cascade deletes).
 import { randomUUID } from 'crypto'
 import { UPLOAD_BUCKET } from './_uploads.js'
 
-export const ATTACHMENT_TARGETS = ['task', 'note', 'friend']
+export const ATTACHMENT_TARGETS = ['task', 'note', 'friend', 'progress']
 export const ATTACHMENTS_MIGRATION = 'Attachments aren’t set up yet: run supabase/migrations/2026-09-29-attachments.sql in Supabase.'
+export const PROGRESS_MIGRATION = 'Progress photos need a quick database update: run supabase/migrations/2026-10-21-progress-photos.sql in Supabase.'
 const KINDS = ['image', 'pdf']
 const SIGNED_SECONDS = 60 * 60
 
@@ -38,10 +40,12 @@ export function rowToClient(row) {
 // on the target. Returns the new row (client shape). Throws with .code 'attachments_missing' when
 // the table hasn't been created, .status 400 for bad input.
 export async function keepFile(supabase, userId, { fromPath, name, kind, bytes, targetType, targetId, caption }) {
-  if (!ATTACHMENT_TARGETS.includes(targetType)) throw Object.assign(new Error('target must be task, note or friend.'), { status: 400 })
+  if (!ATTACHMENT_TARGETS.includes(targetType)) throw Object.assign(new Error('target must be task, note, friend or progress.'), { status: 400 })
   if (!targetId || typeof targetId !== 'string') throw Object.assign(new Error('Say which task, note or person.'), { status: 400 })
+  if (targetType === 'progress' && !/^\d{4}-\d{2}-\d{2}$/.test(targetId)) throw Object.assign(new Error('A progress photo needs its date (YYYY-MM-DD).'), { status: 400 })
   if (!ownsPath(fromPath, userId)) throw Object.assign(new Error('That file isn’t available any more. Attach it again.'), { status: 400 })
   const fileKind = KINDS.includes(kind) ? kind : 'image'
+  if (targetType === 'progress' && fileKind !== 'image') throw Object.assign(new Error('Progress photos are photos only.'), { status: 400 })
   const cleanName = String(name || '').replace(/[\r\n\t"<>]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120) || (fileKind === 'pdf' ? 'document.pdf' : 'photo.jpg')
   let path = fromPath
   if (!keptPath(fromPath, userId)) {
@@ -59,6 +63,8 @@ export async function keepFile(supabase, userId, { fromPath, name, kind, bytes, 
   if (error) {
     if (path !== fromPath) await supabase.storage.from(UPLOAD_BUCKET).remove([path]).catch(() => {})
     if (isMissingAttachmentsTable(error)) throw Object.assign(new Error(ATTACHMENTS_MIGRATION), { code: 'attachments_missing', status: 503 })
+    // The table's check still lists only task/note/friend.
+    if (targetType === 'progress' && error.code === '23514') throw Object.assign(new Error(PROGRESS_MIGRATION), { code: 'attachments_missing', status: 503 })
     throw error
   }
   return rowToClient(row)
