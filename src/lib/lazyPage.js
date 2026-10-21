@@ -1,4 +1,4 @@
-import { createElement, lazy, useState } from 'react'
+import { Suspense, createElement, lazy, useState } from 'react'
 
 // A page (or view) whose code loads on demand, without the loading skeleton once it has loaded.
 // React.lazy suspends on its first render even when the code arrived long ago (a prefetch), which
@@ -40,4 +40,31 @@ export function lazyPage(loader, name) {
 export function preloadPage(name) {
   const page = registry.get(name)
   return page ? page.preload() : Promise.resolve(null)
+}
+
+// A sheet whose code loads on demand: nothing renders until it's first opened, then it stays
+// mounted so its close animation can run. preload() warms it (call it when things are quiet, so
+// the first tap opens it straight away). isOpen(props) says when it's open (default: props.open).
+export function lazySheet(loader, isOpen = (props) => !!props.open) {
+  const Page = lazyPage(loader)
+  function LazySheet(props) {
+    const [used, setUsed] = useState(false)
+    const open = isOpen(props)
+    if (open && !used) setUsed(true)
+    if (!used && !open) return null
+    return createElement(Suspense, { fallback: null }, createElement(Page, props))
+  }
+  LazySheet.preload = Page.preload
+  return LazySheet
+}
+
+// Runs fn when the browser is idle (or after `ms` on Safari, which has no requestIdleCallback).
+export function whenIdle(fn, ms = 1500) {
+  if (typeof window === 'undefined') return () => {}
+  if (typeof window.requestIdleCallback === 'function') {
+    const id = window.requestIdleCallback(fn, { timeout: ms + 2000 })
+    return () => window.cancelIdleCallback?.(id)
+  }
+  const id = setTimeout(fn, ms)
+  return () => clearTimeout(id)
 }
