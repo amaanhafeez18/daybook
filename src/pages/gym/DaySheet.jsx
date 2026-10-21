@@ -75,6 +75,10 @@ function dayNotes(day, gym, hasSession) {
     notes.push({ icon: 'pencil', text: from ? `Changed from ${from} for this day only` : 'Changed for this day only' })
   }
   if (day.shifted) notes.push({ icon: 'arrowRight', text: 'Shifted: the plan carries on a day later from here' })
+  if (day.carried) {
+    notes.push({ icon: 'skipForward', text: `Nothing logged, so ${slotLabel(day.shown, gym)} moved on to the next day` })
+  }
+  if (day.carriedFrom) notes.push({ icon: 'arrowRight', text: `Missed on ${formatDateShort(day.carriedFrom)}, so it moved here` })
   if (day.skipped) {
     notes.push({ icon: 'skipForward', text: day.shown.kind === 'routine' ? `${slotLabel(day.shown, gym)} skipped; the rest of the plan stays the same` : 'Skipped' })
   }

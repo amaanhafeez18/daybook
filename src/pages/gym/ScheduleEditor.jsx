@@ -65,7 +65,7 @@ function defaultAnchor(slots, base, gym, sessions, today) {
     if (base.effectiveFrom > today) return mod(base.anchorIndex - 1, slots.length)
     // A shifted day has no slot; the next unshifted day shows the slot today would have had.
     for (let offset = 0; offset <= MAX_SLOTS; offset++) {
-      const planned = plannedFor(gym.schedule, addDays(today, offset))
+      const planned = plannedFor(gym.schedule, addDays(today, offset), { gym, sessions, today })
       if (planned.version?.id !== base.id) break
       if (planned.cycleIndex != null) return planned.cycleIndex
     }
@@ -108,7 +108,7 @@ function planOf(draft) {
 const snapshot = (draft) => JSON.stringify({ plan: planOf(draft), deload: draft.deloadEvery })
 
 // True when saving `plan` would give the same days as the version already in effect.
-function planUnchanged(schedule, plan, today, hasSessionToday) {
+function planUnchanged(schedule, plan, today, hasSessionToday, days) {
   const eff = hasSessionToday ? addDays(today, 1) : today
   const current = versionFor(schedule, eff)
   if (!current || current.mode !== plan.mode) return false
@@ -116,7 +116,7 @@ function planUnchanged(schedule, plan, today, hasSessionToday) {
   if (plan.mode === 'weekly') return sameSlots(current.weekly, plan.weekly)
   if (!sameSlots(current.cycle, plan.cycle)) return false
   const wanted = mod(plan.anchorIndex + (eff === today ? 0 : 1), plan.cycle.length)
-  const at = current.effectiveFrom === eff ? current.anchorIndex : plannedFor(schedule, eff).cycleIndex
+  const at = current.effectiveFrom === eff ? current.anchorIndex : plannedFor(schedule, eff, days).cycleIndex
   return at === wanted
 }
 
@@ -216,7 +216,7 @@ export default function ScheduleEditor({ open, onClose, today }) {
       return
     }
     const current = getGym().schedule
-    const planChanged = !planUnchanged(current, plan, today, hasSessionToday)
+    const planChanged = !planUnchanged(current, plan, today, hasSessionToday, { gym: getGym(), sessions, today })
     const deloadChanged = draft.deloadEvery !== current.deload.everyWeeks
     if (!planChanged && !deloadChanged) {
       onClose()

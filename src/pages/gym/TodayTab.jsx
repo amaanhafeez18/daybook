@@ -396,6 +396,7 @@ function Hero({ day, next, week, gym, sessions, today, active, hasSchedule, onMe
   const badges = []
   if (day.deload) badges.push(<DeloadBadge key="deload" title="Fewer sets and about 10% less weight this week" />)
   if (override?.movedFrom) badges.push(<span key="moved" className="gym-td-badge"><Icon name="arrowRight" size={12} strokeWidth={2.4} />Moved from {WEEKDAY_SHORT[weekdayIndex(override.movedFrom)]}</span>)
+  else if (day.carriedFrom) badges.push(<span key="moved" className="gym-td-badge"><Icon name="arrowRight" size={12} strokeWidth={2.4} />{day.carriedFrom === addDaysISO(today, -1) ? 'Missed yesterday' : `Missed on ${WEEKDAY_SHORT[weekdayIndex(day.carriedFrom)]}`}</span>)
   else if (override?.movedTo) badges.push(<span key="moved" className="gym-td-badge"><Icon name="arrowRight" size={12} strokeWidth={2.4} />Moved to {WEEKDAY_SHORT[weekdayIndex(override.movedTo)]}</span>)
   else if (override) badges.push(<span key="changed" className="gym-td-badge" title={`Planned: ${slotLabel(day.planned, gym)}`}><Icon name="pencil" size={12} strokeWidth={2.2} />Changed</span>)
 

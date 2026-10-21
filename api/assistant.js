@@ -908,6 +908,7 @@ const tools = [
         timer_sound: { type: 'boolean', description: 'Sound when the rest timer ends.' },
         keep_awake: { type: 'boolean', description: 'Keep the screen on during a workout.' },
         bodyweight_in_volume: { type: 'boolean', description: 'Count body weight in volume for bodyweight exercises.' },
+        carry_missed: { type: 'boolean', description: 'A planned workout that isn\'t logged moves on to the next day (on by default).' },
         collar_weight: { type: 'number', minimum: 0, description: 'Weight of both collars together, user\'s unit (plate calculator).' },
       },
       additionalProperties: false,
@@ -2098,10 +2099,12 @@ function dayText(day, gym) {
   else if (day.status === 'none') text = 'no plan'
   else {
     text = slotName(day.shown, gym)
-    if (day.status === 'skipped' || day.status === 'missed') flags.push(day.status)
+    if (day.carried) flags.push('missed, so it moved to the next day')
+    else if (day.status === 'skipped' || day.status === 'missed') flags.push(day.status)
   }
   if (day.status !== 'done' && day.status !== 'none') {
     if (day.override?.movedFrom) flags.push(`moved from ${day.override.movedFrom}`)
+    else if (day.carriedFrom) flags.push(`missed on ${day.carriedFrom}, moved here`)
     else if (day.override?.movedTo) flags.push(`its workout moved to ${day.override.movedTo}`)
     else if (day.override) flags.push('changed for this day')
     if (day.deload && day.shown.kind === 'routine') flags.push('deload')
@@ -2813,7 +2816,7 @@ async function executeGymTool(supabase, userId, name, args, data, ctx) {
     const routine = findRoutine(data.gym, args.routine)
     const routineName = routine.name.trim() || 'that routine'
     await saveGymSchedule(supabase, userId, data, (schedule) => {
-      const next = sched.realign(schedule, routine.id, today)
+      const next = sched.realign(schedule, routine.id, today, undefined, { gym: data.gym, sessions: data.gym_sessions })
       if (!next) throw new Error(`Realigning only works with a rotation that includes ${routineName}.`)
       return next
     })
@@ -3361,7 +3364,7 @@ async function executeGymTool(supabase, userId, name, args, data, ctx) {
     await saveGym(supabase, userId, data, (gym) => {
       deleted = findRoutine(gym, args.name)
       inUse = sched.routineInUse(gym.schedule, deleted.id, today)
-      const schedule = inUse ? sched.replaceRoutineWithRest(gym.schedule, deleted.id, today, hasSessionOn(data, today)) : null
+      const schedule = inUse ? sched.replaceRoutineWithRest(gym.schedule, deleted.id, today, hasSessionOn(data, today), undefined, { gym, sessions: data.gym_sessions }) : null
       return { gym: { routines: gym.routines.filter((routine) => routine.id !== deleted.id), ...(schedule ? { schedule } : {}) } }
     })
     return { ok: true, message: `Deleted the ${deleted.name.trim() || 'untitled'} routine.${inUse ? ' Its days in your schedule are now rest days.' : ''} Logged workouts keep their name.` }
@@ -3539,12 +3542,15 @@ async function executeGymTool(supabase, userId, name, args, data, ctx) {
       ['timer_sound', 'timerSound', 'rest timer sound on', 'rest timer sound off'],
       ['keep_awake', 'keepAwake', 'screen stays on during workouts', 'screen may sleep during workouts'],
       ['bodyweight_in_volume', 'bodyweightInVolume', 'body weight counts in volume', 'body weight left out of volume'],
+      ['carry_missed', 'carryMissed', 'missed workouts move on to the next day', 'missed workouts stay missed (the plan keeps its days)'],
     ]
     for (const [key, field, onText, offText] of toggles) {
       if (changes[key] === undefined) continue
       prefs[field] = changes[key] === true
       said.push(prefs[field] ? onText : offText)
     }
+    // Counted from today, so days already past keep what they showed (schedule.js applyCarry).
+    if (prefs.carryMissed === true) prefs.carryFrom = today
     if (changes.collar_weight !== undefined) {
       const weight = toFiniteNumber(changes.collar_weight)
       if (weight === null || weight < 0 || weight > 20) return fail('The collar weight doesn’t look right.')

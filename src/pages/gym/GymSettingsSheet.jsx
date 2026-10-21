@@ -279,13 +279,15 @@ export default function GymSettingsSheet({ open, onClose }) {
           </Row>
         </Group>
 
-        <Group title="Week" footer="Used for the calendar, your weekly goal and streaks.">
+        <Group title="Week" footer="Used for the calendar, your weekly goal and streaks. With “Move missed workouts on”, a planned workout you don’t log shows as skipped and comes up again the next day.">
           <Row label="Week starts on" className="is-stacked">
             <Segmented label="First day of the week" value={prefs.firstWeekday} onChange={(value) => setPrefs({ firstWeekday: value })} options={weekdayOptions} size="sm" />
           </Row>
           <Row label="Weekly goal" hint={goalHint}>
             <Stepper label="Weekly goal" value={prefs.weeklyGoal} min={1} max={14} onChange={(weeklyGoal) => setPrefs({ weeklyGoal, weeklyGoalAuto: false })} />
           </Row>
+          {/* Turning it on counts misses from today, so days already past keep what they showed. */}
+          <SwitchRow label="Move missed workouts on" description="Not logged? It moves to the next day" checked={prefs.carryMissed} onChange={(carryMissed) => setPrefs(carryMissed ? { carryMissed, carryFrom: todayISO() } : { carryMissed })} />
         </Group>
 
         <Group title="Rest timer" footer="The timer starts when you tick a set. Each exercise or routine can have its own rest time.">

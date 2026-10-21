@@ -418,7 +418,7 @@ describe('move workout', () => {
 describe('resolveDay', () => {
   test('returns every contract field', () => {
     const d = day(rotation(), TODAY)
-    assert.deepEqual(Object.keys(d).sort(), ['cycleIndex', 'date', 'deload', 'override', 'planned', 'routine', 'routineMissing', 'sessions', 'shifted', 'shown', 'skipped', 'status', 'versionId'].sort())
+    assert.deepEqual(Object.keys(d).sort(), ['carried', 'carriedFrom', 'cycleIndex', 'date', 'deload', 'override', 'planned', 'routine', 'routineMissing', 'sessions', 'shifted', 'shown', 'skipped', 'status', 'versionId'].sort())
     assert.equal(d.date, TODAY)
     assert.equal(d.cycleIndex, 2)
     assert.equal(d.versionId, 'v1')
@@ -472,6 +472,74 @@ describe('resolveDay', () => {
     assert.equal(S.plannedFor(s, TODAY).slot, S.SHIFTED)
     assert.equal(S.plannedFor(s, '2026-01-01').slot, S.NONE)
     assert.equal(S.plannedFor(s, '2026-01-01').version, null)
+  })
+})
+
+describe('missed workouts move on (prefs.carryMissed)', () => {
+  // Counting from Mon 09-21 (data saved before the feature counts from CARRY_SINCE instead).
+  const carry = (schedule, extra = {}) => gymOf(schedule, { prefs: { firstWeekday: 1, carryFrom: '2026-09-21', ...extra } })
+  const show = (d) => label(d.shown) + (d.status === 'skipped' ? ' (skipped)' : '') + (d.carriedFrom ? ` <${d.carriedFrom.slice(5)}` : '')
+  const PUSH_DONE = [{ id: 'p', date: '2026-09-21', routineId: 'push' }]
+
+  test('rotation: an unlogged day shows as skipped and its workout comes up the next day', () => {
+    const days = range(rotation(), '2026-09-21', '2026-09-26', { sessions: PUSH_DONE, gym: carry(rotation()) })
+    assert.deepEqual(days.map(show), ['Push', 'Pull (skipped)', 'Pull <09-22', 'Legs', 'Rest', 'Push'])
+    assert.deepEqual(days.map((d) => d.status), ['done', 'skipped', 'today', 'upcoming', 'rest', 'upcoming'])
+    assert.deepEqual(days.map((d) => d.carried), [false, true, false, false, false, false])
+    // Missed two days running: the first missed day is named.
+    const sat = range(rotation(), '2026-09-22', '2026-09-24', { sessions: PUSH_DONE, today: '2026-09-24', gym: carry(rotation()) })
+    assert.deepEqual(sat.map(show), ['Pull (skipped)', 'Pull (skipped)', 'Pull <09-22'])
+    assert.equal(days[1].shifted, false)
+    assert.equal(days[1].skipped, false) // not a skip the user chose
+  })
+
+  test('weekly: the missed workout slides into the next day and the week follows', () => {
+    // Mon Push done, Tue Pull missed: Wed (today) shows Pull, Thu (rest) takes Legs.
+    const days = range(weekly(), '2026-09-21', '2026-09-26', { sessions: PUSH_DONE, gym: carry(weekly()) })
+    assert.deepEqual(days.map(show), ['Push', 'Pull (skipped)', 'Pull <09-22', 'Legs', 'Upper', 'Lower'])
+  })
+
+  test('switched off, or before carryFrom, days stay missed and the plan keeps its days', () => {
+    const off = range(rotation(), '2026-09-21', '2026-09-24', { sessions: PUSH_DONE, gym: carry(rotation(), { carryMissed: false }) })
+    assert.deepEqual(off.map((d) => d.status), ['done', 'missed', 'today', 'rest'])
+    assert.deepEqual(off.map((d) => label(d.shown)), ['Push', 'Pull', 'Legs', 'Rest'])
+    const later = range(rotation(), '2026-09-21', '2026-09-25', { sessions: PUSH_DONE, today: '2026-09-25', gym: carry(rotation(), { carryFrom: '2026-09-23' }) })
+    // Tue stays missed (before carryFrom); Legs, missed Wed and Thu, is still waiting today (Fri).
+    assert.deepEqual(later.map(show), ['Push', 'Pull', 'Legs (skipped)', 'Legs (skipped)', 'Legs <09-23'])
+    assert.equal(later[1].status, 'missed')
+    // No carryFrom: counted from CARRY_SINCE, long after these days.
+    assert.deepEqual(range(rotation(), '2026-09-21', TODAY, { sessions: PUSH_DONE }).map((d) => d.status), ['done', 'missed', 'today'])
+  })
+
+  test('today and logged, skipped, shifted, changed or rest days never carry', () => {
+    let s = S.skipDay(rotation(), TODAY, TODAY, false)
+    s = S.overrideDay(s, '2026-09-24', R('arms'), TODAY)
+    const later = '2026-09-26'
+    const days = range(s, '2026-09-21', later, { sessions: PUSH_DONE, today: later, gym: carry(s) })
+    // Tue Pull missed → carried; Wed then shows Pull but was skipped by hand (that uses it up);
+    // Thu was changed to Arms (still uses Legs' slot); Fri rest; Sat (today) Push.
+    assert.deepEqual(days.map(show), ['Push', 'Pull (skipped)', 'Pull (skipped)', 'Arms', 'Rest', 'Push'])
+    assert.deepEqual(days.map((d) => d.carried), [false, true, false, false, false, false])
+    assert.equal(days[5].status, 'today')
+  })
+
+  test('a deleted routine does not carry', () => {
+    const gym = carry(rotation(), {})
+    gym.routines = ROUTINES.filter((r) => r.id !== 'pull')
+    const d = S.resolveDay(gym, PUSH_DONE, '2026-09-22', TODAY)
+    assert.equal(d.status, 'missed')
+    assert.equal(d.carried, false)
+  })
+
+  test('nextWorkout, plannedFor and realign follow the carried plan', () => {
+    const gym = carry(rotation())
+    const days = { gym, sessions: PUSH_DONE, today: TODAY }
+    assert.equal(label(S.plannedFor(gym.schedule, '2026-09-24', days).slot), 'Legs')
+    assert.equal(label(S.plannedFor(gym.schedule, '2026-09-24').slot), 'Rest') // without the sessions: as before
+    assert.equal(S.nextWorkout(gym, PUSH_DONE, TODAY).date, '2026-09-24')
+    // Did Legs today instead of Pull: the rotation continues after Legs from tomorrow.
+    const next = S.realign(gym.schedule, 'legs', TODAY, () => 'x', { gym, sessions: PUSH_DONE })
+    assert.deepEqual(labels(next, '2026-09-24', '2026-09-26', { sessions: PUSH_DONE, gym: { ...gym, schedule: next } }), ['Rest', 'Push', 'Pull'])
   })
 })
 
