@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import Burst from '../../components/ui/Burst.jsx'
 import Icon from '../../components/ui/Icon.jsx'
 import Sheet from '../../components/ui/Sheet.jsx'
@@ -6,7 +6,7 @@ import { Button, EmptyState, IconButton } from '../../components/ui/primitives.j
 import WeighIn from '../../components/WeighIn.jsx'
 import { toast } from '../../components/ui/feedback.jsx'
 import { useAreas } from '../../lib/areas.js'
-import { WEEKDAY_SHORT, addDaysISO, formatDateShort, formatDuration as formatMinutes, relativeDay, weekdayIndex } from '../../lib/dates.js'
+import { WEEKDAY_SHORT, addDaysISO, diffDays, formatDateShort, formatDuration as formatMinutes, relativeDay, weekdayIndex } from '../../lib/dates.js'
 import { abbreviationOptions, routineAbbreviations } from '../../lib/gym/abbreviations.js'
 import { TRACKING, exerciseById, newRoutineExercise } from '../../lib/gym/library.js'
 import { deloadWeek, nextWorkout, resolveDay, resolveRange } from '../../lib/gym/schedule.js'
@@ -21,6 +21,7 @@ import {
 import { formatDistance, formatDuration, formatNumber, formatVolume, formatWeight, fromKg, fromMeters, toMeters } from '../../lib/gym/units.js'
 import { haptic } from '../../lib/haptics.js'
 import { navigate } from '../../lib/router.js'
+import { useSessionState } from '../../lib/sessionState.js'
 import { useAnimatedNumber } from '../../lib/useAnimatedNumber.js'
 import { letMissedGo, missedWorkout, useGoalMoment } from '../../components/gymStart.js'
 import { ActionSheet, DurationInput, NumberInput, RoutineChip, RoutineDot, SectionHeader, WeightInput } from './common.jsx'
@@ -305,7 +306,7 @@ export default function TodayTab({ today }) {
   // body weight beside them. On a phone the columns dissolve and everything stacks as before.
   return (
     <div className="gym-td">
-      {hasSchedule && <WeekStrip days={week} today={today} gym={gym} />}
+      {hasSchedule && <WeekStrip days={week} today={today} gym={gym} sessions={sessions} />}
 
       <div className="gym-td-cols">
         <div className="gym-td-main">
@@ -610,16 +611,86 @@ function DoneSession({ session, gym, sessions }) {
 
 // Each day is ~45px wide on a phone, so routines show as their short code (as in the Gym calendar:
 // 'Push' → 'P', 'Pull' → 'Pl'); the full name is in the button's label and tooltip.
-function WeekStrip({ days, today, gym }) {
+// It opens on the next 7 days; ‹ (or a swipe right) steps back 7 days at a time to see what was
+// done, as far as the first workout or plan.
+const STRIP_SWIPE_PX = 50
+
+function WeekStrip({ days: upcoming, today, gym, sessions }) {
   const codes = useMemo(() => routineAbbreviations(gym.routines), [gym.routines])
+  const [page, setPage] = useSessionState('gym.strip.page', 0)
+  const [direction, setDirection] = useState(0)
+  const swipe = useRef(null)
+  const ignoreClickUntil = useRef(0)
+
+  // The earliest day there is anything to show: the first workout or the plan's start.
+  const earliest = useMemo(() => {
+    let first = gym.schedule.versions[0]?.effectiveFrom || today
+    for (const session of sessions) if (typeof session.date === 'string' && session.date < first) first = session.date
+    return first
+  }, [gym.schedule.versions, sessions, today])
+  const minPage = -Math.max(0, Math.ceil(diffDays(earliest, today) / 7))
+  const current = Math.min(0, Math.max(minPage, page))
+  const start = addDaysISO(today, current * 7)
+  const end = addDaysISO(start, 6)
+  const past = useMemo(() => (current === 0 ? null : resolveRange(gym, sessions, start, end, today)), [current, gym, sessions, start, end, today])
+  const days = past || upcoming
+  const done = days.filter((day) => day.status === 'done').length
+
+  function go(step) {
+    const next = Math.min(0, Math.max(minPage, current + step))
+    if (next === current) return
+    setDirection(step)
+    setPage(next)
+  }
+
+  // 'Oct 7–13', or 'Sep 30 – Oct 6' across two months.
+  const range = start.slice(0, 7) === end.slice(0, 7) ? `${formatDateShort(start)}–${Number(end.slice(8))}` : `${formatDateShort(start)} – ${formatDateShort(end)}`
+  const title = current === 0 ? 'Next 7 days' : current === -1 ? 'Last 7 days' : range
+  const swipeHandlers = {
+    onPointerDown(event) {
+      if (event.pointerType === 'mouse' && event.button !== 0) return
+      swipe.current = { id: event.pointerId, x: event.clientX, y: event.clientY }
+    },
+    onPointerUp(event) {
+      const from = swipe.current
+      swipe.current = null
+      if (!from || from.id !== event.pointerId) return
+      const dx = event.clientX - from.x
+      const dy = event.clientY - from.y
+      if (Math.abs(dx) < STRIP_SWIPE_PX || Math.abs(dx) < Math.abs(dy) * 1.5) return
+      ignoreClickUntil.current = performance.now() + 400
+      go(dx > 0 ? -1 : 1)
+    },
+    onPointerCancel() {
+      swipe.current = null
+    },
+  }
+
   return (
-    <ol className="card gym-td-strip" aria-label="Your next 7 days">
-      {days.map((day) => <StripDay key={day.date} day={day} today={today} gym={gym} codes={codes} />)}
-    </ol>
+    <section className="card gym-td-week" aria-label="Your week" {...swipeHandlers}>
+      <div className="gym-td-week-head">
+        <h2 className="gym-td-week-title" aria-live="polite">
+          {title}
+          {current < 0 && <small> · {done} done</small>}
+        </h2>
+        {current < 0 && <button type="button" className="link-btn gym-td-week-today" onClick={() => go(-current)}>Today</button>}
+        <button type="button" className="icon-btn" onClick={() => go(-1)} disabled={current <= minPage} aria-label="Previous 7 days">
+          <Icon name="chevronLeft" size={20} />
+        </button>
+        <button type="button" className="icon-btn" onClick={() => go(1)} disabled={current >= 0} aria-label="Next 7 days">
+          <Icon name="chevronRight" size={20} />
+        </button>
+      </div>
+      <ol key={start} className={`gym-td-strip${direction > 0 ? ' from-next' : direction < 0 ? ' from-prev' : ''}`} aria-label={title}>
+        {days.map((day) => (
+          <StripDay key={day.date} day={day} today={today} gym={gym} codes={codes} ignoreClickUntil={ignoreClickUntil} />
+        ))}
+      </ol>
+    </section>
   )
 }
 
-function StripDay({ day, today, gym, codes }) {
+function StripDay({ day, today, gym, codes, ignoreClickUntil }) {
   const isToday = day.date === today
   const session = day.sessions[0]
   const routine = day.status === 'done' ? routineById(gym, session?.routineId) || day.routine : day.routine
@@ -634,7 +705,11 @@ function StripDay({ day, today, gym, codes }) {
   } else if (day.status === 'skipped') {
     kind = 'skipped'
     label = slotLabel(day.shown, gym)
-    status = `${label}, skipped`
+    status = day.carried ? `${label}, skipped: nothing logged, so it moved to the next day` : `${label}, skipped`
+  } else if (day.status === 'missed') {
+    kind = 'missed'
+    label = slotLabel(day.shown, gym)
+    status = `${label}, missed`
   } else if (day.status === 'shifted') {
     kind = 'shifted'
     label = 'Shifted'
@@ -650,7 +725,7 @@ function StripDay({ day, today, gym, codes }) {
   }
   // Short code under the circle: the routine's code, else the first letters of a session's own name.
   let short = label
-  if (routine && (kind === 'done' || kind === 'planned' || kind === 'skipped')) short = codes.get(routine.id) || label
+  if (routine && (kind === 'done' || kind === 'planned' || kind === 'skipped' || kind === 'missed')) short = codes.get(routine.id) || label
   else if (kind === 'done') short = abbreviationOptions(label)[0] || label
   else if (kind === 'missing') short = '–'
   const dayLabel = isToday ? 'Today' : WEEKDAY_SHORT[weekdayIndex(day.date)]
@@ -660,8 +735,12 @@ function StripDay({ day, today, gym, codes }) {
         type="button"
         className={`gym-td-strip-day is-${kind}${isToday ? ' is-today' : ''}${color ? ' has-color' : ''}`}
         style={color ? { '--gym-rc': color } : undefined}
-        onClick={() => navigate('gym/calendar')}
-        aria-label={`${relativeDay(day.date, today)}, ${formatDateShort(day.date)}: ${status}${day.override ? ', changed' : ''}. Open calendar`}
+        onClick={() => {
+          if (performance.now() < (ignoreClickUntil?.current || 0)) return
+          // A day with a workout opens it; any other day opens the calendar.
+          navigate(session ? `gym/session/${encodeURIComponent(session.id)}` : 'gym/calendar')
+        }}
+        aria-label={`${relativeDay(day.date, today)}, ${formatDateShort(day.date)}: ${status}${day.override ? ', changed' : ''}. ${session ? 'Open workout' : 'Open calendar'}`}
       >
         <span className="gym-td-strip-wd">{dayLabel}</span>
         <span className="gym-td-strip-circle">
