@@ -102,10 +102,11 @@ export function workoutColor(item, gym) {
   return routine ? routineColor(routine) : null
 }
 
-// Warms the Gym page chunk on touch-down, so the page is usually ready by the time the tap lands
-// (and then opens without a loading skeleton: App.jsx registers it with lazyPage as 'gym').
+// Warms the Gym page chunk and its workout screen on touch-down, so the page is usually ready by
+// the time the tap lands (and then opens without a loading skeleton: App.jsx registers the page
+// with lazyPage as 'gym', GymPage the workout screen as 'gym-workout').
 export function prefetchGym() {
-  preloadPage('gym').catch(() => {})
+  preloadPage('gym').then(() => preloadPage('gym-workout')).catch(() => {})
 }
 
 // A crash in a small add-on (widget, pill) must never take the page or the app shell with it.

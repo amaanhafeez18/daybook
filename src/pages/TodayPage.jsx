@@ -5,11 +5,9 @@ import Burst from '../components/ui/Burst.jsx'
 import { Avatar, Button, Card, Skeleton } from '../components/ui/primitives.jsx'
 import { toast } from '../components/ui/feedback.jsx'
 import { UnderstoodChip, useQuickParse } from '../components/QuickParse.jsx'
-import ClassSheet from '../components/ClassSheet.jsx'
 import CitySheet from '../components/CitySheet.jsx'
 import TodayHint from '../components/SetupCard.jsx'
 import TaskRow from '../components/TaskRow.jsx'
-import TaskSheet from '../components/TaskSheet.jsx'
 import MorningNote from '../components/MorningNote.jsx'
 import TalkButton, { voiceAvailable } from '../components/voice/TalkButton.jsx'
 import { voicePrefs } from '../lib/voice/prefs.js'
@@ -31,6 +29,12 @@ import { dismissRhythm, learnRhythms, readRhythms, restoreRhythm, rhythmLabel, s
 import { taskClashes } from '../lib/timing.js'
 import { dismissRadar, hasPrep, radarWhen, readRadar, restoreRadar, studyPlan, upcomingDeadlines } from '../lib/radar.js'
 import '../components/today.css'
+import { lazySheet, whenIdle } from '../lib/lazyPage.js'
+
+// The task and class sheets load on first use (and quietly after launch), keeping them out of the
+// code every launch runs.
+const TaskSheet = lazySheet(() => import('../components/TaskSheet.jsx'))
+const ClassSheet = lazySheet(() => import('../components/ClassSheet.jsx'), (props) => !!props.item)
 
 // The Health glance (gym + food state) loads as its own chunk so the first bundle stays small.
 const HealthGlance = lazy(() => import('../components/HealthGlance.jsx'))
@@ -74,6 +78,11 @@ export default function TodayPage({ displayName, loaded }) {
     const record = classes.find((item) => item.id === id)
     if (record) setClassSheet(record)
   }
+
+  useEffect(() => whenIdle(() => {
+    TaskSheet.preload().catch(() => {})
+    ClassSheet.preload().catch(() => {})
+  }), [])
 
   // "N" on a computer (the shell's daybook:command): a new task for today.
   useEffect(() => {

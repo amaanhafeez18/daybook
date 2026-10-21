@@ -27,11 +27,14 @@ import { letMissedGo, missedWorkout, useGoalMoment } from '../../components/gymS
 import { ActionSheet, DurationInput, NumberInput, RoutineChip, RoutineDot, SectionHeader, WeightInput } from './common.jsx'
 import ChangeWorkoutSheet from './ChangeWorkoutSheet.jsx'
 import DeloadBadge from './DeloadBadge.jsx'
-import ScheduleEditor from './ScheduleEditor.jsx'
 import SkipSheet from './SkipSheet.jsx'
 import { beginWorkout } from './startWorkout.js'
 import { ExerciseVisualButton } from './visuals/lazy.jsx'
 import './gym.css'
+import { lazySheet } from '../../lib/lazyPage.js'
+
+// The schedule editor (and the split wizard inside it) loads on first open.
+const ScheduleEditor = lazySheet(() => import('./ScheduleEditor.jsx'))
 
 const num = (value) => (typeof value === 'number' && Number.isFinite(value) ? value : null)
 const same = (a, b) => (a == null && b == null) || (num(a) !== null && num(b) !== null && Math.abs(a - b) < 1e-9)

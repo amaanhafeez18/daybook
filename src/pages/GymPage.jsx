@@ -6,20 +6,12 @@ import { formatDateLong, formatDateShort } from '../lib/dates.js'
 import { isBackfillWorkout } from '../lib/gym/stats.js'
 import { hasPlan, routineById, routineColor, useActiveWorkout, useGym, useToday } from '../lib/gym/state.js'
 import { formatDuration } from '../lib/gym/units.js'
-import { lazyPage } from '../lib/lazyPage.js'
+import { lazyPage, lazySheet, whenIdle } from '../lib/lazyPage.js'
 import { navigate, subscribeRoute } from '../lib/router.js'
 import { refresh, useStore } from '../lib/store.js'
 import { goBack } from './gym/common.jsx'
 import { useSlidingThumb } from '../components/ui/useSlidingThumb.js'
 import TodayTab from './gym/TodayTab.jsx'
-import CalendarTab from './gym/CalendarTab.jsx'
-import RoutinesTab from './gym/RoutinesTab.jsx'
-import AllWorkouts from './gym/HistoryTab.jsx'
-import ProgressTab from './gym/ProgressTab.jsx'
-import ExercisesTab from './gym/ExercisesTab.jsx'
-import WorkoutScreen from './gym/WorkoutScreen.jsx'
-import Onboarding from './gym/Onboarding.jsx'
-import ToolsSheet from './gym/ToolsSheet.jsx'
 import './gym/gym-common.css'
 import './gym/gym.css'
 import './gym/browse.css'
@@ -27,13 +19,24 @@ import './gym/browse.css'
 // Views opened from a tap (not the tabs or a running workout) load on demand, which keeps the Gym
 // chunk small; they're warmed a moment after the Gym page opens so the first tap is instant (and
 // slides in with the view already drawn: a view still loading would slide in as a skeleton).
+// Only the Today tab ships with the Gym page; the other tabs, the workout screen and the rarely
+// used sheets load on their own, warmed in a quiet moment after the page opens (WARM_VIEWS), so
+// switching to them stays instant.
+const CalendarTab = lazyPage(() => import('./gym/CalendarTab.jsx'))
+const RoutinesTab = lazyPage(() => import('./gym/RoutinesTab.jsx'))
+const ProgressTab = lazyPage(() => import('./gym/ProgressTab.jsx'))
+const AllWorkouts = lazyPage(() => import('./gym/HistoryTab.jsx'))
+const ExercisesTab = lazyPage(() => import('./gym/ExercisesTab.jsx'))
+const WorkoutScreen = lazyPage(() => import('./gym/WorkoutScreen.jsx'), 'gym-workout')
+const Onboarding = lazyPage(() => import('./gym/Onboarding.jsx'))
+const ToolsSheet = lazySheet(() => import('./gym/ToolsSheet.jsx'))
 const SessionDetail = lazyPage(() => import('./gym/SessionDetail.jsx'))
 const RoutineEditor = lazyPage(() => import('./gym/RoutineEditor.jsx'))
 const ExerciseDetail = lazyPage(() => import('./gym/ExerciseDetail.jsx'))
 const GymSettingsSheet = lazyPage(() => import('./gym/GymSettingsSheet.jsx'))
 // #/gym/visuals: review grid of every exercise visual (not linked anywhere).
 const VisualsGallery = lazyPage(() => import('./gym/visuals/VisualsGallery.jsx'))
-const WARM_VIEWS = [SessionDetail, ExerciseDetail, RoutineEditor, GymSettingsSheet]
+const WARM_VIEWS = [WorkoutScreen, RoutinesTab, ProgressTab, CalendarTab, SessionDetail, ExerciseDetail, RoutineEditor, GymSettingsSheet, AllWorkouts]
 
 // #/gym/<view>/<param>: four tabs under one header, the exercise library (opened from Routines)
 // as a page of its own, and detail views that take the whole page.
@@ -85,10 +88,9 @@ export default function GymPage() {
   const previous = useRef(route)
 
   useEffect(() => {
-    const timer = setTimeout(() => {
+    return whenIdle(() => {
       for (const view of WARM_VIEWS) view.preload().catch(() => {})
     }, 600)
-    return () => clearTimeout(timer)
   }, [])
 
   // Through the app's one route dispatcher, so a slide to a detail view draws the new view (and
@@ -164,7 +166,9 @@ export default function GymPage() {
       <GymTabs active={tabView} view={route.view} />
 
       <div className="gym-shell-body" role="tabpanel" aria-label={TABS.find((tab) => tab.id === tabView)?.label}>
-        <Tab today={today} />
+        <Suspense fallback={<Skeleton lines={4} />}>
+          <Tab today={today} />
+        </Suspense>
       </div>
 
       <ToolsSheet open={toolsOpen} onClose={() => setToolsOpen(false)} initialTab="plates" />

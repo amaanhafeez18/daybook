@@ -1,5 +1,4 @@
 import React, { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import AuthScreen from './components/AuthScreen.jsx'
 import Icon, { BrandMark } from './components/ui/Icon.jsx'
 import { Avatar } from './components/ui/primitives.jsx'
 import { ConfirmHost, Toaster, toast } from './components/ui/feedback.jsx'
@@ -31,6 +30,8 @@ import './components/transitions.css'
 
 // Dev only: #/voice-preview draws the voice chat screen in every state with made-up data (no login,
 // no microphone). In a production build this is null and the preview's code isn't included.
+// Signed-out only: kept out of the code a signed-in launch runs.
+const AuthScreen = lazyPage(() => import('./components/AuthScreen.jsx'))
 const VoicePreview = import.meta.env.DEV ? React.lazy(() => import('./components/voice/VoicePreview.jsx')) : null
 const voicePreviewOpen = () => !!VoicePreview && /^#\/?voice-preview(?:[/?]|$)/.test(window.location.hash)
 
@@ -197,7 +198,7 @@ export default function App() {
     <>
       {user
         ? <Shell user={user} onUserChange={setUser} onSignOut={signOut} />
-        : <AuthScreen onAuthenticated={setUser} />}
+        : <Suspense fallback={<Splash />}><AuthScreen onAuthenticated={setUser} /></Suspense>}
       <Toaster />
       <ConfirmHost />
     </>
