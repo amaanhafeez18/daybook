@@ -6,6 +6,7 @@ import Sheet from './components/ui/Sheet.jsx'
 import { useSlidingThumb } from './components/ui/useSlidingThumb.js'
 import TodayPage from './pages/TodayPage.jsx'
 import WorkoutPill from './components/WorkoutPill.jsx'
+import PullToRefresh from './components/PullToRefresh.jsx'
 import Welcome from './components/Welcome.jsx'
 import { SESSION_EXPIRED_EVENT, clearSession, fetchSession, getCachedUser, getToken, readJson, readPref, tokenUserId, writePref } from './lib/api.js'
 import { getState, hydrateFromCache, refresh, resetStore, retryUnsaved, saveStatus, updateSettings, useData, useStore } from './lib/store.js'
@@ -377,6 +378,7 @@ function Shell({ user, onUserChange, onSignOut }) {
           </ErrorBoundary>
         </main>
         <WorkoutPill />
+        <PullToRefresh />
       </div>
       <Welcome user={user} />
       <VoiceHost />

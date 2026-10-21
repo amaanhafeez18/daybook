@@ -9,13 +9,15 @@ import './action-sheet.css'
 // (Moved from pages/gym/common.jsx, which re-exports it; the .gym-as-* class names stay.)
 // `grouped`: an opaque grouped sheet with white / #2C2C2E cells, the same look as SetTypeSheet.
 
-export function ActionSheet({ open, onClose, title, description, actions }) {
+// `preview`: a small card above the actions (a long-press peek at a task, workout or person).
+export function ActionSheet({ open, onClose, title, description, preview, actions }) {
   const groups = (Array.isArray(actions?.[0]) ? actions : [actions || []])
     .map((group) => (Array.isArray(group) ? group.filter(Boolean) : []))
     .filter((group) => group.length)
   return (
     <Sheet open={open} onClose={onClose} title={title} description={description} size="sm" initialFocus={false} grouped>
       <div className="gym-as-groups">
+        {preview && <div className="gym-as-preview">{preview}</div>}
         {groups.map((group, index) => (
           // eslint-disable-next-line react/no-array-index-key
           <div key={index} className="gym-as-list">

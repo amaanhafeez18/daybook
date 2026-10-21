@@ -237,3 +237,4 @@
   .ppl-photo-pick:active { transform: none; }
   .ppl-talk.is-logged .icon { animation: none; }
 }
+.person-row { -webkit-touch-callout: none; }

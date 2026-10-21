@@ -70,3 +70,12 @@
 .gym-pg-links { margin-top: 26px; }
 .gym-pg .gym-st-table th[scope="row"] { padding: 8px 4px; text-align: left; font-size: 15px; font-weight: 500; }
 .gym-pg .gym-st-table th[scope="col"]:first-child { text-align: left; }
+.gym-pg-hint { margin: 10px 2px 0; font-size: 13px; color: var(--text-3); }
+
+/* A week change slides the card's contents in from the side it came from. */
+.gym-pg-week-body { display: flex; flex-direction: column; gap: 16px; }
+.gym-pg-week-body.from-next { animation: gym-pg-next 0.32s var(--ios-sheet, ease) both; }
+.gym-pg-week-body.from-prev { animation: gym-pg-prev 0.32s var(--ios-sheet, ease) both; }
+@keyframes gym-pg-next { from { opacity: 0; transform: translateX(26px); } }
+@keyframes gym-pg-prev { from { opacity: 0; transform: translateX(-26px); } }
+@media (prefers-reduced-motion: reduce) { .gym-pg-week-body.from-next, .gym-pg-week-body.from-prev { animation: none; } }

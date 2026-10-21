@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../../components/ui/Icon.jsx'
+import { ActionSheet } from '../../components/ui/ActionSheet.jsx'
+import { SwipeRow } from '../../components/ui/SwipeRow.jsx'
 import { Button } from '../../components/ui/primitives.jsx'
 import { toast } from '../../components/ui/feedback.jsx'
 import { diffDays, formatDuration as formatMinutesText, formatMonthYear, formatTime, isISODate, nowTimeHHMM, parseISO } from '../../lib/dates.js'
 import { exerciseById } from '../../lib/gym/library.js'
 import { resolveDay } from '../../lib/gym/schedule.js'
 import { sessionDurationSec, sessionPRs, sessionVolume, sessionsToCsv } from '../../lib/gym/stats.js'
-import { routineById, useGym, useGymSessions, useToday } from '../../lib/gym/state.js'
+import { deleteSession, routineById, useGym, useGymSessions, useToday } from '../../lib/gym/state.js'
 import { formatDistance, formatDuration, formatNumber, formatPace, formatVolume, formatWeight } from '../../lib/gym/units.js'
 import { navigate } from '../../lib/router.js'
 import { shareOrDownload } from '../../lib/share.js'
@@ -212,6 +214,50 @@ export function WorkoutRow({ session, gym, today, prCount = 0, showDate = true }
   )
 }
 
+// A workout in a list, as an <li>: swipe left to delete (with Undo), press and hold for a peek with
+// Open, Start again and Delete.
+export function WorkoutItem({ session, gym, today, prCount = 0 }) {
+  const [peek, setPeek] = useState(false)
+  const name = session.name?.trim() || 'Workout'
+  const quick = !session.exercises.length
+  const remove = () => {
+    const undo = deleteSession(session.id)
+    toast(`Deleted “${name}”`, { action: { label: 'Undo', onClick: undo } })
+  }
+  const again = () => {
+    beginWorkout({ fromSession: quick ? null : session, routine: routineById(gym, session.routineId) || null, date: today, today })
+  }
+  const minutes = formatMinutes(sessionDurationSec(session))
+  const names = session.exercises.filter((exercise) => Array.isArray(exercise.sets) && exercise.sets.length).map((exercise) => `${exercise.name || 'Exercise'} · ${exercise.sets.length} set${exercise.sets.length === 1 ? '' : 's'}`)
+  // The peek sits outside the row: React events bubble through portals, and the row's swipe
+  // handlers mustn't see taps in the sheet.
+  return (
+    <>
+      <SwipeRow onDelete={remove} onLongPress={() => setPeek(true)}>
+        <WorkoutRow session={session} gym={gym} today={today} prCount={prCount} />
+      </SwipeRow>
+      <ActionSheet
+        open={peek}
+        onClose={() => setPeek(false)}
+        title={name}
+        preview={(
+          <>
+            <span className="peek-meta">{[weekdayDate(session.date, today), clockLabel(session.startedAt), minutes].filter(Boolean).join(' · ')}{prCount ? ` · ${prCount} record${prCount === 1 ? '' : 's'}` : ''}</span>
+            <p>{quick ? 'Logged without details' : names.slice(0, 6).join('\n')}{names.length > 6 ? `\n+${names.length - 6} more` : ''}</p>
+          </>
+        )}
+        actions={[
+          [
+            { id: 'open', label: 'Open', icon: 'chevronRight', onClick: () => navigate(`gym/session/${encodeURIComponent(session.id)}`) },
+            { id: 'again', label: 'Start again', icon: 'play', hint: 'Repeat this workout today', onClick: again },
+          ],
+          [{ id: 'delete', label: 'Delete workout', icon: 'trash', danger: true, onClick: remove }],
+        ]}
+      />
+    </>
+  )
+}
+
 // ---- all workouts (#/gym/workouts) -----------------------------------------------------------------
 
 const PAGE = 30
@@ -339,9 +385,7 @@ export default function AllWorkouts({ today: todayProp }) {
                   <h3 className="gym-hist-month">{title}</h3>
                   <ul className="card-list gym-wr-list">
                     {group.items.map((session) => (
-                      <li key={session.id}>
-                        <WorkoutRow session={session} gym={gym} today={today} prCount={session.exercises.length ? prsOf(session).length : 0} />
-                      </li>
+                      <WorkoutItem key={session.id} session={session} gym={gym} today={today} prCount={session.exercises.length ? prsOf(session).length : 0} />
                     ))}
                   </ul>
                 </section>

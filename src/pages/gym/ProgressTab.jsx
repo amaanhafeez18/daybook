@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import Icon from '../../components/ui/Icon.jsx'
 import Disclosure from '../../components/ui/Disclosure.jsx'
 import { Button } from '../../components/ui/primitives.jsx'
@@ -10,9 +10,10 @@ import { routineById, routineColor, useGym, useGymSessions, useToday } from '../
 import { formatNumber } from '../../lib/gym/units.js'
 import { navigate } from '../../lib/router.js'
 import { useSessionState } from '../../lib/sessionState.js'
+import { useAnimatedNumber } from '../../lib/useAnimatedNumber.js'
 import BodyWeightCard, { weekLabel } from './BodyWeightCard.jsx'
 import { GymEmpty, SectionHeader } from './common.jsx'
-import { WorkoutRow, useExerciseLookup, usePrsOf } from './HistoryTab.jsx'
+import { WorkoutItem, useExerciseLookup, usePrsOf } from './HistoryTab.jsx'
 import { beginWorkout } from './startWorkout.js'
 import './exercises.css'
 import './history.css'
@@ -44,6 +45,7 @@ export default function ProgressTab({ today: todayProp }) {
 
   // Weeks back from this one (0 = this week), as far as the first workout.
   const [page, setPage] = useSessionState('gym.progress.week', 0)
+  const [direction, setDirection] = useState(0) // the way the last week change went, for its slide
   const oldest = useMemo(() => sessions.reduce((min, session) => (session.date < min ? session.date : min), today), [sessions, today])
   const minPage = -Math.max(0, Math.round(diffDays(weekStart(oldest, firstWeekday), current) / 7))
   const shown = Math.min(0, Math.max(minPage, page))
@@ -75,7 +77,11 @@ export default function ProgressTab({ today: todayProp }) {
     )
   }
 
-  const go = (to) => setPage(Math.min(0, Math.max(minPage, to)))
+  const go = (to) => {
+    const next = Math.min(0, Math.max(minPage, to))
+    if (next !== shown) setDirection(next > shown ? 1 : -1)
+    setPage(next)
+  }
 
   return (
     <div className="gym-pg">
@@ -92,15 +98,14 @@ export default function ProgressTab({ today: todayProp }) {
         bars={bars}
         selected={from}
         onPick={(start) => go(Math.round(diffDays(current, start) / 7))}
+        direction={direction}
       />
 
       <SectionHeader title={shown === 0 ? 'This week’s workouts' : 'Workouts that week'} />
       {week.sessions.length ? (
         <ul className="card-list gym-wr-list">
           {week.sessions.map((session) => (
-            <li key={session.id}>
-              <WorkoutRow session={session} gym={gym} today={today} prCount={session.exercises.length ? prsOf(session).length : 0} />
-            </li>
+            <WorkoutItem key={session.id} session={session} gym={gym} today={today} prCount={session.exercises.length ? prsOf(session).length : 0} />
           ))}
         </ul>
       ) : (
@@ -129,10 +134,14 @@ export default function ProgressTab({ today: todayProp }) {
 
 // ---- the week ----------------------------------------------------------------------------------
 
-function WeekCard({ week, gym, today, goal, streak, title, canBack, canForward, onStep, bars, selected, onPick }) {
+function WeekCard({ week, gym, today, goal, streak, title, canBack, canForward, onStep, bars, selected, onPick, direction = 0 }) {
   const swipe = useRef(null)
   const done = week.count
   const met = done >= goal
+  // The week's numbers count to their new values when the week changes.
+  const shownDone = Math.round(useAnimatedNumber(done))
+  const shownSets = Math.round(useAnimatedNumber(week.sets))
+  const shownMinutes = Math.round(useAnimatedNumber(week.minutes))
   const range = `${formatDateShort(week.weekStart)} – ${formatDateShort(week.weekEnd)}`
   const muscles = Object.entries(week.muscles)
     .filter(([id, count]) => id !== 'cardio' && count > 0)
@@ -177,44 +186,47 @@ function WeekCard({ week, gym, today, goal, streak, title, canBack, canForward, 
         </button>
       </div>
 
-      <div className="gym-pg-goal">
-        <Ring value={done} goal={goal} />
-        <div className="gym-pg-goal-text">
-          <strong><span className="num-display">{done}</span> of {goal} workouts</strong>
-          <small>{line}</small>
-          {streak > 0 && (
-            <small className="gym-pg-streak"><Icon name="flame" size={14} strokeWidth={2.2} />{streak}-week streak</small>
-          )}
+      <div key={week.weekStart} className={`gym-pg-week-body${direction > 0 ? ' from-next' : direction < 0 ? ' from-prev' : ''}`}>
+        <div className="gym-pg-goal">
+          <Ring value={done} shown={shownDone} goal={goal} />
+          <div className="gym-pg-goal-text">
+            <strong><span className="num-display">{shownDone}</span> of {goal} workouts</strong>
+            <small>{line}</small>
+            {streak > 0 && (
+              <small className="gym-pg-streak"><Icon name="flame" size={14} strokeWidth={2.2} />{streak}-week streak</small>
+            )}
+          </div>
         </div>
+
+        <Days week={week} gym={gym} today={today} />
+
+        <dl className="gym-pg-nums">
+          <div><dt>Time</dt><dd>{week.minutes ? formatMinutesText(Math.max(1, shownMinutes)) : '—'}</dd></div>
+          <div><dt>Sets</dt><dd>{week.sets ? shownSets : '—'}</dd></div>
+          <div><dt>Records</dt><dd>{week.prs ? <><Icon name="trophy" size={15} strokeWidth={2.2} />{week.prs}</> : '—'}</dd></div>
+        </dl>
+
+        {muscles.length > 0 && (
+          <div className="gym-pg-muscles">
+            <ul className="gym-pg-chips" aria-label="Muscles worked, sets">
+              {muscles.slice(0, MUSCLE_CHIPS).map(([id, count]) => (
+                <li key={id} className="chip chip-sm">{MUSCLE_LABEL[id] || id} <strong>{sets(count)}</strong></li>
+              ))}
+            </ul>
+            <Disclosure id="gym-progress-muscles" label="Sets per muscle" className="gym-pg-disclosure">
+              <MuscleTable muscles={week.muscles} />
+            </Disclosure>
+          </div>
+        )}
+
       </div>
-
-      <Days week={week} gym={gym} today={today} />
-
-      <dl className="gym-pg-nums">
-        <div><dt>Time</dt><dd>{week.minutes ? formatMinutesText(week.minutes) : '—'}</dd></div>
-        <div><dt>Sets</dt><dd>{week.sets || '—'}</dd></div>
-        <div><dt>Records</dt><dd>{week.prs ? <><Icon name="trophy" size={15} strokeWidth={2.2} />{week.prs}</> : '—'}</dd></div>
-      </dl>
-
-      {muscles.length > 0 && (
-        <div className="gym-pg-muscles">
-          <ul className="gym-pg-chips" aria-label="Muscles worked, sets">
-            {muscles.slice(0, MUSCLE_CHIPS).map(([id, count]) => (
-              <li key={id} className="chip chip-sm">{MUSCLE_LABEL[id] || id} <strong>{sets(count)}</strong></li>
-            ))}
-          </ul>
-          <Disclosure id="gym-progress-muscles" label="Sets per muscle" className="gym-pg-disclosure">
-            <MuscleTable muscles={week.muscles} />
-          </Disclosure>
-        </div>
-      )}
 
       <Bars bars={bars} goal={goal} selected={selected} today={today} onPick={onPick} />
     </section>
   )
 }
 
-function Ring({ value, goal }) {
+function Ring({ value, shown = value, goal }) {
   const r = 30
   const c = 2 * Math.PI * r
   const pct = goal > 0 ? Math.min(1, value / goal) : 0
@@ -222,7 +234,7 @@ function Ring({ value, goal }) {
     <svg className={`gym-td-ring gym-pg-ring${pct >= 1 ? ' is-met' : ''}`} width="72" height="72" viewBox="0 0 72 72" aria-hidden="true">
       <circle className="gym-td-ring-track" cx="36" cy="36" r={r} />
       <circle className="gym-td-ring-value" cx="36" cy="36" r={r} strokeDasharray={c} strokeDashoffset={c * (1 - pct)} transform="rotate(-90 36 36)" />
-      {pct >= 1 ? <path className="gym-td-ring-check" d="m26 37 7 7 13-14" /> : <text x="36" y="42" textAnchor="middle" className="gym-pg-ring-num">{value}</text>}
+      {pct >= 1 ? <path className="gym-td-ring-check" d="m26 37 7 7 13-14" /> : <text x="36" y="42" textAnchor="middle" className="gym-pg-ring-num">{shown}</text>}
     </svg>
   )
 }

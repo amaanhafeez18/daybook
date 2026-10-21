@@ -406,16 +406,11 @@ button.gym-xd-source:active { opacity: 0.6; }
 .gym-st-top-text span { font-size: 17px; letter-spacing: -0.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gym-st-top-text small { font-size: 13px; color: var(--text-2); }
 
-.gym-st-bw-list { margin-top: 12px; }
-.gym-st-bw-list li { position: relative; display: flex; align-items: center; gap: 10px; min-height: 48px; padding-left: 4px; }
-.gym-st-bw-list li + li::before {
-  content: ''; position: absolute; top: 0; left: 4px; right: 0; height: 1px;
-  background: var(--separator, var(--border)); transform: scaleY(0.5); transform-origin: top;
-}
+.gym-st-bw-list { margin-top: 8px; }
+.gym-st-bw-row { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 0 16px; }
 .gym-st-bw-date { flex: 1; min-width: 0; font-size: 15px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gym-st-bw-list strong { font-size: 16px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.gym-st-bw-row strong { font-size: 16px; font-weight: 650; font-variant-numeric: tabular-nums; }
 .gym-st-bw-delta { width: 44px; text-align: right; font-size: 13px; color: var(--text-2); font-variant-numeric: tabular-nums; }
-.gym-st-bw-delete { color: var(--text-3); }
 .gym-st-more { display: block; margin: 6px auto 0; }
 
 /* ---- charts -------------------------------------------------------------------------------- */

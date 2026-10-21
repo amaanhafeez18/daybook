@@ -31,3 +31,10 @@
 /* In a <Sheet grouped> (every ActionSheet, and SetTypeSheet) the groups are white / #2C2C2E cells
    on the grouped background; the pressed row keeps the surface-3 tint from the rules above. */
 .sheet.sheet-grouped .gym-as-list { background: var(--sheet-cell); }
+
+/* A long-press peek: the item itself, above its actions. */
+.gym-as-preview { display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; border-radius: var(--r-group, 16px); background: var(--sheet-cell, var(--surface)); color: var(--text); }
+.gym-as-preview strong { font-size: 17px; font-weight: 600; letter-spacing: -0.02em; }
+.gym-as-preview p { margin: 0; font-size: 14px; line-height: 1.4; color: var(--text-2); }
+.gym-as-preview .peek-meta { font-size: 13px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.gym-as-preview p { white-space: pre-line; }

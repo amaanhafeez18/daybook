@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react'
 import Disclosure from '../../components/ui/Disclosure.jsx'
 import WeighIn from '../../components/WeighIn.jsx'
 import { toast } from '../../components/ui/feedback.jsx'
-import { IconButton, Segmented } from '../../components/ui/primitives.jsx'
+import { Segmented } from '../../components/ui/primitives.jsx'
+import { SwipeRow } from '../../components/ui/SwipeRow.jsx'
 import { addDaysISO, formatDateShort, relativeDay } from '../../lib/dates.js'
 import { weekStart } from '../../lib/gym/schedule.js'
 import { deleteBodyWeight, useBodyWeights } from '../../lib/gym/state.js'
@@ -89,20 +90,22 @@ function AllWeighIns({ entries, today, unit }) {
         ariaLabel={`Body weight in ${unit}`}
         emptyText="Only one weigh-in in this range. Try a longer range."
       />
-      <ul className="gym-st-bw-list">
+      <p className="gym-pg-hint">Swipe a weigh-in left to delete it.</p>
+      <ul className="card-list gym-st-bw-list">
         {list.map((entry, i) => {
           const previous = entries[i + 1]
           const delta = previous ? entry.kg - previous.kg : null
           const day = relativeDay(entry.date, today)
           return (
-            <li key={entry.id}>
-              <span className="gym-st-bw-date">{day}{day !== formatDateShort(entry.date) ? ` · ${formatDateShort(entry.date)}` : ''}</span>
-              <strong>{weight(entry.kg)}</strong>
-              <span className="gym-st-bw-delta">
-                {delta === null || Math.abs(delta) < 1e-9 ? '' : `${delta > 0 ? '+' : '−'}${formatNumber(Math.abs(fromKg(delta, unit)), 1)}`}
-              </span>
-              <IconButton icon="trash" label={`Delete ${weight(entry.kg)} on ${formatDateShort(entry.date)}`} size={17} className="gym-st-bw-delete" onClick={() => remove(entry)} />
-            </li>
+            <SwipeRow key={entry.id} onDelete={() => remove(entry)}>
+              <div className="gym-st-bw-row">
+                <span className="gym-st-bw-date">{day}{day !== formatDateShort(entry.date) ? ` · ${formatDateShort(entry.date)}` : ''}</span>
+                <strong>{weight(entry.kg)}</strong>
+                <span className="gym-st-bw-delta">
+                  {delta === null || Math.abs(delta) < 1e-9 ? '' : `${delta > 0 ? '+' : '−'}${formatNumber(Math.abs(fromKg(delta, unit)), 1)}`}
+                </span>
+              </div>
+            </SwipeRow>
           )
         })}
       </ul>
