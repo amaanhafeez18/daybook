@@ -4,6 +4,7 @@ import Icon from '../../components/ui/Icon.jsx'
 import Sheet from '../../components/ui/Sheet.jsx'
 import { Button, IconButton } from '../../components/ui/primitives.jsx'
 import { toast } from '../../components/ui/feedback.jsx'
+import { useDraftKeeper } from '../../components/useDraftKeeper.js'
 import { isISODate, todayISO } from '../../lib/dates.js'
 import { energyInUnit, energyToKcal, findFavorite, macroCalories } from '../../lib/food/nutrition.js'
 import { addEntries, deleteEntry, deleteFavorite, estimateFood, saveFavorite, updateEntry, useFood } from '../../lib/food/state.js'
@@ -115,7 +116,11 @@ function captureBase(form, unit) {
   return Object.keys(values).length ? { amount, values } : null
 }
 
-export default function EntrySheet({ open, onClose, entry = null, defaults, today }) {
+export default function EntrySheet({ open: openProp, onClose, entry = null, defaults, today }) {
+  // Closing with changes keeps them ("Draft kept · Reopen"); open = shown, incl. after Reopen.
+  const keeper = useDraftKeeper(openProp)
+  const open = keeper.shown
+  const startSnap = useRef('')
   const food = useFood()
   const { meals, energyUnit: unit, showDetails } = food.prefs
   const [form, setForm] = useState(() => blankForm(defaults, meals))
@@ -135,13 +140,21 @@ export default function EntrySheet({ open, onClose, entry = null, defaults, toda
   useEffect(() => {
     if (!open) return
     aiRef.current?.abort()
-    const next = entry ? formFromEntry(entry, unit, meals) : blankForm(defaults, meals)
+    const kept = keeper.take()
+    const next = kept ? kept.form : entry ? formFromEntry(entry, unit, meals) : blankForm(defaults, meals)
     setForm(next)
-    setStarChoice(null)
+    setStarChoice(kept ? kept.starChoice : null)
     setAi({ busy: false, info: null, error: '' })
-    baseRef.current = captureBase(next, unit)
+    baseRef.current = kept ? kept.base : captureBase(next, unit)
+    startSnap.current = kept ? kept.start : JSON.stringify(next)
     setDiscKey((value) => value + 1)
   }, [open, entry?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const dismiss = () => {
+    aiRef.current?.abort()
+    if (JSON.stringify(form) !== startSnap.current) keeper.keep({ form, starChoice, base: baseRef.current, start: startSnap.current }, onClose)
+    else keeper.done(onClose)
+  }
 
   useEffect(() => () => aiRef.current?.abort(), [])
 
@@ -273,13 +286,13 @@ export default function EntrySheet({ open, onClose, entry = null, defaults, toda
       const energy = isNum(kcal) ? ` · ${energyNumber(kcal, unit)} ${unitLabel(unit)}` : ''
       addEntries([row], { toastLabel: `${label}${energy}` })
     }
-    onClose()
+    keeper.done(onClose)
   }
 
   function remove() {
     const undo = deleteEntry(entry.id)
     toast(`Deleted ${entryName(entry)}`, { action: { label: 'Undo', onClick: undo } })
-    onClose()
+    keeper.done(onClose)
   }
 
   // "Estimate with AI": the typed numbers go along as fixed; only blank fields are filled.
@@ -362,7 +375,7 @@ export default function EntrySheet({ open, onClose, entry = null, defaults, toda
   return (
     <Sheet
       open={open}
-      onClose={onClose}
+      onClose={dismiss}
       title={editing ? 'Edit food' : defaults?.quick ? 'Quick calories' : 'Add food'}
       initialFocus={!editing}
       footer={(

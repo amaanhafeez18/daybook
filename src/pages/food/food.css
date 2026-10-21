@@ -132,10 +132,11 @@
 /* ---- meals ---------------------------------------------------------------------------------- */
 
 .food-meal { display: flex; flex-direction: column; min-width: 0; }
-.food-meal-head { display: flex; align-items: center; gap: 8px; min-height: 44px; margin: 0 2px 4px 16px; }
-.food-meal-head h2 { flex: 1; min-width: 0; font-family: var(--font-display, var(--font)); font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
-.food-meal-kcal { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text-2); white-space: nowrap; }
-.food-meal-kcal small { font-size: 13px; font-weight: 500; }
+/* A meal's heading: the app's one small-caps group label, its total and + on the right. */
+.food-meal-head { display: flex; align-items: center; gap: 8px; min-height: 44px; margin: 0 2px 2px 16px; }
+.food-meal-head h2 { flex: 1; min-width: 0; margin: 0; font-size: var(--fs-footnote, 13px); font-weight: 400; text-transform: uppercase; letter-spacing: 0.01em; color: var(--text-2); }
+.food-meal-kcal { font-size: var(--fs-footnote, 13px); font-weight: 400; font-variant-numeric: tabular-nums; color: var(--text-2); white-space: nowrap; }
+.food-meal-kcal small { font-size: inherit; font-weight: inherit; }
 .icon-btn.food-meal-add { width: 36px; height: 36px; background: var(--accent-soft); color: var(--accent); }
 .icon-btn.food-meal-add::after { content: ''; position: absolute; inset: -4px; }
 
@@ -537,9 +538,10 @@ button.food-cfg-row:active { background: var(--surface-2); }
 .food-stat-value { font-family: var(--font-display, var(--font)); font-size: 24px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.15; color: var(--text); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .food-stat-sub { font-size: 13px; color: var(--text-2); }
 .food-stat-sub .food-link { min-height: 0; font-size: 13px; text-align: left; }
-.food-section-head { display: flex; align-items: center; gap: 8px; min-height: 36px; margin: 0 4px 6px 16px; }
-.food-section-head h2 { font-family: var(--font-display, var(--font)); font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
-.food-section-count { font-size: 15px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+/* A list's heading: the app's one small-caps group label (apple.css .group-title), with a count. */
+.food-section-head { display: flex; align-items: baseline; gap: 6px; margin: 0 4px 8px 16px; }
+.food-section-head h2 { margin: 0; font-size: var(--fs-footnote, 13px); font-weight: 400; text-transform: uppercase; letter-spacing: 0.01em; color: var(--text-2); }
+.food-section-count { font-size: var(--fs-footnote, 13px); color: var(--text-3); font-variant-numeric: tabular-nums; }
 .food-more-btn { display: block; min-height: 44px; margin: 8px auto 0; padding: 0 18px; border-radius: 999px; color: var(--accent); font-size: 16px; font-weight: 600; }
 .food-more-btn:active { background: var(--surface-2); }
 

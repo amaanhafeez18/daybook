@@ -2,7 +2,8 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import Icon from '../../components/ui/Icon.jsx'
 import Sheet from '../../components/ui/Sheet.jsx'
 import { moveItem, useDragSort } from '../../components/ui/useDragSort.js'
-import { confirmAction, toast } from '../../components/ui/feedback.jsx'
+import { toast } from '../../components/ui/feedback.jsx'
+import { useDraftKeeper } from '../../components/useDraftKeeper.js'
 import { offerRelink } from './relink.js'
 import { WEEKDAY_SHORT } from '../../lib/dates.js'
 import { DAY_TYPES, dayTemplate, matchDayType, newRoutineExercise, parseSplit } from '../../lib/gym/library.js'
@@ -111,7 +112,10 @@ function setsLabel(row) {
   return plural(n, 'set')
 }
 
-export default function SplitWizard({ open, onClose, today }) {
+export default function SplitWizard({ open: openProp, onClose, today }) {
+  // Closing part-way keeps the split ("Draft kept · Reopen"); open = shown, incl. after Reopen.
+  const keeper = useDraftKeeper(openProp)
+  const open = keeper.shown
   const gym = useGym()
   const sessions = useGymSessions()
   const hydrated = useStore((state) => state.hydrated)
@@ -122,10 +126,10 @@ export default function SplitWizard({ open, onClose, today }) {
   const lastStep = useRef(0)
   const id = useId()
 
-  // A fresh wizard each time it opens.
+  // A fresh wizard each time it opens (the kept one after Reopen).
   if (open !== wasOpen) {
     setWasOpen(open)
-    if (open) setS(blank())
+    if (open) setS(keeper.take() || blank())
   }
 
   const set = (patch) => setS((current) => ({ ...current, ...(typeof patch === 'function' ? patch(current) : patch) }))
@@ -296,9 +300,9 @@ export default function SplitWizard({ open, onClose, today }) {
   const hasDays = s.days.length > 0
   const dirty = hasDays || s.text.trim() !== ''
 
-  const requestClose = async () => {
-    if (dirty && !(await confirmAction({ title: 'Discard this split?', message: 'Nothing has been saved yet.', confirmLabel: 'Discard' }))) return
-    onClose()
+  const requestClose = () => {
+    if (dirty) keeper.keep(s, onClose)
+    else keeper.done(onClose)
   }
 
   let hint = null
@@ -346,7 +350,7 @@ export default function SplitWizard({ open, onClose, today }) {
       toast(error?.message || 'Couldn’t create the split.', { tone: 'error' })
       return
     }
-    onClose()
+    keeper.done(onClose)
     toast(`Your split is ready${created.length ? ` · ${plural(created.length, 'new routine')}` : ''}`, {
       action: {
         label: 'Undo',

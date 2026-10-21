@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useState } from 'react'
 import Icon from '../../components/ui/Icon.jsx'
 import Sheet from '../../components/ui/Sheet.jsx'
 import { confirmAction, toast } from '../../components/ui/feedback.jsx'
+import { useDraftKeeper } from '../../components/useDraftKeeper.js'
 import { Button, Field, IconButton, Skeleton } from '../../components/ui/primitives.jsx'
 import { WEEKDAY_SHORT, relativeDay, timeAgo } from '../../lib/dates.js'
 import { TEMPLATES, buildTemplate } from '../../lib/gym/library.js'
@@ -710,32 +711,42 @@ function TemplateSheet({ open, onClose, today }) {
 
 // ---- folders -------------------------------------------------------------------------------------
 
-function FolderSheet({ open, folder, onClose, onSaved }) {
+function FolderSheet({ open: openProp, folder: folderProp, onClose, onSaved }) {
+  // Closing with a name typed keeps it ("Draft kept · Reopen"); open = shown, incl. after Reopen.
+  const keeper = useDraftKeeper(openProp)
+  const open = keeper.shown
+  const kept = keeper.take()
+  const folder = kept ? kept.folder : folderProp
   const [name, setName] = useState('')
   const formId = useId()
 
   useEffect(() => {
-    if (open) setName(folder?.name || '')
-  }, [open, folder])
+    if (open) setName(kept ? kept.name : folder?.name || '')
+  }, [open, folder]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const dismiss = () => {
+    if (name.trim() && name !== (folder?.name || '')) keeper.keep({ name, folder }, onClose)
+    else keeper.done(onClose)
+  }
 
   const submit = (event) => {
     event.preventDefault()
     const clean = name.trim()
     if (!clean) return
     const saved = saveFolder(folder ? { ...folder, name: clean } : { name: clean })
-    onClose()
+    keeper.done(onClose)
     onSaved?.(saved)
   }
 
   return (
     <Sheet
       open={open}
-      onClose={onClose}
+      onClose={dismiss}
       title={folder ? 'Rename folder' : 'New folder'}
       size="sm"
       footer={(
         <>
-          <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
+          <button type="button" className="btn btn-secondary" onClick={dismiss}>Cancel</button>
           <button type="submit" form={formId} className="btn btn-primary btn-grow" disabled={!name.trim()}>{folder ? 'Save' : 'Create'}</button>
         </>
       )}

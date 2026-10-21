@@ -20,6 +20,7 @@ import { learnRhythms, readRhythms, showTimeChip, titleMatches, usualToday, visi
 import { scrollBehavior } from '../lib/motion.js'
 import './tasks.css'
 
+const editDraftKey = (id) => `task:${id}`
 const truncate = (text, length) => (text.length > length ? `${text.slice(0, length - 1)}…` : text)
 
 const PRIORITIES = [
@@ -99,10 +100,16 @@ const isDirty = (form, start) => (!!form.text.trim() || !!form.details.trim()) &
 export default function TaskSheet({ open, onClose, task: taskProp = null, defaults = {}, completeFirst = false, onSaved, noun = 'task', pickingDate = false }) {
   // Reopened from the "Draft kept" toast after the page had already closed it.
   const [reopened, setReopened] = useState(false)
-  const isOpen = open || reopened
+  // An existing task closed with unsaved edits, brought back by its "Draft kept · Reopen".
+  const [reopenedTask, setReopenedTask] = useState(null)
+  const isOpen = open || reopened || !!reopenedTask
   // Keep the last task while the sheet animates closed, so it doesn't switch to the "New task" layout.
   const shown = useRef({ task: taskProp, completeFirst })
-  if (isOpen) shown.current = reopened && !open ? { task: null, completeFirst: false } : { task: taskProp, completeFirst }
+  if (isOpen) {
+    shown.current = open ? { task: taskProp, completeFirst }
+      : reopenedTask ? { task: reopenedTask, completeFirst: false }
+        : { task: null, completeFirst: false }
+  }
   const task = shown.current.task
   const readyToComplete = Boolean(shown.current.completeFirst && task && !task.done)
   const [form, setForm] = useState(EMPTY)
@@ -141,9 +148,10 @@ export default function TaskSheet({ open, onClose, task: taskProp = null, defaul
     // back. Taking it removes it, so saving needs no clean-up and a draft left elsewhere survives.
     const kept = !task && !defaults?.text ? peekDraft(DRAFT_KEY) : null
     const draft = kept && ((reopened && !open) || !defaults?.date || kept.date === defaults.date) ? takeDraft(DRAFT_KEY) : null
-    const next = task ? formFromTask(task) : { ...EMPTY, ...defaults, ...(draft || {}) }
+    const editKept = task && reopenedTask?.id === task.id && !open ? takeDraft(editDraftKey(task.id)) : null
+    const next = task ? editKept || formFromTask(task) : { ...EMPTY, ...defaults, ...(draft || {}) }
     // A restored draft counts as typed, so a day in its name is understood again.
-    start.current = draft ? { ...next, text: '' } : next
+    start.current = draft ? { ...next, text: '' } : editKept ? formFromTask(task) : next
     setForm(next)
     if (open && pickingDate) pickDate()
   }, [isOpen, task?.id]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -224,14 +232,22 @@ export default function TaskSheet({ open, onClose, task: taskProp = null, defaul
   function dismiss() {
     if (!task && isDirty(form, start.current)) {
       saveDraft(DRAFT_KEY, form)
-      toast('Draft kept', { action: { label: 'Reopen', onClick: () => setReopened(true) } })
+      toast('Draft kept', { key: 'draft-kept', action: { label: 'Reopen', onClick: () => setReopened(true) } })
+    } else if (task && isDirty(form, start.current)) {
+      // Edits to an existing task: kept, and only Reopen brings them back (opening the task
+      // again normally shows it as saved).
+      const kept = task
+      saveDraft(editDraftKey(task.id), form)
+      toast('Draft kept', { key: 'draft-kept', action: { label: 'Reopen', onClick: () => setReopenedTask(kept) } })
     }
     setReopened(false)
+    setReopenedTask(null)
     onClose()
   }
 
   function finish() {
     setReopened(false)
+    setReopenedTask(null)
     onClose()
   }
 

@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import Icon from './Icon.jsx'
 import Sheet from './Sheet.jsx'
 import { watchKeyboard } from '../../lib/keyboard.js'
@@ -81,11 +82,14 @@ export function Toaster() {
     ? current.filter((item) => item.id !== id)
     : current.map((item) => (item.id === id && !item.leaving ? { ...item, leaving: true } : item))))
 
-  return (
+  const list = (
     <div className="toaster" aria-live="polite" aria-atomic="false">
       {toasts.map((item) => <ToastItem key={item.id} item={item} onDismiss={(immediate) => dismiss(item.id, immediate === true)} />)}
     </div>
   )
+  // On <body>, beside the sheets (also portalled there): inside #root (an isolated stacking
+  // context, glass.css) toasts would sit under an open sheet's backdrop, out of reach.
+  return typeof document === 'undefined' ? list : createPortal(list, document.body)
 }
 
 function ToastItem({ item, onDismiss }) {

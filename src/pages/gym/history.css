@@ -248,8 +248,9 @@ button.gym-cal-cell:active { transform: scale(0.9); transition-duration: 0.1s; }
 .gym-hist-month {
   position: sticky; top: calc(var(--topbar-h) + var(--safe-top) + 50px); z-index: 5;
   display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
-  margin: 6px calc(-1 * var(--page-pad)) 6px; padding: 8px calc(var(--page-pad) + 4px);
-  background: var(--bg); font-family: var(--font-display, var(--font)); font-size: 20px; font-weight: 700; letter-spacing: -0.02em;
+  margin: 6px calc(-1 * var(--page-pad)) 2px; padding: 10px calc(var(--page-pad) + 16px) 8px;
+  /* The app's one small-caps group label (apple.css .group-title), kept sticky. */
+  background: var(--bg); font-size: var(--fs-footnote, 13px); font-weight: 400; text-transform: uppercase; letter-spacing: 0.01em; color: var(--text-2);
 }
 @supports (background: color-mix(in srgb, red 50%, blue)) {
 .gym-hist-month {

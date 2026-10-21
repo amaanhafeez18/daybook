@@ -281,14 +281,15 @@ export default function FoodQuickCard({ today, loaded }) {
 
   return (
     <section className="card fq-card" aria-labelledby="fq-title">
-      <header className="fq-head">
+      {/* Like the Gym card: the whole header opens the area, with a chevron (no "See all" link). */}
+      <a href="#/food" className="fq-head">
         <Ring size={40} stroke={4} progress={loaded ? ring.progress : 0} tone={ring.tone} className="fq-ring" intro={loaded ? `fq:${today}` : null} />
-        <div className="fq-head-text">
+        <span className="fq-head-text">
           <h3 id="fq-title">Food</h3>
           {summary}
-        </div>
-        <a href="#/food" className="fq-all">See all<Icon name="chevronRight" size={16} /></a>
-      </header>
+        </span>
+        <Icon name="chevronRight" size={18} strokeWidth={2.2} className="fq-chevron" />
+      </a>
 
       {recorder.recording ? (
         <div className="fq-bar is-recording">
