@@ -430,7 +430,7 @@ function EventSheet({ event, onClose }) {
       initialFocus={false}
       footer={(
         <>
-          <Button variant="ghost" icon="trash" onClick={remove}>Delete</Button>
+          <Button variant="ghost" icon="trash" className="btn-destructive" onClick={remove}>Delete</Button>
           <Button type="submit" form="event-form" className="btn-grow">Save</Button>
         </>
       )}

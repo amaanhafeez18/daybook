@@ -173,7 +173,7 @@ export default function ClassSheet({ item, onClose, onReopen }) {
       initialFocus={!editing}
       footer={(
         <>
-          {editing && <Button variant="ghost" icon="trash" onClick={remove}>Delete</Button>}
+          {editing && <Button variant="ghost" icon="trash" className="btn-destructive" onClick={remove}>Delete</Button>}
           {!editing && <Button variant="secondary" className="cs-again" onClick={(event) => submit(event, true)}>Save and add another</Button>}
           <Button type="submit" form="class-form" className="btn-grow">{editing ? 'Save' : 'Add class'}</Button>
         </>

@@ -3,7 +3,7 @@
    browse.css's overrides) keeps working. */
 
 .gym-as-groups { display: flex; flex-direction: column; gap: 12px; }
-.gym-as-list { display: flex; flex-direction: column; overflow: hidden; border-radius: 18px; background: var(--card-bg); }
+.gym-as-list { display: flex; flex-direction: column; overflow: hidden; border-radius: var(--r-inset); background: var(--card-bg); }
 .gym-as-row {
   position: relative; display: flex; align-items: center; gap: 14px; width: 100%;
   min-height: 52px; padding: 10px 16px; text-align: left; color: var(--text); font-size: 17px;

@@ -1705,7 +1705,7 @@ function RestEditSheet({ open, onClose, name, value, warmupRest, onSave }) {
       initialFocus={false}
       footer={(
         <>
-          <button type="button" className="btn btn-secondary btn-grow" onClick={onClose}>Cancel</button>
+          <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
           <button type="button" className="btn btn-primary btn-grow" onClick={() => onSave(seconds)}>Save</button>
         </>
       )}
@@ -1766,8 +1766,8 @@ function PinnedNoteSheet({ open, onClose, exercise, note }) {
       size="sm"
       footer={(
         <>
-          {note && <button type="button" className="btn btn-ghost gym-btn-danger" onClick={remove}>Remove</button>}
-          <button type="button" className="btn btn-secondary btn-grow" onClick={onClose}>Cancel</button>
+          {note && <Button variant="ghost" icon="trash" className="btn-destructive" onClick={remove}>Remove</Button>}
+          <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
           <button type="button" className="btn btn-primary btn-grow" onClick={save}>Save</button>
         </>
       )}

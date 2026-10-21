@@ -299,7 +299,7 @@ export default function FinishSheet({ open, onClose, workout, onFinished }) {
       initialFocus={false}
       footer={step === 'form' ? (
         <>
-          <button type="button" className="btn btn-secondary btn-grow" onClick={onClose}>Keep logging</button>
+          <button type="button" className="btn btn-secondary" onClick={onClose}>Keep logging</button>
           <button type="button" className="btn btn-primary btn-grow" onClick={save}>
             <Icon name="check" size={18} strokeWidth={2.4} />
             Save workout
@@ -330,8 +330,8 @@ export default function FinishSheet({ open, onClose, workout, onFinished }) {
           <p>Nothing logged. Discard this workout?</p>
           <p className="gym-finish-sub">No sets are ticked yet, so there’s nothing to save.</p>
           <div className="gym-finish-choices">
-            <button type="button" className="btn btn-danger btn-lg btn-block" onClick={discard}>Discard workout</button>
             <button type="button" className="btn btn-secondary btn-lg btn-block" onClick={onClose}>Keep logging</button>
+            <button type="button" className="btn btn-danger btn-lg btn-block" onClick={discard}>Discard workout</button>
           </div>
         </div>
       )}

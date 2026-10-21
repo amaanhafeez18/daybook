@@ -8,7 +8,7 @@ import './swipe.css'
 const OPEN_X = 88 // px the Delete button takes when a row is swiped open
 const LONG_PRESS_MS = 480
 
-// The one swipe row the app uses (food entries, saved foods, weigh-ins, workouts, journal): a list
+// The one swipe row the app uses (food entries, saved foods, weigh-ins, workouts, catch-ups): a list
 // row that swipes left to reveal Delete (a long swipe deletes at once). onLongPress also
 // runs on a press-and-hold or a right click. The row's own buttons keep working; a tap after a
 // swipe only closes the row. A deleted row folds away (the rows below close the gap) before
@@ -87,6 +87,8 @@ export function SwipeRow({ as: Tag = 'li', className = '', onDelete, deleteLabel
     gesture.current = null
     if (event.pointerType === 'mouse' && event.button !== 0) return
     if (event.target.closest?.('.swipe-row-action')) return
+    // Typing in a field inside the row (a catch-up's note editor) selects text, never swipes.
+    if (event.target.closest?.('input, textarea, select, [contenteditable="true"]')) return
     drag.current = { id: event.pointerId, x: event.clientX, y: event.clientY, base: open ? -OPEN_X : 0, offset: null, active: false, width: rowRef.current?.offsetWidth || 320 }
     clearTimeout(longTimer.current)
     if (onLongPress && !open) {

@@ -261,7 +261,7 @@ export default function ScheduleEditor({ open, onClose, today }) {
         initialFocus={false}
         footer={draft && !noRoutines ? (
           <>
-            <button type="button" className="btn btn-secondary btn-grow" onClick={requestClose}>Cancel</button>
+            <button type="button" className="btn btn-secondary" onClick={requestClose}>Cancel</button>
             <button type="button" className="btn btn-primary btn-grow" onClick={save}>Save</button>
           </>
         ) : null}

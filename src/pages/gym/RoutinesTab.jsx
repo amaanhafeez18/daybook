@@ -658,7 +658,7 @@ function TemplateSheet({ open, onClose, today }) {
       initialFocus={false}
       footer={template ? (
         <>
-          <button type="button" className="btn btn-secondary btn-grow" onClick={() => setPicked(null)}>Back</button>
+          <button type="button" className="btn btn-secondary" onClick={() => setPicked(null)}>Back</button>
           <button type="button" className="btn btn-primary btn-grow" onClick={apply}>
             Add {template.routines.length} routine{template.routines.length === 1 ? '' : 's'}
           </button>
@@ -735,7 +735,7 @@ function FolderSheet({ open, folder, onClose, onSaved }) {
       size="sm"
       footer={(
         <>
-          <button type="button" className="btn btn-secondary btn-grow" onClick={onClose}>Cancel</button>
+          <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
           <button type="submit" form={formId} className="btn btn-primary btn-grow" disabled={!name.trim()}>{folder ? 'Save' : 'Create'}</button>
         </>
       )}

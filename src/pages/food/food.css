@@ -391,20 +391,7 @@ html.has-workout-pill:has(.food-dock):not(.has-sheet) .toaster { bottom: calc(va
 .food-act { display: flex; flex-direction: column; gap: 10px; }
 .food-act-label { margin-left: 4px; }
 .food-act-meals { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 6px; }
-.food-act-list { display: flex; flex-direction: column; border-radius: 18px; background: var(--card-bg, var(--surface)); overflow: hidden; }
-.food-act-row {
-  position: relative; display: flex; align-items: center; gap: 14px; min-height: 50px; padding: 0 16px;
-  font-size: 17px; letter-spacing: -0.02em; color: var(--text); text-align: left;
-}
-.food-act-row .icon { color: var(--accent); }
-.food-act-row .icon.is-filled { fill: currentColor; }
-.food-act-row:active:not(:disabled) { background: var(--surface-2); }
-.food-act-row:disabled { opacity: 0.45; }
-.food-act-row.is-danger, .food-act-row.is-danger .icon { color: var(--danger); }
-.food-act-list > * + *::before {
-  content: ''; position: absolute; top: 0; left: 49px; right: 0; height: 1px;
-  background: var(--separator, var(--border)); transform: scaleY(0.5); transform-origin: top; pointer-events: none;
-}
+.food-act .gym-as-row .icon.is-filled { fill: currentColor; }
 .food-act-copy { position: relative; display: flex; align-items: center; gap: 10px; padding: 6px 16px 12px 49px; }
 
 /* Copy day */

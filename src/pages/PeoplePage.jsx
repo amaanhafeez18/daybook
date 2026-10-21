@@ -7,6 +7,7 @@ import { confirmAction, toast } from '../components/ui/feedback.jsx'
 import { ActionSheet } from '../components/ui/ActionSheet.jsx'
 import AttachmentStrip from '../components/AttachmentStrip.jsx'
 import { useLongPress } from '../components/ui/useLongPress.js'
+import { SwipeRow } from '../components/ui/SwipeRow.jsx'
 import { attachmentSummary, useAttachmentsFor } from '../lib/attachments.js'
 import { useData, useStore } from '../lib/store.js'
 import {
@@ -739,7 +740,7 @@ function LastTime({ log, onCatchUp }) {
 
   function remove() {
     const undo = removeContactLog(log.id)
-    toast('Catch-up removed', { action: { label: 'Undo', onClick: undo } })
+    toast('Catch-up deleted', { action: { label: 'Undo', onClick: undo } })
   }
 
   const when = `${formatDateShort(log.date)} · ${timeAgo(log.date)}`
@@ -797,7 +798,7 @@ function CatchUpList({ logs }) {
 
   function removeLog(log) {
     const undo = removeContactLog(log.id)
-    toast('Catch-up removed', { action: { label: 'Undo', onClick: undo } })
+    toast('Catch-up deleted', { action: { label: 'Undo', onClick: undo } })
   }
 
   return (
@@ -830,7 +831,7 @@ function CatchUpList({ logs }) {
 function CatchUpItem({ log, open, editing, showAddHint, onToggle, onEdit, onCancel, onSave, onRemove }) {
   const note = (log.note || '').trim()
   return (
-    <li className={`ppl-log${open ? ' is-open' : ''}`}>
+    <SwipeRow className={`ppl-log${open ? ' is-open' : ''}`} onDelete={onRemove}>
       <div className="ppl-log-row">
         <button type="button" className="ppl-log-main" onClick={onToggle} aria-expanded={open}>
           <span className="ppl-log-head">
@@ -840,7 +841,7 @@ function CatchUpItem({ log, open, editing, showAddHint, onToggle, onEdit, onCanc
           {note && !editing ? <span className={`ppl-log-note${open ? '' : ' is-clamped'}`}>{note}</span>
             : !note && !editing && showAddHint ? <span className="ppl-log-add"><Icon name="plus" size={14} strokeWidth={2.4} /> Add what you talked about</span> : null}
         </button>
-        <button type="button" className="icon-btn ppl-log-remove" onClick={onRemove} aria-label={`Remove catch-up on ${formatDateShort(log.date)}`}>
+        <button type="button" className="icon-btn ppl-log-remove" onClick={onRemove} aria-label={`Delete catch-up on ${formatDateShort(log.date)}`}>
           <Icon name="close" size={16} />
         </button>
       </div>
@@ -850,7 +851,7 @@ function CatchUpItem({ log, open, editing, showAddHint, onToggle, onEdit, onCanc
         </div>
       )}
       {editing && <NoteEditor note={note} label={`Note for the catch-up on ${formatDateShort(log.date)}`} onCancel={onCancel} onSave={onSave} />}
-    </li>
+    </SwipeRow>
   )
 }
 
