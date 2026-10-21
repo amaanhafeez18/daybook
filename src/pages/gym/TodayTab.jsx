@@ -341,7 +341,7 @@ export default function TodayTab({ today }) {
 
         <div className="gym-td-side">
           <div className="gym-td-tiles">
-            <button type="button" className="card gym-td-tile" onClick={() => navigate('gym/stats')} aria-label={`Weekly goal: ${weekCount} of ${prefs.weeklyGoal} workouts this week. Open stats`}>
+            <button type="button" className="card gym-td-tile" onClick={() => navigate('gym/history')} aria-label={`Weekly goal: ${weekCount} of ${prefs.weeklyGoal} workouts this week. Open progress`}>
               <span className="gym-td-ring-wrap">
                 <GoalRing value={weekCount} goal={prefs.weeklyGoal} />
                 <Burst active={goalBurst} radius={42} />
@@ -352,7 +352,7 @@ export default function TodayTab({ today }) {
                 <small>{weekCount >= prefs.weeklyGoal ? 'Goal reached' : `${prefs.weeklyGoal - weekCount} more to go`}</small>
               </span>
             </button>
-            <button type="button" className={`card gym-td-tile${streak ? ' has-streak' : ''}`} onClick={() => navigate('gym/stats')} aria-label={`Streak: ${plural(streak, 'week')} in a row. Open stats`}>
+            <button type="button" className={`card gym-td-tile${streak ? ' has-streak' : ''}`} onClick={() => navigate('gym/history')} aria-label={`Streak: ${plural(streak, 'week')} in a row. Open progress`}>
               <span className="gym-td-flame" aria-hidden="true"><Icon name="flame" size={24} /></span>
               <span className="gym-td-tile-text">
                 <small className="gym-td-tile-label">Streak</small>
@@ -364,7 +364,7 @@ export default function TodayTab({ today }) {
 
           {/* The shared weigh-in card, with the gym's one-step entry under it and "Stats" in the header.
               The "Last weigh-in N days ago" reminder only with Food on: its switch lives in Food settings. */}
-          <WeighIn today={today} to="gym/stats" link={{ label: 'Stats', to: 'gym/stats' }} capsule={false} nudge={areas.food} className="gym-td-bw">
+          <WeighIn today={today} to="gym/history" link={{ label: 'Progress', to: 'gym/history' }} capsule={false} nudge={areas.food} className="gym-td-bw">
             {({ open, summary }) => <BodyWeightEntry today={today} unit={prefs.unit} latestKg={summary?.latestKg ?? null} onOpen={open} />}
           </WeighIn>
         </div>

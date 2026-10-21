@@ -18,16 +18,18 @@ describe('classify', () => {
     assert.equal(classify('#/gym', '#/gym/calendar'), 'none')
     assert.equal(classify('#/gym/routines', '#/gym/history'), 'none')
     assert.equal(classify('#/gym', '#/gym/settings'), 'none')
+    // Stats is the Progress tab now (#/gym/stats still opens it).
+    assert.equal(classify('#/gym', '#/gym/stats'), 'none')
   })
 
   test('a deeper gym view pushes, and back pops', () => {
-    assert.equal(classify('#/gym', '#/gym/stats'), 'push')
+    assert.equal(classify('#/gym/history', '#/gym/workouts'), 'push')
     assert.equal(classify('#/gym/routines', '#/gym/exercises'), 'push')
     assert.equal(classify('#/gym/exercises', '#/gym/exercise/bench'), 'push')
     assert.equal(classify('#/gym/history', '#/gym/session/abc'), 'push')
     assert.equal(classify('#/gym/session/abc', '#/gym/history', 'back'), 'pop')
     // A fallback link up (no history behind) is still a pop.
-    assert.equal(classify('#/gym/stats', '#/gym', 'new'), 'pop')
+    assert.equal(classify('#/gym/workouts', '#/gym/history', 'new'), 'pop')
   })
 
   test('another exercise from an exercise pushes; history back pops', () => {
