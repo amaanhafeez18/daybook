@@ -76,7 +76,7 @@ export default function WeightSheet({ open, onClose, date, today }) {
       title="Weigh in"
       description="One weigh-in a day; saving again replaces that day’s."
       size="sm"
-      footer={<Button className="btn-grow" onClick={save} disabled={!valid}>{existing ? 'Update' : 'Save'}</Button>}
+      footer={<Button className="btn-grow" onClick={save} disabled={!valid}>Save</Button>}
     >
       <form className="food-ws" onSubmit={(event) => { event.preventDefault(); save() }}>
         <div className="food-ws-number">

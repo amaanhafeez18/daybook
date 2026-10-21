@@ -460,7 +460,7 @@ function UsualRows({ list, today, nowHHMM }) {
                 <span className="td-usual-title"><span className="td-usual-lead">Usually today: </span><strong>{item.title}</strong></span>
                 <span className="td-usual-sub">{rhythmLabel(item.rhythm)}</span>
               </span>
-              <button type="button" className="td-usual-x" onClick={() => dismiss(item)} aria-label={`Don't suggest “${item.title}”`}>
+              <button type="button" className="td-usual-x" onClick={() => dismiss(item)} aria-label={`Don’t suggest “${item.title}”`}>
                 <Icon name="close" size={16} strokeWidth={2.2} />
               </button>
               <span className="td-usual-actions">
@@ -509,7 +509,7 @@ function RadarRows({ list, tasks, events, classes, today, nowHHMM }) {
   function dismiss(item) {
     const current = () => getState().data.settings?.radar
     updateSettings({ radar: dismissRadar(current(), item.key, today) })
-    toast(`Hid “${truncate(item.title, 28)}”`, { action: { label: 'Undo', onClick: () => updateSettings({ radar: restoreRadar(current(), item.key) }) } })
+    toast(`Hidden: “${truncate(item.title, 28)}”`, { action: { label: 'Undo', onClick: () => updateSettings({ radar: restoreRadar(current(), item.key) }) } })
   }
 
   if (!shown.length) return null
@@ -647,7 +647,7 @@ function TomorrowCard({ tasks, classes, tomorrow, loaded, onOpen, onOpenClass, o
   return (
     <Card title="Tomorrow" icon="sunrise" action={addButton}>
       {!loaded ? <Skeleton lines={2} /> : upcoming.length === 0 && tomorrowClasses.length === 0 ? (
-        <p className="muted td-quiet">Nothing planned yet.</p>
+        <p className="muted td-quiet">Nothing planned yet</p>
       ) : (
         <ul className="compact-list td-tomorrow">
           {tomorrowClasses.map((item, index) => (

@@ -90,6 +90,15 @@ export function fmtNutrient(key, value) {
 // ---- weight --------------------------------------------------------------------------------
 
 export const weightUnitLabel = (unit) => (unit === 'lb' ? 'lb' : 'kg')
+
+// A goal note written by lib/food/nutrition.js (always '1,200 kcal', '0.5 kg/week') in the
+// person's units: 'Capped at 5,021 kJ. Expected pace ≈ 1.1 lb/week.'
+export function inUnits(text, unit, weightUnit) {
+  let out = String(text || '')
+  if (unit === 'kJ') out = out.replace(/(\d[\d,]*) kcal\b/g, (_, n) => `${energyNumber(Number(n.replace(/,/g, '')), unit)} kJ`)
+  if (weightUnit === 'lb') out = out.replace(/(\d+(?:\.\d+)?) kg\/week/g, (_, n) => `${fmtNum(Number(n) / LB, 1)} lb/week`)
+  return out
+}
 export const kgToUnit = (kg, unit) => (isNum(kg) ? (unit === 'lb' ? kg / LB : kg) : null)
 export const unitToKg = (value, unit) => (isNum(value) ? (unit === 'lb' ? value * LB : value) : null)
 

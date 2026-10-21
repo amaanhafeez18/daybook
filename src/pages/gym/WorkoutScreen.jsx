@@ -229,7 +229,7 @@ export default function WorkoutScreen({ today }) {
   async function discard() {
     const ok = await confirmAction({
       title: 'Discard workout?',
-      message: 'Everything logged in this workout will be deleted. This can’t be undone.',
+      message: 'Everything logged in this workout will be deleted for good.',
       confirmLabel: 'Discard workout',
       tone: 'danger',
     })
@@ -296,7 +296,7 @@ export default function WorkoutScreen({ today }) {
           <strong>{formatVolume(volume, unit)}</strong>
         </div>
         {workout.isDeload && (
-          <DeloadBadge size="md" label="Deload" className="gym-wo-deload" title="Lighter week: fewer sets and about 90% of your usual weights" />
+          <DeloadBadge size="md" label="Deload" className="gym-wo-deload" />
         )}
       </div>
 

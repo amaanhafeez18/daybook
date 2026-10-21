@@ -8,7 +8,7 @@ import { maintenanceOffer } from '../../lib/food/coach.js'
 import { approxEnergy, calcGoals, goalFromMaintenance, maintenanceLine, measuredMaintenance } from '../../lib/food/nutrition.js'
 import { applyMaintenanceGoal, dismissMaintenance, latestBodyWeight, useBodyWeights, useFoodEntries } from '../../lib/food/state.js'
 import { useStore } from '../../lib/store.js'
-import { NUTRIENT_INFO, energyNumber, fmtEnergy, fmtInt, isNum, unitLabel } from './format.js'
+import { NUTRIENT_INFO, energyNumber, fmtEnergy, fmtInt, inUnits, isNum, unitLabel } from './format.js'
 import '../../components/food-quick.css' // .food-mx-* (with the other food coach styles)
 
 // Food → Goals: what you actually burn, measured from what you've logged and how your weight
@@ -127,7 +127,7 @@ export default function MaintenanceCard({ food, unit, weightUnit, today }) {
           <ul className="food-mx-changes">
             {planLines(plan, food.goals, unit).map((line) => <li key={line}>{line}</li>)}
           </ul>
-          {plan.warnings.map((warning) => <p key={warning} className="food-mx-hint"><Icon name="info" size={15} />{warning}</p>)}
+          {plan.warnings.map((warning) => <p key={warning} className="food-mx-hint"><Icon name="info" size={15} />{inUnits(warning, unit, weightUnit)}</p>)}
           <div className="food-mx-actions">
             <Button variant="secondary" onClick={() => setConfirming(false)}>Cancel</Button>
             <Button className="btn-grow" icon="check" onClick={update}>Update</Button>

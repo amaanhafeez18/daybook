@@ -299,7 +299,7 @@ export default function TodayTab({ today }) {
   const scheduleItems = [
     hasSchedule && (day.deload
       ? { id: 'deload', label: 'Skip this deload', hint: 'Back to full sets and weights this week', icon: 'zap', onClick: () => toggleDeload(false) }
-      : { id: 'deload', label: 'Deload this week', hint: 'A lighter week: half the sets, about 10% less weight', icon: 'arrowDown', onClick: () => toggleDeload(true) }),
+      : { id: 'deload', label: 'Deload this week', hint: 'A lighter week: half the sets and about 10% less weight', icon: 'arrowDown', onClick: () => toggleDeload(true) }),
     { id: 'schedule', label: hasSchedule ? 'Edit schedule' : 'Set up schedule', hint: 'Which routine falls on which day', icon: 'calendar', onClick: () => setSheet('schedule') },
   ]
   const menu = [planItems, scheduleItems]
@@ -398,7 +398,7 @@ function Hero({ day, next, week, gym, sessions, today, active, hasSchedule, onMe
   const style = tint ? { '--gym-rc': routineColor(tint) } : undefined
   const override = day.override
   const badges = []
-  if (day.deload) badges.push(<DeloadBadge key="deload" title="Fewer sets and about 10% less weight this week" />)
+  if (day.deload) badges.push(<DeloadBadge key="deload" />)
   if (override?.movedFrom) badges.push(<span key="moved" className="gym-td-badge"><Icon name="arrowRight" size={12} strokeWidth={2.4} />Moved from {WEEKDAY_SHORT[weekdayIndex(override.movedFrom)]}</span>)
   else if (day.carriedFrom) badges.push(<span key="moved" className="gym-td-badge"><Icon name="arrowRight" size={12} strokeWidth={2.4} />{day.carriedFrom === addDaysISO(today, -1) ? 'Missed yesterday' : `Missed on ${WEEKDAY_SHORT[weekdayIndex(day.carriedFrom)]}`}</span>)
   else if (override?.movedTo) badges.push(<span key="moved" className="gym-td-badge"><Icon name="arrowRight" size={12} strokeWidth={2.4} />Moved to {WEEKDAY_SHORT[weekdayIndex(override.movedTo)]}</span>)
@@ -449,7 +449,7 @@ function Hero({ day, next, week, gym, sessions, today, active, hasSchedule, onMe
         {top('Today’s workout')}
         <h2 className="gym-td-hero-title">{routineTitle(routine)}</h2>
         <p className="gym-td-hero-sub">{sub}</p>
-        {day.deload && <p className="gym-td-hero-note">Lighter week: fewer sets and about 10% less weight, already applied below.</p>}
+        {day.deload && <p className="gym-td-hero-note">Lighter week: half the sets and about 10% less weight, already applied below.</p>}
         <div className="gym-td-hero-actions">
           <button
             type="button"
@@ -457,7 +457,7 @@ function Hero({ day, next, week, gym, sessions, today, active, hasSchedule, onMe
             onClick={() => (resumeSame ? navigate('gym/workout') : beginWorkout({ routine, date: today }))}
           >
             <Icon name="play" size={18} strokeWidth={2.2} />
-            {resumeSame ? 'Resume Workout' : 'Start Workout'}
+            {resumeSame ? 'Resume workout' : 'Start workout'}
           </button>
         </div>
       </section>

@@ -13,7 +13,7 @@ import { refresh, useStore } from '../../lib/store.js'
 import { useAnimatedNumber } from '../../lib/useAnimatedNumber.js'
 import { DetailTop, goBack } from './common.jsx'
 import MaintenanceCard from './MaintenanceCard.jsx'
-import { NUTRIENT_INFO, dayLabel, fmtInt, fmtNum, fmtWeight, isNum, kgToUnit, monthDay, plural, shortDay, toNum, unitLabel, unitToKg, weightUnitLabel } from './format.js'
+import { NUTRIENT_INFO, dayLabel, fmtInt, fmtNum, fmtWeight, inUnits, isNum, kgToUnit, monthDay, plural, shortDay, toNum, unitLabel, unitToKg, weightUnitLabel } from './format.js'
 import '../gym/cfg.css' // grouped settings rows, shared with Gym settings
 
 // #/food/goals. With a calorie goal set, the page opens on a summary of it (and what it was
@@ -355,7 +355,7 @@ export default function GoalWizard({ today }) {
             </section>
           </Disclosure>
 
-          {result.missing.length > 0 && <p className="food-cfg-foot">{result.warnings[0]}</p>}
+          {result.missing.length > 0 && <p className="food-cfg-foot">{inUnits(result.warnings[0], unit, weightUnit)}</p>}
           <Button type="submit" size="lg" className="btn-block" disabled={result.missing.length > 0}>Calculate</Button>
           <p className="food-goals-switch">
             <button type="button" className="food-link" onClick={() => switchMode('manual')}><Icon name="pencil" size={16} />Set goals manually instead</button>
@@ -516,7 +516,7 @@ function GoalResult({ result, profile, unit, weightUnit, today, macros, setMacro
 
   return (
     <div className="food-cfg food-goal-result">
-      {blocked && <p className="food-note is-warning"><Icon name="info" size={18} /><span>{blocked}</span></p>}
+      {blocked && <p className="food-note is-warning"><Icon name="info" size={18} /><span>{inUnits(blocked, unit, weightUnit)}</span></p>}
 
       <section className="card food-goal-hero">
         <span className="ui-label food-goal-hero-label">Daily calories</span>
@@ -541,7 +541,7 @@ function GoalResult({ result, profile, unit, weightUnit, today, macros, setMacro
 
       {warnings.length > 0 && (
         <ul className="food-goal-warnings">
-          {warnings.map((warning) => <li key={warning}><Icon name="info" size={16} />{warning}</li>)}
+          {warnings.map((warning) => <li key={warning}><Icon name="info" size={16} />{inUnits(warning, unit, weightUnit)}</li>)}
         </ul>
       )}
 
@@ -572,7 +572,7 @@ function GoalResult({ result, profile, unit, weightUnit, today, macros, setMacro
                 <span className="food-cfg-label">
                   <span className="food-goal-macro-name">{NUTRIENT_INFO[key].label}</span>
                   {key !== 'fiber' && pct(key) !== null && <small>{pct(key)}% of calories</small>}
-                  {key === 'fiber' && <small>About 14 g per 1,000 kcal</small>}
+                  {key === 'fiber' && <small>About 14 g per {unit === 'kJ' ? '4,184 kJ' : '1,000 kcal'}</small>}
                 </span>
                 <span className="food-cfg-control">
                   <UnitInput value={macros[key]} onChange={(value) => set(key, value)} suffix="g" label={`${NUTRIENT_INFO[key].label} grams`} placeholder="—" />

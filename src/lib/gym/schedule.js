@@ -21,7 +21,7 @@ export const CARRY_SINCE = '2026-10-20'
 
 const PAST_DAY = 'You can only change today or future days.'
 const LOGGED_DAY = 'That day already has a workout logged.'
-const BAD_DATE = 'Pick a valid date.'
+const BAD_DATE = 'Choose a valid date.'
 
 const defaultMakeId = () => Math.random().toString(36).slice(2, 10)
 

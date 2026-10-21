@@ -306,7 +306,7 @@ function Editor({ param, today }) {
         <GymEmpty
           icon="dumbbell"
           title="Routine not found"
-          action={<Button variant="secondary" icon="chevronLeft" onClick={() => goBack('gym/routines')}>Back to routines</Button>}
+          action={<Button variant="secondary" icon="chevronLeft" onClick={() => goBack('gym/routines')}>Back to Routines</Button>}
         >
           It may have been deleted, possibly on another device.
         </GymEmpty>
@@ -831,7 +831,7 @@ function SetsTable({ row, unit, distanceUnit, showRpe, onSets }) {
                     key={field}
                     valueKg={set.weightKg}
                     unit={unit}
-                    placeholder="–"
+                    placeholder="—"
                     ariaLabel={`${label} target ${what}, ${unit === 'lb' ? 'pounds' : 'kilograms'}`}
                     enterKeyHint="next"
                     onChange={(weightKg) => setAt(index, { weightKg })}
@@ -878,7 +878,7 @@ function SetsTable({ row, unit, distanceUnit, showRpe, onSets }) {
                   key={field}
                   decimal
                   value={fromMeters(set.distanceM, distanceLabel)}
-                  placeholder="–"
+                  placeholder="—"
                   ariaLabel={`${label} target distance, ${distanceLabel}`}
                   onChange={(value) => setAt(index, { distanceM: value == null ? null : toMeters(value, distanceLabel) })}
                 />
@@ -890,7 +890,7 @@ function SetsTable({ row, unit, distanceUnit, showRpe, onSets }) {
                 value={set.rpe}
                 min={1}
                 max={10}
-                placeholder="–"
+                placeholder="—"
                 ariaLabel={`${label} target RPE, 1 to 10`}
                 onChange={(rpe) => setAt(index, { rpe })}
               />

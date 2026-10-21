@@ -431,7 +431,7 @@ function prMessage(labels, set, tracking, prefs) {
   const top = sorted[0]
   const value = prValue(top, set, tracking, prefs)
   const more = sorted.length - 1
-  return `New ${top} PR${value ? `: ${value}` : ''}${more ? ` · +${more} more` : ''}`
+  return `New ${top} record${value ? `: ${value}` : ''}${more ? ` · +${more} more` : ''}`
 }
 
 const keyOf = (ref) => (ref.id != null ? `id:${ref.id}` : `i:${ref.i}`)
@@ -1427,7 +1427,7 @@ const ExerciseCard = memo(function ExerciseCard({
           })}
         </div>
       ) : (
-        <p className="gym-ex-empty">No sets yet.</p>
+        <p className="gym-ex-empty">No sets yet</p>
       )}
 
       <div className="gym-ex-foot">
@@ -1775,7 +1775,7 @@ function PinnedNoteSheet({ open, onClose, exercise, note }) {
       <AutoTextarea
         value={text}
         onChange={(event) => setText(event.target.value)}
-        placeholder="e.g. Elbows at 45°, pause at the bottom"
+        placeholder="e.g. Elbows at 45°, seat height, grip…"
         aria-label="Pinned note"
         minRows={3}
         maxRows={8}

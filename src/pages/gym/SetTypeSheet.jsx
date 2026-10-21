@@ -11,7 +11,7 @@ import { SetTypeBadge } from './common.jsx'
 
 export const SET_TYPE_OPTIONS = [
   { type: 'normal', label: 'Normal', hint: 'Counts toward weight lifted, sets and records' },
-  { type: 'warmup', label: 'Warm-up', hint: 'Left out of weight lifted, set counts and PRs' },
+  { type: 'warmup', label: 'Warm-up', hint: 'Left out of weight lifted, set counts and records' },
   { type: 'drop', label: 'Drop set', hint: 'Lighter set straight after, no rest before it' },
   { type: 'failure', label: 'Failure', hint: 'A working set taken to failure' },
 ]

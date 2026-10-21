@@ -158,7 +158,7 @@ export default function ClassSheet({ item, onClose, onReopen }) {
   function remove() {
     const undo = deleteClass(editing.id)
     onClose()
-    toast(`Removed ${editing.name}`, { action: { label: 'Undo', onClick: undo } })
+    toast(`Deleted ${editing.name}`, { action: { label: 'Undo', onClick: undo } })
   }
 
   const rowLabel = ({ day, index, count }) => (count > 1 ? `${day} ${index + 1}` : day)
@@ -173,8 +173,8 @@ export default function ClassSheet({ item, onClose, onReopen }) {
       initialFocus={!editing}
       footer={(
         <>
-          {editing && <Button variant="ghost" icon="trash" onClick={remove}>Remove</Button>}
-          {!editing && <Button variant="secondary" className="cs-again" onClick={(event) => submit(event, true)}>Save &amp; add another</Button>}
+          {editing && <Button variant="ghost" icon="trash" onClick={remove}>Delete</Button>}
+          {!editing && <Button variant="secondary" className="cs-again" onClick={(event) => submit(event, true)}>Save and add another</Button>}
           <Button type="submit" form="class-form" className="btn-grow">{editing ? 'Save' : 'Add class'}</Button>
         </>
       )}

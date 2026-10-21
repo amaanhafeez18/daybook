@@ -18,7 +18,7 @@ export const TRACKING_OPTIONS = [
   { id: 'duration', label: 'Time', example: 'plank, dead hang', logs: 'how long each set lasts' },
   { id: 'weight_duration', label: 'Weight and time', example: 'weighted plank', logs: 'the weight and how long you hold it' },
   { id: 'distance_duration', label: 'Distance and time', example: 'running, rowing', logs: 'distance and time' },
-  { id: 'weight_distance', label: 'Weight and distance', example: "farmer's walk, sled push", logs: 'the weight and distance' },
+  { id: 'weight_distance', label: 'Weight and distance', example: 'farmer’s walk, sled push', logs: 'the weight and distance' },
 ]
 const TRACKING_BY_ID = Object.fromEntries(TRACKING_OPTIONS.map((option) => [option.id, option]))
 export const trackingName = (id) => TRACKING_BY_ID[id]?.label || 'Weight and reps'
@@ -136,7 +136,7 @@ export default function CustomExerciseSheet({ open, onClose, exercise = null, on
       onSaved?.(saved)
       onClose?.()
     } catch (err) {
-      setError(err?.message || 'Could not save the exercise.')
+      setError(err?.message || 'Couldn’t save the exercise.')
     }
   }
 

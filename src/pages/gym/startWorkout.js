@@ -189,7 +189,7 @@ export async function beginWorkout(args = {}) {
     const discard = await confirmAction({
       title: 'Workout in progress',
       message: `Resume ${current.name || 'your workout'} or discard it and start a new one?`,
-      confirmLabel: 'Discard & start new',
+      confirmLabel: 'Discard and start new',
       cancelLabel: 'Resume',
     })
     if (discard == null) return null

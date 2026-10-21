@@ -627,7 +627,7 @@ function useAfter(on, ms) {
 const saveErrorToast = (message) => toast(`Some changes aren’t saved: ${message}`, {
   tone: 'error',
   key: 'save-error', // the badge's tap shows the same toast again instead of stacking a second
-  action: { label: 'Retry', onClick: retrySaves },
+  action: { label: 'Try again', onClick: retrySaves },
 })
 
 // Retry closes the toast, and the badge spins if it takes a while. Turned down again, it says so

@@ -111,7 +111,7 @@ export default function PeoplePage({ loaded }) {
       )}
 
       {!loaded ? <Skeleton lines={4} /> : friends.length === 0 ? (
-        <EmptyState icon="people" title="Nobody here yet" action={<Button icon="plus" onClick={startAdding}>Add someone</Button>}>
+        <EmptyState icon="people" title="Nobody here yet" action={<Button icon="plus" onClick={startAdding}>Add person</Button>}>
           Add the people you want to stay close to. Daybook reminds you when it’s been a while.
         </EmptyState>
       ) : (
@@ -141,7 +141,7 @@ export default function PeoplePage({ loaded }) {
             </section>
           )}
 
-          {people.length === 0 && <EmptyState icon="search" title="No matches">Try a different name.</EmptyState>}
+          {people.length === 0 && <EmptyState icon="search" title="No matching people">Try a different name.</EmptyState>}
         </>
       )}
 
@@ -289,7 +289,7 @@ function PhotoField({ name, photo, picker, onRemove, onUseLink }) {
         )}
       </button>
       <div className="ppl-photo-actions">
-        <button ref={actionRef} type="button" className="ppl-photo-action" onClick={picker.open} disabled={picker.busy}>{picker.busy ? 'Preparing photo…' : label}</button>
+        <button ref={actionRef} type="button" className="ppl-photo-action" onClick={picker.open} disabled={picker.busy}>{picker.busy ? 'Preparing the photo…' : label}</button>
         {photo && !picker.busy && <button type="button" className="ppl-photo-action is-danger" onClick={remove}>Remove</button>}
         {!photo && !picker.busy && onUseLink && <button type="button" className="ppl-photo-action is-quiet" onClick={onUseLink}>Use a link</button>}
       </div>
@@ -476,7 +476,7 @@ function AddPersonSheet({ open, onClose, onAdded }) {
     <Sheet
       open={shown}
       onClose={dismiss}
-      title="Add a person"
+      title="New person"
       footer={(
         <>
           {blocked && <span className="ppl-footer-hint" aria-live="polite">{blocked}</span>}
@@ -567,16 +567,16 @@ function PersonSheet({ friendId, onClose, onCatchUp }) {
     const name = friend.name
     // Undo brings the person back, but not their files: the server deletes those with them. So ask first.
     if (files.length) {
-      const ok = await confirmAction({ title: `Remove ${name}?`, message: `Their ${attachmentSummary(files)} will be deleted for good, along with their catch-ups.`, confirmLabel: 'Remove' })
+      const ok = await confirmAction({ title: `Delete ${name}?`, message: `Their ${attachmentSummary(files)} will be deleted for good, along with their catch-ups.`, confirmLabel: 'Delete' })
       if (!ok) return
       removeFriend(friend.id)
       onClose()
-      toast(`Removed ${name}`)
+      toast(`Deleted ${name}`)
       return
     }
     const undo = removeFriend(friend.id)
     onClose()
-    toast(`Removed ${name}`, { action: { label: 'Undo', onClick: undo } })
+    toast(`Deleted ${name}`, { action: { label: 'Undo', onClick: undo } })
   }
 
   const tone = status?.due ? 'danger' : status?.soon ? 'warning' : status?.last ? 'success' : 'muted'
@@ -595,7 +595,7 @@ function PersonSheet({ friendId, onClose, onCatchUp }) {
       footer={editing ? (
         <Fragment key="editing">
           <Button variant="secondary" onClick={() => setEditing(false)}>Cancel</Button>
-          {!form.name.trim() && <span className="ppl-footer-hint" aria-live="polite">A name is needed.</span>}
+          {!form.name.trim() && <span className="ppl-footer-hint" aria-live="polite">Give them a name.</span>}
           <Button type="submit" form="edit-person" className="btn-grow" disabled={photoBusy || !form.name.trim()}>Save</Button>
         </Fragment>
       ) : (
@@ -623,7 +623,7 @@ function PersonSheet({ friendId, onClose, onCatchUp }) {
                 { id: 'earlier', icon: 'calendar', label: 'Log an earlier catch-up', onClick: () => onCatchUp(friend.id, 'earlier') },
                 { id: 'photo', icon: 'camera', label: (friend.photoUrl || '').trim() ? 'Change profile photo' : 'Add profile photo', onClick: heroPicker.open },
               ],
-              [{ id: 'remove', icon: 'trash', label: 'Remove person', danger: true, onClick: remove }],
+              [{ id: 'remove', icon: 'trash', label: 'Delete person', danger: true, onClick: remove }],
             ]}
           />
           <div className="ppl-hero">
