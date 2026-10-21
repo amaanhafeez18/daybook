@@ -547,7 +547,7 @@ function SaveRoutineSheet({ open, onClose, session, gym, lookup }) {
       size="sm"
       footer={(
         <>
-          <Button variant="secondary" className="btn-grow" onClick={onClose}>Cancel</Button>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <Button className="btn-grow" onClick={save}>Save routine</Button>
         </>
       )}
@@ -644,7 +644,7 @@ function DuplicateSheet({ open, onClose, session, today, bodyWeights }) {
       initialFocus={false}
       footer={(
         <>
-          <Button variant="secondary" className="btn-grow" onClick={onClose}>Cancel</Button>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <Button className="btn-grow" icon="copy" onClick={submit}>Duplicate</Button>
         </>
       )}
@@ -948,7 +948,7 @@ function SessionEditor({ session, gym, sessions, bodyWeights, today, onDone }) {
       <ExerciseLog workout={draft} onChange={onLogChange} mode="edit" gym={gym} sessions={others} />
 
       <div className="gym-sd-edit-foot">
-        <Button variant="secondary" className="btn-grow" onClick={cancel} disabled={busy}>Cancel</Button>
+        <Button variant="secondary" onClick={cancel} disabled={busy}>Cancel</Button>
         <Button className="btn-grow" icon="check" onClick={save} disabled={busy}>Save changes</Button>
       </div>
     </div>

@@ -730,6 +730,17 @@ function WeatherCard({ location, today, onChooseCity }) {
     : null)
 
   if (!weather?.current) {
+    // Loading looks like the loaded card (one headline line), so the card doesn't change shape.
+    if (!error && !locateNote) {
+      return (
+        <section className="card td-headline td-weather" aria-label="Weather" aria-busy="true">
+          <div className="td-hl-line">
+            <span className="td-hl-icon"><Icon name="cloudSun" size={28} strokeWidth={1.6} /></span>
+            <span className="td-hl-text"><Skeleton lines={2} /></span>
+          </div>
+        </section>
+      )
+    }
     return <Card title="Weather" icon="cloudSun" action={updateAction}>{locateNote}{error ? <p className="muted">{error}</p> : <Skeleton lines={2} />}</Card>
   }
 

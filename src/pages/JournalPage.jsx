@@ -264,7 +264,7 @@ function JournalEditor() {
             {saveState === 'pending' ? 'Saving…' : saveState === 'saved' || entry ? <><Icon name="check" size={14} /> Saved</> : 'Saves as you type'}
             {words > 0 && <span className="muted"> · {words} word{words === 1 ? '' : 's'}</span>}
           </span>
-          {entry && <Button variant="ghost" size="sm" icon="trash" onClick={remove}>Delete</Button>}
+          {entry && <Button variant="ghost" size="sm" icon="trash" className="btn-destructive" onClick={remove}>Delete</Button>}
         </footer>
       </section>
 

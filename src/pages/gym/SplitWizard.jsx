@@ -393,7 +393,7 @@ export default function SplitWizard({ open, onClose, today }) {
         footer={(
           <>
             {hint && <p className="wiz-foot-hint">{hint}</p>}
-            <button type="button" className="btn btn-secondary btn-grow" onClick={s.step ? back : requestClose}>
+            <button type="button" className="btn btn-secondary" onClick={s.step ? back : requestClose}>
               {s.step ? 'Back' : 'Cancel'}
             </button>
             <button type="button" className="btn btn-primary btn-grow" onClick={next} disabled={!canNext}>

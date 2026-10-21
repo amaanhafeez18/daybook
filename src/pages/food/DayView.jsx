@@ -21,6 +21,7 @@ import EstimateSheet from './EstimateSheet.jsx'
 import FoodSettingsSheet from './FoodSettingsSheet.jsx'
 import MealShortcuts, { hasShortcuts, useMealShortcuts } from './MealShortcuts.jsx'
 import QuickAddBar from './QuickAddBar.jsx'
+import '../../components/ui/action-sheet.css'
 import { MacroBars, Ring, ringState } from './ring.jsx'
 import {
   confidenceLevel, dayLabel, energyNumber, entryConfidence, entryName, fmtEnergy, isEstimate, isNum,
@@ -520,25 +521,30 @@ function RowActionsSheet({ entry, food, today, onClose, onEdit, onDelete }) {
             </button>
           ))}
         </div>
-        <div className="food-act-list">
-          <button type="button" className="food-act-row" onClick={() => onEdit(entry)}><Icon name="pencil" size={19} />Edit</button>
-          <button type="button" className="food-act-row" onClick={duplicate}><Icon name="copy" size={19} />Duplicate</button>
-          <button type="button" className="food-act-row" aria-expanded={copyOpen} onClick={() => setCopyOpen((value) => !value)}><Icon name="calendar" size={19} />Copy to…</button>
-          {copyOpen && (
-            <div className="food-act-copy">
-              <label className="food-pick">
-                <span className="sr-only">Copy to</span>
-                <span className="food-pick-text">{dayLabel(copyTo, today)}</span>
-                <Icon name="chevronDown" size={15} strokeWidth={2.2} />
-                <input type="date" value={copyTo} onClick={openDatePicker} onChange={(event) => isISODate(event.target.value) && setCopyTo(event.target.value)} />
-              </label>
-              <Button size="sm" onClick={copyToDay}>Copy</Button>
-            </div>
-          )}
-          <button type="button" className="food-act-row" onClick={toggleFavorite} disabled={!shown.name}>
-            <Icon name="star" size={19} className={favorite ? 'is-filled' : ''} />{favorite ? 'Remove from My foods' : 'Save to My foods'}
-          </button>
-          <button type="button" className="food-act-row is-danger" onClick={() => onDelete(entry)}><Icon name="trash" size={19} />Delete</button>
+        {/* The app's one ⋯ menu look (ActionSheet's rows), with Copy to… opening in place. */}
+        <div className="gym-as-groups">
+          <div className="gym-as-list">
+            <button type="button" className="gym-as-row" onClick={() => onEdit(entry)}><Icon name="pencil" size={20} /><span className="gym-as-label">Edit</span></button>
+            <button type="button" className="gym-as-row" onClick={duplicate}><Icon name="copy" size={20} /><span className="gym-as-label">Duplicate</span></button>
+            <button type="button" className="gym-as-row" aria-expanded={copyOpen} onClick={() => setCopyOpen((value) => !value)}><Icon name="calendar" size={20} /><span className="gym-as-label">Copy to…</span></button>
+            {copyOpen && (
+              <div className="food-act-copy">
+                <label className="food-pick">
+                  <span className="sr-only">Copy to</span>
+                  <span className="food-pick-text">{dayLabel(copyTo, today)}</span>
+                  <Icon name="chevronDown" size={15} strokeWidth={2.2} />
+                  <input type="date" value={copyTo} onClick={openDatePicker} onChange={(event) => isISODate(event.target.value) && setCopyTo(event.target.value)} />
+                </label>
+                <Button size="sm" onClick={copyToDay}>Copy</Button>
+              </div>
+            )}
+            <button type="button" className="gym-as-row" onClick={toggleFavorite} disabled={!shown.name}>
+              <Icon name="star" size={20} className={favorite ? 'is-filled' : ''} /><span className="gym-as-label">{favorite ? 'Remove from My foods' : 'Save to My foods'}</span>
+            </button>
+          </div>
+          <div className="gym-as-list">
+            <button type="button" className="gym-as-row is-danger" onClick={() => onDelete(entry)}><Icon name="trash" size={20} /><span className="gym-as-label">Delete</span></button>
+          </div>
         </div>
       </div>
     </Sheet>

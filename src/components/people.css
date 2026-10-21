@@ -139,8 +139,12 @@
 .ppl-facts small { font-size: 13px; color: var(--text-2); font-variant-numeric: tabular-nums; }
 
 /* ---- catch-up list -------------------------------------------------------------------------- */
-.ppl-logs { margin: 0 -6px; }
+.ppl-logs { margin: 0; padding: 0 4px; border-radius: var(--r-inset); background: var(--card-bg, var(--surface)); overflow: hidden; }
+/* An inset card (like the other lists), so a row swiped open (SwipeRow) slides on the same colour. */
+.ppl-logs .swipe-row-slide { background: var(--card-bg, var(--surface)); }
 .ppl-log { position: relative; }
+/* The separator sits above the swipe row's sliding layer. */
+.ppl-log.swipe-row + .ppl-log::before { z-index: 2; }
 .ppl-log + .ppl-log::before {
   content: '';
   position: absolute;

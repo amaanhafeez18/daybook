@@ -232,6 +232,8 @@ time, .tabular { font-variant-numeric: tabular-nums; }
 .btn-ghost { color: var(--text-2); }
 @media (hover: hover) { .btn-ghost:hover:not(:disabled) { background: var(--surface-2); color: var(--text); } }
 .btn-danger { background: var(--danger); color: #fff; }
+/* The one "delete this" button in a sheet or editor footer: a ghost button in red, trash icon. */
+.btn.btn-destructive, .btn.btn-destructive .icon { color: var(--danger); }
 .btn-sm { min-height: 36px; padding: 0 12px; font-size: 14px; border-radius: 10px; }
 .btn-lg { min-height: 50px; font-size: 16px; }
 .btn-block { width: 100%; }

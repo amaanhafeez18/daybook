@@ -154,7 +154,7 @@ export default function CustomExerciseSheet({ open, onClose, exercise = null, on
       size="md"
       footer={(
         <>
-          <Button variant="secondary" className="btn-grow" onClick={onClose}>Cancel</Button>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <Button type="submit" form={formId} className="btn-grow">{exercise ? 'Save' : 'Create'}</Button>
         </>
       )}

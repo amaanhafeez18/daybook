@@ -138,7 +138,7 @@
 .gym-ex {
   position: relative;
   padding: 14px 10px 10px;
-  border-radius: 24px;
+  border-radius: var(--r-group);
   background: var(--card-bg);
   scroll-margin-top: calc(var(--topbar-h) + var(--safe-top) + 84px);
   animation: rise 0.2s var(--ease);
@@ -428,7 +428,7 @@
 .gym-log-reorder-bar span { font-size: 13px; color: var(--text-2); }
 /* The list doesn't clip, so a row dragged past either end stays visible; its end rows round their
    own corners (the superset stripe follows them). */
-.gym-log-reorder { display: flex; flex-direction: column; border-radius: 24px; background: var(--card-bg); }
+.gym-log-reorder { display: flex; flex-direction: column; border-radius: var(--r-group); background: var(--card-bg); }
 .gym-log-reorder-row { position: relative; display: flex; align-items: center; gap: 8px; min-height: 60px; padding: 6px 8px 6px 16px; }
 .gym-log-reorder-row:first-child { border-top-left-radius: 24px; border-top-right-radius: 24px; }
 .gym-log-reorder-row:last-child { border-bottom-left-radius: 24px; border-bottom-right-radius: 24px; }
@@ -482,7 +482,6 @@
 .gym-preset-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
 .gym-preset-grid .chip { padding: 0; min-height: 40px; font-variant-numeric: tabular-nums; }
 .gym-sheet-hint { margin-top: 14px; font-size: 13px; color: var(--text-2); }
-.gym-btn-danger { color: var(--danger); }
 
 /* ---- rest timer ---------------------------------------------------------------------------- */
 
@@ -704,7 +703,7 @@ html.gym-has-float:where(:not(.has-sheet)) .toaster { bottom: calc(var(--nav-h) 
   flex-direction: column;
   gap: 14px;
   padding: 16px;
-  border-radius: 24px;
+  border-radius: var(--r-group);
   background: var(--card-bg);
   box-shadow: inset 0 0 0 1.5px var(--accent-soft);
 }

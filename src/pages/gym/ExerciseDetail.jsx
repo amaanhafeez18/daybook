@@ -341,6 +341,12 @@ function PinnedNote({ exerciseId, note }) {
     setExerciseMeta(exerciseId, { note: draft.trim() })
     setEditing(false)
   }
+  const removeNote = () => {
+    const previous = note
+    setExerciseMeta(exerciseId, { note: '' })
+    setEditing(false)
+    toast('Pinned note removed', { action: { label: 'Undo', onClick: () => setExerciseMeta(exerciseId, { note: previous }) } })
+  }
 
   if (editing) {
     return (
@@ -359,7 +365,7 @@ function PinnedNote({ exerciseId, note }) {
         />
         <div className="gym-note-actions">
           {note && (
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setExerciseMeta(exerciseId, { note: '' }); setEditing(false) }}>Remove</button>
+            <button type="button" className="btn btn-ghost btn-sm btn-destructive" onClick={removeNote}>Remove</button>
           )}
           <span className="gym-note-spacer" />
           <button type="button" className="btn btn-secondary btn-sm" onClick={() => { setDraft(note); setEditing(false) }}>Cancel</button>
