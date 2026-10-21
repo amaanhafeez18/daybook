@@ -592,7 +592,7 @@ export default function ExerciseLog({ workout, onChange, mode = 'live', gym, ses
       if (set.done && !complete) return isLive() ? { ...set, done: false, wasDone: true } : { ...set, done: false }
       if (!set.done && complete && (!isLive() || set.wasDone)) {
         const { wasDone, ...rest } = set // eslint-disable-line no-unused-vars
-        return { ...rest, done: true }
+        return isLive() ? { ...rest, done: true, doneAt: new Date().toISOString() } : { ...rest, done: true }
       }
       return set
     }
@@ -689,7 +689,9 @@ export default function ExerciseLog({ workout, onChange, mode = 'live', gym, ses
             missing = gaps
             return null
           }
-          const doneSet = withPrs(w, i, j, ex, { ...filled, done: true })
+          // doneAt: when a live set was ticked, so finishing long after the last one can end the
+          // workout there (FinishSheet) instead of counting the time the clock was left running.
+          const doneSet = withPrs(w, i, j, ex, { ...filled, done: true, ...(isLive() ? { doneAt: new Date().toISOString() } : {}) })
           const nextList = replaceAt(list, i, { ...ex, sets: replaceAt(sets, j, doneSet) })
           const sameExercise = nextList.flatMap((row) => (row?.exerciseId === ex.exerciseId ? setsOf(row).filter((other) => other.done) : []))
           flag = weightFlag(doneSet, ex, sameExercise, baseRef.current, getGym().exercises)
