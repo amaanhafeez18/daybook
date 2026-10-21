@@ -118,6 +118,42 @@ async function wipeUserData(supabase, userId) {
   return { cleared: pick('cleared'), failed: pick('failed') }
 }
 
+// The signed-in user once their password checks out (Clear all data, Delete account); otherwise
+// sends the error itself and returns null. A wrong password counts towards the lockout.
+async function passwordConfirmed(supabase, req, res, body, action) {
+  const expired = () => sendJson(res, 401, { error: 'Your session has expired. Please log in again.' })
+  const decoded = verifyRequestToken(req)
+  const user = decoded ? await verifyTokenVersion(supabase, decoded) : null
+  if (!user?.id) {
+    expired()
+    return null
+  }
+  const minutes = lockedMinutes(user)
+  if (minutes) {
+    tooMany(res, minutes)
+    return null
+  }
+  const password = String(body.password || '').trim()
+  if (!password) {
+    sendJson(res, 400, { error: 'Enter your password.' })
+    return null
+  }
+  if (!(await underLimit(supabase, `${action === 'wipe' ? 'wipe' : 'delete'}:${user.id}`, WIPE_LIMIT, 3600))) {
+    tooMany(res, 60)
+    return null
+  }
+  // Always a full bcrypt compare, so a missing hash takes as long as a wrong password.
+  const passwordMatches = await bcrypt.compare(password, user.password_hash || DUMMY_HASH)
+  if (!user.password_hash || !passwordMatches) {
+    await recordFailure(supabase, user)
+    // `code` tells the app this 401 is a wrong password, not an expired session.
+    sendJson(res, 401, { error: 'Wrong password.', code: 'wrong_password' })
+    return null
+  }
+  await clearFailures(supabase, user)
+  return user
+}
+
 async function findUserByUsername(supabase, username) {
   const { data, error } = await supabase.from('users').select('*').eq('username', username).maybeSingle()
   if (error) throw Object.assign(new Error('Database unavailable. Please try again.'), { status: 503 })
@@ -330,35 +366,30 @@ export default async function handler(req, res) {
       return sendJson(res, 200, { ok: true, token: signToken(updated), user: publicUser(updated) })
     }
 
-    // Settings → Danger zone → "Clear all data". Deletes everything the user has added and keeps
-    // the account, its sign-in and push registrations. The session (token) is left unchanged.
-    if (action === 'wipe') {
-      const decoded = verifyRequestToken(req)
-      if (!decoded) return sendJson(res, 401, { error: 'Your session has expired. Please log in again.' })
-      const user = await verifyTokenVersion(supabase, decoded)
-      if (!user?.id) return sendJson(res, 401, { error: 'Your session has expired. Please log in again.' })
-      const minutes = lockedMinutes(user)
-      if (minutes) return tooMany(res, minutes)
-
-      const password = String(body.password || '').trim()
-      if (!password) return sendJson(res, 400, { error: 'Enter your password.' })
-      if (!(await underLimit(supabase, `wipe:${user.id}`, WIPE_LIMIT, 3600))) return tooMany(res, 60)
-
-      // Always a full bcrypt compare, so a missing hash takes as long as a wrong password.
-      const passwordMatches = await bcrypt.compare(password, user.password_hash || DUMMY_HASH)
-      if (!user.password_hash || !passwordMatches) {
-        await recordFailure(supabase, user)
-        // `code` tells the app this 401 is a wrong password, not an expired session.
-        return sendJson(res, 401, { error: 'Wrong password.', code: 'wrong_password' })
-      }
-      await clearFailures(supabase, user)
+    // Settings → Danger zone. Both need the password.
+    //   wipe            "Clear all data": deletes everything the user has added and keeps the
+    //                   account, its sign-in and push registrations; the session stays valid.
+    //   delete_account  "Delete account": the same, then the account itself (every table's rows go
+    //                   with it: user_id references users on delete cascade). Signs out everywhere.
+    if (action === 'wipe' || action === 'delete_account') {
+      const user = await passwordConfirmed(supabase, req, res, body, action)
+      if (!user) return undefined
 
       const { cleared, failed } = await wipeUserData(supabase, user.id)
-      if (failed.length) {
-        // Safe to retry: deleting again only removes what is left.
-        return sendJson(res, 500, { error: 'Some of your data couldn’t be cleared. Please try again.', cleared, failed })
+      if (action === 'wipe') {
+        if (failed.length) {
+          // Safe to retry: deleting again only removes what is left.
+          return sendJson(res, 500, { error: 'Some of your data couldn’t be cleared. Please try again.', cleared, failed })
+        }
+        return sendJson(res, 200, { ok: true, cleared })
       }
-      return sendJson(res, 200, { ok: true, cleared })
+      // Anything the wipe missed goes with the account (cascade); push registrations too.
+      const { error } = await supabase.from('users').delete().eq('id', user.id)
+      if (error) {
+        console.error('Delete account failed:', error.message)
+        return sendJson(res, 500, { error: 'Your account couldn’t be deleted. Please try again.' })
+      }
+      return sendJson(res, 200, { ok: true })
     }
 
     return sendJson(res, 404, { error: 'Unknown auth action.' })

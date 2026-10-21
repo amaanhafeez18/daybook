@@ -9,6 +9,7 @@ import { sessionDurationSec, sessionPRs, sessionVolume, sessionsToCsv } from '..
 import { routineById, useGym, useGymSessions, useToday } from '../../lib/gym/state.js'
 import { formatDistance, formatDuration, formatNumber, formatPace, formatVolume, formatWeight } from '../../lib/gym/units.js'
 import { navigate } from '../../lib/router.js'
+import { shareOrDownload } from '../../lib/share.js'
 import { GymEmpty, RoutineDot, goBack } from './common.jsx'
 import { beginWorkout } from './startWorkout.js'
 import './exercises.css'
@@ -177,31 +178,6 @@ export function ActionRow({ icon, label, hint, onClick, danger = false, chevron 
       {chevron && <Icon name="chevronRight" size={18} className="gym-hl-chevron" />}
     </button>
   )
-}
-
-// Shares the file where the device can (iPhone share sheet), else downloads it.
-export async function shareOrDownload(text, filename, type = 'text/csv') {
-  const blob = new Blob([text], { type })
-  try {
-    const file = new File([blob], filename, { type })
-    if (typeof navigator.share === 'function' && navigator.canShare?.({ files: [file] })) {
-      await navigator.share({ files: [file], title: filename })
-      return 'shared'
-    }
-  } catch (error) {
-    if (error?.name === 'AbortError') return 'cancelled'
-    // Sharing refused (e.g. no user gesture left): fall back to a download.
-  }
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = filename
-  link.rel = 'noopener'
-  document.body.appendChild(link)
-  link.click()
-  link.remove()
-  setTimeout(() => URL.revokeObjectURL(url), 2000)
-  return 'downloaded'
 }
 
 // ---- one workout in a list -----------------------------------------------------------------------
