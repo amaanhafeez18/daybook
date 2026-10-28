@@ -172,7 +172,7 @@ function SessionView({ session, gym, sessions, bodyWeights, today, onEdit, onDel
               />
             )}
             {session.isDeload && (
-              <DeloadBadge size="md" label="Deload" title="A lighter (deload) workout" />
+              <DeloadBadge size="md" label="Lighter week" title="A lighter (deload) workout" />
             )}
           </div>
         )}

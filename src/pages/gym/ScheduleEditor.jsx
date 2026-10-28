@@ -509,7 +509,7 @@ function PreviewDay({ day, gym, today }) {
         {day.status === 'shifted' && <Icon name="arrowRight" size={11} strokeWidth={2.4} />}
         <span>{label}</span>
       </span>
-      {day.deload && <DeloadBadge label="Deload" title="" className="gym-sched-deload" />}
+      {day.deload && <DeloadBadge label="Lighter" title="" className="gym-sched-deload" />}
     </li>
   )
 }

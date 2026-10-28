@@ -15,7 +15,7 @@ const isNum = (value) => typeof value === 'number' && Number.isFinite(value)
 const DEFAULT_PAIRS = 2
 const TABS = [
   { id: 'plates', label: 'Plates' },
-  { id: '1rm', label: 'Max (1RM)' },
+  { id: '1rm', label: 'Max' },
   { id: 'percent', label: 'Percent' },
 ]
 const BARS = [

@@ -4,9 +4,7 @@ import Icon from '../../components/ui/Icon.jsx'
 import Callout from '../../components/ui/Callout.jsx'
 import Sheet from '../../components/ui/Sheet.jsx'
 import { Button, EmptyState, IconButton } from '../../components/ui/primitives.jsx'
-import WeighIn from '../../components/WeighIn.jsx'
 import { toast } from '../../components/ui/feedback.jsx'
-import { useAreas } from '../../lib/areas.js'
 import { WEEKDAY_SHORT, addDaysISO, diffDays, formatDateShort, formatDuration as formatMinutes, relativeDay, weekdayIndex } from '../../lib/dates.js'
 import { abbreviationOptions, routineAbbreviations } from '../../lib/gym/abbreviations.js'
 import { TRACKING, exerciseById, newRoutineExercise } from '../../lib/gym/library.js'
@@ -16,10 +14,10 @@ import {
   sessionVolume, sessionWorkingSets, streakWeeks, suggestNext, weekProgress,
 } from '../../lib/gym/stats.js'
 import {
-  addBodyWeight, clearDay, deleteBodyWeight, getGym, routineById, routineColor, saveRoutine, slotLabel, updateGym,
-  useActiveWorkout, useBodyWeights, useGym, useGymSessions,
+  clearDay, getGym, routineById, routineColor, saveRoutine, slotLabel, updateGym,
+  useActiveWorkout, useGym, useGymSessions,
 } from '../../lib/gym/state.js'
-import { formatDistance, formatDuration, formatNumber, formatVolume, formatWeight, fromKg, fromMeters, toMeters } from '../../lib/gym/units.js'
+import { formatDistance, formatDuration, formatVolume, formatWeight, fromMeters, toMeters } from '../../lib/gym/units.js'
 import { haptic } from '../../lib/haptics.js'
 import { navigate } from '../../lib/router.js'
 import { useSessionState } from '../../lib/sessionState.js'
@@ -235,7 +233,6 @@ function withWorkingCount(row, count, tracking) {
 
 export default function TodayTab({ today }) {
   const gym = useGym()
-  const areas = useAreas()
   const sessions = useGymSessions()
   const active = useActiveWorkout()
   const { prefs } = gym
@@ -286,8 +283,8 @@ export default function TodayTab({ today }) {
   // Everything else you can do with today lives behind the hero's one ⋯ menu: the plan changes
   // (skip, shift, change, an empty workout), then the schedule itself (deload, edit).
   const startEmpty = () => beginWorkout({ routine: null, date: today })
-  const skipItem = { id: 'skip', label: 'Skip or shift…', hint: 'Take today off, or shift the whole plan a day later', icon: 'skipForward', onClick: () => setSheet('skip') }
-  const shiftItem = { id: 'shift', label: 'Shift schedule…', hint: 'Add an extra rest day; everything after moves a day later', icon: 'arrowRight', onClick: () => setSheet('skip') }
+  const skipItem = { id: 'skip', label: 'Skip or move…', hint: 'Take today off, or move the plan a day later', icon: 'skipForward', onClick: () => setSheet('skip') }
+  const shiftItem = { id: 'shift', label: 'Move the plan…', hint: 'An extra rest day; everything after moves a day later', icon: 'arrowRight', onClick: () => setSheet('skip') }
   const changeItem = { id: 'change', label: 'Change today’s workout…', hint: 'Another routine or rest, today only', icon: 'shuffle', onClick: () => setSheet('change') }
   const emptyItem = { id: 'empty', label: 'Start empty workout', hint: 'Add exercises as you go', icon: 'plus', onClick: startEmpty }
 
@@ -299,8 +296,8 @@ export default function TodayTab({ today }) {
 
   const scheduleItems = [
     hasSchedule && (day.deload
-      ? { id: 'deload', label: 'Skip this deload', hint: 'Back to full sets and weights this week', icon: 'zap', onClick: () => toggleDeload(false) }
-      : { id: 'deload', label: 'Deload this week', hint: 'A lighter week: half the sets and about 10% less weight', icon: 'arrowDown', onClick: () => toggleDeload(true) }),
+      ? { id: 'deload', label: 'Back to a normal week', hint: 'Full sets and weights this week', icon: 'zap', onClick: () => toggleDeload(false) }
+      : { id: 'deload', label: 'Make this a lighter week', hint: 'Half the sets and about 10% less weight (a deload)', icon: 'arrowDown', onClick: () => toggleDeload(true) }),
     { id: 'schedule', label: hasSchedule ? 'Edit schedule' : 'Set up schedule', hint: 'Which routine falls on which day', icon: 'calendar', onClick: () => setSheet('schedule') },
   ]
   const menu = [planItems, scheduleItems]
@@ -344,33 +341,25 @@ export default function TodayTab({ today }) {
         </div>
 
         <div className="gym-td-side">
-          <div className="gym-td-tiles">
-            <button type="button" className="card gym-td-tile" onClick={() => navigate('gym/history')} aria-label={`Weekly goal: ${weekCount} of ${prefs.weeklyGoal} workouts this week. Open progress`}>
-              <span className="gym-td-ring-wrap">
-                <GoalRing value={weekCount} goal={prefs.weeklyGoal} />
-                <Burst active={goalBurst} radius={42} />
+          {/* One tile: the week against the goal, with the streak under it; opens Progress. */}
+          <button type="button" className="card gym-td-tile gym-td-week-tile" onClick={() => navigate('gym/history')} aria-label={`This week: ${weekCount} of ${prefs.weeklyGoal} workouts${streak ? `, ${plural(streak, 'week')} in a row` : ''}. Open progress`}>
+            <span className="gym-td-ring-wrap">
+              <GoalRing value={weekCount} goal={prefs.weeklyGoal} />
+              <Burst active={goalBurst} radius={42} />
+            </span>
+            <span className="gym-td-tile-text">
+              <small className="gym-td-tile-label">This week</small>
+              <strong className="num-display">{shownWeek}<span className="gym-td-tile-of">/{prefs.weeklyGoal}</span></strong>
+              <small>{weekCount >= prefs.weeklyGoal ? 'Goal reached' : `${prefs.weeklyGoal - weekCount} more to go`}</small>
+            </span>
+            {streak > 0 && (
+              <span className="gym-td-streak">
+                <Icon name="flame" size={18} />
+                <span><strong className="num-display">{shownStreak}</strong> week{streak === 1 ? '' : 's'} in a row</span>
               </span>
-              <span className="gym-td-tile-text">
-                <small className="gym-td-tile-label">This week</small>
-                <strong className="num-display">{shownWeek}<span className="gym-td-tile-of">/{prefs.weeklyGoal}</span></strong>
-                <small>{weekCount >= prefs.weeklyGoal ? 'Goal reached' : `${prefs.weeklyGoal - weekCount} more to go`}</small>
-              </span>
-            </button>
-            <button type="button" className={`card gym-td-tile${streak ? ' has-streak' : ''}`} onClick={() => navigate('gym/history')} aria-label={`Streak: ${plural(streak, 'week')} in a row. Open progress`}>
-              <span className="gym-td-flame" aria-hidden="true"><Icon name="flame" size={24} /></span>
-              <span className="gym-td-tile-text">
-                <small className="gym-td-tile-label">Streak</small>
-                <strong className="num-display">{shownStreak}</strong>
-                <small>{streak ? `week${streak === 1 ? '' : 's'} in a row` : 'Train this week to start one'}</small>
-              </span>
-            </button>
-          </div>
-
-          {/* The shared weigh-in card, with the gym's one-step entry under it and "Stats" in the header.
-              The "Last weigh-in N days ago" reminder only with Food on: its switch lives in Food settings. */}
-          <WeighIn today={today} to="gym/history" link={{ label: 'Progress', to: 'gym/history' }} capsule={false} nudge={areas.food} className="gym-td-bw">
-            {({ open, summary }) => <BodyWeightEntry today={today} unit={prefs.unit} latestKg={summary?.latestKg ?? null} onOpen={open} />}
-          </WeighIn>
+            )}
+            <Icon name="chevronRight" size={18} className="gym-td-tile-chevron" />
+          </button>
         </div>
       </div>
 
@@ -677,7 +666,9 @@ function WeekStrip({ days: upcoming, today, gym, sessions }) {
           {title}
           {current < 0 && <small> · {done} done</small>}
         </h2>
-        {current < 0 && <button type="button" className="link-btn gym-td-week-today" onClick={() => go(-current)}>Today</button>}
+        {current < 0
+          ? <button type="button" className="link-btn gym-td-week-today" onClick={() => go(-current)}>Today</button>
+          : <button type="button" className="link-btn gym-td-week-today" onClick={() => navigate('gym/calendar')}>Calendar</button>}
         <button type="button" className="icon-btn" onClick={() => go(-1)} disabled={current <= minPage} aria-label="Previous 7 days">
           <Icon name="chevronLeft" size={20} />
         </button>
@@ -939,54 +930,6 @@ function GoalRing({ value, goal }) {
     </svg>
   )
 }
-
-// The one-step weigh-in under the weight card: type today's weight and tap "Weigh in" (or press
-// Enter). With nothing typed, "Weigh in" opens the full weigh-in sheet (steppers, another date).
-function BodyWeightEntry({ today, unit, latestKg, onOpen }) {
-  const weights = useBodyWeights()
-  const [draft, setDraft] = useState(null)
-
-  function log() {
-    if (draft === null) return
-    const before = weights.find((entry) => entry.date === today) || null
-    try {
-      const saved = addBodyWeight(today, draft)
-      setDraft(null)
-      // The entry is done: let the keyboard go first (haptic() stays quiet while a field has focus).
-      if (document.activeElement?.tagName === 'INPUT') document.activeElement.blur()
-      haptic('success')
-      toast(`${before ? 'Updated to' : 'Logged'} ${formatWeight(draft, unit)}`, {
-        action: { label: 'Undo', onClick: () => (before ? addBodyWeight(today, before.kg) : deleteBodyWeight(saved.id)) },
-      })
-    } catch (error) {
-      toast(error.message, { tone: 'error' })
-    }
-  }
-
-  return (
-    <div className="gym-td-bw-entry">
-      <label className="gym-td-bw-field">
-        <WeightInput
-          valueKg={draft}
-          unit={unit}
-          onChange={setDraft}
-          placeholder={latestKg === null ? (unit === 'lb' ? '170' : '75') : formatNumber(fromKg(latestKg, unit), 1)}
-          ariaLabel={`Today’s weight in ${unit}`}
-          onKeyDown={(event) => {
-            if (event.key !== 'Enter') return
-            event.preventDefault()
-            log()
-            event.currentTarget.blur()
-          }}
-        />
-        <span className="gym-td-bw-unit" aria-hidden="true">{unit}</span>
-      </label>
-      <Button variant="secondary" size="sm" icon="plus" className="wi-capsule" onClick={draft === null ? onOpen : log}>Weigh in</Button>
-    </div>
-  )
-}
-
-// ---- routine picker ("Train anyway" / "Log another") -----------------------------------------------------
 
 function RoutinePickerSheet({ open, onClose, title, gym, today, planned }) {
   const start = (routine) => {

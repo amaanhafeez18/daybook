@@ -307,12 +307,12 @@ export default function WorkoutSummary({ session, onDone }) {
             <span className="gym-prompt-icon" aria-hidden="true"><Icon name="shuffle" size={20} /></span>
             <div>
               <h2 id="gym-prompt-realign">You did {realignInfo.did} on {realignInfo.on}</h2>
-              <p>Realign your rotation so it carries on from here, or keep the plan as it is.</p>
+              <p>Move your plan so it carries on from here, or keep it as it is.</p>
             </div>
           </div>
           <div className="gym-prompt-actions">
             <button type="button" className="btn btn-secondary btn-grow" onClick={() => setRealignChoice('kept')}>Keep plan</button>
-            <button type="button" className="btn btn-primary btn-grow" onClick={doRealign}>Realign (tomorrow = {realignInfo.tomorrow})</button>
+            <button type="button" className="btn btn-primary btn-grow" onClick={doRealign}>Move plan (tomorrow: {realignInfo.tomorrow})</button>
           </div>
         </section>
       )}

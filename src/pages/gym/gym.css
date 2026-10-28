@@ -247,6 +247,13 @@
 
 /* goal ring + streak */
 .gym-td-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+/* The one week tile: ring, this week's count, the streak on the right, chevron to Progress. */
+.card.gym-td-week-tile { width: 100%; }
+.gym-td-week-tile .gym-td-tile-text { flex: 1; }
+.gym-td-streak { display: flex; align-items: center; gap: 6px; flex-shrink: 0; padding: 6px 10px; border-radius: var(--r-pill); background: var(--warning-soft); color: var(--text); font-size: 13px; }
+.gym-td-streak .icon { color: var(--warning); }
+.gym-td-streak strong { font-weight: 700; }
+.gym-td-tile-chevron { flex-shrink: 0; color: var(--text-3); }
 .card.gym-td-tile {
   display: flex; align-items: center; gap: 12px; min-width: 0; min-height: 84px; padding: 12px 14px;
   color: var(--text); text-align: left; transition: transform 0.35s var(--spring, var(--ease));
