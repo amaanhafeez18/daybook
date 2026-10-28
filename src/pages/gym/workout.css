@@ -160,6 +160,13 @@
 .gym-ex.ss-continues + .gym-ex.has-ss::before { top: 0; border-top-right-radius: 0; }
 
 .gym-ex-head { display: flex; align-items: flex-start; gap: 8px; padding: 0 0 0 6px; }
+/* Press and hold the title row to drag the exercise: no text selection or phone menu on the way. */
+.gym-ex-head.can-hold { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+/* While one is held, every card folds to its title row (like Hevy), so it's a short list to drag in. */
+.gym-ex.is-folded > :not(.gym-ex-head) { display: none; }
+.gym-ex.is-folded { padding-bottom: 10px; }
+.gym-ex.is-folded .gym-ex-meta { display: none; }
+.gym-ex[data-dragging] { position: relative; z-index: 5; box-shadow: var(--shadow-lg, 0 12px 32px rgba(0, 0, 0, 0.18)); transition: box-shadow 0.15s; }
 .gym-ss-tag {
   flex-shrink: 0;
   display: inline-grid;
