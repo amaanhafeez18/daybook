@@ -9,8 +9,9 @@ import {
   cleanEntry, dayTotals, entryCalories, entryMeal, findFavorite, logStreak, macroCalories, mealTotals,
 } from '../../lib/food/nutrition.js'
 import {
-  addEntries, copyDay, dayEntries, deleteEntry, deleteFavorite, saveFavorite, updateEntry, updateFood, useFood, useFoodEntries, useMealTimes,
+  addEntries, copyDay, dayEntries, deleteEntry, deleteFavorite, saveFavorite, updateEntry, updateFood, useFood, useFoodEntries, useMealTimes, useWeightUnit,
 } from '../../lib/food/state.js'
+import MaintenanceCard from './MaintenanceCard.jsx'
 import { nowMeal } from '../../lib/food/mealTimes.js'
 import { navigate } from '../../lib/router.js'
 import { useStore } from '../../lib/store.js'
@@ -24,7 +25,7 @@ import QuickAddBar from './QuickAddBar.jsx'
 import '../../components/ui/action-sheet.css'
 import { MacroBars, Ring, ringState } from './ring.jsx'
 import {
-  confidenceLevel, dayLabel, energyNumber, entryConfidence, entryName, fmtEnergy, isEstimate, isNum,
+  dayLabel, energyNumber, entryName, fmtEnergy, isEstimate, isNum,
   mealName, openDatePicker, plural, portionText, shortDay, unitLabel, weekdayLetter,
 } from './format.js'
 
@@ -54,6 +55,7 @@ export default function DayView({ date, today, loaded }) {
   const [targetMeal, setTargetMeal] = useState(null)
   const [sheet, setSheet] = useState(null) // { type: 'entry' | 'actions' | 'copyDay' | 'settings', ... }
   const [estimate, setEstimate] = useState(null)
+  const weightUnit = useWeightUnit()
   const barRef = useRef(null)
   // The entry sheet keeps showing what it opened with while it slides away.
   const entrySheet = useRef(null)
@@ -155,8 +157,9 @@ export default function DayView({ date, today, loaded }) {
           ) : (
             <section className="card food-summary" aria-busy="true"><Skeleton lines={4} /></section>
           )}
-          {/* The shared weigh-in card (components/WeighIn.jsx); "Weigh in" logs for the day on screen. */}
-          <WeighIn className="food-weight" today={today} date={date} loaded={loaded} to="food/weight" headingLevel={2} />
+          {/* The weekly-style check-in (like MacroFactor's): only when measured maintenance says the
+              goal should move; Update shows old → new, Not now hides it until the estimate changes. */}
+          {loaded && date === today && <MaintenanceCard food={food} unit={unit} weightUnit={weightUnit} today={today} onlyOffer />}
         </div>
 
         <div className="food-day-main">
@@ -247,7 +250,6 @@ function DaySwitcher({ date, today }) {
   const relative = label !== shortDay(date)
   return (
     <div className="food-switch" {...swipe}>
-      <IconButton icon="chevronLeft" label="Previous day" className="food-switch-btn" onClick={() => goToDay(addDaysISO(date, -1), today)} />
       <label className="food-switch-label">
         <span className="food-switch-text">
           <strong>{label}</strong>
@@ -256,7 +258,6 @@ function DaySwitcher({ date, today }) {
         <Icon name="chevronDown" size={14} strokeWidth={2.4} />
         <input type="date" value={date} aria-label="Choose a day" onClick={openDatePicker} onChange={(event) => isISODate(event.target.value) && goToDay(event.target.value, today)} />
       </label>
-      <IconButton icon="chevronRight" label="Next day" className="food-switch-btn" onClick={() => goToDay(addDaysISO(date, 1), today)} />
       {date !== today && (
         <button type="button" className="food-switch-today" onClick={() => goToDay(today, today)}>Today</button>
       )}
@@ -401,9 +402,8 @@ function MealSection({ meal, rows, kcal, date, today, allEntries, food, onAdd, o
 function EntryRow({ entry, unit, onOpen, onMore, onDelete, onEstimate }) {
   const name = entryName(entry)
   const counted = isNum(entry.calories) || macroCalories(entry) !== null
-  const estimate = counted && isEstimate(entry)
-  const level = confidenceLevel(entryConfidence(entry))
-  const approx = estimate && level && level !== 'high'
+  // An AI estimate is marked by a "~" before its calories (the one estimate sign in the list).
+  const approx = counted && isEstimate(entry)
   const portion = portionText(entry)
   return (
     <SwipeRow className="food-row" onDelete={onDelete} onLongPress={onMore}>
@@ -411,11 +411,10 @@ function EntryRow({ entry, unit, onOpen, onMore, onDelete, onEstimate }) {
         <button type="button" className="food-row-main" onClick={onOpen}>
           <span className="food-row-text">
             <span className="food-row-name">{name}</span>
-            {(portion || entry.brand || estimate || !counted) && (
+            {(portion || entry.brand || !counted) && (
               <span className="food-row-sub">
                 {portion && <span>{portion}</span>}
                 {entry.brand && <span>{entry.brand}</span>}
-                {estimate && <span className="food-badge"><Icon name="sparkles" size={11} strokeWidth={2} />Estimate</span>}
                 {!counted && <span className="food-row-hint">Add calories</span>}
               </span>
             )}
@@ -423,7 +422,7 @@ function EntryRow({ entry, unit, onOpen, onMore, onDelete, onEstimate }) {
           <span className={`food-row-kcal${counted ? '' : ' is-empty'}`}>
             {counted ? (
               <>
-                {approx && <span className="food-row-approx" title="Estimate">~</span>}
+                {approx && <span className="food-row-approx" title="Estimated">~</span>}
                 {energyNumber(entryCalories(entry), unit)}
               </>
             ) : '—'}
@@ -434,9 +433,6 @@ function EntryRow({ entry, unit, onOpen, onMore, onDelete, onEstimate }) {
             <Icon name="sparkles" size={14} />Estimate
           </button>
         )}
-        <button type="button" className="icon-btn food-row-more" onClick={onMore} aria-label={`More actions for ${name}`}>
-          <Icon name="more" size={20} />
-        </button>
       </div>
     </SwipeRow>
   )

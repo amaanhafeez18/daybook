@@ -116,6 +116,7 @@
 .food-macro.is-fat { --food-macro-color: var(--food-fat); }
 .food-macro.is-fiber { --food-macro-color: var(--food-fiber); }
 .food-macro-top { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.food-macro-left { font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; }
 .food-macro-name { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-2); }
 .food-macro-name::before { content: ''; flex-shrink: 0; width: 8px; height: 8px; border-radius: 50%; background: var(--food-macro-color); }
 .food-macro-value { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; color: var(--text); }

@@ -416,17 +416,7 @@ export default function QuickAddBar({ date, today, meal, mealChosen = false, onM
                 <span className="food-tray-icon is-soft" aria-hidden="true"><Icon name="pencil" size={15} /></span>
                 <span className="food-tray-text">
                   <span className="food-tray-name">Add by hand</span>
-                  <span className="food-tray-sub">Name, portion and nutrition</span>
-                </span>
-                <Icon name="chevronRight" size={17} />
-              </button>
-            </li>
-            <li>
-              <button type="button" className="food-tray-row is-link" onClick={() => manual({ quick: true })}>
-                <span className="food-tray-icon is-soft" aria-hidden="true"><Icon name="zap" size={15} /></span>
-                <span className="food-tray-text">
-                  <span className="food-tray-name">Quick calories</span>
-                  <span className="food-tray-sub">Just a number</span>
+                  <span className="food-tray-sub">Calories and macros, or just a number</span>
                 </span>
                 <Icon name="chevronRight" size={17} />
               </button>

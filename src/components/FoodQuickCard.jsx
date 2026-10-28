@@ -20,7 +20,7 @@ import MealShortcuts, { hasShortcuts, useMealShortcuts } from '../pages/food/Mea
 import { CameraChoice, quickLog } from '../pages/food/QuickAddBar.jsx'
 import { Ring, ringState } from '../pages/food/ring.jsx'
 import PhotoInput from '../pages/food/PhotoInput.jsx'
-import { energyNumber, entryName, fmtEnergy, isSubmitKey, mealIdFor, unitLabel } from '../pages/food/format.js'
+import { energyNumber, entryName, fmtEnergy, isNum, isSubmitKey, mealIdFor, unitLabel } from '../pages/food/format.js'
 import './food-quick.css'
 
 // Today-page food card: today's total against the goal with a tiny ring, and one line to log
@@ -268,13 +268,23 @@ export default function FoodQuickCard({ today, loaded }) {
   else if (!totals.count) summary = <span className="fq-sum">{goal ? `${energyNumber(goal, unit)} ${unitLabel(unit)} to go` : 'Nothing logged yet'}</span>
   else {
     // Screen readers get the final numbers; the counting copy is for the eye only.
-    const final = `${energyNumber(eaten, unit)} ${unitLabel(unit)}${goal ? ` · ${energyNumber(Math.abs(left), unit)} ${left < 0 ? 'over' : 'left'}` : ''}`
+    // With a goal: what's left (calories, then protein when it has a goal), like MacroFactor.
+    const proteinGoal = food.goals.protein
+    const proteinLeft = isNum(proteinGoal) && proteinGoal > 0 ? Math.max(0, Math.round(proteinGoal - (totals.proteinG || 0))) : null
+    const protein = proteinLeft === null ? '' : proteinLeft > 0 ? ` · ${proteinLeft} g protein left` : ' · protein goal hit'
+    const final = goal
+      ? `${energyNumber(Math.abs(left), unit)} ${unitLabel(unit)} ${left < 0 ? 'over' : 'left'}${protein}`
+      : `${energyNumber(eaten, unit)} ${unitLabel(unit)}`
     summary = (
       <span className="fq-sum">
         <span className="sr-only">{final}</span>
         <span aria-hidden="true">
-          <span className="num-display">{energyNumber(shownEaten, unit)}</span> {unitLabel(unit)}
-          {goal ? <span className={left < 0 ? 'is-over' : ''}> · <span className="num-display">{energyNumber(Math.abs(shownLeft), unit)}</span> {left < 0 ? 'over' : 'left'}</span> : null}
+          {goal ? (
+            <span className={left < 0 ? 'is-over' : ''}><span className="num-display">{energyNumber(Math.abs(shownLeft), unit)}</span> {unitLabel(unit)} {left < 0 ? 'over' : 'left'}</span>
+          ) : (
+            <><span className="num-display">{energyNumber(shownEaten, unit)}</span> {unitLabel(unit)}</>
+          )}
+          {protein}
         </span>
       </span>
     )

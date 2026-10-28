@@ -5,10 +5,10 @@ import Sheet from '../../components/ui/Sheet.jsx'
 import { IconButton, Segmented, Switch } from '../../components/ui/primitives.jsx'
 import { toast } from '../../components/ui/feedback.jsx'
 import { updateGym, useGym } from '../../lib/gym/state.js'
-import { MEALS_DEFAULT, entryCalories } from '../../lib/food/nutrition.js'
-import { deleteFavorite, setNudge, setWebSetting, updateFood, useFood, useWebSetting } from '../../lib/food/state.js'
+import { MEALS_DEFAULT } from '../../lib/food/nutrition.js'
+import { setNudge, setWebSetting, updateFood, useFood, useWebSetting } from '../../lib/food/state.js'
 import { navigate } from '../../lib/router.js'
-import { NUTRIENT_INFO, energyNumber, entryName, fmtEnergy, fmtInt, portionText, unitLabel } from './format.js'
+import { NUTRIENT_INFO, fmtEnergy, fmtInt, unitLabel } from './format.js'
 import '../gym/cfg.css' // grouped settings rows, shared with Gym settings
 
 // Food settings. Basics: goals (link), meals (rename, reorder, 3–6; a disclosure that shows the
@@ -28,7 +28,6 @@ const WEB_NOTES = {
   always: 'Used for exact macros of branded foods. Each search costs a little; it may run without asking when exact numbers would help.',
   off: 'Never searches the web. Your saved foods still apply.',
 }
-const FAVORITES_SHOWN = 10
 
 function setPrefs(patch) {
   updateFood((food) => ({ prefs: { ...food.prefs, ...patch } }))
@@ -77,11 +76,6 @@ export default function FoodSettingsSheet({ open, onClose }) {
     setPrefs({ nutrients: next })
   }
 
-  function removeFavorite(favorite) {
-    const undo = deleteFavorite(favorite.id)
-    toast(`Removed ${entryName(favorite)} from My foods`, { action: { label: 'Undo', onClick: undo } })
-  }
-
   const mealNames = prefs.meals.map((meal) => meal.name).join(' · ')
   const nutrientNames = Object.values(NUTRIENT_INFO).filter((info) => prefs.nutrients.includes(info.key)).map((info) => info.label).join(', ') || 'none'
   const webLabel = WEB_MODES.find((mode) => mode.id === web)?.label || 'Ask first'
@@ -123,7 +117,7 @@ export default function FoodSettingsSheet({ open, onClose }) {
               <Row label="Ring shows"><Segmented options={RING_MODES} value={prefs.ring} onChange={(value) => setPrefs({ ring: value })} label="Ring shows" /></Row>
               <Row label="Week starts"><Segmented options={WEEK_STARTS} value={prefs.weekStart} onChange={(value) => setPrefs({ weekStart: value })} label="Week starts on" /></Row>
               <div className="food-cfg-row is-switch">
-                <Switch checked={prefs.showDetails} onChange={(value) => setPrefs({ showDetails: value })} label="Open with portion and macros" description="The Add food sheet starts with More options open" />
+                <Switch checked={prefs.showDetails} onChange={(value) => setPrefs({ showDetails: value })} label="Open with portion and more" description="The Add food sheet starts with More options open" />
               </div>
             </Group>
 
@@ -160,29 +154,6 @@ export default function FoodSettingsSheet({ open, onClose }) {
                 </span>
                 <Icon name="chevronRight" size={18} />
               </button>
-              {favorites.length > 0 && (
-                <ul className="food-cfg-favs">
-                  {favorites.slice(0, FAVORITES_SHOWN).map((favorite) => {
-                    const kcal = entryCalories(favorite)
-                    const portion = portionText(favorite)
-                    return (
-                      <li key={favorite.id} className="food-cfg-row">
-                        <span className="food-cfg-label">
-                          <span>{entryName(favorite)}</span>
-                          <small>{[portion, kcal > 0 ? `${energyNumber(kcal, unit)} ${unitLabel(unit)}` : null].filter(Boolean).join(' · ') || 'No calories'}</small>
-                        </span>
-                        <IconButton icon="trash" label={`Remove ${entryName(favorite)} from My foods`} className="food-cfg-remove" size={18} onClick={() => removeFavorite(favorite)} />
-                      </li>
-                    )
-                  })}
-                </ul>
-              )}
-              {favorites.length > FAVORITES_SHOWN && (
-                <button type="button" className="food-cfg-row food-cfg-link" onClick={() => { onClose(); navigate('food/foods') }}>
-                  <span className="food-cfg-label"><span>See all {favorites.length} in My foods</span></span>
-                  <Icon name="chevronRight" size={18} />
-                </button>
-              )}
             </Group>
           </Disclosure>
         </section>

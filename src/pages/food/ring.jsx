@@ -97,6 +97,12 @@ export function MacroBar({ nutrient, eaten, target }) {
       <span className={`food-macro-track${hasTarget ? '' : ' is-empty'}`} aria-hidden="true">
         {hasTarget && <span className="food-macro-fill" style={{ width: `${pct}%` }} />}
       </span>
+      {/* What's left to eat, the question the bar answers (not for limits like sugar and sodium). */}
+      {hasTarget && !info.limit && (
+        <small className="food-macro-left">
+          {eaten >= target ? 'Goal hit' : `${fmtNutrient(nutrient, target - Math.max(0, eaten || 0))} ${info.unit} left`}
+        </small>
+      )}
     </div>
   )
 }
