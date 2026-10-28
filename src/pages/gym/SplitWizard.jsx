@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import Icon from '../../components/ui/Icon.jsx'
+import Callout from '../../components/ui/Callout.jsx'
 import Sheet from '../../components/ui/Sheet.jsx'
 import { moveItem, useDragSort } from '../../components/ui/useDragSort.js'
 import { toast } from '../../components/ui/feedback.jsx'
@@ -550,13 +551,10 @@ export default function SplitWizard({ open: openProp, onClose, today }) {
                       })}
                     </ul>
                     {s.days.length > 7 && (
-                      <p className="wiz-warn">
-                        <Icon name="info" size={16} />
-                        <span>
-                          A week has 7 days, so {s.days.length === 8 ? 'day 8 isn’t' : `days 8–${s.days.length} aren’t`} used.{' '}
-                          <button type="button" className="link-btn" onClick={() => commitDays(s.days.slice(0, 7))}>Remove</button>
-                        </span>
-                      </p>
+                      <Callout tone="warning">
+                        A week has 7 days, so {s.days.length === 8 ? 'day 8 isn’t' : `days 8–${s.days.length} aren’t`} used.{' '}
+                        <button type="button" className="link-btn" onClick={() => commitDays(s.days.slice(0, 7))}>Remove</button>
+                      </Callout>
                     )}
                   </>
                 )}

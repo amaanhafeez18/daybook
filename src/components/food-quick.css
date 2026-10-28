@@ -55,11 +55,6 @@ a.fq-head:active { opacity: 0.6; }
 .fq-panel .food-est-skel-row { background: var(--surface-2); }
 .fq-actions { display: flex; gap: 8px; }
 .fq-actions.is-wrap { flex-wrap: wrap; }
-.fq-error {
-  display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px; border-radius: 14px;
-  background: var(--danger-soft); color: var(--danger); font-size: 14px; font-weight: 500;
-}
-.fq-error .icon { flex-shrink: 0; margin-top: 1px; }
 
 /* ---- meal shortcut chips (MealShortcuts: the Food page's empty meals and this card) ----------- */
 

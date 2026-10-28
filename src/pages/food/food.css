@@ -40,13 +40,8 @@
 .food-link { display: inline-flex; align-items: center; gap: 2px; min-height: 36px; color: var(--accent); font-size: 15px; font-weight: 600; }
 .food-link:active { opacity: 0.6; }
 
-.food-note {
-  display: flex; align-items: flex-start; gap: 10px; margin: 0 0 14px; padding: 12px 14px; border-radius: 16px;
-  background: var(--card-bg); color: var(--text-2); font-size: 15px;
-}
-.food-note .icon, .food-note .spinner { flex-shrink: 0; margin-top: 1px; }
-.food-note.is-warning { background: var(--food-over-soft); color: var(--text); }
-.food-note.is-warning .icon { color: var(--food-over); }
+/* A Callout (App.css .callout) at the top of a food screen. */
+.food-callout { margin: 0 0 14px; }
 
 .chip.food-chip { display: inline-flex; align-items: center; gap: 5px; }
 
@@ -492,11 +487,6 @@ button.food-cfg-row:active { background: var(--surface-2); }
 .food-goal-facts dt { font-size: 12px; color: var(--text-2); }
 .food-goal-facts dd { margin: 0; font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .food-goal-warnings { display: flex; flex-direction: column; gap: 8px; }
-.food-goal-warnings li {
-  display: flex; align-items: flex-start; gap: 8px; padding: 10px 14px; border-radius: 16px;
-  background: var(--food-over-soft); color: var(--text); font-size: 14px; line-height: 1.35;
-}
-.food-goal-warnings .icon { flex-shrink: 0; margin-top: 1px; color: var(--food-over); }
 .food-goal-macro-name { display: inline-flex; align-items: center; gap: 8px; }
 .food-goal-macro-name::before { content: ''; flex-shrink: 0; width: 8px; height: 8px; border-radius: 50%; background: var(--food-limit); }
 .food-goal-macro.is-protein .food-goal-macro-name::before { background: var(--food-protein); }

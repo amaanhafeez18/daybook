@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import Icon from '../../components/ui/Icon.jsx'
+import Callout from '../../components/ui/Callout.jsx'
 import { ActionSheet } from '../../components/ui/ActionSheet.jsx'
 import { IconButton } from '../../components/ui/primitives.jsx'
 import { useStore } from '../../lib/store.js'
@@ -70,9 +71,6 @@ export function MigrationNote() {
   const error = useStore(selectMigrationError)
   if (!error) return null
   return (
-    <p className="food-note is-warning" role="status">
-      <Icon name="alert" size={18} />
-      <span>{error} Until then, entries stay on this device.</span>
-    </p>
+    <Callout tone="warning" icon="cloudOff" role="status" className="food-callout">{error} Until then, entries stay on this device.</Callout>
   )
 }

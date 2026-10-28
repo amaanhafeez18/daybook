@@ -1,6 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import Disclosure from '../../components/ui/Disclosure.jsx'
 import Icon from '../../components/ui/Icon.jsx'
+import Callout from '../../components/ui/Callout.jsx'
 import { Button, Segmented } from '../../components/ui/primitives.jsx'
 import { toast } from '../../components/ui/feedback.jsx'
 import { useAreas } from '../../lib/areas.js'
@@ -223,12 +224,12 @@ export default function GoalWizard({ today }) {
       <div className="food-goals">
         {header}
         {loadFailed ? (
-          <div className="food-note" role="status">
-            <Icon name="cloudOff" size={18} />
-            <span>Your goals haven’t loaded yet — check your connection. <button type="button" className="food-link" onClick={() => refresh().catch(() => {})}>Try again</button></span>
-          </div>
+          <Callout tone="warning" icon="cloudOff" role="status" className="food-callout">
+            Your goals haven’t loaded yet — check your connection.{' '}
+            <button type="button" className="link-btn" onClick={() => refresh().catch(() => {})}>Try again</button>
+          </Callout>
         ) : (
-          <p className="food-note" role="status"><span className="spinner" aria-hidden="true" />Loading your goals…</p>
+          <Callout tone="neutral" icon={<span className="spinner" aria-hidden="true" />} role="status" className="food-callout">Loading your goals…</Callout>
         )}
       </div>
     )
@@ -516,7 +517,7 @@ function GoalResult({ result, profile, unit, weightUnit, today, macros, setMacro
 
   return (
     <div className="food-cfg food-goal-result">
-      {blocked && <p className="food-note is-warning"><Icon name="info" size={18} /><span>{inUnits(blocked, unit, weightUnit)}</span></p>}
+      {blocked && <Callout tone="warning" className="food-callout">{inUnits(blocked, unit, weightUnit)}</Callout>}
 
       <section className="card food-goal-hero">
         <span className="ui-label food-goal-hero-label">Daily calories</span>
@@ -541,7 +542,7 @@ function GoalResult({ result, profile, unit, weightUnit, today, macros, setMacro
 
       {warnings.length > 0 && (
         <ul className="food-goal-warnings">
-          {warnings.map((warning) => <li key={warning}><Icon name="info" size={16} />{inUnits(warning, unit, weightUnit)}</li>)}
+          {warnings.map((warning) => <Callout as="li" key={warning} tone="warning">{inUnits(warning, unit, weightUnit)}</Callout>)}
         </ul>
       )}
 

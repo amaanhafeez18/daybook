@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import Icon from '../../components/ui/Icon.jsx'
+import Callout from '../../components/ui/Callout.jsx'
 import { toast } from '../../components/ui/feedback.jsx'
 import { addEntries, deleteEntry, estimateFood, itemsToEntries, rememberFoods, useFood, useWebSetting, webLookupFood } from '../../lib/food/state.js'
 import { energyInUnit, energyToKcal, entryCalories, findFavorite, scaleEntry } from '../../lib/food/nutrition.js'
@@ -586,7 +587,7 @@ export default function EstimateReview({ result, onChange, meal, onMealChange, d
       {result.query && !compact && <p className="food-rv-query">“{result.query}”</p>}
 
       {showLookup && (
-        <div className="food-rv-note food-rv-lookup" role="status">
+        <div className="callout is-neutral food-rv-lookup" role="status">
           <FoodGlyph name="barcode" size={18} />
           <div className="food-rv-lookup-body">
             <span>Barcode {lookupCode} isn’t in Open Food Facts.</span>
@@ -610,10 +611,10 @@ export default function EstimateReview({ result, onChange, meal, onMealChange, d
       )}
 
       {result.notFood && !items.length && (
-        <p className="food-rv-note"><Icon name="info" size={16} />That doesn’t look like food. Describe what you ate, or try another photo.</p>
+        <Callout tone="info">That doesn’t look like food. Describe what you ate, or try another photo.</Callout>
       )}
       {!result.notFood && !items.length && !result.clarify && !showLookup && (
-        <p className="food-rv-note"><Icon name="info" size={16} />{lastRemoved ? 'No items left.' : 'No food found in that. Try describing it differently.'}</p>
+        <Callout tone="info">{lastRemoved ? 'No items left.' : 'No food found in that. Try describing it differently.'}</Callout>
       )}
 
       {items.length > 0 && (

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import Icon from '../../components/ui/Icon.jsx'
+import Callout from '../../components/ui/Callout.jsx'
 import Sheet from '../../components/ui/Sheet.jsx'
 import { Button } from '../../components/ui/primitives.jsx'
 import { isISODate } from '../../lib/dates.js'
@@ -137,7 +138,7 @@ export default function EstimateSheet({ request, onClose, onManual, today }) {
 
           {phase === 'error' && error && (
             <div className="food-est-error">
-              <p className="food-rv-note" role="alert"><Icon name="alert" size={16} />{error.message}</p>
+              <Callout tone="danger" role="alert">{error.message}</Callout>
               <div className="food-est-error-actions">
                 {shownText.trim() && !shown.replace && !isBarcode && (
                   <Button variant="secondary" size="sm" icon="note" onClick={saveNameOnly}>Save without calories</Button>
