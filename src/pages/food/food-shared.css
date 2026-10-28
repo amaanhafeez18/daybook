@@ -149,11 +149,7 @@
 .food-rv { display: flex; flex-direction: column; }
 .food-rv-top { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
 .food-rv-query { margin: 0 4px 10px; font-size: 15px; color: var(--text-2); overflow-wrap: anywhere; }
-.food-rv-note {
-  display: flex; align-items: flex-start; gap: 8px; margin: 0 0 8px; padding: 12px 14px; border-radius: 16px;
-  background: var(--surface-2); color: var(--text-2); font-size: 15px;
-}
-.food-rv-note .icon { margin-top: 1px; }
+.food-rv .callout { margin: 0 0 8px; }
 
 .food-rv-list { display: flex; flex-direction: column; gap: 8px; }
 .food-rv-item {

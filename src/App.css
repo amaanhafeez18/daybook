@@ -307,8 +307,23 @@ select.input { background-image: linear-gradient(45deg, transparent 50%, var(--t
 .search-field:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .search-field-wide { margin-bottom: 16px; }
 
-.alert { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: var(--r-sm); font-size: 14px; }
-.alert-error { background: var(--danger-soft); color: var(--danger); }
+/* The one info / warning / error / success box (components/ui/Callout.jsx; plain elements may use
+   the classes too). Tinted panel, icon in the tone's colour, body text in the normal colour. */
+.callout {
+  --callout-bg: var(--accent-soft); --callout-fg: var(--accent);
+  display: flex; align-items: flex-start; gap: 10px; margin: 0; padding: 12px 14px;
+  border-radius: var(--r-inset, 18px); background: var(--callout-bg); color: var(--text);
+  font-size: var(--fs-subhead, 15px); line-height: 1.4; letter-spacing: -0.01em; text-align: left;
+}
+.callout > .icon, .callout > .spinner, .callout > svg { flex-shrink: 0; margin-top: 1px; color: var(--callout-fg); }
+.callout-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
+.callout-title { font-weight: 600; }
+.callout-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.callout .link-btn { color: var(--accent); font-weight: 600; }
+.callout.is-warning { --callout-bg: var(--warning-soft); --callout-fg: var(--warning); }
+.callout.is-danger { --callout-bg: var(--danger-soft); --callout-fg: var(--danger); }
+.callout.is-success { --callout-bg: var(--success-soft); --callout-fg: var(--success); }
+.callout.is-neutral { --callout-bg: var(--surface-2); --callout-fg: var(--text-2); color: var(--text-2); }
 
 /* min-width: a fieldset is otherwise as wide as its fields, which pushed Room out of a phone sheet. */
 .slot { min-width: 0; border: 1px solid var(--border); border-radius: var(--r-md); padding: 10px 12px 12px; margin: 0; }

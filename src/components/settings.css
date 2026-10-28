@@ -276,26 +276,6 @@
 .set-confirm-keep { display: block; margin-top: 10px; }
 
 /* ---- password sheet --------------------------------------------------------------------------- */
-.set-wipe-note {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 12px 14px;
-  border-radius: 16px;
-  background: var(--danger-soft);
-  color: var(--text);
-}
-.set-wipe-note p { margin: 0; font-size: 15px; line-height: 1.4; }
-.set-wipe-icon {
-  width: 30px;
-  height: 30px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  background: var(--danger);
-  color: #fff;
-}
 .set-wipe-field.is-shaking { animation: set-shake 0.42s ease; }
 @keyframes set-shake {
   15% { transform: translateX(-9px); }

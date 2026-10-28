@@ -180,7 +180,7 @@
 .gym-xd-facts > div { min-width: 0; padding: 10px 12px; border-radius: 18px; background: var(--card-bg); }
 .gym-xd-facts dt { font-size: 12px; font-weight: 600; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .gym-xd-facts dd { margin: 2px 0 0; font-size: clamp(15px, 4.6vw, 18px); font-weight: 700; letter-spacing: -0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.gym-xd-first { margin-top: 14px; padding: 12px 14px; border-radius: 18px; background: var(--card-bg); color: var(--text-2); font-size: 15px; }
+.gym-xd-first { margin-top: 14px; }
 
 /* Pinned note: a yellow sticky, stored on the exercise. */
 .gym-note {
@@ -227,7 +227,7 @@
 /* Under a session whose Best set looks like a typo: opens that workout to fix it. */
 .gym-xd-fix {
   display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; margin-top: 6px; padding: 8px 12px;
-  border-radius: 12px; background: var(--warning-soft); color: var(--text); font-size: 14px; text-align: left;
+  border-radius: var(--r-inset, 18px); background: var(--warning-soft); color: var(--text); font-size: var(--fs-subhead, 15px); text-align: left;
 }
 .gym-xd-fix .icon { flex-shrink: 0; color: var(--warning); }
 .gym-xd-fix span { flex: 1; min-width: 0; }

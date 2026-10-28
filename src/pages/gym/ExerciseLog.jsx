@@ -372,7 +372,7 @@ export function WeightCheck({ flag, unit, onFix, onKeep, onChange, label }) {
   const typed = formatWeight(flag.kg, unit)
   const best = flag.referenceKg ? formatWeight(flag.referenceKg, unit) : null
   return (
-    <div className="gym-wcheck" role="group" aria-label={`Check the weight${label ? ` for ${label}` : ''}`}>
+    <div className="callout is-warning gym-wcheck" role="group" aria-label={`Check the weight${label ? ` for ${label}` : ''}`}>
       <p className="gym-wcheck-text">
         <Icon name="alert" size={16} strokeWidth={2.2} />
         <span>

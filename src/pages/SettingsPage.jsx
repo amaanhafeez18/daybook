@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../components/ui/Icon.jsx'
+import Callout from '../components/ui/Callout.jsx'
 import Sheet from '../components/ui/Sheet.jsx'
 import Disclosure from '../components/ui/Disclosure.jsx'
 import { Avatar, Button, Field, PasswordInput, Segmented, Switch } from '../components/ui/primitives.jsx'
@@ -614,10 +615,7 @@ function DangerSheet({ open, mode, onClose, username, onSignOut }) {
       )}
     >
       <form id="wipe-form" className="form-stack" onSubmit={submit} noValidate>
-        <div className="set-wipe-note">
-          <span className="set-wipe-icon" aria-hidden="true"><Icon name="trash" size={18} /></span>
-          <p>{copy.note}</p>
-        </div>
+        <Callout tone="danger" icon="trash">{copy.note}</Callout>
         <div ref={fieldRef} className={`set-wipe-field ${shaking ? 'is-shaking' : ''}`} onAnimationEnd={() => setShaking(false)}>
           <Field label="Password" error={error}>
             {(id) => (
@@ -636,7 +634,7 @@ function DangerSheet({ open, mode, onClose, username, onSignOut }) {
         {/* Lets password managers (iOS Keychain) offer this account's password. After the password
             field, so the sheet still focuses the password first. */}
         <input type="text" name="username" autoComplete="username" value={username || ''} readOnly hidden />
-        {problem && <div className="alert alert-error" role="alert"><Icon name="alert" size={18} /><span>{problem}</span></div>}
+        {problem && <Callout tone="danger" role="alert">{problem}</Callout>}
       </form>
     </Sheet>
   )
@@ -1073,7 +1071,7 @@ function PasswordSheet({ open, onClose, onUserChange }) {
         <Field label="New password" hint="At least 8 characters.">
           {(id) => <PasswordInput id={id} value={form.newPassword} onChange={(event) => setForm({ ...form, newPassword: event.target.value })} autoComplete="new-password" />}
         </Field>
-        {error && <div className="alert alert-error" role="alert"><Icon name="alert" size={18} /><span>{error}</span></div>}
+        {error && <Callout tone="danger" role="alert">{error}</Callout>}
       </form>
     </Sheet>
   )
@@ -1133,7 +1131,7 @@ function RecoverySheet({ open, onClose, onUserChange }) {
         <Field label="Current password" hint="Confirms it’s you.">
           {(id) => <PasswordInput id={id} value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} autoComplete="current-password" />}
         </Field>
-        {error && <div className="alert alert-error" role="alert"><Icon name="alert" size={18} /><span>{error}</span></div>}
+        {error && <Callout tone="danger" role="alert">{error}</Callout>}
       </form>
     </Sheet>
   )

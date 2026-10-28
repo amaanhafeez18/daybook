@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Icon from './ui/Icon.jsx'
+import Callout from './ui/Callout.jsx'
 import { Button } from './ui/primitives.jsx'
 import { toast } from './ui/feedback.jsx'
 import { imageToJpegDataUrl } from '../lib/media.js'
@@ -425,7 +426,7 @@ export default function FoodQuickCard({ today, loaded }) {
 
       {phase === 'error' && (
         <div className="fq-panel">
-          <p className="fq-error" role="alert"><Icon name="alert" size={16} />{error}</p>
+          <Callout tone="danger" role="alert">{error}</Callout>
           <div className="fq-actions is-wrap">
             {namedRequest && <Button variant="secondary" size="sm" icon="note" onClick={saveNameOnly}>Save without calories</Button>}
             {request && <Button variant="secondary" size="sm" icon="refresh" onClick={() => run(request)}>Try again</Button>}

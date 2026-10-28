@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import Icon from '../../components/ui/Icon.jsx'
+import Callout from '../../components/ui/Callout.jsx'
 import Disclosure from '../../components/ui/Disclosure.jsx'
 import { toast } from '../../components/ui/feedback.jsx'
 import { AutoTextarea, Button, IconButton, Segmented } from '../../components/ui/primitives.jsx'
@@ -308,7 +309,7 @@ function Facts({ history, exercise, tracking, sessions, prefs, today }) {
     [sessions, exercise.id, tracking, prefs.e1rmFormula],
   )
   if (!history.length) {
-    return <p className="gym-xd-first">You haven’t logged this yet. Add it to a routine or a workout and your history, chart and records show up here.</p>
+    return <Callout tone="info" className="gym-xd-first">You haven’t logged this yet. Add it to a routine or a workout and your history, chart and records show up here.</Callout>
   }
   const unit = prefs.unit
   let best = null

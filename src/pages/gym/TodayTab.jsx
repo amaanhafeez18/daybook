@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import Burst from '../../components/ui/Burst.jsx'
 import Icon from '../../components/ui/Icon.jsx'
+import Callout from '../../components/ui/Callout.jsx'
 import Sheet from '../../components/ui/Sheet.jsx'
 import { Button, EmptyState, IconButton } from '../../components/ui/primitives.jsx'
 import WeighIn from '../../components/WeighIn.jsx'
@@ -449,7 +450,7 @@ function Hero({ day, next, week, gym, sessions, today, active, hasSchedule, onMe
         {top('Today’s workout')}
         <h2 className="gym-td-hero-title">{routineTitle(routine)}</h2>
         <p className="gym-td-hero-sub">{sub}</p>
-        {day.deload && <p className="gym-td-hero-note">Lighter week: half the sets and about 10% less weight, already applied below.</p>}
+        {day.deload && <Callout tone="neutral" icon="arrowDown" className="gym-td-hero-note">Lighter week: half the sets and about 10% less weight, already applied below.</Callout>}
         <div className="gym-td-hero-actions">
           <button
             type="button"

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import Icon, { BrandMark } from './ui/Icon.jsx'
+import Callout from './ui/Callout.jsx'
 import { Button, Field, PasswordInput } from './ui/primitives.jsx'
 import { authRequest } from '../lib/api.js'
 import { currentSubscription } from '../lib/notifications.js'
@@ -187,10 +188,7 @@ export default function AuthScreen({ onAuthenticated }) {
             )}
 
             {error && (
-              <div className="alert alert-error" role="alert">
-                <Icon name="alert" size={18} />
-                <span>{error}</span>
-              </div>
+              <Callout tone="danger" role="alert">{error}</Callout>
             )}
 
             <Button type="submit" size="lg" loading={busy} className="btn-block auth-submit">
