@@ -918,6 +918,17 @@ function NotificationSettings({ settings, location, onChooseCity }) {
           <Switch label="Count on app icon" description="Overdue and due-today tasks on your Home Screen icon" checked={!!prefs.badge} onChange={(badge) => set({ badge })} />
         </div>
         {prefs.badge && <BadgeHint onTurnOn={enable} busy={busy} />}
+        {/* During a workout. The same switch as Gym settings → Rest timer (gym.prefs.restNotify, on unless false). */}
+        {settings.areas?.gym !== false && (
+          <div className="set-row is-switch">
+            <Switch
+              label="Rest timer alerts"
+              description="“Resting” and “Rest over” on your lock screen when you leave the app between sets"
+              checked={settings.gym?.prefs?.restNotify !== false}
+              onChange={(restNotify) => updateGym((gym) => ({ prefs: { ...gym.prefs, restNotify } }))}
+            />
+          </div>
+        )}
       </div>
       <p className="set-footnote">Tasks with a time also get a reminder 15 minutes before, and people a nudge when a catch-up is due. Change these under Advanced.</p>
 
