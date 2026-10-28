@@ -21,19 +21,10 @@ const UNITS = ['g', 'ml', 'oz', 'fl oz', 'cup', 'tbsp', 'tsp', 'piece', 'slice',
 const SCALED = ['calories', 'grams', 'proteinG', 'carbsG', 'fatG', 'fiberG', 'sugarG', 'sodiumMg', 'satFatG', 'alcoholG', 'caffeineMg']
 const EXTRA_FIELDS = ['satFatG', 'alcoholG', 'caffeineMg']
 const MORE_FIELDS = ['fiberG', 'sugarG', 'sodiumMg', 'satFatG', 'alcoholG', 'caffeineMg', 'brand', 'note']
-const MACRO_FIELDS = ['proteinG', 'carbsG', 'fatG']
 const PORTION_FIELDS = ['amount', 'unit', 'grams']
 const MORE_LABELS = { fiberG: 'Fiber', sugarG: 'Sugar', sodiumMg: 'Sodium', satFatG: 'Sat fat', alcoholG: 'Alcohol', caffeineMg: 'Caffeine' }
 
-// 'P 12 · C 30 · F 8' for the macros that are filled in; '' when none are.
-function macroSummary(form) {
-  return [['proteinG', 'P'], ['carbsG', 'C'], ['fatG', 'F']]
-    .filter(([field]) => form[field].trim())
-    .map(([field, letter]) => `${letter} ${form[field].trim()}`)
-    .join(' · ')
-}
-
-// What "Even more" holds, as a short line: 'Fiber 3 g · Quest · 8:30 AM · note'.
+// What More options holds, as a short line: 'Fiber 3 g · Quest · 8:30 AM · note'.
 function extraSummary(form, day) {
   const parts = []
   for (const [field, label] of Object.entries(MORE_LABELS)) if (form[field].trim()) parts.push(`${label} ${form[field].trim()} ${field.endsWith('Mg') ? 'mg' : 'g'}`)
@@ -224,9 +215,9 @@ export default function EntrySheet({ open: openProp, onClose, entry = null, defa
 
   // What the disclosures hold, for their closed summaries and for opening them by themselves.
   const hasExtra = MORE_FIELDS.some((field) => form[field].trim())
-  const hasMore = hasExtra || PORTION_FIELDS.some((field) => form[field].trim()) || MACRO_FIELDS.some((field) => form[field].trim())
+  const hasMore = hasExtra || PORTION_FIELDS.some((field) => form[field].trim())
   const extraLine = extraSummary(form, day)
-  const moreLine = [portionText({ amount: toNum(form.amount), unit: form.unit, grams: toNum(form.grams) }), macroSummary(form), extraLine].filter(Boolean).join(' · ')
+  const moreLine = [portionText({ amount: toNum(form.amount), unit: form.unit, grams: toNum(form.grams) }), extraLine].filter(Boolean).join(' · ')
 
   function buildRow() {
     const number = (field) => {
@@ -430,6 +421,16 @@ export default function EntrySheet({ open: openProp, onClose, entry = null, defa
           </div>
         </div>
 
+        {/* Calories and the macros up front (protein is what most people track); the rest is one
+            tap away under More options. */}
+        <div className="food-es-group food-es-macros">
+          <div className="food-es-grid is-3">
+            <Num label="Protein" suffix="g" value={form.proteinG} onChange={(value) => setNumber('proteinG', value)} />
+            <Num label="Carbs" suffix="g" value={form.carbsG} onChange={(value) => setNumber('carbsG', value)} />
+            <Num label="Fat" suffix="g" value={form.fatG} onChange={(value) => setNumber('fatG', value)} />
+          </div>
+        </div>
+
         <div className="food-es-meals" role="radiogroup" aria-label="Meal">
           {meals.map((meal) => (
             <button key={meal.id} type="button" role="radio" aria-checked={form.meal === meal.id} className={`chip chip-sm food-chip${form.meal === meal.id ? ' is-active' : ''}`} onClick={() => set('meal', meal.id)}>
@@ -442,7 +443,7 @@ export default function EntrySheet({ open: openProp, onClose, entry = null, defa
           key={`more-${discKey}`}
           id="food-entry-more"
           label="More options"
-          summary={moreLine || 'Portion, protein, carbs, fat, brand, time…'}
+          summary={moreLine || 'Portion, fiber, sugar, brand, time…'}
           hasValues={hasMore}
           defaultOpen={showDetails}
           className="food-es-more"
@@ -465,23 +466,6 @@ export default function EntrySheet({ open: openProp, onClose, entry = null, defa
             <p className="food-es-hint">{baseRef.current ? 'Changing the amount scales the numbers.' : 'How much, e.g. 2 slices or 150 g.'}</p>
           </div>
 
-          <div className="food-es-group">
-            <span className="ui-label food-es-label">Macros</span>
-            <div className="food-es-grid is-3">
-              <Num label="Protein" suffix="g" value={form.proteinG} onChange={(value) => setNumber('proteinG', value)} />
-              <Num label="Carbs" suffix="g" value={form.carbsG} onChange={(value) => setNumber('carbsG', value)} />
-              <Num label="Fat" suffix="g" value={form.fatG} onChange={(value) => setNumber('fatG', value)} />
-            </div>
-          </div>
-
-          <Disclosure
-            key={`extra-${discKey}`}
-            id="food-entry-extra"
-            label="Even more"
-            summary={extraLine || 'Fiber, sugar, sodium, brand, time, date, note'}
-            hasValues={hasExtra}
-            className="food-es-extra"
-          >
             <div className="food-es-group">
               <span className="ui-label food-es-label">Other nutrients</span>
               <div className="food-es-grid is-3">
@@ -514,7 +498,6 @@ export default function EntrySheet({ open: openProp, onClose, entry = null, defa
                 </label>
               </div>
             </div>
-          </Disclosure>
         </Disclosure>
 
         <div className="food-es-ai">

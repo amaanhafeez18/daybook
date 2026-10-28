@@ -40,7 +40,8 @@ function planLines(plan, goals, unit) {
   return lines
 }
 
-export default function MaintenanceCard({ food, unit, weightUnit, today }) {
+// onlyOffer: just the "update your goal" check-in (Food Day), nothing while it's still measuring.
+export default function MaintenanceCard({ food, unit, weightUnit, today, onlyOffer = false }) {
   const entries = useFoodEntries()
   const bodyWeights = useBodyWeights()
   const hydrated = useStore((state) => state.hydrated)
@@ -55,6 +56,7 @@ export default function MaintenanceCard({ food, unit, weightUnit, today }) {
   const plan = useMemo(() => goalFromMaintenance(m, food, { weightKg: latestKg, today }), [m, food, latestKg, today])
 
   if (!hydrated) return null
+  if (onlyOffer && (m.status !== 'ready' || maintenanceOffer(plan, m.kcal, food.coach?.maintenance, today) !== 'offer')) return null
 
   if (m.status === 'gathering') {
     const { progress } = m
