@@ -254,7 +254,7 @@ function Widget({ today, loaded }) {
         <span className="gymw-text" aria-hidden="true">
           <span className="gymw-title">
             <span className="gymw-title-text">{view.title}</span>
-            {view.deload && <DeloadBadge label="Deload" />}
+            {view.deload && <DeloadBadge label="Lighter" />}
           </span>
           <span className="gymw-sub">
             {view.parts ? view.parts.map((part, index) => (

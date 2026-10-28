@@ -296,7 +296,7 @@ export default function WorkoutScreen({ today }) {
           <strong>{formatVolume(volume, unit)}</strong>
         </div>
         {workout.isDeload && (
-          <DeloadBadge size="md" label="Deload" className="gym-wo-deload" />
+          <DeloadBadge size="md" label="Lighter week" className="gym-wo-deload" />
         )}
       </div>
 

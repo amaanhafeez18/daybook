@@ -31,7 +31,8 @@ const REST_PRESETS = [0, 30, 45, 60, 90, 120, 150, 180, 240, 300]
 const SUPERSET_COLORS = ['var(--gym-c-indigo)', 'var(--gym-c-teal)', 'var(--gym-c-pink)', 'var(--gym-c-orange)', 'var(--gym-c-blue)', 'var(--gym-c-green)']
 const FIELD_KEY = { weight: 'weightKg', added: 'weightKg', assist: 'weightKg', reps: 'reps', duration: 'durationSec', distance: 'distanceM' }
 const VALUE_KEYS = ['weightKg', 'reps', 'durationSec', 'distanceM']
-const PR_ORDER = ['e1RM', 'Weight', 'RM', 'Volume', 'Reps', 'Duration', 'Distance', 'Pace', 'Assist']
+// Plain records first: a heavier weight or more reps reads better than an estimate.
+const PR_ORDER = ['Weight', 'RM', 'Reps', 'e1RM', 'Volume', 'Duration', 'Distance', 'Pace', 'Assist']
 const OPEN_X = 88 // px the Delete button takes when a row is swiped open
 
 const MUSCLE_LABEL = Object.fromEntries(MUSCLES.map((muscle) => [muscle.id, muscle.label]))
@@ -427,12 +428,21 @@ function prValue(label, set, tracking, prefs) {
   return ''
 }
 
+// 'e1RM' → 'best est. max', '5RM' → 'best for 5 reps', 'Weight' → 'weight record'.
+function prWords(label) {
+  if (label === 'e1RM') return 'best est. max'
+  const reps = /^(\d+)RM$/.exec(label)
+  if (reps) return `best for ${reps[1]} rep${reps[1] === '1' ? '' : 's'}`
+  if (label.startsWith('Assist')) return 'assist record'
+  return `${label.toLowerCase()} record`
+}
+
 function prMessage(labels, set, tracking, prefs) {
   const sorted = [...labels].sort((a, b) => prRank(a) - prRank(b))
   const top = sorted[0]
   const value = prValue(top, set, tracking, prefs)
   const more = sorted.length - 1
-  return `New ${top} record${value ? `: ${value}` : ''}${more ? ` · +${more} more` : ''}`
+  return `New ${prWords(top)}${value ? `: ${value}` : ''}${more ? ` · +${more} more` : ''}`
 }
 
 const keyOf = (ref) => (ref.id != null ? `id:${ref.id}` : `i:${ref.i}`)
@@ -1148,7 +1158,6 @@ export default function ExerciseLog({ workout, onChange, mode = 'live', gym, ses
     const log = [
       !exercise.note && !openNotes.has(key) && { id: 'note', icon: 'pencil', label: 'Add a note', hint: 'For this workout only', onClick: () => actions.openNote(key, index) },
       { id: 'pinned', icon: 'note', label: derived.meta?.note ? 'Edit pinned note' : 'Pin a note', hint: 'Shown every time you do this exercise', onClick: () => setSheet({ kind: 'pinned', exRef: ref }) },
-      live && { id: 'rest', icon: 'timer', label: 'Rest timer', value: derived.rest ? formatDuration(derived.rest) : 'Off', onClick: () => setSheet({ kind: 'rest', exRef: ref }) },
     ]
     const tools = [
       derived.tracking === 'weight_reps' && { id: 'warmups', icon: 'flame', label: 'Add warm-up sets', hint: 'Lighter sets that build up to your first working weight', onClick: () => actions.addWarmups(ref) },
@@ -1438,9 +1447,9 @@ const ExerciseCard = memo(function ExerciseCard({
                 ? <button type="button" onClick={() => navigate(detailRoute)}>{name}</button>
                 : <span>{name}</span>}
           </h3>
-          {(derived.muscles || suggestion?.increased || suggestion?.deload) && (
+          {/* Muscles are in the exercise's picture sheet; mid-workout only the progress chips show. */}
+          {(suggestion?.increased || suggestion?.deload) && (
             <p className="gym-ex-meta">
-              {derived.muscles && <span>{derived.muscles}</span>}
               {suggestion?.increased && derived.increase > 0 && (
                 <span className="gym-ex-chip is-up" title="Progression: you hit the top of your rep range last time">
                   <Icon name="arrowUp" size={12} strokeWidth={2.6} />
@@ -1450,7 +1459,7 @@ const ExerciseCard = memo(function ExerciseCard({
               {suggestion?.deload && (
                 <span className="gym-ex-chip is-down" title="Stalled three sessions in a row: weight reduced to build back up">
                   <Icon name="arrowDown" size={12} strokeWidth={2.6} />
-                  Reset
+                  Lighter
                 </span>
               )}
             </p>
@@ -1545,7 +1554,7 @@ const ExerciseCard = memo(function ExerciseCard({
       <div className="gym-ex-foot">
         <button type="button" className="gym-add-set" onClick={() => actions.addSet(exRef)}>
           <Icon name="plus" size={18} strokeWidth={2.2} />
-          Add Set
+          Add set
         </button>
         {live && (
           <button

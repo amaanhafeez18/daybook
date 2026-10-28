@@ -38,12 +38,12 @@ const GymSettingsSheet = lazyPage(() => import('./gym/GymSettingsSheet.jsx'))
 const VisualsGallery = lazyPage(() => import('./gym/visuals/VisualsGallery.jsx'))
 const WARM_VIEWS = [WorkoutScreen, RoutinesTab, ProgressTab, CalendarTab, SessionDetail, ExerciseDetail, RoutineEditor, GymSettingsSheet, AllWorkouts]
 
-// #/gym/<view>/<param>: four tabs under one header, the exercise library (opened from Routines)
+// #/gym/<view>/<param>: three tabs under one header (Calendar is a view of its own, opened from
+// Today's week strip, under the Today tab), the exercise library (opened from Routines)
 // as a page of its own, and detail views that take the whole page.
 
 const TABS = [
   { id: 'today', label: 'Today', hash: '#/gym' },
-  { id: 'calendar', label: 'Calendar', hash: '#/gym/calendar' },
   { id: 'routines', label: 'Routines', hash: '#/gym/routines' },
   { id: 'history', label: 'Progress', hash: '#/gym/history' },
 ]
@@ -141,6 +141,7 @@ export default function GymPage() {
   // Onboarding only for a gym that really has no plan: before the data has loaded (new device,
   // after signing in, a failed first load) it would offer templates that replace the saved plan.
   const tabView = TAB_VIEWS[route.view] ? route.view : 'today'
+  const tabShown = tabView === 'calendar' ? 'today' : tabView // the calendar sits under Today
   const noPlan = tabView === 'today' && !hasPlan(gym)
   const Tab = noPlan ? (hydrated ? Onboarding : PlanLoading) : TAB_VIEWS[tabView]
 
@@ -153,7 +154,6 @@ export default function GymPage() {
           <h1>Gym</h1>
         </div>
         <div className="gym-shell-head-actions">
-          <IconButton icon="calculator" label="Plate & 1RM calculators" className="gym-shell-head-btn" size={21} onClick={() => setToolsOpen(true)} />
           <IconButton icon="settings" label="Gym settings" className="gym-shell-head-btn" size={21} onClick={() => {
             setSettingsUsed(true)
             setSettingsOpen(true)
@@ -163,9 +163,9 @@ export default function GymPage() {
 
       {active && <ResumeBanner active={active} gym={gym} today={today} />}
 
-      <GymTabs active={tabView} view={route.view} />
+      <GymTabs active={tabShown} view={route.view} />
 
-      <div className="gym-shell-body" role="tabpanel" aria-label={TABS.find((tab) => tab.id === tabView)?.label}>
+      <div className="gym-shell-body" role="tabpanel" aria-label={tabView === 'calendar' ? 'Calendar' : TABS.find((tab) => tab.id === tabView)?.label}>
         <Suspense fallback={<Skeleton lines={4} />}>
           <Tab today={today} />
         </Suspense>
