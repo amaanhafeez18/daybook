@@ -1,4 +1,4 @@
-import { Fragment, memo, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { Fragment, memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../../components/ui/Icon.jsx'
 import Sheet from '../../components/ui/Sheet.jsx'
 import { toast } from '../../components/ui/feedback.jsx'
@@ -17,6 +17,7 @@ import { PlateCalculatorSheet } from './ToolsSheet.jsx'
 import { unlockAudio } from './RestTimer.jsx'
 import { ExerciseVisualThumbButton, useExerciseVisual } from './visuals/lazy.jsx'
 import { joinDropped, orderByIds, useLocalReorder } from './reorder.js'
+import { swallowNextClick } from '../../components/ui/useLongPress.js'
 import './workout.css'
 
 // The exercise cards of a workout: the set grid (previous values, placeholders, set types,
@@ -518,7 +519,13 @@ export default function ExerciseLog({ workout, onChange, mode = 'live', gym, ses
   const [sheet, setSheet] = useState(null) // { kind: 'menu' | 'type' | 'rest' | 'pinned', exRef, setRef }
   const [picker, setPicker] = useState(null) // { mode: 'add' | 'replace', exRef, open }
   const [plates, setPlates] = useState(null) // { open, initialKg, exercise }
-  const [reorder, setReorder] = useState(false)
+  const [reorder, setReorder] = useState(false) // the ⋯ menu's Reorder mode (a compact list)
+  // Press and hold a card's title: { id, pointer } while the cards fold to their titles and that
+  // one is dragged (the same elements stay on screen, so the finger's touch carries on).
+  const [holding, setHolding] = useState(null)
+  const holdingRef = useRef(null)
+  holdingRef.current = holding
+  const [focusId, setFocusId] = useState(null) // the card to show after a held drag
   const [swiped, setSwiped] = useState(null) // 'exKey|setKey'
   const [openNotes, setOpenNotes] = useState(() => new Set())
   const [shake, setShake] = useState(null) // { ex, set, keys, n }
@@ -992,6 +999,8 @@ export default function ExerciseLog({ workout, onChange, mode = 'live', gym, ses
       },
 
       openMenu: (exRef) => setSheet({ kind: 'menu', exRef }),
+      // A long press on a card's title: fold the cards and drag that one (see `holding`).
+      hold: (id, pointer) => setHolding({ id, pointer }),
       openSetType: (exRef, setRef) => setSheet({ kind: 'type', exRef, setRef }),
       openRest: (exRef) => setSheet({ kind: 'rest', exRef }),
       openPinned: (exRef) => setSheet({ kind: 'pinned', exRef }),
@@ -1028,6 +1037,15 @@ export default function ExerciseLog({ workout, onChange, mode = 'live', gym, ses
     return () => document.removeEventListener('pointerdown', onDown, true)
   }, [swiped])
 
+  // Back from a held drag: the moved exercise's card where the finger let go.
+  useLayoutEffect(() => {
+    if (focusId == null || holding) return
+    const index = exercises.findIndex((exercise) => exercise?.id === focusId)
+    setFocusId(null)
+    const element = index >= 0 ? document.getElementById(cardDomId(domPrefix, index)) : null
+    if (element) element.scrollIntoView({ block: 'center' })
+  }, [focusId, holding, exercises, domPrefix])
+
   // Bring newly added exercises into view.
   useEffect(() => {
     if (scrollCard === null) return
@@ -1037,6 +1055,56 @@ export default function ExerciseLog({ workout, onChange, mode = 'live', gym, ses
   }, [scrollCard, domPrefix, exercises.length])
 
   const groups = useMemo(() => supersetGroups(exercises), [exercises])
+  // Press and hold a card's title to drag it (needs 2+ exercises that can be told apart).
+  const canHold = exercises.length > 1 && exercises.every((exercise) => exercise?.id != null)
+    && new Set(exercises.map((exercise) => exercise.id)).size === exercises.length
+  const holdIds = useMemo(() => (canHold ? exercises.map((exercise) => exercise.id) : []), [canHold, exercises])
+  const held = useLocalReorder(holdIds, (order, movedId, dragged) => actions.reorder(order, movedId, dragged))
+  const listRef = useRef(null)
+  const heldDragged = useRef(false)
+  // One ref callback per exercise, kept across renders, so the memoised cards don't re-render.
+  const itemRefs = useRef(new Map())
+  const heldSort = useRef(held.sort)
+  heldSort.current = held.sort
+  const itemRef = (id) => {
+    if (!itemRefs.current.has(id)) itemRefs.current.set(id, (el) => heldSort.current.item(id).ref(el))
+    return itemRefs.current.get(id)
+  }
+
+  // Folded: line the held card up with the finger, then pick it up.
+  useLayoutEffect(() => {
+    if (!holding) return
+    heldDragged.current = false
+    const card = listRef.current?.querySelector(`[data-ex-id="${CSS.escape(String(holding.id))}"]`)
+    if (card) {
+      const rect = card.getBoundingClientRect()
+      window.scrollBy(0, rect.top + Math.min(rect.height / 2, 40) - holding.pointer.y)
+    }
+    held.sort.pickUp(holding.id, holding.pointer)
+  }, [holding?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Dropped (the new order is saved first, by useLocalReorder): unfold, with that card in view.
+  useEffect(() => {
+    if (held.sort.dragging != null) {
+      heldDragged.current = true
+      return
+    }
+    if (!holdingRef.current || !heldDragged.current) return
+    const id = holdingRef.current.id
+    swallowNextClick(350) // the release's click isn't a tap on whatever unfolds under the finger
+    setHolding(null)
+    setFocusId(id)
+  }, [held.sort.dragging])
+
+  // While a card is held, the finger drags instead of scrolling the page. Registered up front (not
+  // passive), so the browser waits for it before it starts a scroll.
+  useEffect(() => {
+    const list = listRef.current
+    if (!list) return undefined
+    const block = (event) => { if (holdingRef.current && event.cancelable) event.preventDefault() }
+    list.addEventListener('touchmove', block, { passive: false })
+    return () => list.removeEventListener('touchmove', block)
+  }, [exercises.length > 0]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!workout) return null
 
@@ -1097,7 +1165,7 @@ export default function ExerciseLog({ workout, onChange, mode = 'live', gym, ses
       { id: 'replace', icon: 'shuffle', label: 'Replace exercise', hint: 'Keeps the sets', onClick: () => actions.openReplace(ref) },
       next && !linkedWithNext && { id: 'link', icon: 'link', label: 'Superset with next', hint: `Alternate with ${next.name || 'the next exercise'}, no rest in between`, onClick: () => actions.linkNext(ref) },
       exercise.supersetId != null && { id: 'unlink', icon: 'link', label: 'Unlink superset', onClick: () => actions.unlink(ref) },
-      exercises.length > 1 && { id: 'reorder', icon: 'layers', label: 'Reorder exercises', onClick: () => setReorder(true) },
+      exercises.length > 1 && { id: 'reorder', icon: 'layers', label: 'Reorder exercises', hint: 'Or press and hold an exercise’s name', onClick: () => setReorder(true) },
     ]
     const danger = [{ id: 'remove', icon: 'trash', label: 'Remove exercise', danger: true, onClick: () => actions.removeExercise(ref) }]
     return { groups: [log, tools, arrange, danger], name }
@@ -1116,8 +1184,8 @@ export default function ExerciseLog({ workout, onChange, mode = 'live', gym, ses
           Pick from the library or your own exercises, then log each set as you go.
         </GymEmpty>
       ) : (
-        <ol className="gym-ex-list">
-          {exercises.map((exercise, index) => {
+        <ol className={`gym-ex-list${holding ? ' is-folded' : ''}`} ref={listRef}>
+          {(canHold ? orderByIds(exercises, held.keys) : exercises).map((exercise, index) => {
             const ref = { id: exercise.id, i: index }
             const key = keyOf(ref)
             const group = groups[index]
@@ -1140,6 +1208,10 @@ export default function ExerciseLog({ workout, onChange, mode = 'live', gym, ses
                 noteOpen={openNotes.has(key)}
                 domPrefix={domPrefix}
                 actions={actions}
+                canHold={canHold}
+                folded={!!holding}
+                dragging={held.sort.dragging === exercise.id}
+                itemRef={canHold ? itemRef(exercise.id) : undefined}
               />
             )
           })}
@@ -1281,10 +1353,47 @@ function plateWeight(exercise, derived) {
   return null
 }
 
+// Press and hold an exercise's title row (not its ⋯) to pick it up: the workout folds into the
+// compact list with the exercise under the finger, to drag where it goes (like Hevy). A finger that
+// moves first is a scroll; a quick tap still opens the exercise.
+const HOLD_MS = 420
+const HOLD_SLOP = 8
+
+function holdToMove(id, actions) {
+  return {
+    onContextMenu: (event) => event.preventDefault(),
+    onPointerDown: (event) => {
+      if (event.pointerType === 'mouse' && event.button !== 0) return
+      if (event.target.closest?.('.gym-ex-more, input, textarea, select')) return
+      const press = { id: event.pointerId, type: event.pointerType, x: event.clientX, y: event.clientY, startX: event.clientX, startY: event.clientY }
+      const stop = () => {
+        clearTimeout(timer)
+        window.removeEventListener('pointermove', onMove)
+        window.removeEventListener('pointerup', stop)
+        window.removeEventListener('pointercancel', stop)
+      }
+      const onMove = (move) => {
+        if (move.pointerId !== press.id) return
+        press.x = move.clientX
+        press.y = move.clientY
+        if (Math.hypot(press.x - press.startX, press.y - press.startY) > HOLD_SLOP) stop()
+      }
+      const timer = setTimeout(() => {
+        stop()
+        actions.hold(id, { pointerId: press.id, pointerType: press.type, x: press.x, y: press.y })
+      }, HOLD_MS)
+      window.addEventListener('pointermove', onMove)
+      window.addEventListener('pointerup', stop)
+      window.addEventListener('pointercancel', stop)
+    },
+  }
+}
+
 // ---- one exercise ------------------------------------------------------------------------------
 
 const ExerciseCard = memo(function ExerciseCard({
-  exercise, index, derived, live, prefs, ssLetter, ssPos, ssColor, ssLast, swipedSet, check, shake, noteOpen, domPrefix, actions,
+  exercise, index, derived, live, prefs, ssLetter, ssPos, ssColor, ssLast, swipedSet, check, shake, noteOpen, domPrefix, actions, canHold = false,
+  folded = false, dragging = false, itemRef,
 }) {
   const exRef = { id: exercise.id, i: index }
   const exKey = keyOf(exRef)
@@ -1306,11 +1415,14 @@ const ExerciseCard = memo(function ExerciseCard({
   return (
     <li
       id={cardDomId(domPrefix, index)}
-      className={`gym-ex${ssLetter ? ' has-ss' : ''}${ssLetter && !ssLast ? ' ss-continues' : ''}`}
+      ref={itemRef}
+      data-ex-id={exercise.id}
+      data-dragging={dragging ? '' : undefined}
+      className={`gym-ex${ssLetter ? ' has-ss' : ''}${ssLetter && !ssLast ? ' ss-continues' : ''}${folded ? ' is-folded' : ''}`}
       style={ssColor ? { '--gym-ss': ssColor } : undefined}
       aria-labelledby={`${domPrefix}-h-${index}`}
     >
-      <header className="gym-ex-head">
+      <header className={`gym-ex-head${canHold ? ' can-hold' : ''}`} {...(canHold ? holdToMove(exercise.id, actions) : {})}>
         {ssLetter && (
           <span className="gym-ss-tag" title={`Superset ${ssLetter}`}>
             <span className="sr-only">Superset </span>

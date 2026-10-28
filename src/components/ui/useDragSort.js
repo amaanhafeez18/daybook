@@ -228,6 +228,33 @@ export function useDragSort({ keys, onMove, longPress = false, axis = 'y' }) {
     window.addEventListener('pointercancel', finish)
   }
 
+  // Continues a press that began elsewhere (a long press on a workout's exercise card, which then
+  // switches to the compact list) as a drag of `key`: the item jumps under the finger at once.
+  const pickUp = (key, { pointerId, x, y, pointerType }) => {
+    if (drag.current) return
+    const el = els.current.get(key)
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    drag.current = {
+      key,
+      pointerId,
+      handle: el,
+      touch: pointerType === 'touch',
+      waiting: false,
+      active: false,
+      startX: x,
+      startY: y,
+      x,
+      y,
+      grabX: Math.min(Math.max(x - rect.left, 0), rect.width),
+      grabY: rect.height / 2,
+    }
+    window.addEventListener('pointermove', onPointerMove)
+    window.addEventListener('pointerup', finish)
+    window.addEventListener('pointercancel', finish)
+    activate()
+  }
+
   const keyMove = (event, key) => {
     const { keys: order, onMove: move } = latest.current
     const from = order.indexOf(key)
@@ -242,6 +269,7 @@ export function useDragSort({ keys, onMove, longPress = false, axis = 'y' }) {
 
   return {
     dragging,
+    pickUp,
     item: (key) => ({
       ref: (el) => {
         if (el) els.current.set(key, el)
